@@ -25,6 +25,13 @@ projects:
   #   tasks_file: "TASKS.md"
   #   max_concurrency: 1
 
+  P1:
+    name: homestead_asset_management_system
+    repo_path: ~/Desktop/Gen_AI_Proj/homestead_asset_management_system
+    executor_type: code
+    tasks_file: TASKS.md
+    max_concurrency: 1
+    claude_md_path: ~/Desktop/Gen_AI_Proj/homestead_asset_management_system\CLAUDE.md
 git:
   auto_commit: true
   commit_message_template: "[helixos] {project}: {task_id} {task_title}"
@@ -34,13 +41,13 @@ git:
 
 review_pipeline:
   reviewers:
-    - model: "claude-sonnet-4-5"
-      focus: "feasibility_and_edge_cases"
-      api: "claude_cli"
-      required: true
-    - model: "claude-sonnet-4-5"
-      focus: "adversarial_red_team"
-      api: "claude_cli"
-      required: false
+  - model: "claude-sonnet-4-5"
+    focus: "feasibility_and_edge_cases"
+    api: "claude_cli"
+    required: true
+  - model: "claude-sonnet-4-5"
+    focus: "adversarial_red_team"
+    api: "claude_cli"
+    required: false
 
 dependencies: []

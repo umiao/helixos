@@ -20,70 +20,11 @@
 
 ### P3 -- Phase 3: UX + Polish
 
-#### T-P0-15: Surface detailed execution error diagnostics [M]
-- **Description**: Execution failures show only "Unhandled execution error" with no actionable details. Root cause: `scheduler.py:392` catch-all omits exception info; `code_executor.py` discards stderr; `error_summary` only set for timeouts.
-- **AC**:
-  - Add structured `error_type` enum on ExecutorResult: INFRA, CLI_NOT_FOUND, REPO_NOT_FOUND, NON_ZERO_EXIT, TIMEOUT, UNKNOWN
-  - Include exception type + message in SSE alert and execution log
-  - Capture stderr from CodeExecutor (truncate 4KB, strip ANSI); store full raw in log DB
-  - Pre-flight checks before subprocess spawn: `os.path.isdir(repo_path)`, `shutil.which("claude")`
-  - Add `MAX_CONCURRENT_EXECUTIONS = 2` hard limit in scheduler to prevent resource exhaustion
-- **Depends on**: None
-
-#### T-P0-16: Per-project execution pause/resume gate [M]
-- **Description**: Once QUEUED, the scheduler auto-executes on next 5s tick with no user control. Need a per-project pause toggle so users can queue tasks without immediate execution.
-- **AC**:
-  - DB-backed `execution_paused: bool` on Project model (persists across server restarts)
-  - `Scheduler.pause_project()` / `resume_project()` methods; paused = skip new executions, in-flight tasks continue
-  - API: `POST /api/projects/{id}/pause-execution`, `POST /api/projects/{id}/resume-execution`
-  - SwimLaneHeader pause/resume toggle button with amber visual state + tooltip
-  - Pause/resume emits SSE event for real-time UI update
-- **Depends on**: None
-
 #### T-P3-8: Self-hosting guardrails -- design document [S]
-- **Description**: HelixOS manages itself as a project but lacks safety boundaries for self-modification. Design doc needed before implementing any self-edit workflow.
-- **AC**: Design doc (`docs/design/self-hosting-guardrails.md`) covering:
-  - Worker isolation: self-modification tasks execute in git worktree branch, not live codebase
-  - Commit serialization: changes validated via `pytest` before merge to main
-  - Log isolation: separate log streams for self-managed tasks
-  - Restart mechanism: human-triggered only (no auto-restart, prevents crash loop)
-  - Safety boundary: code+test changes safe; DB schema/config/scheduler changes = unsafe, require human gate
-  - State diagram for the self-modification lifecycle
-- **Depends on**: None
+- **AC**: Design doc covering worker isolation, commit serialization, log isolation
+- **Depends on**: T-P3-6a
 
-#### T-P3-9: AI-assisted task enrichment via Claude CLI [M]
-- **Description**: Task creation (both InlineTaskCreator and NewTaskModal) accepts only raw user input with no AI assistance. Add endpoint and UI to auto-generate structured description and priority suggestion from a title.
-- **AC**:
-  - `POST /api/tasks/enrich` endpoint: takes title, returns suggested description + priority (JSON via `claude -p`)
-  - Reuses review_pipeline JSON extraction pattern; reuses P0-15 pre-flight checks for CLI availability
-  - Returns 503 if Claude CLI unavailable; frontend disables "Enrich" button accordingly
-  - NewTaskModal: "Enrich with AI" button pre-fills description + priority (editable before submit)
-  - InlineTaskCreator: Tab key expands to NewTaskModal with auto-enrich triggered
-  - Loading state + error toast on failure
-- **Depends on**: None
-
-#### T-P3-10: Done column sorting and sub-status filtering [S]
-- **Description**: DONE column displays tasks in arbitrary DB insertion order. Add client-side sorting and sub-status visibility.
-- **AC**:
-  - Sort dropdown in DONE column header: "Newest first" (default), "Oldest first", "By task ID"
-  - Client-side sorting only (no backend changes)
-  - Sort preference persists in localStorage
-  - Sub-status badges visible within DONE column (DONE / FAILED / BLOCKED)
-- **Depends on**: None
-
-#### T-P3-11: Enhanced review observation and human interaction UX [M]
-- **Description**: Review pipeline has a human gate (REVIEW_NEEDS_HUMAN) but the UI makes it invisible -- no task card indicators, ReviewPanel hidden in bottom tab, reason field unused.
-- **AC**:
-  - Task cards in REVIEW column show status badge (pulsing=active, orange=needs-human, green=auto-approved)
-  - REVIEW_NEEDS_HUMAN triggers toast notification + auto-switches bottom panel to Review tab
-  - ReviewPanel includes reason text area for approve/reject decisions (wired to existing `ReviewDecisionRequest.reason`)
-  - REVIEW column header shows count of tasks needing human attention
-- **Depends on**: None
-
-### Tech Debt (tracked, not blocking current work)
-- [ ] Log retention/purge policy for execution_logs + review_history tables
-- [ ] Unified timeout policy for enrichment and review CLI subprocess calls
-- [ ] Review state machine diagram documentation
+---
 
 ## Dependency Graph
 
