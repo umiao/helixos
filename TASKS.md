@@ -20,15 +20,6 @@
 
 ### P3 -- Phase 3: UX + Polish
 
-#### T-P3-11: Enhanced review observation and human interaction UX [M]
-- **Description**: Review pipeline has a human gate (REVIEW_NEEDS_HUMAN) but the UI makes it invisible -- no task card indicators, ReviewPanel hidden in bottom tab, reason field unused.
-- **AC**:
-  - Task cards in REVIEW column show status badge (pulsing=active, orange=needs-human, green=auto-approved)
-  - REVIEW_NEEDS_HUMAN triggers toast notification + auto-switches bottom panel to Review tab
-  - ReviewPanel includes reason text area for approve/reject decisions (wired to existing `ReviewDecisionRequest.reason`)
-  - REVIEW column header shows count of tasks needing human attention
-- **Depends on**: None
-
 ### Tech Debt (tracked, not blocking current work)
 - [ ] Log retention/purge policy for execution_logs + review_history tables
 - [ ] Unified timeout policy for enrichment and review CLI subprocess calls
@@ -240,3 +231,6 @@ T-P2-6 [M] Frontend Swim Lanes [DONE] ------------------+
 
 #### [x] T-P3-10: Done column sorting and sub-status filtering -- 2026-03-02
 - Sort dropdown in DONE column header (Newest first/Oldest first/By task ID). Sub-status filter badges (DONE/FAILED/BLOCKED) with counts and click-to-toggle filtering. Both preferences persist in localStorage. Client-side only, no backend changes. npm run build succeeds, 615 tests passing.
+
+#### [x] T-P3-11: Enhanced review observation and human interaction UX -- 2026-03-02
+- Review status badges: pulsing for active review, orange for needs-human, green for auto-approved. REVIEW_NEEDS_HUMAN triggers toast + auto-switch to Review tab + auto-select task. ReviewPanel reason text area wired to ReviewDecisionRequest.reason. REVIEW column header shows pulsing needs-human count badge. Client-side only, no backend changes. npm run build succeeds, 615 tests passing.

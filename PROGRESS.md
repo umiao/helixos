@@ -349,3 +349,10 @@
 - **Sanity check result**: pytest 615/615 passed. ruff check clean. npm run build succeeds.
 - **Status**: [DONE]
 - **Request**: Move T-P3-10 to Completed
+
+## 2026-03-02 18:00 -- [T-P3-11] Enhanced review observation and human interaction UX
+- **What I did**: Implemented 4 UX improvements for the review pipeline: (1) Task cards in REVIEW column show pulsing badge when review is active, orange for needs-human, green for auto-approved (badges already existed, added pulse animation). (2) REVIEW_NEEDS_HUMAN SSE status_change triggers toast notification, auto-switches bottom panel to Review tab, and auto-selects the task. (3) ReviewPanel now includes a reason text area above approve/reject buttons, wired to the existing ReviewDecisionRequest.reason field. (4) REVIEW column header shows a pulsing orange "N needs human" badge when tasks require human attention. Client-side only, no backend changes.
+- **Deliverables**: frontend/src/components/TaskCard.tsx, frontend/src/components/KanbanBoard.tsx, frontend/src/components/ReviewPanel.tsx, frontend/src/App.tsx (all updated)
+- **Sanity check result**: pytest 615/615 passed. ruff check clean. npm run build succeeds.
+- **Status**: [DONE]
+- **Request**: Move T-P3-11 to Completed

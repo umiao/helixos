@@ -350,12 +350,28 @@ export default function KanbanBoard({
                 />
               ) : (
                 <div className="flex items-center justify-between px-3 py-2 border-b border-gray-200">
-                  <h2 className="text-xs font-bold uppercase tracking-wide text-gray-600">
-                    {col}
-                  </h2>
-                  <span className="rounded-full bg-gray-200 px-2 py-0.5 text-xs font-semibold text-gray-700">
-                    {loading ? "-" : columns[col].length}
-                  </span>
+                  <div className="flex items-center gap-1.5">
+                    <h2 className="text-xs font-bold uppercase tracking-wide text-gray-600">
+                      {col}
+                    </h2>
+                    <span className="rounded-full bg-gray-200 px-2 py-0.5 text-xs font-semibold text-gray-700">
+                      {loading ? "-" : columns[col].length}
+                    </span>
+                  </div>
+                  {/* Needs-human attention count for REVIEW column */}
+                  {col === "REVIEW" && !loading && (() => {
+                    const needsHuman = columns.REVIEW.filter(
+                      (t) => t.status === "review_needs_human",
+                    ).length;
+                    return needsHuman > 0 ? (
+                      <span
+                        className="rounded-full bg-orange-100 text-orange-800 px-2 py-0.5 text-[10px] font-semibold animate-pulse"
+                        title={`${needsHuman} task${needsHuman > 1 ? "s" : ""} need${needsHuman === 1 ? "s" : ""} human decision`}
+                      >
+                        {needsHuman} needs human
+                      </span>
+                    ) : null;
+                  })()}
                 </div>
               )}
 

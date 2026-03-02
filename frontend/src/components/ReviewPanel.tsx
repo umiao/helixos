@@ -21,6 +21,7 @@ export default function ReviewPanel({
   onError,
 }: ReviewPanelProps) {
   const [submitting, setSubmitting] = useState(false);
+  const [reason, setReason] = useState("");
   const [historyEntries, setHistoryEntries] = useState<ReviewHistoryEntry[]>(
     [],
   );
@@ -30,6 +31,7 @@ export default function ReviewPanel({
   useEffect(() => {
     if (!task) {
       setHistoryEntries([]);
+      setReason("");
       return;
     }
 
@@ -99,7 +101,8 @@ export default function ReviewPanel({
   const handleDecision = async (decision: "approve" | "reject") => {
     setSubmitting(true);
     try {
-      await submitReviewDecision(task.id, decision);
+      await submitReviewDecision(task.id, decision, reason);
+      setReason("");
       onDecisionSubmitted(task.id, decision);
     } catch (err) {
       const msg =
@@ -294,12 +297,20 @@ export default function ReviewPanel({
           </p>
         )}
 
-        {/* Decision buttons */}
+        {/* Decision area: reason + buttons */}
         {hasReview && review.human_decision_needed && !review.human_choice && (
-          <div className="pt-2 border-t border-gray-200">
-            <p className="text-xs text-orange-600 font-medium mb-2">
+          <div className="pt-2 border-t border-gray-200 space-y-2">
+            <p className="text-xs text-orange-600 font-medium">
               Human decision required
             </p>
+            <textarea
+              value={reason}
+              onChange={(e) => setReason(e.target.value)}
+              placeholder="Reason for your decision (optional)"
+              rows={2}
+              disabled={submitting}
+              className="w-full rounded-md border border-gray-300 px-2 py-1.5 text-xs text-gray-700 bg-white placeholder-gray-400 focus:outline-none focus:ring-1 focus:ring-indigo-400 focus:border-indigo-400 disabled:opacity-50 resize-none"
+            />
             <div className="flex gap-2">
               <button
                 onClick={() => handleDecision("approve")}

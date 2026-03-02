@@ -94,6 +94,31 @@ function App() {
             `Status changed to ${newStatus}`,
             event.timestamp,
           );
+          // REVIEW_NEEDS_HUMAN: toast + auto-switch to Review tab + auto-select task
+          if (newStatus === "review_needs_human") {
+            addToast(
+              `[${event.task_id}] Review needs human decision`,
+              "error",
+            );
+            setBottomPanel("review");
+            // Auto-select the task that needs attention (fetch full data first)
+            fetchTask(event.task_id)
+              .then((updated) => {
+                setTasks((prev) =>
+                  prev.map((t) => (t.id === updated.id ? updated : t)),
+                );
+                setSelectedTask(updated);
+              })
+              .catch(() => {
+                // Fallback: select from existing tasks
+                setTasks((prev) => {
+                  const t = prev.find((x) => x.id === event.task_id);
+                  if (t) setSelectedTask({ ...t, status: newStatus });
+                  return prev;
+                });
+              });
+            break;
+          }
           // Fetch full task data for the updated task to get execution/review state
           fetchTask(event.task_id)
             .then((updated) => {
