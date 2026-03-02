@@ -14,10 +14,12 @@ import {
   type DragStartEvent,
 } from "@dnd-kit/core";
 import { useDroppable } from "@dnd-kit/core";
-import { useState } from "react";
+import { useCallback, useState } from "react";
 import type { Task, KanbanColumn, TaskStatus } from "../types";
 import { KANBAN_COLUMNS, STATUS_TO_COLUMN, COLUMN_TO_STATUS } from "../types";
 import TaskCard from "./TaskCard";
+import TaskContextMenu from "./TaskContextMenu";
+import InlineTaskCreator from "./InlineTaskCreator";
 import SkeletonCard from "./SkeletonCard";
 
 interface KanbanBoardProps {
@@ -25,6 +27,9 @@ interface KanbanBoardProps {
   loading: boolean;
   onMoveTask: (taskId: string, newStatus: TaskStatus) => void;
   onSelectTask?: (task: Task) => void;
+  projectId?: string;
+  onTaskCreated?: () => void;
+  onError?: (msg: string) => void;
 }
 
 const COLUMN_STYLES: Record<KanbanColumn, string> = {
@@ -76,9 +81,27 @@ export default function KanbanBoard({
   loading,
   onMoveTask,
   onSelectTask,
+  projectId,
+  onTaskCreated,
+  onError,
 }: KanbanBoardProps) {
   const columns = groupByColumn(tasks);
   const [activeTask, setActiveTask] = useState<Task | null>(null);
+  const [contextMenu, setContextMenu] = useState<{
+    task: Task;
+    position: { x: number; y: number };
+  } | null>(null);
+
+  const handleContextMenu = useCallback(
+    (task: Task, position: { x: number; y: number }) => {
+      setContextMenu({ task, position });
+    },
+    [],
+  );
+
+  const closeContextMenu = useCallback(() => {
+    setContextMenu(null);
+  }, []);
 
   const sensors = useSensors(
     useSensor(PointerSensor, {
@@ -139,7 +162,7 @@ export default function KanbanBoard({
                   <SkeletonCard />
                   <SkeletonCard />
                 </>
-              ) : columns[col].length === 0 ? (
+              ) : columns[col].length === 0 && col !== "BACKLOG" ? (
                 <p className="text-xs text-gray-400 text-center py-4">
                   No tasks
                 </p>
@@ -153,8 +176,17 @@ export default function KanbanBoard({
                         ? () => onSelectTask(task)
                         : undefined
                     }
+                    onContextMenu={handleContextMenu}
                   />
                 ))
+              )}
+              {/* Inline task creator at bottom of Backlog column */}
+              {col === "BACKLOG" && !loading && projectId && onTaskCreated && onError && (
+                <InlineTaskCreator
+                  projectId={projectId}
+                  onCreated={onTaskCreated}
+                  onError={onError}
+                />
               )}
             </DroppableColumn>
           </div>
@@ -169,6 +201,17 @@ export default function KanbanBoard({
           </div>
         ) : null}
       </DragOverlay>
+
+      {/* Right-click context menu */}
+      {contextMenu && (
+        <TaskContextMenu
+          task={contextMenu.task}
+          position={contextMenu.position}
+          onClose={closeContextMenu}
+          onMoveTask={onMoveTask}
+          onSelectTask={onSelectTask}
+        />
+      )}
     </DndContext>
   );
 }

@@ -99,6 +99,7 @@ export default function ProjectSelector({
       <button
         onClick={() => setOpen(!open)}
         className="rounded-md border border-gray-300 px-2 py-1 text-sm text-gray-700 bg-white hover:bg-gray-50 flex items-center gap-1"
+        title="Filter which projects are visible"
       >
         <span>{buttonLabel}</span>
         <svg

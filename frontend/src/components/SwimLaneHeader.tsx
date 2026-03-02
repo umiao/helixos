@@ -76,6 +76,7 @@ export default function SwimLaneHeader({
       <button
         onClick={onNewTask}
         className="rounded px-2 py-0.5 text-xs font-medium text-indigo-700 bg-indigo-100 hover:bg-indigo-200 transition-colors"
+        title="Create a new task (opens form)"
       >
         + Task
       </button>
@@ -84,6 +85,7 @@ export default function SwimLaneHeader({
         onClick={onSync}
         disabled={syncing}
         className="rounded px-2 py-0.5 text-xs font-medium text-gray-700 bg-gray-100 hover:bg-gray-300 disabled:opacity-50 transition-colors"
+        title="Sync tasks from TASKS.md on disk"
       >
         {syncing ? "..." : "Sync"}
       </button>

@@ -286,3 +286,10 @@
 - **Sanity check result**: pytest 511/511 passed. npm run build succeeds.
 - **Status**: [DONE]
 - **Request**: Move T-P3-4 to Completed
+
+## 2026-03-03 09:00 -- [T-P3-5] Workflow clarity -- inline task creation, context menu, tooltips
+- **What I did**: Created InlineTaskCreator component at bottom of Backlog column (click to expand, type title, Enter to create via API, Esc to cancel). Created TaskContextMenu component rendered via portal at right-click position with view details, move-to-column, and retry actions. Added title tooltips to all interactive buttons across the UI (header, swim lane header, launch/stop, panel tabs, project selector).
+- **Deliverables**: frontend/src/components/InlineTaskCreator.tsx (new), frontend/src/components/TaskContextMenu.tsx (new), frontend/src/components/KanbanBoard.tsx (mod -- inline creator + context menu integration), frontend/src/components/TaskCard.tsx (mod -- onContextMenu prop), frontend/src/components/SwimLane.tsx (mod -- onTaskCreated prop), frontend/src/App.tsx (mod -- onTaskCreated wiring + tooltips), frontend/src/components/SwimLaneHeader.tsx (mod -- tooltips), frontend/src/components/LaunchControl.tsx (mod -- tooltips), frontend/src/components/ProjectSelector.tsx (mod -- tooltip)
+- **Sanity check result**: pytest 511/511 passed. npm run build succeeds.
+- **Status**: [DONE]
+- **Request**: Move T-P3-5 to Completed

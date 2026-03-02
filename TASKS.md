@@ -20,10 +20,6 @@
 
 ### P3 -- Phase 3: UX + Polish
 
-#### T-P3-5: Workflow clarity -- inline task creation, context menu, tooltips [M]
-- **AC**: Inline "Add task..." in Backlog, right-click context menu, button tooltips
-- **Depends on**: None
-
 #### T-P3-6a: Persistent execution log + review history -- backend [M]
 - **AC**: 2 new DB tables, DB-first writes, 2KB cap, 2 API endpoints
 - **Depends on**: None
@@ -34,7 +30,7 @@
 
 #### T-P3-7: README overhaul [S]
 - **AC**: Project-specific README with architecture diagram, features, modules
-- **Depends on**: T-P3-5, T-P3-6a, T-P3-6b
+- **Depends on**: T-P3-6a, T-P3-6b
 
 #### T-P3-8: Self-hosting guardrails -- design document [S]
 - **AC**: Design doc covering worker isolation, commit serialization, log isolation
@@ -221,3 +217,6 @@ T-P2-6 [M] Frontend Swim Lanes [DONE] ------------------+
 
 #### [x] T-P3-4: Task card hover popover with details -- 2026-03-03
 - TaskCardPopover component rendered via React portal with full task details (description, dependencies, execution state, review state, timestamps). 300ms hover delay, auto-positioning (right/left/below), hides on drag. npm run build succeeds, 511 tests passing.
+
+#### [x] T-P3-5: Workflow clarity -- inline task creation, context menu, tooltips -- 2026-03-03
+- InlineTaskCreator in Backlog column (expand-on-click title input, Enter to create, Esc to cancel). TaskContextMenu with right-click context menu (view details, move-to-column, retry for failed). Tooltips on all buttons (header, swim lane, launch, panel tabs, project selector). npm run build succeeds, 511 tests passing.

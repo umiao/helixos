@@ -115,6 +115,7 @@ export default function LaunchControl({
           onClick={handleStop}
           disabled={loading}
           className="rounded px-2 py-0.5 text-xs font-medium text-red-700 bg-red-100 hover:bg-red-200 disabled:opacity-50 transition-colors"
+          title="Stop the dev server"
         >
           {loading ? "..." : "Stop"}
         </button>
@@ -127,6 +128,7 @@ export default function LaunchControl({
       onClick={handleLaunch}
       disabled={loading}
       className="rounded px-2 py-0.5 text-xs font-medium text-emerald-700 bg-emerald-100 hover:bg-emerald-200 disabled:opacity-50 transition-colors"
+      title="Launch the dev server"
     >
       {loading ? "..." : "Launch"}
     </button>

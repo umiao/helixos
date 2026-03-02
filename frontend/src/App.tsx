@@ -382,6 +382,7 @@ function App() {
           <button
             onClick={() => setShowImportModal(true)}
             className="rounded-md bg-gray-100 border border-gray-300 px-3 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-200 transition-colors"
+            title="Import a project directory into the orchestrator"
           >
             Import Project
           </button>
@@ -389,6 +390,7 @@ function App() {
             onClick={handleSyncAll}
             disabled={syncing}
             className="rounded-md bg-indigo-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+            title="Sync TASKS.md for all projects"
           >
             {syncing ? "Syncing..." : "Sync All"}
           </button>
@@ -461,6 +463,7 @@ function App() {
                     syncing={syncingProjects.has(pid)}
                     onSync={() => handleSyncProject(pid)}
                     onNewTask={() => setNewTaskProject(project)}
+                    onTaskCreated={handleTaskCreated}
                     onError={(msg) => addToast(msg, "error")}
                   />
                 </div>
@@ -481,6 +484,7 @@ function App() {
                 ? "border-indigo-500 text-indigo-700"
                 : "border-transparent text-gray-500 hover:text-gray-700"
             }`}
+            title="View real-time execution logs from task runners"
           >
             Execution Log
           </button>
@@ -491,6 +495,7 @@ function App() {
                 ? "border-indigo-500 text-indigo-700"
                 : "border-transparent text-gray-500 hover:text-gray-700"
             }`}
+            title="View review progress and make approval decisions"
           >
             Review
           </button>

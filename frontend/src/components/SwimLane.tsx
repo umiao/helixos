@@ -19,6 +19,7 @@ interface SwimLaneProps {
   syncing: boolean;
   onSync: () => void;
   onNewTask: () => void;
+  onTaskCreated: () => void;
   onError: (msg: string) => void;
 }
 
@@ -32,6 +33,7 @@ export default function SwimLane({
   syncing,
   onSync,
   onNewTask,
+  onTaskCreated,
   onError,
 }: SwimLaneProps) {
   return (
@@ -56,6 +58,9 @@ export default function SwimLane({
           loading={loading}
           onMoveTask={onMoveTask}
           onSelectTask={onSelectTask}
+          projectId={project.id}
+          onTaskCreated={onTaskCreated}
+          onError={onError}
         />
       </div>
     </div>

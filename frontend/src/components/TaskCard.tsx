@@ -14,6 +14,7 @@ import TaskCardPopover from "./TaskCardPopover";
 interface TaskCardProps {
   task: Task;
   onClick?: () => void;
+  onContextMenu?: (task: Task, position: { x: number; y: number }) => void;
 }
 
 const STATUS_COLORS: Record<TaskStatus, string> = {
@@ -66,7 +67,7 @@ function ElapsedTimer({ startedAt }: { startedAt: string }) {
   );
 }
 
-export default function TaskCard({ task, onClick }: TaskCardProps) {
+export default function TaskCard({ task, onClick, onContextMenu }: TaskCardProps) {
   const { attributes, listeners, setNodeRef, transform, isDragging } =
     useDraggable({
       id: task.id,
@@ -125,6 +126,23 @@ export default function TaskCard({ task, onClick }: TaskCardProps) {
     };
   }, []);
 
+  const handleContextMenu = useCallback(
+    (e: React.MouseEvent) => {
+      if (onContextMenu) {
+        e.preventDefault();
+        e.stopPropagation();
+        // Hide popover when opening context menu
+        setShowPopover(false);
+        if (hoverTimer.current) {
+          clearTimeout(hoverTimer.current);
+          hoverTimer.current = null;
+        }
+        onContextMenu(task, { x: e.clientX, y: e.clientY });
+      }
+    },
+    [task, onContextMenu],
+  );
+
   // Combine refs: dnd-kit setNodeRef + our cardRef
   const combinedRef = useCallback(
     (node: HTMLDivElement | null) => {
@@ -141,6 +159,7 @@ export default function TaskCard({ task, onClick }: TaskCardProps) {
       {...listeners}
       {...attributes}
       onClick={onClick}
+      onContextMenu={handleContextMenu}
       onMouseEnter={handleMouseEnter}
       onMouseLeave={handleMouseLeave}
       className="rounded-lg border border-gray-200 bg-white p-3 shadow-sm hover:shadow-md transition-shadow cursor-grab active:cursor-grabbing"
