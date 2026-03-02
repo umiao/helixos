@@ -17,24 +17,8 @@
 
 ### P2 -- Nice to Have (polish, optimization)
 
-#### T-P2-2: PortRegistry -- auto-assign ports, conflict detection, persistence
-- **Complexity**: M | **Depends on**: None (all deps done)
-- **What**: New `src/port_registry.py`. Manages port assignments per project.
-  - `assign_port(project_id, project_type)` -- pick next available from configured range
-  - `release_port(project_id)` -- free assignment
-  - `get_assignment(project_id)` -- lookup
-  - Persist to `~/.helixos/ports.json` via atomic write (tmp + os.replace)
-  - `cleanup_orphans()` at startup: scan PIDs in ports.json, remove entries for dead processes
-  - No TCP pre-check. If launch fails (port in use), retry with next port.
-- **AC**:
-  - [ ] Auto-assigns from configured range per project_type
-  - [ ] Atomic persistence (no corruption on crash)
-  - [ ] Orphan cleanup removes stale entries
-  - [ ] No duplicate port assignments
-  - [ ] 10+ tests
-
 #### T-P2-3: Project validation + import API + config writer (ruamel.yaml)
-- **Complexity**: M | **Depends on**: T-P2-2
+- **Complexity**: M | **Depends on**: None (all deps done)
 - **What**: Backend endpoints for UI-driven project onboarding.
   - `POST /api/projects/validate` -- validate directory: .git/ required, TASKS.md + CLAUDE.md optional (warnings + limited mode flags)
   - `POST /api/projects/import` -- register project: ruamel.yaml read-modify-write to orchestrator_config.yaml (preserves comments, atomic write), reload ProjectRegistry, auto-assign port, auto-sync if TASKS.md present
@@ -67,7 +51,7 @@
   - [ ] 12+ tests
 
 #### T-P2-5: ProcessManager + SubprocessRegistry -- launch/stop project processes
-- **Complexity**: M | **Depends on**: T-P2-2
+- **Complexity**: M | **Depends on**: None (all deps done)
 - **What**: New `src/process_manager.py` and `src/subprocess_registry.py`.
   - SubprocessRegistry: unified tracker for ALL subprocesses (Scheduler executors + ProcessManager dev servers). Tracks PID, type, project_id, start_time. Shared `MAX_TOTAL_SUBPROCESSES` limit.
   - ProcessManager: launch/stop project dev servers.
@@ -291,3 +275,6 @@ T-P2-6 [M] Frontend Swim Lanes (no deps) ----------------+
 
 #### [x] T-P2-1: Extend ProjectConfig + OrchestratorSettings for P2 features -- 2026-03-02
 - Added PortRange model, port_ranges dict and max_total_subprocesses to OrchestratorSettings. Added launch_command, project_type (Literal), preferred_port to ProjectConfig. All fields optional with defaults (backward compatible). 24 new tests, 359 total passing.
+
+#### [x] T-P2-2: PortRegistry -- auto-assign ports, conflict detection, persistence -- 2026-03-02
+- PortRegistry with assign_port (preferred_port + exclude_ports), release_port, get_assignment, update_pid, list_assignments, cleanup_orphans. Atomic persistence via tmp + os.replace to ports.json. 33 new tests, 392 total passing.

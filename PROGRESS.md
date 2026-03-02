@@ -202,3 +202,10 @@
 - **Sanity check result**: pytest 359/359 passed (24 new + 335 existing). ruff check clean. No emoji.
 - **Status**: [DONE]
 - **Request**: Move T-P2-1 to Completed
+
+## 2026-03-02 22:00 -- [T-P2-2] PortRegistry -- auto-assign ports, conflict detection, persistence
+- **What I did**: Created src/port_registry.py with PortRegistry class. Manages per-project port assignments from configured ranges. Features: assign_port (with preferred_port and exclude_ports support), release_port, get_assignment, update_pid, list_assignments, cleanup_orphans (removes entries for dead PIDs). Persistence via atomic write (tmp + os.replace) to ~/.helixos/ports.json. Corrupted files handled gracefully (starts fresh). Parent directories auto-created.
+- **Deliverables**: src/port_registry.py (new -- PortRegistry class, PortAssignment model, _is_process_alive helper), tests/test_port_registry.py (new -- 33 tests)
+- **Sanity check result**: pytest 392/392 passed (33 new + 359 existing). ruff check clean. No emoji.
+- **Status**: [DONE]
+- **Request**: Move T-P2-2 to Completed
