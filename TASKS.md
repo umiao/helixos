@@ -18,6 +18,44 @@
 ### P2 -- Nice to Have (polish, optimization)
 <!-- All 8 P2 tasks completed. See Completed Tasks below. -->
 
+### P3 -- Phase 3: UX + Polish
+
+#### T-P3-1: Fix "No CLAUDE.md" false-positive badge [S]
+- **AC**: ProjectResponse includes claude_md_path, import auto-sets it, ProjectRegistry auto-detects, SwimLaneHeader tooltip shows descriptive message
+- **Depends on**: None
+
+#### T-P3-2: Backend directory browser + frontend picker [M]
+- **AC**: GET /api/filesystem/browse with $HOME sandbox, frontend dir picker in ImportProjectModal
+- **Depends on**: None
+
+#### T-P3-3: Import Project in ProjectSelector dropdown [S]
+- **AC**: "Import Project" button in dropdown, opens ImportProjectModal
+- **Depends on**: T-P3-2
+
+#### T-P3-4: Task card hover popover with details [S]
+- **AC**: Hover 300ms+ shows popover with full task details via React portal
+- **Depends on**: None
+
+#### T-P3-5: Workflow clarity -- inline task creation, context menu, tooltips [M]
+- **AC**: Inline "Add task..." in Backlog, right-click context menu, button tooltips
+- **Depends on**: T-P3-1
+
+#### T-P3-6a: Persistent execution log + review history -- backend [M]
+- **AC**: 2 new DB tables, DB-first writes, 2KB cap, 2 API endpoints
+- **Depends on**: None
+
+#### T-P3-6b: Persistent execution log + review history -- frontend [M]
+- **AC**: Task-focused bottom panel, persistent history + live SSE merge, conversation-style reviews
+- **Depends on**: T-P3-6a
+
+#### T-P3-7: README overhaul [S]
+- **AC**: Project-specific README with architecture diagram, features, modules
+- **Depends on**: T-P3-1 through T-P3-6b
+
+#### T-P3-8: Self-hosting guardrails -- design document [S]
+- **AC**: Design doc covering worker isolation, commit serialization, log isolation
+- **Depends on**: T-P3-6a
+
 ---
 
 ## Dependency Graph
