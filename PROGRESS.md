@@ -342,3 +342,10 @@
 - **Sanity check result**: pytest 615/615 passed. ruff check clean. npm run build succeeds.
 - **Status**: [DONE]
 - **Request**: Move T-P3-9 to Completed
+
+## 2026-03-02 17:00 -- [T-P3-10] Done column sorting and sub-status filtering
+- **What I did**: Added sort dropdown and sub-status filter badges to the DONE column header in KanbanBoard. Sort options: "Newest first" (default, by completed_at/updated_at desc), "Oldest first", "By task ID". Sub-status badges (DONE/FAILED/BLOCKED) show counts and toggle filtering on click. Both preferences persist in localStorage. Client-side only, no backend changes.
+- **Deliverables**: frontend/src/components/KanbanBoard.tsx (updated)
+- **Sanity check result**: pytest 615/615 passed. ruff check clean. npm run build succeeds.
+- **Status**: [DONE]
+- **Request**: Move T-P3-10 to Completed

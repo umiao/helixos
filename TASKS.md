@@ -20,15 +20,6 @@
 
 ### P3 -- Phase 3: UX + Polish
 
-#### T-P3-10: Done column sorting and sub-status filtering [S]
-- **Description**: DONE column displays tasks in arbitrary DB insertion order. Add client-side sorting and sub-status visibility.
-- **AC**:
-  - Sort dropdown in DONE column header: "Newest first" (default), "Oldest first", "By task ID"
-  - Client-side sorting only (no backend changes)
-  - Sort preference persists in localStorage
-  - Sub-status badges visible within DONE column (DONE / FAILED / BLOCKED)
-- **Depends on**: None
-
 #### T-P3-11: Enhanced review observation and human interaction UX [M]
 - **Description**: Review pipeline has a human gate (REVIEW_NEEDS_HUMAN) but the UI makes it invisible -- no task card indicators, ReviewPanel hidden in bottom tab, reason field unused.
 - **AC**:
@@ -246,3 +237,6 @@ T-P2-6 [M] Frontend Swim Lanes [DONE] ------------------+
 
 #### [x] T-P3-9: AI-assisted task enrichment via Claude CLI -- 2026-03-02
 - POST /api/tasks/enrich endpoint (Claude CLI, JSON schema, 503 if unavailable). NewTaskModal "Enrich with AI" button pre-fills description + priority. InlineTaskCreator Tab key expands to NewTaskModal with auto-enrich. Reuses review_pipeline JSON extraction and code_executor pre-flight patterns. 19 new tests, 615 total passing.
+
+#### [x] T-P3-10: Done column sorting and sub-status filtering -- 2026-03-02
+- Sort dropdown in DONE column header (Newest first/Oldest first/By task ID). Sub-status filter badges (DONE/FAILED/BLOCKED) with counts and click-to-toggle filtering. Both preferences persist in localStorage. Client-side only, no backend changes. npm run build succeeds, 615 tests passing.

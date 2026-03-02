@@ -14,9 +14,76 @@ import {
   type DragStartEvent,
 } from "@dnd-kit/core";
 import { useDroppable } from "@dnd-kit/core";
-import { useCallback, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import type { Task, KanbanColumn, TaskStatus } from "../types";
 import { KANBAN_COLUMNS, STATUS_TO_COLUMN, COLUMN_TO_STATUS } from "../types";
+
+/** Sort orders available for the DONE column. */
+type DoneSortOrder = "newest" | "oldest" | "by_task_id";
+
+const DONE_SORT_KEY = "helixos_done_sort";
+const DONE_FILTER_KEY = "helixos_done_filter";
+
+/** Sub-statuses that map to the DONE column. */
+const DONE_SUB_STATUSES: TaskStatus[] = ["done", "failed", "blocked"];
+
+function loadDoneSort(): DoneSortOrder {
+  try {
+    const v = localStorage.getItem(DONE_SORT_KEY);
+    if (v === "newest" || v === "oldest" || v === "by_task_id") return v;
+  } catch { /* ignore */ }
+  return "newest";
+}
+
+function saveDoneSort(order: DoneSortOrder): void {
+  try { localStorage.setItem(DONE_SORT_KEY, order); } catch { /* ignore */ }
+}
+
+type SubStatusFilter = Record<TaskStatus, boolean>;
+
+function loadDoneFilter(): SubStatusFilter {
+  try {
+    const raw = localStorage.getItem(DONE_FILTER_KEY);
+    if (raw) {
+      const parsed = JSON.parse(raw) as Partial<SubStatusFilter>;
+      return {
+        done: parsed.done !== false,
+        failed: parsed.failed !== false,
+        blocked: parsed.blocked !== false,
+      } as SubStatusFilter;
+    }
+  } catch { /* ignore */ }
+  return { done: true, failed: true, blocked: true } as SubStatusFilter;
+}
+
+function saveDoneFilter(filter: SubStatusFilter): void {
+  try { localStorage.setItem(DONE_FILTER_KEY, JSON.stringify(filter)); } catch { /* ignore */ }
+}
+
+function sortDoneTasks(tasks: Task[], order: DoneSortOrder): Task[] {
+  const sorted = [...tasks];
+  switch (order) {
+    case "newest":
+      sorted.sort((a, b) => {
+        const ta = a.completed_at ?? a.updated_at;
+        const tb = b.completed_at ?? b.updated_at;
+        return tb.localeCompare(ta);
+      });
+      break;
+    case "oldest":
+      sorted.sort((a, b) => {
+        const ta = a.completed_at ?? a.updated_at;
+        const tb = b.completed_at ?? b.updated_at;
+        return ta.localeCompare(tb);
+      });
+      break;
+    case "by_task_id":
+      sorted.sort((a, b) => a.local_task_id.localeCompare(b.local_task_id));
+      break;
+  }
+  return sorted;
+}
+
 import TaskCard from "./TaskCard";
 import TaskContextMenu from "./TaskContextMenu";
 import InlineTaskCreator from "./InlineTaskCreator";
@@ -78,6 +145,103 @@ function DroppableColumn({
   );
 }
 
+const SUB_STATUS_BADGE: Record<string, { label: string; active: string; inactive: string }> = {
+  done: {
+    label: "DONE",
+    active: "bg-green-200 text-green-900",
+    inactive: "bg-gray-100 text-gray-400 line-through",
+  },
+  failed: {
+    label: "FAILED",
+    active: "bg-red-200 text-red-900",
+    inactive: "bg-gray-100 text-gray-400 line-through",
+  },
+  blocked: {
+    label: "BLOCKED",
+    active: "bg-red-100 text-red-800",
+    inactive: "bg-gray-100 text-gray-400 line-through",
+  },
+};
+
+const SORT_OPTIONS: { value: DoneSortOrder; label: string }[] = [
+  { value: "newest", label: "Newest first" },
+  { value: "oldest", label: "Oldest first" },
+  { value: "by_task_id", label: "By task ID" },
+];
+
+function DoneColumnHeader({
+  tasks,
+  sortOrder,
+  onSortChange,
+  filter,
+  onFilterToggle,
+}: {
+  tasks: Task[];
+  sortOrder: DoneSortOrder;
+  onSortChange: (order: DoneSortOrder) => void;
+  filter: SubStatusFilter;
+  onFilterToggle: (status: TaskStatus) => void;
+}) {
+  const counts = useMemo(() => {
+    const c: Record<string, number> = { done: 0, failed: 0, blocked: 0 };
+    for (const t of tasks) c[t.status] = (c[t.status] ?? 0) + 1;
+    return c;
+  }, [tasks]);
+
+  // Count visible tasks (after filter)
+  const visibleCount = useMemo(() => {
+    return tasks.filter((t) => filter[t.status] !== false).length;
+  }, [tasks, filter]);
+
+  return (
+    <div className="px-3 py-2 border-b border-gray-200 space-y-1.5">
+      {/* Top row: title + visible count + sort dropdown */}
+      <div className="flex items-center justify-between gap-1">
+        <div className="flex items-center gap-1.5">
+          <h2 className="text-xs font-bold uppercase tracking-wide text-gray-600">
+            DONE
+          </h2>
+          <span className="rounded-full bg-gray-200 px-2 py-0.5 text-xs font-semibold text-gray-700">
+            {visibleCount}
+          </span>
+        </div>
+        <select
+          value={sortOrder}
+          onChange={(e) => onSortChange(e.target.value as DoneSortOrder)}
+          className="text-xs bg-white border border-gray-300 rounded px-1 py-0.5 text-gray-600 focus:outline-none focus:ring-1 focus:ring-green-400"
+          title="Sort order"
+        >
+          {SORT_OPTIONS.map((opt) => (
+            <option key={opt.value} value={opt.value}>
+              {opt.label}
+            </option>
+          ))}
+        </select>
+      </div>
+      {/* Sub-status filter badges */}
+      <div className="flex items-center gap-1">
+        {DONE_SUB_STATUSES.map((status) => {
+          const cfg = SUB_STATUS_BADGE[status];
+          const isActive = filter[status] !== false;
+          const count = counts[status] ?? 0;
+          return (
+            <button
+              key={status}
+              onClick={() => onFilterToggle(status)}
+              className={`rounded-full px-1.5 py-0 text-[10px] font-semibold cursor-pointer transition-colors ${
+                isActive ? cfg.active : cfg.inactive
+              }`}
+              title={`${isActive ? "Hide" : "Show"} ${cfg.label} tasks`}
+            >
+              {cfg.label} {count}
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 export default function KanbanBoard({
   tasks,
   loading,
@@ -94,6 +258,29 @@ export default function KanbanBoard({
     task: Task;
     position: { x: number; y: number };
   } | null>(null);
+
+  // DONE column sort + sub-status filter (persisted in localStorage)
+  const [doneSortOrder, setDoneSortOrder] = useState<DoneSortOrder>(loadDoneSort);
+  const [doneFilter, setDoneFilter] = useState<SubStatusFilter>(loadDoneFilter);
+
+  const handleDoneSortChange = useCallback((order: DoneSortOrder) => {
+    setDoneSortOrder(order);
+    saveDoneSort(order);
+  }, []);
+
+  const handleDoneFilterToggle = useCallback((status: TaskStatus) => {
+    setDoneFilter((prev) => {
+      const next = { ...prev, [status]: !prev[status] };
+      saveDoneFilter(next);
+      return next;
+    });
+  }, []);
+
+  // Compute sorted + filtered DONE column tasks
+  const doneTasks = useMemo(() => {
+    const filtered = columns.DONE.filter((t) => doneFilter[t.status] !== false);
+    return sortDoneTasks(filtered, doneSortOrder);
+  }, [columns.DONE, doneFilter, doneSortOrder]);
 
   const handleContextMenu = useCallback(
     (task: Task, position: { x: number; y: number }) => {
@@ -143,58 +330,73 @@ export default function KanbanBoard({
       onDragEnd={handleDragEnd}
     >
       <div className="grid grid-cols-5 gap-4 h-full min-h-0">
-        {KANBAN_COLUMNS.map((col) => (
-          <div
-            key={col}
-            className={`flex flex-col rounded-lg bg-gray-50 border-t-4 ${COLUMN_STYLES[col]} min-h-0`}
-          >
-            {/* Column header */}
-            <div className="flex items-center justify-between px-3 py-2 border-b border-gray-200">
-              <h2 className="text-xs font-bold uppercase tracking-wide text-gray-600">
-                {col}
-              </h2>
-              <span className="rounded-full bg-gray-200 px-2 py-0.5 text-xs font-semibold text-gray-700">
-                {loading ? "-" : columns[col].length}
-              </span>
-            </div>
+        {KANBAN_COLUMNS.map((col) => {
+          const isDone = col === "DONE";
+          const colTasks = isDone ? doneTasks : columns[col];
 
-            {/* Droppable area with cards */}
-            <DroppableColumn column={col}>
-              {loading ? (
-                <>
-                  <SkeletonCard />
-                  <SkeletonCard />
-                </>
-              ) : columns[col].length === 0 && col !== "BACKLOG" ? (
-                <p className="text-xs text-gray-400 text-center py-4">
-                  No tasks
-                </p>
-              ) : (
-                columns[col].map((task) => (
-                  <TaskCard
-                    key={task.id}
-                    task={task}
-                    onClick={
-                      onSelectTask
-                        ? () => onSelectTask(task)
-                        : undefined
-                    }
-                    onContextMenu={handleContextMenu}
-                  />
-                ))
-              )}
-              {/* Inline task creator at bottom of Backlog column */}
-              {col === "BACKLOG" && !loading && projectId && onTaskCreated && onError && (
-                <InlineTaskCreator
-                  projectId={projectId}
-                  onCreated={onTaskCreated}
-                  onError={onError}
-                  onEnrichExpand={onEnrichExpand}
+          return (
+            <div
+              key={col}
+              className={`flex flex-col rounded-lg bg-gray-50 border-t-4 ${COLUMN_STYLES[col]} min-h-0`}
+            >
+              {/* Column header */}
+              {isDone ? (
+                <DoneColumnHeader
+                  tasks={columns.DONE}
+                  sortOrder={doneSortOrder}
+                  onSortChange={handleDoneSortChange}
+                  filter={doneFilter}
+                  onFilterToggle={handleDoneFilterToggle}
                 />
+              ) : (
+                <div className="flex items-center justify-between px-3 py-2 border-b border-gray-200">
+                  <h2 className="text-xs font-bold uppercase tracking-wide text-gray-600">
+                    {col}
+                  </h2>
+                  <span className="rounded-full bg-gray-200 px-2 py-0.5 text-xs font-semibold text-gray-700">
+                    {loading ? "-" : columns[col].length}
+                  </span>
+                </div>
               )}
-            </DroppableColumn>
-          </div>
-        ))}
+
+              {/* Droppable area with cards */}
+              <DroppableColumn column={col}>
+                {loading ? (
+                  <>
+                    <SkeletonCard />
+                    <SkeletonCard />
+                  </>
+                ) : colTasks.length === 0 && col !== "BACKLOG" ? (
+                  <p className="text-xs text-gray-400 text-center py-4">
+                    No tasks
+                  </p>
+                ) : (
+                  colTasks.map((task) => (
+                    <TaskCard
+                      key={task.id}
+                      task={task}
+                      onClick={
+                        onSelectTask
+                          ? () => onSelectTask(task)
+                          : undefined
+                      }
+                      onContextMenu={handleContextMenu}
+                    />
+                  ))
+                )}
+                {/* Inline task creator at bottom of Backlog column */}
+                {col === "BACKLOG" && !loading && projectId && onTaskCreated && onError && (
+                  <InlineTaskCreator
+                    projectId={projectId}
+                    onCreated={onTaskCreated}
+                    onError={onError}
+                    onEnrichExpand={onEnrichExpand}
+                  />
+                )}
+              </DroppableColumn>
+            </div>
+          );
+        })}
       </div>
 
       {/* Drag overlay -- follows pointer */}
