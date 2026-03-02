@@ -7,8 +7,9 @@
 
 import { useDraggable } from "@dnd-kit/core";
 import { CSS } from "@dnd-kit/utilities";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type { Task, TaskStatus } from "../types";
+import TaskCardPopover from "./TaskCardPopover";
 
 interface TaskCardProps {
   task: Task;
@@ -83,13 +84,65 @@ export default function TaskCard({ task, onClick }: TaskCardProps) {
   const isRunning = task.status === "running";
   const startedAt = task.execution?.started_at;
 
+  // Hover popover state: 300ms delay before showing
+  const [showPopover, setShowPopover] = useState(false);
+  const [anchorRect, setAnchorRect] = useState<DOMRect | null>(null);
+  const hoverTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const cardRef = useRef<HTMLDivElement | null>(null);
+
+  const handleMouseEnter = useCallback(() => {
+    hoverTimer.current = setTimeout(() => {
+      if (cardRef.current) {
+        setAnchorRect(cardRef.current.getBoundingClientRect());
+        setShowPopover(true);
+      }
+    }, 300);
+  }, []);
+
+  const handleMouseLeave = useCallback(() => {
+    if (hoverTimer.current) {
+      clearTimeout(hoverTimer.current);
+      hoverTimer.current = null;
+    }
+    setShowPopover(false);
+  }, []);
+
+  // Hide popover when dragging starts
+  useEffect(() => {
+    if (isDragging) {
+      setShowPopover(false);
+      if (hoverTimer.current) {
+        clearTimeout(hoverTimer.current);
+        hoverTimer.current = null;
+      }
+    }
+  }, [isDragging]);
+
+  // Cleanup timer on unmount
+  useEffect(() => {
+    return () => {
+      if (hoverTimer.current) clearTimeout(hoverTimer.current);
+    };
+  }, []);
+
+  // Combine refs: dnd-kit setNodeRef + our cardRef
+  const combinedRef = useCallback(
+    (node: HTMLDivElement | null) => {
+      setNodeRef(node);
+      cardRef.current = node;
+    },
+    [setNodeRef],
+  );
+
   return (
     <div
-      ref={setNodeRef}
+      ref={combinedRef}
       style={style}
       {...listeners}
       {...attributes}
       onClick={onClick}
+      onMouseEnter={handleMouseEnter}
+      onMouseLeave={handleMouseLeave}
       className="rounded-lg border border-gray-200 bg-white p-3 shadow-sm hover:shadow-md transition-shadow cursor-grab active:cursor-grabbing"
     >
       {/* Header: project + task ID */}
@@ -144,6 +197,11 @@ export default function TaskCard({ task, onClick }: TaskCardProps) {
           </span>
         )}
       </div>
+
+      {/* Hover popover via portal */}
+      {showPopover && anchorRect && !isDragging && (
+        <TaskCardPopover task={task} anchorRect={anchorRect} />
+      )}
     </div>
   );
 }

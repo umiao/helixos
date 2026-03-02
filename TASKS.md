@@ -20,10 +20,6 @@
 
 ### P3 -- Phase 3: UX + Polish
 
-#### T-P3-4: Task card hover popover with details [S]
-- **AC**: Hover 300ms+ shows popover with full task details via React portal
-- **Depends on**: None
-
 #### T-P3-5: Workflow clarity -- inline task creation, context menu, tooltips [M]
 - **AC**: Inline "Add task..." in Backlog, right-click context menu, button tooltips
 - **Depends on**: None
@@ -222,3 +218,6 @@ T-P2-6 [M] Frontend Swim Lanes [DONE] ------------------+
 
 #### [x] T-P3-3: Import Project in ProjectSelector dropdown -- 2026-03-03
 - Added "Import Project" button with + icon at bottom of ProjectSelector dropdown. Closes dropdown and opens ImportProjectModal. Connected via onImportClick prop.
+
+#### [x] T-P3-4: Task card hover popover with details -- 2026-03-03
+- TaskCardPopover component rendered via React portal with full task details (description, dependencies, execution state, review state, timestamps). 300ms hover delay, auto-positioning (right/left/below), hides on drag. npm run build succeeds, 511 tests passing.

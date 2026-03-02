@@ -279,3 +279,10 @@
 - **Sanity check result**: pytest 511/511 passed. ruff check clean. npm run build succeeds.
 - **Status**: [DONE]
 - **Request**: Move T-P3-3 to Completed
+
+## 2026-03-03 08:00 -- [T-P3-4] Task card hover popover with details
+- **What I did**: Created TaskCardPopover component rendered via React portal showing full task details (description, dependencies, execution state with log tail, review state with consensus score, timestamps). Added 300ms hover delay to TaskCard with auto-positioning (right/left/below card), combined dnd-kit + local refs, and auto-hide on drag start.
+- **Deliverables**: frontend/src/components/TaskCardPopover.tsx (new), frontend/src/components/TaskCard.tsx (mod -- hover logic + popover integration)
+- **Sanity check result**: pytest 511/511 passed. npm run build succeeds.
+- **Status**: [DONE]
+- **Request**: Move T-P3-4 to Completed
