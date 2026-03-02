@@ -51,7 +51,7 @@
   2. Screenshot or log evidence captured
   3. All prior P1 tasks completed and integrated
 - **Complexity**: S
-- **Deps**: T-P1-3, T-P1-4, T-P1-5, T-P1-6
+- **Deps**: P1-3 (done), T-P1-4, T-P1-5, T-P1-6
 
 ### P2 -- Nice to Have (polish, optimization)
 <!-- Phase 2+: frontend E2E tests, TypeScript codegen from Pydantic, cross-platform -->
