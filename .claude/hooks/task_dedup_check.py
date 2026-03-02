@@ -19,8 +19,17 @@ def _find_project_root() -> Path:
     return Path.cwd()
 
 
-def _extract_section_task_ids(content: str, section_name: str) -> set[str]:
-    """Extract all task IDs (T-P\\d+-\\d+) from a named ## section."""
+def _extract_section_task_ids(
+    content: str, section_name: str, *, headers_only: bool = False,
+) -> set[str]:
+    """Extract task IDs (T-P\\d+-\\d+[a-z]?) from a named ## section.
+
+    Args:
+        content: Full TASKS.md content.
+        section_name: The ## section name to search in.
+        headers_only: If True, only match task IDs in #### header lines
+            (ignores "Depends on" references).
+    """
     match = re.search(
         rf"## {re.escape(section_name)}\s*\n(.*?)(?=\n## |\Z)",
         content,
@@ -28,7 +37,15 @@ def _extract_section_task_ids(content: str, section_name: str) -> set[str]:
     )
     if not match:
         return set()
-    return set(re.findall(r"(T-P\d+-\d+)", match.group(1)))
+    section_text = match.group(1)
+    if headers_only:
+        # Only match IDs in task definition headers: "#### T-P3-6a: ..."
+        return set(re.findall(
+            r"^#{3,4}\s+(?:\[x\]\s+)?(T-P\d+-\d+[a-z]?):",
+            section_text,
+            re.MULTILINE,
+        ))
+    return set(re.findall(r"(T-P\d+-\d+[a-z]?)", section_text))
 
 
 def main(hook_input: dict) -> None:
@@ -44,12 +61,16 @@ def main(hook_input: dict) -> None:
 
     content = tasks_file.read_text(encoding="utf-8")
 
-    # Collect task IDs from active sections
+    # Collect task IDs from active sections (headers only -- ignore dep refs)
     active_ids: set[str] = set()
     for section in ["In Progress", "Active Tasks", "Blocked"]:
-        active_ids |= _extract_section_task_ids(content, section)
+        active_ids |= _extract_section_task_ids(
+            content, section, headers_only=True,
+        )
 
-    completed_ids = _extract_section_task_ids(content, "Completed Tasks")
+    completed_ids = _extract_section_task_ids(
+        content, "Completed Tasks", headers_only=True,
+    )
 
     overlap = active_ids & completed_ids
     if overlap:
