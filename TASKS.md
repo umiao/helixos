@@ -36,28 +36,6 @@
 
 ---
 
-#### T-P0-11: Unified .env loader + env injection
-- **Priority**: P0
-- **Complexity**: S (1 session)
-- **Depends on**: T-P0-1
-- **Acceptance Criteria**:
-  - [ ] `src/env_loader.py`: `class EnvLoader` with `__init__(env_path: Path)` loading .env via python-dotenv
-  - [ ] `get_project_env(project: Project) -> dict[str, str]` returns only keys listed in `project.env_keys`
-  - [ ] `get_all() -> dict[str, str]` returns all loaded vars
-  - [ ] `validate_project_keys(project: Project) -> list[str]` returns missing key names
-  - [ ] If .env file missing: log warning, return empty dict (no crash)
-  - [ ] Warn if `ANTHROPIC_API_KEY` is missing (needed for review pipeline)
-  - [ ] All file reads use `encoding="utf-8"`
-  - [ ] No hardcoded secrets in code or tests
-  - [ ] `tests/test_env_loader.py` with temp .env files, missing keys, missing file
-  - [ ] ruff clean, no emoji
-- **Files**: `src/env_loader.py` (new), `tests/test_env_loader.py` (new)
-- **Scope boundary**:
-  - IN: .env file loading, per-project key filtering, key validation
-  - OUT: No .env file creation. No os.environ mutation (returns dicts only). No executor integration.
-
----
-
 #### T-P0-2: Data model + TaskManager + database layer
 - **Priority**: P0
 - **Complexity**: M (2 sessions)
@@ -463,3 +441,6 @@ T-P0-13 [M] Integration tests (needs T-P0-10 + T-P0-12)
 
 #### [x] T-P0-1: Project scaffold (FastAPI + React + SQLite) -- 2026-03-01
 - Scaffold complete: pyproject.toml, requirements.txt, frontend (Vite+React+TS+Tailwind v4), orchestrator_config.yaml, contracts/, scripts/start.ps1, src/executors/, src/sync/
+
+#### [x] T-P0-11: Unified .env loader + env injection -- 2026-03-01
+- EnvLoader class with per-project key filtering, validation, missing-file handling, ANTHROPIC_API_KEY warning. 15 tests passing.

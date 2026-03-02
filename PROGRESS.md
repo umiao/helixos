@@ -20,3 +20,10 @@
 - **Sanity check result**: pytest tests/test_smoke.py -- 4/4 passed. ruff check src/ -- clean. npm run build -- success. check_emoji.py -- no emoji found.
 - **Status**: [DONE]
 - **Request**: Cross off T-P0-1
+
+## 2026-03-01 20:00 -- [T-P0-11] Unified .env loader + env injection
+- **What I did**: Created EnvLoader class that reads a unified .env file via python-dotenv and provides per-project key filtering, full access, and validation. Used a Protocol (HasEnvKeys) to decouple from the not-yet-built Project model. Handles missing .env gracefully (warning, empty dict). Warns if ANTHROPIC_API_KEY is missing. All file reads use encoding="utf-8".
+- **Deliverables**: src/env_loader.py (new), tests/test_env_loader.py (new)
+- **Sanity check result**: pytest tests/ -- 19/19 passed (15 env_loader + 4 smoke). ruff check -- clean. check_emoji.py -- no emoji found.
+- **Status**: [DONE]
+- **Request**: Cross off T-P0-11
