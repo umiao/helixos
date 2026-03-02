@@ -113,6 +113,15 @@ class ReviewDecisionRequest(BaseModel):
 # ------------------------------------------------------------------
 
 
+class ProjectProcessStatus(BaseModel):
+    """Per-project process status for the dashboard summary."""
+
+    running: bool = False
+    pid: int | None = None
+    port: int | None = None
+    uptime_seconds: float | None = None
+
+
 class DashboardSummary(BaseModel):
     """Aggregate stats for the dashboard."""
 
@@ -120,6 +129,7 @@ class DashboardSummary(BaseModel):
     by_status: dict[str, int] = Field(default_factory=dict)
     running_count: int = 0
     project_count: int = 0
+    process_status: dict[str, ProjectProcessStatus] = Field(default_factory=dict)
 
 
 # ------------------------------------------------------------------

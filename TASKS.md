@@ -16,23 +16,7 @@
 <!-- All 7 P1 tasks completed. See Completed Tasks below. -->
 
 ### P2 -- Nice to Have (polish, optimization)
-
-#### T-P2-8: E2E integration + SSE events for P2 features
-- **Complexity**: S | **Depends on**: Frontend Operations UI [done]
-- **What**: Wire everything together and verify end-to-end.
-  - SSE event types: process_start, process_stop (from ProcessManager)
-  - Dashboard summary includes process_status per project
-  - Full flow: Import -> appears in selector -> select -> swim lane renders -> create task -> appears in BACKLOG -> launch project -> running indicator
-  - Startup: cleanup_orphans for both SubprocessRegistry and PortRegistry
-  - Verify shutdown order works cleanly
-- **AC**:
-  - [ ] Import-to-swim-lane flow works end-to-end
-  - [ ] Task creation flow works end-to-end
-  - [ ] Process launch/stop flow works with SSE updates
-  - [ ] Startup orphan cleanup works
-  - [ ] Shutdown is clean (no zombies, no hanging)
-  - [ ] All existing tests still pass
-  - [ ] New integration tests
+<!-- All 8 P2 tasks completed. See Completed Tasks below. -->
 
 ---
 
@@ -200,3 +184,6 @@ T-P2-6 [M] Frontend Swim Lanes [DONE] ------------------+
 
 #### [x] T-P2-7: Frontend -- SwimLaneHeader + ImportModal + NewTaskModal + LaunchControl -- 2026-03-03
 - SwimLaneHeader.tsx (per-project action bar with Launch/Stop, New Task, Sync buttons, limited-mode warning badges). LaunchControl.tsx (launch/stop toggle with port display, running indicator, uptime, 5s polling). ImportProjectModal.tsx (3-step: path input -> validate -> review/configure -> import with success feedback). NewTaskModal.tsx (title + description + priority form). "Import Project" button in header. All modals have loading states and error handling. New types in types.ts (ProcessStatus, ValidationResult, ImportResult, CreateTaskResult). New API calls in api.ts (syncProject, validateProject, importProject, createTask, launchProject, stopProject, getProcessStatus). npm run build succeeds, 480 tests passing.
+
+#### [x] T-P2-8: E2E integration + SSE events for P2 features -- 2026-03-03
+- Added per-project process_status to dashboard summary endpoint. Verified SSE events (process_start/process_stop), startup orphan cleanup (SubprocessRegistry + PortRegistry + ProcessManager), and shutdown order (ProcessManager -> Scheduler -> DB). 14 new integration tests covering import-to-swimlane, task creation, process lifecycle with SSE, orphan cleanup, shutdown order, and full E2E flow. 494 total tests passing.

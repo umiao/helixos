@@ -244,3 +244,10 @@
 - **Sanity check result**: npm run build succeeds. pytest 480/480 passed. ruff check clean.
 - **Status**: [DONE]
 - **Request**: Move T-P2-7 to Completed
+
+## 2026-03-03 03:00 -- [T-P2-8] E2E integration + SSE events for P2 features
+- **What I did**: Wired together all P2 features end-to-end. Added ProjectProcessStatus schema and process_status dict to DashboardSummary (per-project running/pid/port/uptime). Updated dashboard_summary endpoint to query ProcessManager for each project. Added mock ProcessManager to test_api.py fixtures so existing API tests pass with the new field. Verified SSE events (process_start/process_stop already emitted by ProcessManager from T-P2-5), startup orphan cleanup (SubprocessRegistry, PortRegistry, ProcessManager already in lifespan from T-P2-5), and shutdown order (ProcessManager -> Scheduler -> DB already in lifespan). Wrote 14 integration tests covering: import-to-swimlane flow, idempotent resync, task creation via TasksWriter + sync, backup creation, process launch/stop SSE events, full launch-status-stop cycle with registry tracking, dashboard process status, startup orphan cleanup (3 registries), shutdown stops all processes, shutdown order enforcement, full E2E flow (import -> create task -> launch -> SSE events -> stop).
+- **Deliverables**: src/schemas.py (mod -- ProjectProcessStatus, DashboardSummary.process_status), src/api.py (mod -- dashboard_summary uses ProcessManager, imports ProjectProcessStatus), tests/test_api.py (mod -- mock ProcessManager in test app), tests/integration/test_e2e_p2.py (new -- 14 integration tests)
+- **Sanity check result**: pytest 494/494 passed (14 new + 480 existing). ruff check clean. npm run build succeeds.
+- **Status**: [DONE]
+- **Request**: Move T-P2-8 to Completed

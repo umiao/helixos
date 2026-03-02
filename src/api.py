@@ -39,6 +39,7 @@ from src.schemas import (
     ImportProjectResponse,
     ProcessStatusResponse,
     ProjectDetailResponse,
+    ProjectProcessStatus,
     ProjectResponse,
     ReviewDecisionRequest,
     ReviewStateResponse,
@@ -971,9 +972,10 @@ async def sync_all(request: Request) -> SyncAllResponse:
 
 @api_router.get("/api/dashboard/summary")
 async def dashboard_summary(request: Request) -> DashboardSummary:
-    """Get aggregate dashboard stats."""
+    """Get aggregate dashboard stats including per-project process status."""
     task_manager: TaskManager = request.app.state.task_manager
     registry: ProjectRegistry = request.app.state.registry
+    pm: ProcessManager = request.app.state.process_manager
 
     all_tasks = await task_manager.list_tasks()
 
@@ -985,11 +987,24 @@ async def dashboard_summary(request: Request) -> DashboardSummary:
         if task.status == TaskStatus.RUNNING:
             running_count += 1
 
+    # Per-project process status
+    projects = registry.list_projects()
+    process_status: dict[str, ProjectProcessStatus] = {}
+    for project in projects:
+        ps = pm.status(project.id)
+        process_status[project.id] = ProjectProcessStatus(
+            running=ps.running,
+            pid=ps.pid,
+            port=ps.port,
+            uptime_seconds=ps.uptime_seconds,
+        )
+
     return DashboardSummary(
         total_tasks=len(all_tasks),
         by_status=by_status,
         running_count=running_count,
-        project_count=len(registry.list_projects()),
+        project_count=len(projects),
+        process_status=process_status,
     )
 
 

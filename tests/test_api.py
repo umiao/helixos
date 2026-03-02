@@ -32,6 +32,7 @@ from src.models import (
     Task,
     TaskStatus,
 )
+from src.process_manager import ProcessStatus
 from src.scheduler import Scheduler
 from src.task_manager import TaskManager
 
@@ -153,6 +154,11 @@ async def test_app(tmp_path: Path, test_session_factory):
     app.state.scheduler = scheduler
     app.state.review_pipeline = None  # No Claude CLI in tests
     app.state.engine = None
+
+    # Mock ProcessManager -- status returns not-running for any project
+    mock_pm = MagicMock()
+    mock_pm.status.return_value = ProcessStatus(running=False)
+    app.state.process_manager = mock_pm
 
     yield app
 
