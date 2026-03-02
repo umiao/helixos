@@ -11,12 +11,13 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import logging
+import traceback
 from collections.abc import Callable
 
 from src.config import OrchestratorConfig, ProjectRegistry
 from src.env_loader import EnvLoader
 from src.events import EventBus
-from src.executors.base import BaseExecutor, ExecutorResult
+from src.executors.base import BaseExecutor, ErrorType, ExecutorResult
 from src.executors.code_executor import CodeExecutor
 from src.git_ops import GitOps
 from src.history_writer import HistoryWriter
@@ -27,6 +28,7 @@ logger = logging.getLogger(__name__)
 
 TICK_INTERVAL_SECONDS = 5
 RETRY_BACKOFF_SECONDS: list[int] = [30, 60, 120]
+MAX_CONCURRENT_EXECUTIONS = 2
 
 
 class Scheduler:
@@ -252,12 +254,15 @@ class Scheduler:
     def available_slots(self) -> int:
         """Number of additional tasks that can be launched.
 
-        Computed as ``min(global_limit, active_projects) - len(running)``.
+        Computed as ``min(global_limit, active_projects, MAX_CONCURRENT_EXECUTIONS)
+        - len(running)``.  The ``MAX_CONCURRENT_EXECUTIONS`` hard limit prevents
+        resource exhaustion regardless of config.
         """
         active_projects = len(self._registry.list_projects())
         limit = min(
             self._config.orchestrator.global_concurrency_limit,
             active_projects,
+            MAX_CONCURRENT_EXECUTIONS,
         )
         return max(0, limit - len(self.running))
 
@@ -369,11 +374,27 @@ class Scheduler:
                 )
             else:
                 error_msg = result.error_summary or "Max retries exhausted"
+                alert_data: dict[str, object] = {"error": error_msg}
+                if result.error_type is not None:
+                    alert_data["error_type"] = result.error_type.value
+                if result.stderr_output:
+                    alert_data["stderr"] = result.stderr_output[:500]
+
                 if self._history_writer is not None:
+                    log_msg = f"Execution failed: {error_msg}"
+                    if result.error_type is not None:
+                        log_msg = f"[{result.error_type.value}] {log_msg}"
                     await self._history_writer.write_log(
-                        task.id, f"Execution failed: {error_msg}",
+                        task.id, log_msg,
                         level="error", source="scheduler",
                     )
+                    # Store full stderr in log DB if available
+                    if result.stderr_output:
+                        await self._history_writer.write_log(
+                            task.id, f"stderr: {result.stderr_output}",
+                            level="error", source="executor",
+                        )
+
                 # All retries exhausted -> FAILED -> BLOCKED
                 await self._task_manager.update_status(
                     task.id, TaskStatus.FAILED,
@@ -381,7 +402,7 @@ class Scheduler:
                 self._event_bus.emit(
                     "alert",
                     task.id,
-                    {"error": error_msg},
+                    alert_data,
                 )
                 await self._task_manager.update_status(
                     task.id, TaskStatus.BLOCKED,
@@ -389,12 +410,23 @@ class Scheduler:
                 self._event_bus.emit(
                     "status_change", task.id, {"status": "blocked"},
                 )
-        except Exception:
+        except Exception as exc:
+            exc_type = type(exc).__name__
+            exc_msg = str(exc)
+            tb_str = traceback.format_exc()
             logger.exception("Unhandled error executing task %s", task.id)
+
+            error_detail = f"{exc_type}: {exc_msg}"
             if self._history_writer is not None:
                 with contextlib.suppress(Exception):
                     await self._history_writer.write_log(
-                        task.id, "Unhandled execution error",
+                        task.id,
+                        f"[{ErrorType.INFRA.value}] Unhandled error: {error_detail}",
+                        level="error", source="scheduler",
+                    )
+                with contextlib.suppress(Exception):
+                    await self._history_writer.write_log(
+                        task.id, f"Traceback:\n{tb_str}",
                         level="error", source="scheduler",
                     )
             with contextlib.suppress(ValueError):
@@ -402,7 +434,10 @@ class Scheduler:
                     task.id, TaskStatus.FAILED,
                 )
             self._event_bus.emit(
-                "alert", task.id, {"error": "Unhandled execution error"},
+                "alert", task.id, {
+                    "error": f"Unhandled execution error: {error_detail}",
+                    "error_type": ErrorType.INFRA.value,
+                },
             )
         finally:
             self.running.pop(task.id, None)

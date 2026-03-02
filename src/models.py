@@ -91,6 +91,7 @@ class ExecutionState(BaseModel):
     log_tail: list[str] = Field(default_factory=list)
     result: str = "pending"
     error_summary: str | None = None
+    error_type: str | None = None
 
 
 class Task(BaseModel):

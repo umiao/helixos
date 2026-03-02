@@ -9,10 +9,22 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from collections.abc import Callable
+from enum import StrEnum
 
 from pydantic import BaseModel, Field
 
 from src.models import Project, Task
+
+
+class ErrorType(StrEnum):
+    """Structured error classification for executor results."""
+
+    INFRA = "infra"
+    CLI_NOT_FOUND = "cli_not_found"
+    REPO_NOT_FOUND = "repo_not_found"
+    NON_ZERO_EXIT = "non_zero_exit"
+    TIMEOUT = "timeout"
+    UNKNOWN = "unknown"
 
 
 class ExecutorResult(BaseModel):
@@ -22,6 +34,8 @@ class ExecutorResult(BaseModel):
     exit_code: int
     log_lines: list[str] = Field(default_factory=list)
     error_summary: str | None = None
+    error_type: ErrorType | None = None
+    stderr_output: str | None = None
     outputs: list[str] = Field(default_factory=list)
     duration_seconds: float
 

@@ -12,10 +12,10 @@ import pytest
 
 from src.config import OrchestratorConfig, ProjectConfig, ProjectRegistry
 from src.events import EventBus
-from src.executors.base import BaseExecutor, ExecutorResult
+from src.executors.base import BaseExecutor, ErrorType, ExecutorResult
 from src.executors.code_executor import CodeExecutor
 from src.models import ExecutorType, Project, Task, TaskStatus
-from src.scheduler import RETRY_BACKOFF_SECONDS, Scheduler
+from src.scheduler import MAX_CONCURRENT_EXECUTIONS, RETRY_BACKOFF_SECONDS, Scheduler
 from src.task_manager import TaskManager
 
 # ---------------------------------------------------------------------------
@@ -1148,3 +1148,198 @@ class TestAutoCommitHook:
             await asyncio.gather(*running_tasks)
 
         assert hook_called == []
+
+
+# ---------------------------------------------------------------------------
+# Tests -- MAX_CONCURRENT_EXECUTIONS hard limit
+# ---------------------------------------------------------------------------
+
+
+class TestMaxConcurrentExecutions:
+    """Tests for the MAX_CONCURRENT_EXECUTIONS hard limit."""
+
+    def test_constant_value(self) -> None:
+        """MAX_CONCURRENT_EXECUTIONS should be 2."""
+        assert MAX_CONCURRENT_EXECUTIONS == 2
+
+    async def test_hard_limit_caps_slots(self, session_factory) -> None:
+        """Even with high global_concurrency_limit, hard limit is enforced."""
+        task_manager = TaskManager(session_factory)
+
+        config = _make_config(
+            projects={
+                "p1": ProjectConfig(
+                    name="P1", repo_path=Path("/tmp/p1"),
+                    executor_type=ExecutorType.CODE, max_concurrency=5,
+                ),
+                "p2": ProjectConfig(
+                    name="P2", repo_path=Path("/tmp/p2"),
+                    executor_type=ExecutorType.CODE, max_concurrency=5,
+                ),
+                "p3": ProjectConfig(
+                    name="P3", repo_path=Path("/tmp/p3"),
+                    executor_type=ExecutorType.CODE, max_concurrency=5,
+                ),
+            },
+            global_limit=10,
+        )
+        registry = ProjectRegistry(config)
+        env_loader = MagicMock()
+        env_loader.get_project_env.return_value = {}
+        event_bus = EventBus()
+
+        scheduler = Scheduler(config, task_manager, registry, env_loader, event_bus)
+
+        # With 3 projects and global_limit=10, min(10, 3, 2) = 2
+        assert scheduler.available_slots == MAX_CONCURRENT_EXECUTIONS
+
+    async def test_hard_limit_with_running_tasks(self, session_factory) -> None:
+        """Running tasks reduce available slots below hard limit."""
+        task_manager = TaskManager(session_factory)
+
+        config = _make_config(
+            projects={
+                "p1": ProjectConfig(
+                    name="P1", repo_path=Path("/tmp/p1"),
+                    executor_type=ExecutorType.CODE, max_concurrency=5,
+                ),
+                "p2": ProjectConfig(
+                    name="P2", repo_path=Path("/tmp/p2"),
+                    executor_type=ExecutorType.CODE, max_concurrency=5,
+                ),
+                "p3": ProjectConfig(
+                    name="P3", repo_path=Path("/tmp/p3"),
+                    executor_type=ExecutorType.CODE, max_concurrency=5,
+                ),
+            },
+            global_limit=10,
+        )
+        registry = ProjectRegistry(config)
+        env_loader = MagicMock()
+        env_loader.get_project_env.return_value = {}
+        event_bus = EventBus()
+
+        scheduler = Scheduler(config, task_manager, registry, env_loader, event_bus)
+
+        # Simulate 1 running task
+        scheduler.running["fake:t1"] = asyncio.create_task(asyncio.sleep(10))
+        assert scheduler.available_slots == 1
+
+        # Simulate 2 running tasks -- should be at limit
+        scheduler.running["fake:t2"] = asyncio.create_task(asyncio.sleep(10))
+        assert scheduler.available_slots == 0
+
+        # Clean up
+        for key in list(scheduler.running):
+            scheduler.running[key].cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await scheduler.running[key]
+        scheduler.running.clear()
+
+
+# ---------------------------------------------------------------------------
+# Tests -- Error details in SSE alerts
+# ---------------------------------------------------------------------------
+
+
+class TestErrorDetailsInAlerts:
+    """Tests for structured error info in SSE alerts and execution logs."""
+
+    @patch("src.scheduler.asyncio.sleep", new_callable=AsyncMock)
+    async def test_error_type_in_alert(
+        self, mock_sleep, scheduler_env,
+    ) -> None:
+        """Alert events include error_type when set."""
+        scheduler, task_manager, _event_bus, emitted = scheduler_env
+
+        fail_result = ExecutorResult(
+            success=False,
+            exit_code=1,
+            log_lines=[],
+            error_summary="Build failed",
+            error_type=ErrorType.NON_ZERO_EXIT,
+            stderr_output="some error text",
+            duration_seconds=1.0,
+        )
+        mock_exec = MockExecutor(result=fail_result)
+        scheduler._get_executor = lambda _: mock_exec
+
+        task = _make_task()
+        await task_manager.create_task(task)
+
+        await scheduler.tick()
+        running_tasks = list(scheduler.running.values())
+        if running_tasks:
+            await asyncio.gather(*running_tasks)
+
+        alert_events = [e for e in emitted if e[0] == "alert"]
+        assert len(alert_events) >= 1
+        alert_data = alert_events[0][2]
+        assert alert_data["error_type"] == "non_zero_exit"
+        assert "stderr" in alert_data
+
+    @patch("src.scheduler.asyncio.sleep", new_callable=AsyncMock)
+    async def test_exception_details_in_alert(
+        self, mock_sleep, scheduler_env,
+    ) -> None:
+        """Unhandled exceptions include exception type and message in alert."""
+        scheduler, task_manager, _event_bus, emitted = scheduler_env
+
+        class CrashingExecutor(BaseExecutor):
+            """Executor that raises a specific exception."""
+
+            async def execute(self, task, project, env, on_log):
+                """Raise ValueError."""
+                raise ValueError("missing config key")
+
+            async def cancel(self) -> None:
+                """No-op."""
+
+        scheduler._get_executor = lambda _: CrashingExecutor()
+
+        task = _make_task()
+        await task_manager.create_task(task)
+
+        await scheduler.tick()
+        running_tasks = list(scheduler.running.values())
+        if running_tasks:
+            await asyncio.gather(*running_tasks)
+
+        alert_events = [e for e in emitted if e[0] == "alert"]
+        assert len(alert_events) >= 1
+        alert_data = alert_events[0][2]
+        assert "ValueError" in alert_data["error"]
+        assert "missing config key" in alert_data["error"]
+        assert alert_data["error_type"] == "infra"
+
+    @patch("src.scheduler.asyncio.sleep", new_callable=AsyncMock)
+    async def test_alert_without_error_type(
+        self, mock_sleep, scheduler_env,
+    ) -> None:
+        """Alert without error_type still works (backward compatibility)."""
+        scheduler, task_manager, _event_bus, emitted = scheduler_env
+
+        fail_result = ExecutorResult(
+            success=False,
+            exit_code=1,
+            log_lines=[],
+            error_summary="Generic failure",
+            duration_seconds=1.0,
+        )
+        mock_exec = MockExecutor(result=fail_result)
+        scheduler._get_executor = lambda _: mock_exec
+
+        task = _make_task()
+        await task_manager.create_task(task)
+
+        await scheduler.tick()
+        running_tasks = list(scheduler.running.values())
+        if running_tasks:
+            await asyncio.gather(*running_tasks)
+
+        alert_events = [e for e in emitted if e[0] == "alert"]
+        assert len(alert_events) >= 1
+        alert_data = alert_events[0][2]
+        assert "Generic failure" in alert_data["error"]
+        # No error_type key when not set
+        assert "error_type" not in alert_data

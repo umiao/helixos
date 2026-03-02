@@ -20,16 +20,6 @@
 
 ### P3 -- Phase 3: UX + Polish
 
-#### T-P0-15: Surface detailed execution error diagnostics [M]
-- **Description**: Execution failures show only "Unhandled execution error" with no actionable details. Root cause: `scheduler.py:392` catch-all omits exception info; `code_executor.py` discards stderr; `error_summary` only set for timeouts.
-- **AC**:
-  - Add structured `error_type` enum on ExecutorResult: INFRA, CLI_NOT_FOUND, REPO_NOT_FOUND, NON_ZERO_EXIT, TIMEOUT, UNKNOWN
-  - Include exception type + message in SSE alert and execution log
-  - Capture stderr from CodeExecutor (truncate 4KB, strip ANSI); store full raw in log DB
-  - Pre-flight checks before subprocess spawn: `os.path.isdir(repo_path)`, `shutil.which("claude")`
-  - Add `MAX_CONCURRENT_EXECUTIONS = 2` hard limit in scheduler to prevent resource exhaustion
-- **Depends on**: None
-
 #### T-P0-16: Per-project execution pause/resume gate [M]
 - **Description**: Once QUEUED, the scheduler auto-executes on next 5s tick with no user control. Need a per-project pause toggle so users can queue tasks without immediate execution.
 - **AC**:
@@ -273,6 +263,9 @@ T-P2-6 [M] Frontend Swim Lanes [DONE] ------------------+
 
 #### [x] T-P3-6b: Persistent execution log + review history -- frontend -- 2026-03-02
 - Task-focused bottom panel: ExecutionLog fetches persistent DB logs + merges live SSE entries with level badges and source tags. ReviewPanel shows conversation-style review history with verdict badges, suggestions, consensus bars. Task focus indicator in tab bar with clear button. 4 new TS interfaces, 2 new API client functions. npm run build succeeds, 542 tests passing.
+
+#### [x] T-P0-15: Surface detailed execution error diagnostics -- 2026-03-02
+- ErrorType enum (INFRA, CLI_NOT_FOUND, REPO_NOT_FOUND, NON_ZERO_EXIT, TIMEOUT, UNKNOWN) on ExecutorResult. Pre-flight checks (repo_path exists, claude CLI on PATH). Stderr capture with 4KB truncation and ANSI stripping. Exception details in SSE alerts and execution logs. MAX_CONCURRENT_EXECUTIONS=2 hard limit. 27 new tests, 569 total passing.
 
 #### [x] T-P3-7: README overhaul -- 2026-03-02
 - Project-specific README with architecture diagram, features, backend/frontend module tables, API reference, task state machine, tech stack, quick start, configuration reference, and project structure tree.

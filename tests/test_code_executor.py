@@ -12,8 +12,13 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from src.config import OrchestratorSettings
-from src.executors.base import BaseExecutor, ExecutorResult
-from src.executors.code_executor import CodeExecutor
+from src.executors.base import BaseExecutor, ErrorType, ExecutorResult
+from src.executors.code_executor import (
+    MAX_STDERR_BYTES,
+    CodeExecutor,
+    _strip_ansi,
+    _truncate_stderr,
+)
 from src.models import ExecutorType, Project, Task
 
 # ------------------------------------------------------------------
@@ -100,6 +105,7 @@ def _make_mock_proc(
     stdout_lines: list[bytes],
     returncode: int = 0,
     wait_delay: float = 0.0,
+    stderr_data: bytes = b"",
 ) -> MagicMock:
     """Build a mock asyncio.subprocess.Process.
 
@@ -107,6 +113,7 @@ def _make_mock_proc(
         stdout_lines: Raw byte lines to yield from stdout.
         returncode: The process exit code.
         wait_delay: Seconds to delay in wait() (for timeout testing).
+        stderr_data: Raw bytes for stderr.read().
     """
     proc = MagicMock()
     proc.pid = 12345
@@ -114,6 +121,11 @@ def _make_mock_proc(
 
     # Use a proper async iterable for stdout
     proc.stdout = _AsyncLineIterator(stdout_lines)
+
+    # Mock stderr as an async reader
+    stderr_mock = AsyncMock()
+    stderr_mock.read = AsyncMock(return_value=stderr_data)
+    proc.stderr = stderr_mock
 
     # wait() sets returncode and optionally delays
     async def _wait() -> int:
@@ -335,7 +347,7 @@ class TestExecuteFailure:
         project: Project,
         task: Task,
     ) -> None:
-        """Non-zero exit code returns success=False."""
+        """Non-zero exit code returns success=False with error details."""
         proc = _make_mock_proc(
             stdout_lines=[b"error output\n"],
             returncode=1,
@@ -347,7 +359,8 @@ class TestExecuteFailure:
 
         assert result.success is False
         assert result.exit_code == 1
-        assert result.error_summary is None  # not a timeout
+        assert result.error_type == ErrorType.NON_ZERO_EXIT
+        assert "exited with code 1" in result.error_summary
 
     @patch("src.executors.code_executor.asyncio.create_subprocess_exec")
     async def test_nonzero_exit_various_codes(
@@ -394,6 +407,7 @@ class TestExecuteTimeout:
         proc = MagicMock()
         proc.pid = 99
         proc.returncode = None
+        proc.stderr = AsyncMock(read=AsyncMock(return_value=b""))
 
         # stdout that hangs after first line
         hang_event = asyncio.Event()
@@ -440,6 +454,7 @@ class TestExecuteTimeout:
         proc = MagicMock()
         proc.pid = 100
         proc.returncode = None
+        proc.stderr = AsyncMock(read=AsyncMock(return_value=b""))
 
         # stdout that hangs after first line
         hang_event = asyncio.Event()
@@ -495,6 +510,7 @@ class TestExecuteTimeout:
         proc = MagicMock()
         proc.pid = 101
         proc.returncode = None
+        proc.stderr = AsyncMock(read=AsyncMock(return_value=b""))
 
         hang_event = asyncio.Event()
         proc.stdout = _HangingIterator([b"line\n"], hang_event)
@@ -544,6 +560,7 @@ class TestCancel:
         proc = MagicMock()
         proc.pid = 200
         proc.returncode = None
+        proc.stderr = AsyncMock(read=AsyncMock(return_value=b""))
 
         proc.stdout = _HangingIterator([b"running...\n"], cancel_event)
 
@@ -779,3 +796,366 @@ class TestUtf8Decoding:
 
         assert logs == ["Hello UTF-8 \u4e16\u754c"]
         assert result.log_lines == ["Hello UTF-8 \u4e16\u754c"]
+
+
+# ------------------------------------------------------------------
+# Tests: ErrorType enum
+# ------------------------------------------------------------------
+
+
+class TestErrorType:
+    """Verify ErrorType enum values."""
+
+    def test_all_values_exist(self) -> None:
+        """All required error types are defined."""
+        assert ErrorType.INFRA == "infra"
+        assert ErrorType.CLI_NOT_FOUND == "cli_not_found"
+        assert ErrorType.REPO_NOT_FOUND == "repo_not_found"
+        assert ErrorType.NON_ZERO_EXIT == "non_zero_exit"
+        assert ErrorType.TIMEOUT == "timeout"
+        assert ErrorType.UNKNOWN == "unknown"
+
+    def test_executor_result_with_error_type(self) -> None:
+        """ExecutorResult can hold an error_type and stderr_output."""
+        result = ExecutorResult(
+            success=False,
+            exit_code=1,
+            error_summary="Build failed",
+            error_type=ErrorType.NON_ZERO_EXIT,
+            stderr_output="some error",
+            duration_seconds=1.0,
+        )
+        assert result.error_type == ErrorType.NON_ZERO_EXIT
+        assert result.stderr_output == "some error"
+
+    def test_executor_result_defaults_none(self) -> None:
+        """ErrorType and stderr_output default to None."""
+        result = ExecutorResult(
+            success=True, exit_code=0, duration_seconds=0.5,
+        )
+        assert result.error_type is None
+        assert result.stderr_output is None
+
+
+# ------------------------------------------------------------------
+# Tests: Pre-flight checks
+# ------------------------------------------------------------------
+
+
+class TestPreflightChecks:
+    """Verify pre-flight checks before subprocess spawn."""
+
+    @patch("src.executors.code_executor.shutil.which", return_value="/usr/bin/claude")
+    async def test_repo_not_found(
+        self,
+        mock_which: MagicMock,
+        config: OrchestratorSettings,
+        task: Task,
+    ) -> None:
+        """Missing repo_path returns REPO_NOT_FOUND error."""
+        project = Project(
+            id="P0",
+            name="TestProject",
+            repo_path=Path("/nonexistent/path/that/does/not/exist"),
+            executor_type=ExecutorType.CODE,
+        )
+        executor = CodeExecutor(config)
+        logs: list[str] = []
+        result = await executor.execute(task, project, {}, logs.append)
+
+        assert result.success is False
+        assert result.error_type == ErrorType.REPO_NOT_FOUND
+        assert "not found" in result.error_summary.lower()
+        assert len(logs) == 1
+        assert "[PRE-FLIGHT FAIL]" in logs[0]
+
+    async def test_repo_path_none(
+        self,
+        config: OrchestratorSettings,
+        task: Task,
+    ) -> None:
+        """None repo_path returns REPO_NOT_FOUND error."""
+        project = Project(
+            id="P0",
+            name="TestProject",
+            repo_path=None,
+            executor_type=ExecutorType.CODE,
+        )
+        executor = CodeExecutor(config)
+        logs: list[str] = []
+        result = await executor.execute(task, project, {}, logs.append)
+
+        assert result.success is False
+        assert result.error_type == ErrorType.REPO_NOT_FOUND
+
+    @patch("src.executors.code_executor.shutil.which", return_value=None)
+    async def test_cli_not_found(
+        self,
+        mock_which: MagicMock,
+        config: OrchestratorSettings,
+        project: Project,
+        task: Task,
+    ) -> None:
+        """Missing claude CLI returns CLI_NOT_FOUND error."""
+        executor = CodeExecutor(config)
+        logs: list[str] = []
+        result = await executor.execute(task, project, {}, logs.append)
+
+        assert result.success is False
+        assert result.error_type == ErrorType.CLI_NOT_FOUND
+        assert "claude cli" in result.error_summary.lower()
+        assert len(logs) == 1
+        assert "[PRE-FLIGHT FAIL]" in logs[0]
+
+    @patch("src.executors.code_executor.asyncio.create_subprocess_exec")
+    @patch("src.executors.code_executor.shutil.which", return_value="/usr/bin/claude")
+    async def test_all_checks_pass(
+        self,
+        mock_which: MagicMock,
+        mock_exec: AsyncMock,
+        config: OrchestratorSettings,
+        project: Project,
+        task: Task,
+    ) -> None:
+        """When all pre-flight checks pass, subprocess is spawned."""
+        proc = _make_mock_proc(stdout_lines=[b"ok\n"], returncode=0)
+        mock_exec.return_value = proc
+
+        executor = CodeExecutor(config)
+        result = await executor.execute(task, project, {}, lambda _: None)
+
+        assert result.success is True
+        mock_exec.assert_called_once()
+
+
+# ------------------------------------------------------------------
+# Tests: Stderr capture
+# ------------------------------------------------------------------
+
+
+class TestStderrCapture:
+    """Verify stderr is captured, stripped of ANSI, and truncated."""
+
+    @patch("src.executors.code_executor.asyncio.create_subprocess_exec")
+    async def test_stderr_captured(
+        self,
+        mock_exec: AsyncMock,
+        config: OrchestratorSettings,
+        project: Project,
+        task: Task,
+    ) -> None:
+        """Stderr is captured in the result."""
+        proc = _make_mock_proc(
+            stdout_lines=[b"output\n"],
+            returncode=1,
+            stderr_data=b"error message\n",
+        )
+        mock_exec.return_value = proc
+
+        executor = CodeExecutor(config)
+        result = await executor.execute(task, project, {}, lambda _: None)
+
+        assert result.stderr_output == "error message\n"
+
+    @patch("src.executors.code_executor.asyncio.create_subprocess_exec")
+    async def test_stderr_ansi_stripped(
+        self,
+        mock_exec: AsyncMock,
+        config: OrchestratorSettings,
+        project: Project,
+        task: Task,
+    ) -> None:
+        """ANSI escape sequences are stripped from stderr."""
+        proc = _make_mock_proc(
+            stdout_lines=[b"output\n"],
+            returncode=1,
+            stderr_data=b"\x1b[31mRed error\x1b[0m text\n",
+        )
+        mock_exec.return_value = proc
+
+        executor = CodeExecutor(config)
+        result = await executor.execute(task, project, {}, lambda _: None)
+
+        assert "\x1b[" not in result.stderr_output
+        assert "Red error" in result.stderr_output
+        assert "text" in result.stderr_output
+
+    @patch("src.executors.code_executor.asyncio.create_subprocess_exec")
+    async def test_stderr_truncated(
+        self,
+        mock_exec: AsyncMock,
+        config: OrchestratorSettings,
+        project: Project,
+        task: Task,
+    ) -> None:
+        """Stderr larger than 4KB is truncated."""
+        big_stderr = b"X" * 8000
+        proc = _make_mock_proc(
+            stdout_lines=[b"ok\n"],
+            returncode=1,
+            stderr_data=big_stderr,
+        )
+        mock_exec.return_value = proc
+
+        executor = CodeExecutor(config)
+        result = await executor.execute(task, project, {}, lambda _: None)
+
+        assert len(result.stderr_output) <= MAX_STDERR_BYTES
+        assert result.stderr_output.endswith("...[truncated]")
+
+    @patch("src.executors.code_executor.asyncio.create_subprocess_exec")
+    async def test_no_stderr(
+        self,
+        mock_exec: AsyncMock,
+        config: OrchestratorSettings,
+        project: Project,
+        task: Task,
+    ) -> None:
+        """Empty stderr results in None."""
+        proc = _make_mock_proc(
+            stdout_lines=[b"output\n"],
+            returncode=0,
+            stderr_data=b"",
+        )
+        mock_exec.return_value = proc
+
+        executor = CodeExecutor(config)
+        result = await executor.execute(task, project, {}, lambda _: None)
+
+        assert result.stderr_output is None
+
+    @patch("src.executors.code_executor.asyncio.create_subprocess_exec")
+    async def test_stderr_in_error_summary(
+        self,
+        mock_exec: AsyncMock,
+        config: OrchestratorSettings,
+        project: Project,
+        task: Task,
+    ) -> None:
+        """First line of stderr is included in error_summary for non-zero exit."""
+        proc = _make_mock_proc(
+            stdout_lines=[],
+            returncode=1,
+            stderr_data=b"ImportError: no module named foo\nTraceback follows\n",
+        )
+        mock_exec.return_value = proc
+
+        executor = CodeExecutor(config)
+        result = await executor.execute(task, project, {}, lambda _: None)
+
+        assert "ImportError" in result.error_summary
+        assert "exited with code 1" in result.error_summary
+
+
+# ------------------------------------------------------------------
+# Tests: ANSI stripping utility
+# ------------------------------------------------------------------
+
+
+class TestStripAnsi:
+    """Verify ANSI escape sequence removal."""
+
+    def test_no_ansi(self) -> None:
+        """Plain text passes through unchanged."""
+        assert _strip_ansi("hello world") == "hello world"
+
+    def test_color_codes(self) -> None:
+        """Color codes are removed."""
+        assert _strip_ansi("\x1b[31mred\x1b[0m") == "red"
+
+    def test_bold_and_underline(self) -> None:
+        """Bold and underline codes are removed."""
+        assert _strip_ansi("\x1b[1mbold\x1b[4munderline\x1b[0m") == "boldunderline"
+
+    def test_cursor_movement(self) -> None:
+        """Cursor movement codes are removed."""
+        assert _strip_ansi("\x1b[2Jhello\x1b[H") == "hello"
+
+
+# ------------------------------------------------------------------
+# Tests: Timeout error type
+# ------------------------------------------------------------------
+
+
+class TestTimeoutErrorType:
+    """Verify timeout sets ErrorType.TIMEOUT."""
+
+    @patch("src.executors.code_executor.asyncio.create_subprocess_exec")
+    async def test_timeout_error_type(
+        self,
+        mock_exec: AsyncMock,
+        project: Project,
+        task: Task,
+    ) -> None:
+        """Timeout sets error_type=TIMEOUT."""
+        config = OrchestratorSettings(
+            session_timeout_minutes=0,
+            subprocess_terminate_grace_seconds=5,
+        )
+
+        proc = MagicMock()
+        proc.pid = 102
+        proc.returncode = None
+
+        hang_event = asyncio.Event()
+        proc.stdout = _HangingIterator([b"line\n"], hang_event)
+
+        # Mock stderr
+        stderr_mock = AsyncMock()
+        stderr_mock.read = AsyncMock(return_value=b"")
+        proc.stderr = stderr_mock
+
+        def _terminate() -> None:
+            proc.returncode = -15
+            hang_event.set()
+
+        proc.terminate = MagicMock(side_effect=_terminate)
+        proc.kill = MagicMock()
+
+        async def _wait() -> int:
+            return proc.returncode
+
+        proc.wait = _wait
+
+        mock_exec.return_value = proc
+
+        executor = CodeExecutor(config)
+        result = await executor.execute(task, project, {}, lambda _: None)
+
+        assert result.success is False
+        assert result.error_type == ErrorType.TIMEOUT
+        assert "timeout" in result.error_summary.lower()
+
+
+# ------------------------------------------------------------------
+# Tests: Truncate stderr utility
+# ------------------------------------------------------------------
+
+
+class TestTruncateStderr:
+    """Verify stderr truncation and ANSI stripping."""
+
+    def test_short_stderr(self) -> None:
+        """Short stderr is returned without truncation."""
+        result = _truncate_stderr(b"short error")
+        assert result == "short error"
+
+    def test_long_stderr_truncated(self) -> None:
+        """Stderr exceeding MAX_STDERR_BYTES is truncated."""
+        raw = b"X" * (MAX_STDERR_BYTES + 100)
+        result = _truncate_stderr(raw)
+        assert len(result) <= MAX_STDERR_BYTES
+        assert result.endswith("...[truncated]")
+
+    def test_ansi_stripped_before_truncation(self) -> None:
+        """ANSI codes are stripped before truncation."""
+        raw = b"\x1b[31mRed text\x1b[0m"
+        result = _truncate_stderr(raw)
+        assert "\x1b[" not in result
+        assert "Red text" in result
+
+    def test_invalid_utf8_replaced(self) -> None:
+        """Invalid UTF-8 bytes are replaced, not raising."""
+        raw = b"valid \xff invalid"
+        result = _truncate_stderr(raw)
+        assert "valid" in result

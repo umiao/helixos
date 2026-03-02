@@ -314,3 +314,10 @@
 - **Sanity check result**: pytest 542/542 passed. ruff check clean. npm run build succeeds. No emoji.
 - **Status**: [DONE]
 - **Request**: Move T-P3-7 to Completed
+
+## 2026-03-02 13:00 -- [T-P0-15] Surface detailed execution error diagnostics
+- **What I did**: Added structured error classification to execution results. Created ErrorType enum (INFRA, CLI_NOT_FOUND, REPO_NOT_FOUND, NON_ZERO_EXIT, TIMEOUT, UNKNOWN) on ExecutorResult. Added pre-flight checks in CodeExecutor (os.path.isdir for repo_path, shutil.which for claude CLI) that return typed errors before subprocess spawn. Implemented stderr capture with 4KB truncation and ANSI escape sequence stripping. Updated scheduler catch-all to include exception type+message in SSE alerts and execution log (was "Unhandled execution error", now "Unhandled execution error: ValueError: missing config key"). Added MAX_CONCURRENT_EXECUTIONS=2 hard limit in scheduler. Updated ExecutionState model and API schemas with error_type field.
+- **Deliverables**: src/executors/base.py (mod -- ErrorType enum, error_type + stderr_output fields), src/executors/code_executor.py (mod -- pre-flight checks, stderr capture, ANSI stripping, error classification), src/scheduler.py (mod -- MAX_CONCURRENT_EXECUTIONS, error_type in alerts, exception details in catch-all), src/models.py (mod -- error_type field on ExecutionState), src/schemas.py (mod -- error_type on ExecutionStateResponse), tests/test_code_executor.py (mod -- 20 new tests), tests/test_scheduler.py (mod -- 7 new tests)
+- **Sanity check result**: pytest 569/569 passed (27 new). ruff check clean. npm run build succeeds. No emoji.
+- **Status**: [DONE]
+- **Request**: Move T-P0-15 to Completed
