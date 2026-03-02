@@ -195,3 +195,10 @@
 - **Sanity check result**: pytest 335/335 passed (2 new + 333 existing). ruff check src/api.py -- clean. No emoji.
 - **Status**: [DONE]
 - **Request**: No task status change (ad-hoc bug fix, not a tracked task)
+
+## 2026-03-02 21:00 -- [T-P2-1] Extend ProjectConfig + OrchestratorSettings for P2 features
+- **What I did**: Added PortRange model with min/max port validation. Extended OrchestratorSettings with port_ranges (dict[str, PortRange], defaults: frontend 3100-3999, backend 8100-8999) and max_total_subprocesses (int, default 5, ge=1). Extended ProjectConfig with launch_command (str|None), project_type (Literal["frontend","backend","other"], default "other"), preferred_port (int|None, 1024-65535). All new fields are optional with defaults, fully backward compatible.
+- **Deliverables**: src/config.py (mod -- PortRange model, new fields on OrchestratorSettings and ProjectConfig), tests/test_config.py (mod -- 24 new tests)
+- **Sanity check result**: pytest 359/359 passed (24 new + 335 existing). ruff check clean. No emoji.
+- **Status**: [DONE]
+- **Request**: Move T-P2-1 to Completed

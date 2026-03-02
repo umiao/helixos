@@ -14,6 +14,7 @@ from src.config import (
     GitConfig,
     OrchestratorConfig,
     OrchestratorSettings,
+    PortRange,
     ProjectConfig,
     ProjectRegistry,
     ReviewerConfig,
@@ -97,11 +98,80 @@ dependencies:
 """
 
 
+P2_FIELDS_YAML = """\
+orchestrator:
+  global_concurrency_limit: 3
+  port_ranges:
+    frontend:
+      min_port: 4000
+      max_port: 4999
+    backend:
+      min_port: 9000
+      max_port: 9999
+  max_total_subprocesses: 8
+
+projects:
+  P0:
+    name: "Frontend App"
+    repo_path: "~/projects/frontend"
+    executor_type: "code"
+    launch_command: "npm run dev"
+    project_type: "frontend"
+    preferred_port: 4200
+  P1:
+    name: "Backend API"
+    repo_path: "~/projects/backend"
+    executor_type: "code"
+    launch_command: "python -m uvicorn main:app"
+    project_type: "backend"
+    preferred_port: 9100
+  P2:
+    name: "Legacy Tool"
+    repo_path: "~/projects/legacy"
+    executor_type: "code"
+"""
+
+
 def _write_yaml(tmp_path: Path, content: str) -> Path:
     """Write YAML content to a temp file and return its path."""
     p = tmp_path / "config.yaml"
     p.write_text(content, encoding="utf-8")
     return p
+
+
+# ------------------------------------------------------------------
+# PortRange tests
+# ------------------------------------------------------------------
+
+
+class TestPortRange:
+    """Tests for the PortRange model."""
+
+    def test_valid_range(self) -> None:
+        """Valid port range is accepted."""
+        pr = PortRange(min_port=3000, max_port=4000)
+        assert pr.min_port == 3000
+        assert pr.max_port == 4000
+
+    def test_equal_ports(self) -> None:
+        """min_port == max_port is valid (single-port range)."""
+        pr = PortRange(min_port=8080, max_port=8080)
+        assert pr.min_port == pr.max_port
+
+    def test_min_greater_than_max(self) -> None:
+        """min_port > max_port raises ValidationError."""
+        with pytest.raises(ValidationError, match="min_port"):
+            PortRange(min_port=5000, max_port=3000)
+
+    def test_port_below_1024(self) -> None:
+        """Port below 1024 raises ValidationError."""
+        with pytest.raises(ValidationError):
+            PortRange(min_port=80, max_port=3000)
+
+    def test_port_above_65535(self) -> None:
+        """Port above 65535 raises ValidationError."""
+        with pytest.raises(ValidationError):
+            PortRange(min_port=3000, max_port=70000)
 
 
 # ------------------------------------------------------------------
@@ -131,6 +201,41 @@ class TestOrchestratorSettings:
         assert "~" not in str(s.state_db_path)
         assert s.unified_env_path == Path("~/.helixos/.env").expanduser()
         assert s.state_db_path == Path("~/data/state.db").expanduser()
+
+    def test_port_ranges_defaults(self) -> None:
+        """Default port_ranges contain frontend and backend."""
+        s = OrchestratorSettings()
+        assert "frontend" in s.port_ranges
+        assert "backend" in s.port_ranges
+        assert s.port_ranges["frontend"].min_port == 3100
+        assert s.port_ranges["frontend"].max_port == 3999
+        assert s.port_ranges["backend"].min_port == 8100
+        assert s.port_ranges["backend"].max_port == 8999
+
+    def test_port_ranges_custom(self) -> None:
+        """Custom port_ranges override defaults."""
+        s = OrchestratorSettings(
+            port_ranges={
+                "frontend": PortRange(min_port=4000, max_port=4999),
+            },
+        )
+        assert s.port_ranges["frontend"].min_port == 4000
+        assert "backend" not in s.port_ranges
+
+    def test_max_total_subprocesses_default(self) -> None:
+        """Default max_total_subprocesses is 5."""
+        s = OrchestratorSettings()
+        assert s.max_total_subprocesses == 5
+
+    def test_max_total_subprocesses_custom(self) -> None:
+        """Custom max_total_subprocesses is accepted."""
+        s = OrchestratorSettings(max_total_subprocesses=10)
+        assert s.max_total_subprocesses == 10
+
+    def test_max_total_subprocesses_zero(self) -> None:
+        """max_total_subprocesses=0 raises ValidationError (ge=1)."""
+        with pytest.raises(ValidationError):
+            OrchestratorSettings(max_total_subprocesses=0)
 
 
 # ------------------------------------------------------------------
@@ -177,6 +282,67 @@ class TestProjectConfig:
         """env_keys list is preserved."""
         pc = ProjectConfig(name="Test", env_keys=["KEY_A", "KEY_B"])
         assert pc.env_keys == ["KEY_A", "KEY_B"]
+
+    def test_launch_command_default(self) -> None:
+        """launch_command defaults to None."""
+        pc = ProjectConfig(name="Test")
+        assert pc.launch_command is None
+
+    def test_launch_command_set(self) -> None:
+        """launch_command can be set."""
+        pc = ProjectConfig(name="Test", launch_command="npm run dev")
+        assert pc.launch_command == "npm run dev"
+
+    def test_project_type_default(self) -> None:
+        """project_type defaults to 'other'."""
+        pc = ProjectConfig(name="Test")
+        assert pc.project_type == "other"
+
+    def test_project_type_frontend(self) -> None:
+        """project_type accepts 'frontend'."""
+        pc = ProjectConfig(name="Test", project_type="frontend")
+        assert pc.project_type == "frontend"
+
+    def test_project_type_backend(self) -> None:
+        """project_type accepts 'backend'."""
+        pc = ProjectConfig(name="Test", project_type="backend")
+        assert pc.project_type == "backend"
+
+    def test_project_type_invalid(self) -> None:
+        """Invalid project_type raises ValidationError."""
+        with pytest.raises(ValidationError):
+            ProjectConfig(name="Test", project_type="database")
+
+    def test_preferred_port_default(self) -> None:
+        """preferred_port defaults to None."""
+        pc = ProjectConfig(name="Test")
+        assert pc.preferred_port is None
+
+    def test_preferred_port_set(self) -> None:
+        """preferred_port can be set to a valid port."""
+        pc = ProjectConfig(name="Test", preferred_port=3000)
+        assert pc.preferred_port == 3000
+
+    def test_preferred_port_below_1024(self) -> None:
+        """preferred_port below 1024 raises ValidationError."""
+        with pytest.raises(ValidationError):
+            ProjectConfig(name="Test", preferred_port=80)
+
+    def test_preferred_port_above_65535(self) -> None:
+        """preferred_port above 65535 raises ValidationError."""
+        with pytest.raises(ValidationError):
+            ProjectConfig(name="Test", preferred_port=70000)
+
+    def test_new_fields_backward_compatible(self) -> None:
+        """Existing config without new fields still loads correctly."""
+        pc = ProjectConfig(
+            name="Legacy",
+            repo_path=Path("/tmp/legacy"),
+            executor_type="code",
+        )
+        assert pc.launch_command is None
+        assert pc.project_type == "other"
+        assert pc.preferred_port is None
 
 
 # ------------------------------------------------------------------
@@ -286,6 +452,27 @@ class TestOrchestratorConfig:
         assert len(cfg.dependencies) == 1
         assert cfg.dependencies[0].upstream == "P2:T-structured-output"
 
+    def test_p2_fields_config(self) -> None:
+        """P2 fields (port_ranges, max_total_subprocesses, launch_command, project_type, preferred_port) round-trip."""
+        raw = yaml.safe_load(P2_FIELDS_YAML)
+        cfg = OrchestratorConfig.model_validate(raw)
+        # Orchestrator P2 fields
+        assert cfg.orchestrator.max_total_subprocesses == 8
+        assert cfg.orchestrator.port_ranges["frontend"].min_port == 4000
+        assert cfg.orchestrator.port_ranges["frontend"].max_port == 4999
+        assert cfg.orchestrator.port_ranges["backend"].min_port == 9000
+        # Project P2 fields
+        assert cfg.projects["P0"].launch_command == "npm run dev"
+        assert cfg.projects["P0"].project_type == "frontend"
+        assert cfg.projects["P0"].preferred_port == 4200
+        assert cfg.projects["P1"].launch_command == "python -m uvicorn main:app"
+        assert cfg.projects["P1"].project_type == "backend"
+        assert cfg.projects["P1"].preferred_port == 9100
+        # Legacy project has defaults for new fields
+        assert cfg.projects["P2"].launch_command is None
+        assert cfg.projects["P2"].project_type == "other"
+        assert cfg.projects["P2"].preferred_port is None
+
 
 # ------------------------------------------------------------------
 # load_config tests
@@ -345,6 +532,27 @@ orchestrator:
         cfg = load_config(p)
         assert "~" not in str(cfg.orchestrator.unified_env_path)
         assert "~" not in str(cfg.projects["P0"].repo_path)
+
+    def test_load_p2_fields(self, tmp_path: Path) -> None:
+        """P2 fields load correctly from YAML file."""
+        p = _write_yaml(tmp_path, P2_FIELDS_YAML)
+        cfg = load_config(p)
+        assert cfg.orchestrator.max_total_subprocesses == 8
+        assert cfg.projects["P0"].launch_command == "npm run dev"
+        assert cfg.projects["P0"].project_type == "frontend"
+        assert cfg.projects["P0"].preferred_port == 4200
+
+    def test_load_existing_config_unchanged(self, tmp_path: Path) -> None:
+        """Existing config without P2 fields loads correctly (backward compat)."""
+        p = _write_yaml(tmp_path, FULL_YAML)
+        cfg = load_config(p)
+        # New fields should have defaults
+        assert cfg.orchestrator.max_total_subprocesses == 5
+        assert "frontend" in cfg.orchestrator.port_ranges
+        for pc in cfg.projects.values():
+            assert pc.launch_command is None
+            assert pc.project_type == "other"
+            assert pc.preferred_port is None
 
 
 # ------------------------------------------------------------------

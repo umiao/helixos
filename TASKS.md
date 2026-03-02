@@ -17,19 +17,8 @@
 
 ### P2 -- Nice to Have (polish, optimization)
 
-#### T-P2-1: Extend ProjectConfig + OrchestratorSettings for P2 features
-- **Complexity**: S | **Depends on**: None
-- **What**: Add fields to support import, launch, and port management.
-  - `ProjectConfig`: add optional `launch_command` (str), `project_type` ("frontend"/"backend"/"other"), `preferred_port` (int|None)
-  - `OrchestratorSettings`: add `port_ranges` dict (frontend: [3100, 3999], backend: [8100, 8999]), `max_total_subprocesses` (default 5)
-  - All new fields optional with defaults (backward compatible)
-- **AC**:
-  - [ ] Existing config loading unchanged (no breakage)
-  - [ ] New fields validated by Pydantic (type, range checks)
-  - [ ] Tests pass
-
 #### T-P2-2: PortRegistry -- auto-assign ports, conflict detection, persistence
-- **Complexity**: M | **Depends on**: T-P2-1
+- **Complexity**: M | **Depends on**: None (all deps done)
 - **What**: New `src/port_registry.py`. Manages port assignments per project.
   - `assign_port(project_id, project_type)` -- pick next available from configured range
   - `release_port(project_id)` -- free assignment
@@ -45,7 +34,7 @@
   - [ ] 10+ tests
 
 #### T-P2-3: Project validation + import API + config writer (ruamel.yaml)
-- **Complexity**: M | **Depends on**: T-P2-1, T-P2-2
+- **Complexity**: M | **Depends on**: T-P2-2
 - **What**: Backend endpoints for UI-driven project onboarding.
   - `POST /api/projects/validate` -- validate directory: .git/ required, TASKS.md + CLAUDE.md optional (warnings + limited mode flags)
   - `POST /api/projects/import` -- register project: ruamel.yaml read-modify-write to orchestrator_config.yaml (preserves comments, atomic write), reload ProjectRegistry, auto-assign port, auto-sync if TASKS.md present
@@ -60,7 +49,7 @@
   - [ ] 15+ tests
 
 #### T-P2-4: TasksWriter -- create tasks by appending to TASKS.md (with filelock)
-- **Complexity**: M | **Depends on**: T-P2-1
+- **Complexity**: M | **Depends on**: None (all deps done)
 - **What**: New `src/tasks_writer.py`. Safely appends tasks to a project's TASKS.md.
   - Uses `filelock` library for cross-platform file locking
   - Lock acquired before read-modify-write cycle
@@ -78,7 +67,7 @@
   - [ ] 12+ tests
 
 #### T-P2-5: ProcessManager + SubprocessRegistry -- launch/stop project processes
-- **Complexity**: M | **Depends on**: T-P2-1, T-P2-2
+- **Complexity**: M | **Depends on**: T-P2-2
 - **What**: New `src/process_manager.py` and `src/subprocess_registry.py`.
   - SubprocessRegistry: unified tracker for ALL subprocesses (Scheduler executors + ProcessManager dev servers). Tracks PID, type, project_id, start_time. Shared `MAX_TOTAL_SUBPROCESSES` limit.
   - ProcessManager: launch/stop project dev servers.
@@ -299,3 +288,6 @@ T-P2-6 [M] Frontend Swim Lanes (no deps) ----------------+
 
 #### [x] T-P1-7: E2E startup verification -- 2026-03-02
 - Full pipeline verified: server starts on port 8000, dashboard loads from static build, sync-all parses 20 tasks from TASKS.md, all 14 API endpoints respond correctly, SSE streams with text/event-stream, review pipeline initialized with Claude CLI 2.1.63, state machine enforces transitions. Verification checklist in docs/e2e_verification.md. 333 tests passing.
+
+#### [x] T-P2-1: Extend ProjectConfig + OrchestratorSettings for P2 features -- 2026-03-02
+- Added PortRange model, port_ranges dict and max_total_subprocesses to OrchestratorSettings. Added launch_command, project_type (Literal), preferred_port to ProjectConfig. All fields optional with defaults (backward compatible). 24 new tests, 359 total passing.

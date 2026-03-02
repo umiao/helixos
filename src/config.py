@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import logging
 from pathlib import Path
+from typing import Literal
 
 import yaml
 from pydantic import BaseModel, Field, model_validator
@@ -22,6 +23,24 @@ logger = logging.getLogger(__name__)
 # ------------------------------------------------------------------
 
 
+class PortRange(BaseModel):
+    """A [min, max] port range for a project type."""
+
+    min_port: int = Field(ge=1024, le=65535)
+    max_port: int = Field(ge=1024, le=65535)
+
+    @model_validator(mode="after")
+    def _min_le_max(self) -> PortRange:
+        """Ensure min_port <= max_port."""
+        if self.min_port > self.max_port:
+            msg = (
+                f"min_port ({self.min_port}) must be <= "
+                f"max_port ({self.max_port})"
+            )
+            raise ValueError(msg)
+        return self
+
+
 class OrchestratorSettings(BaseModel):
     """The ``orchestrator:`` section -- core runtime settings."""
 
@@ -32,6 +51,13 @@ class OrchestratorSettings(BaseModel):
     subprocess_terminate_grace_seconds: int = 5
     unified_env_path: Path = Path("~/.helixos/.env")
     state_db_path: Path = Path("~/.helixos/state.db")
+    port_ranges: dict[str, PortRange] = Field(
+        default_factory=lambda: {
+            "frontend": PortRange(min_port=3100, max_port=3999),
+            "backend": PortRange(min_port=8100, max_port=8999),
+        },
+    )
+    max_total_subprocesses: int = Field(default=5, ge=1)
 
     @model_validator(mode="after")
     def _expand_paths(self) -> OrchestratorSettings:
@@ -53,6 +79,9 @@ class ProjectConfig(BaseModel):
     env_keys: list[str] = Field(default_factory=list)
     claude_md_path: Path | None = None
     status_sections: dict[str, str] | None = None
+    launch_command: str | None = None
+    project_type: Literal["frontend", "backend", "other"] = "other"
+    preferred_port: int | None = Field(default=None, ge=1024, le=65535)
 
     @model_validator(mode="after")
     def _expand_paths(self) -> ProjectConfig:
