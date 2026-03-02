@@ -22,7 +22,7 @@
 
 #### T-P3-3: Import Project in ProjectSelector dropdown [S]
 - **AC**: "Import Project" button in dropdown, opens ImportProjectModal
-- **Depends on**: T-P3-2
+- **Depends on**: None (directory browser completed)
 
 #### T-P3-4: Task card hover popover with details [S]
 - **AC**: Hover 300ms+ shows popover with full task details via React portal
@@ -42,7 +42,7 @@
 
 #### T-P3-7: README overhaul [S]
 - **AC**: Project-specific README with architecture diagram, features, modules
-- **Depends on**: T-P3-2 through T-P3-6b
+- **Depends on**: T-P3-3 through T-P3-6b
 
 #### T-P3-8: Self-hosting guardrails -- design document [S]
 - **AC**: Design doc covering worker isolation, commit serialization, log isolation
