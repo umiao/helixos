@@ -209,3 +209,10 @@
 - **Sanity check result**: pytest 392/392 passed (33 new + 359 existing). ruff check clean. No emoji.
 - **Status**: [DONE]
 - **Request**: Move T-P2-2 to Completed
+
+## 2026-03-02 23:00 -- [T-P2-3] Project validation + import API + config writer (ruamel.yaml)
+- **What I did**: Created project onboarding backend: config_writer.py (ruamel.yaml read-modify-write with comment preservation, atomic write via tmp + os.replace, suggest_next_project_id), project_validator.py (validate directory for .git, TASKS.md, CLAUDE.md with warnings and limited-mode reasons). Added POST /api/projects/validate and POST /api/projects/import endpoints to api.py. Validate returns validity, presence flags, suggested ID, warnings, limited-mode reasons. Import writes to YAML, reloads ProjectRegistry in-memory, auto-assigns port via PortRegistry, auto-syncs if TASKS.md present. Rejects duplicates (409), invalid paths (400). Added request/response schemas. Added ruamel.yaml to requirements.txt.
+- **Deliverables**: src/config_writer.py (new), src/project_validator.py (new), src/api.py (mod -- 2 new endpoints, PortRegistry init in lifespan), src/schemas.py (mod -- 4 new schemas), requirements.txt (mod), tests/test_project_onboarding.py (new -- 29 tests)
+- **Sanity check result**: pytest 421/421 passed (29 new + 392 existing). ruff check clean. No emoji.
+- **Status**: [DONE]
+- **Request**: Move T-P2-3 to Completed

@@ -144,6 +144,71 @@ class SyncAllResponse(BaseModel):
 
 
 # ------------------------------------------------------------------
+# Project onboarding schemas
+# ------------------------------------------------------------------
+
+
+class ValidateProjectRequest(BaseModel):
+    """Request to validate a directory for import."""
+
+    path: str = Field(..., description="Path to the project directory")
+
+
+class ValidateProjectResponse(BaseModel):
+    """Result of validating a project directory."""
+
+    valid: bool
+    name: str
+    path: str
+    has_git: bool
+    has_tasks_md: bool
+    has_claude_config: bool
+    suggested_id: str
+    warnings: list[str] = Field(default_factory=list)
+    limited_mode_reasons: list[str] = Field(default_factory=list)
+
+
+class ImportProjectRequest(BaseModel):
+    """Request to import a project into the orchestrator."""
+
+    path: str = Field(..., description="Path to the project directory")
+    project_id: str | None = Field(
+        default=None,
+        description="Project ID override (auto-generated if omitted)",
+    )
+    name: str | None = Field(
+        default=None,
+        description="Display name override (defaults to directory name)",
+    )
+    project_type: str = Field(
+        default="other",
+        description="Project type: frontend, backend, or other",
+    )
+    launch_command: str | None = Field(
+        default=None,
+        description="Command to launch the project dev server",
+    )
+    preferred_port: int | None = Field(
+        default=None,
+        ge=1024,
+        le=65535,
+        description="Preferred port number",
+    )
+
+
+class ImportProjectResponse(BaseModel):
+    """Result of importing a project."""
+
+    project_id: str
+    name: str
+    repo_path: str
+    port: int | None = None
+    synced: bool = False
+    sync_result: SyncResponse | None = None
+    warnings: list[str] = Field(default_factory=list)
+
+
+# ------------------------------------------------------------------
 # Error schemas
 # ------------------------------------------------------------------
 

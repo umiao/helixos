@@ -17,21 +17,6 @@
 
 ### P2 -- Nice to Have (polish, optimization)
 
-#### T-P2-3: Project validation + import API + config writer (ruamel.yaml)
-- **Complexity**: M | **Depends on**: None (all deps done)
-- **What**: Backend endpoints for UI-driven project onboarding.
-  - `POST /api/projects/validate` -- validate directory: .git/ required, TASKS.md + CLAUDE.md optional (warnings + limited mode flags)
-  - `POST /api/projects/import` -- register project: ruamel.yaml read-modify-write to orchestrator_config.yaml (preserves comments, atomic write), reload ProjectRegistry, auto-assign port, auto-sync if TASKS.md present
-  - Reject duplicate project IDs (409), invalid paths (400)
-  - Suggested project ID auto-generated (next available P-number)
-- **AC**:
-  - [ ] Validate returns { valid, name, has_git, has_tasks_md, has_claude_config, suggested_id, warnings, limited_mode_reasons }
-  - [ ] Import writes to YAML via ruamel.yaml without corrupting comments/formatting
-  - [ ] Atomic config write (tmp + os.replace)
-  - [ ] Registry reloaded in-memory after import
-  - [ ] Auto-sync triggered for new project
-  - [ ] 15+ tests
-
 #### T-P2-4: TasksWriter -- create tasks by appending to TASKS.md (with filelock)
 - **Complexity**: M | **Depends on**: None (all deps done)
 - **What**: New `src/tasks_writer.py`. Safely appends tasks to a project's TASKS.md.
@@ -92,7 +77,7 @@
   - [ ] npm run build succeeds
 
 #### T-P2-7: Frontend -- SwimLaneHeader + ImportModal + NewTaskModal + LaunchControl
-- **Complexity**: M | **Depends on**: T-P2-3, T-P2-4, T-P2-5, T-P2-6
+- **Complexity**: M | **Depends on**: T-P2-4, T-P2-5, T-P2-6 (validate/import API done)
 - **What**: All frontend UI components for the operations portal.
   - `SwimLaneHeader.tsx`: per-project action bar with Launch, New Task, Sync buttons
   - `ImportProjectModal.tsx`: path input -> validate API -> show results -> confirm import
@@ -278,3 +263,6 @@ T-P2-6 [M] Frontend Swim Lanes (no deps) ----------------+
 
 #### [x] T-P2-2: PortRegistry -- auto-assign ports, conflict detection, persistence -- 2026-03-02
 - PortRegistry with assign_port (preferred_port + exclude_ports), release_port, get_assignment, update_pid, list_assignments, cleanup_orphans. Atomic persistence via tmp + os.replace to ports.json. 33 new tests, 392 total passing.
+
+#### [x] T-P2-3: Project validation + import API + config writer (ruamel.yaml) -- 2026-03-02
+- config_writer.py (ruamel.yaml comment-preserving read-modify-write, atomic write, suggest_next_project_id), project_validator.py (directory validation with limited-mode detection). POST /api/projects/validate and POST /api/projects/import endpoints. Auto-assign port, auto-sync, duplicate/invalid-path rejection. 29 new tests, 421 total passing.

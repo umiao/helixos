@@ -19,16 +19,21 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
 from src.config import ProjectRegistry, load_config
+from src.config_writer import add_project_to_config, suggest_next_project_id
 from src.db import create_engine, create_session_factory, init_db
 from src.env_loader import EnvLoader
 from src.events import EventBus, sse_router
 from src.models import Project, ReviewState, Task, TaskStatus
+from src.port_registry import PortRegistry
+from src.project_validator import validate_project_directory
 from src.review_pipeline import ReviewPipeline
 from src.scheduler import Scheduler
 from src.schemas import (
     DashboardSummary,
     ErrorResponse,
     ExecutionStateResponse,
+    ImportProjectRequest,
+    ImportProjectResponse,
     ProjectDetailResponse,
     ProjectResponse,
     ReviewDecisionRequest,
@@ -37,6 +42,8 @@ from src.schemas import (
     SyncAllResponse,
     SyncResponse,
     TaskResponse,
+    ValidateProjectRequest,
+    ValidateProjectResponse,
 )
 from src.sync.tasks_parser import sync_project_tasks
 from src.task_manager import TaskManager
@@ -148,6 +155,10 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     env_loader = EnvLoader(config.orchestrator.unified_env_path)
     event_bus = EventBus()
 
+    # Port registry
+    ports_path = config.orchestrator.state_db_path.parent / "ports.json"
+    port_registry = PortRegistry(config.orchestrator.port_ranges, ports_path)
+
     # Scheduler
     scheduler = Scheduler(
         config=config,
@@ -192,6 +203,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     await scheduler.start()
 
     # Store on app.state for endpoint access
+    app.state._config_path = CONFIG_PATH
     app.state.config = config
     app.state.task_manager = task_manager
     app.state.registry = registry
@@ -199,6 +211,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     app.state.event_bus = event_bus
     app.state.scheduler = scheduler
     app.state.review_pipeline = review_pipeline
+    app.state.port_registry = port_registry
     app.state.engine = engine
 
     logger.info("HelixOS API started")
@@ -256,6 +269,170 @@ async def get_project(project_id: str, request: Request) -> ProjectDetailRespons
         executor_type=project.executor_type,
         max_concurrency=project.max_concurrency,
         tasks=[_task_to_response(t) for t in tasks],
+    )
+
+
+# ------------------------------------------------------------------
+# Project onboarding endpoints
+# ------------------------------------------------------------------
+
+
+@api_router.post(
+    "/api/projects/validate",
+    responses={400: {"model": ErrorResponse}},
+)
+async def validate_project(
+    body: ValidateProjectRequest,
+    request: Request,
+) -> ValidateProjectResponse:
+    """Validate a directory for import as a managed project."""
+    config_path: Path = request.app.state._config_path  # noqa: SLF001
+
+    directory = Path(body.path)
+    if not directory.is_absolute():
+        directory = directory.expanduser().resolve()
+
+    suggested_id = suggest_next_project_id(config_path)
+    result = validate_project_directory(directory, suggested_id)
+
+    return ValidateProjectResponse(
+        valid=result.valid,
+        name=result.name,
+        path=result.path,
+        has_git=result.has_git,
+        has_tasks_md=result.has_tasks_md,
+        has_claude_config=result.has_claude_config,
+        suggested_id=result.suggested_id,
+        warnings=result.warnings,
+        limited_mode_reasons=result.limited_mode_reasons,
+    )
+
+
+@api_router.post(
+    "/api/projects/import",
+    responses={
+        400: {"model": ErrorResponse},
+        409: {"model": ErrorResponse},
+    },
+)
+async def import_project(
+    body: ImportProjectRequest,
+    request: Request,
+) -> ImportProjectResponse:
+    """Import a project into the orchestrator.
+
+    Writes to orchestrator_config.yaml via ruamel.yaml (preserving
+    comments), reloads the ProjectRegistry, auto-assigns a port,
+    and triggers sync if TASKS.md is present.
+    """
+    config_path: Path = request.app.state._config_path  # noqa: SLF001
+    registry: ProjectRegistry = request.app.state.registry
+    task_manager: TaskManager = request.app.state.task_manager
+    port_registry: PortRegistry = request.app.state.port_registry
+
+    directory = Path(body.path).expanduser().resolve()
+
+    # Validate path
+    if not directory.is_dir():
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid path: {directory} is not a directory",
+        )
+
+    # Determine project ID
+    project_id = body.project_id or suggest_next_project_id(config_path)
+    name = body.name or directory.name
+
+    # Check for duplicate
+    try:
+        registry.get_project(project_id)
+        raise HTTPException(
+            status_code=409,
+            detail=f"Project already exists: {project_id}",
+        )
+    except KeyError:
+        pass  # Good -- not a duplicate
+
+    # Build project data for YAML
+    project_data: dict[str, object] = {
+        "name": name,
+        "repo_path": str(directory),
+        "executor_type": "code",
+        "tasks_file": "TASKS.md",
+        "max_concurrency": 1,
+    }
+    if body.project_type != "other":
+        project_data["project_type"] = body.project_type
+    if body.launch_command is not None:
+        project_data["launch_command"] = body.launch_command
+    if body.preferred_port is not None:
+        project_data["preferred_port"] = body.preferred_port
+
+    # Write to YAML (atomic, comment-preserving)
+    try:
+        add_project_to_config(config_path, project_id, project_data)
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from None
+
+    # Reload config and registry
+    new_config = load_config(config_path)
+    request.app.state.config = new_config
+    new_registry = ProjectRegistry(new_config)
+    request.app.state.registry = new_registry
+
+    # Auto-assign port
+    assigned_port: int | None = None
+    try:
+        assigned_port = port_registry.assign_port(
+            project_id,
+            body.project_type,
+            preferred_port=body.preferred_port,
+        )
+    except (ValueError, RuntimeError):
+        logger.warning(
+            "Could not assign port for project %s", project_id, exc_info=True,
+        )
+
+    warnings: list[str] = []
+    has_tasks_md = (directory / "TASKS.md").is_file()
+
+    if not (directory / ".git").is_dir():
+        warnings.append("No .git directory -- git operations will not work")
+    if not has_tasks_md:
+        warnings.append("No TASKS.md -- task sync skipped")
+    if not (directory / "CLAUDE.md").is_file():
+        warnings.append("No CLAUDE.md -- Claude context unavailable")
+
+    # Auto-sync if TASKS.md present
+    sync_result_resp = None
+    synced = False
+    if has_tasks_md:
+        try:
+            sync_result = await sync_project_tasks(
+                project_id, task_manager, new_registry,
+            )
+            sync_result_resp = SyncResponse(
+                project_id=project_id,
+                added=sync_result.added,
+                updated=sync_result.updated,
+                unchanged=sync_result.unchanged,
+                warnings=sync_result.warnings,
+            )
+            synced = True
+        except Exception:
+            logger.warning(
+                "Auto-sync failed for project %s", project_id, exc_info=True,
+            )
+            warnings.append("Auto-sync failed -- run sync manually")
+
+    return ImportProjectResponse(
+        project_id=project_id,
+        name=name,
+        repo_path=str(directory),
+        port=assigned_port,
+        synced=synced,
+        sync_result=sync_result_resp,
+        warnings=warnings,
     )
 
 
