@@ -300,3 +300,10 @@
 - **Sanity check result**: pytest 542/542 passed (31 new + 511 existing). ruff check clean. npm run build succeeds. No emoji.
 - **Status**: [DONE]
 - **Request**: Move T-P3-6a to Completed
+
+## 2026-03-02 11:00 -- [T-P3-6b] Persistent execution log + review history -- frontend
+- **What I did**: Refactored the bottom panel to be task-focused. ExecutionLog now has two modes: all-tasks (existing SSE-only behavior) and task-focused (fetches persistent logs from DB via GET /api/tasks/{id}/logs, merges with live SSE entries, shows level badges and source tags, polls every 5s). ReviewPanel now fetches review history from GET /api/tasks/{id}/reviews and displays each round as a conversation-style card with reviewer focus/model, verdict badge (approve=green, reject=red, revise=yellow), summary, suggestions list, consensus score bar, and human decision inline. Added task focus indicator in bottom panel tab bar with clear (x) button. Added 4 new TypeScript interfaces and 2 new API client functions.
+- **Deliverables**: frontend/src/types.ts (mod -- ExecutionLogEntry, ExecutionLogsResponse, ReviewHistoryEntry, ReviewHistoryResponse), frontend/src/api.ts (mod -- fetchExecutionLogs, fetchReviewHistory), frontend/src/components/ExecutionLog.tsx (rewrite -- task-focused mode with DB fetch + SSE merge, level coloring, source tags, poll interval), frontend/src/components/ReviewPanel.tsx (rewrite -- conversation-style history timeline, verdict badges, suggestions, consensus bar), frontend/src/App.tsx (mod -- selectedTaskId prop to ExecutionLog, focus indicator chip with clear button)
+- **Sanity check result**: pytest 542/542 passed. ruff check clean. npm run build succeeds. No emoji.
+- **Status**: [DONE]
+- **Request**: Move T-P3-6b to Completed

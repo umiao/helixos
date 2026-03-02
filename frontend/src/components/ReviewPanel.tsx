@@ -1,11 +1,11 @@
 /**
- * ReviewPanel -- displays review progress, verdicts, consensus score,
- * and decision buttons when human_decision_needed.
+ * ReviewPanel -- conversation-style review history with persistent DB data,
+ * review progress, consensus score, and human decision buttons.
  */
 
-import { useState } from "react";
-import type { Task } from "../types";
-import { submitReviewDecision, ApiError } from "../api";
+import { useEffect, useState } from "react";
+import type { Task, ReviewHistoryEntry } from "../types";
+import { submitReviewDecision, fetchReviewHistory, ApiError } from "../api";
 
 interface ReviewPanelProps {
   task: Task | null;
@@ -13,12 +13,68 @@ interface ReviewPanelProps {
   onError: (message: string) => void;
 }
 
+const POLL_INTERVAL_MS = 5000;
+
 export default function ReviewPanel({
   task,
   onDecisionSubmitted,
   onError,
 }: ReviewPanelProps) {
   const [submitting, setSubmitting] = useState(false);
+  const [historyEntries, setHistoryEntries] = useState<ReviewHistoryEntry[]>(
+    [],
+  );
+  const [historyLoading, setHistoryLoading] = useState(false);
+
+  // Fetch review history when task changes
+  useEffect(() => {
+    if (!task) {
+      setHistoryEntries([]);
+      return;
+    }
+
+    let cancelled = false;
+    const load = async () => {
+      setHistoryLoading(true);
+      try {
+        const resp = await fetchReviewHistory(task.id, { limit: 100 });
+        if (!cancelled) {
+          setHistoryEntries(resp.entries);
+        }
+      } catch {
+        // Non-critical
+      } finally {
+        if (!cancelled) setHistoryLoading(false);
+      }
+    };
+    load();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [task?.id]);
+
+  // Poll for updates when task is in a review state
+  useEffect(() => {
+    if (
+      !task ||
+      !["review", "review_auto_approved", "review_needs_human"].includes(
+        task.status,
+      )
+    )
+      return;
+
+    const interval = setInterval(async () => {
+      try {
+        const resp = await fetchReviewHistory(task.id, { limit: 100 });
+        setHistoryEntries(resp.entries);
+      } catch {
+        // Ignore
+      }
+    }, POLL_INTERVAL_MS);
+
+    return () => clearInterval(interval);
+  }, [task?.id, task?.status]);
 
   if (!task) {
     return (
@@ -54,131 +110,229 @@ export default function ReviewPanel({
     }
   };
 
-  // Progress bar percentage
-  const progressPct = hasReview && review.rounds_total > 0
-    ? Math.round((review.rounds_completed / review.rounds_total) * 100)
-    : 0;
+  const progressPct =
+    hasReview && review.rounds_total > 0
+      ? Math.round((review.rounds_completed / review.rounds_total) * 100)
+      : 0;
+
+  const verdictBadge = (verdict: string) => {
+    const v = verdict.toLowerCase();
+    if (v === "approve" || v === "approved") {
+      return (
+        <span className="px-1.5 py-0.5 rounded text-[10px] font-semibold uppercase bg-green-100 text-green-800">
+          approve
+        </span>
+      );
+    }
+    if (v === "reject" || v === "rejected") {
+      return (
+        <span className="px-1.5 py-0.5 rounded text-[10px] font-semibold uppercase bg-red-100 text-red-800">
+          reject
+        </span>
+      );
+    }
+    return (
+      <span className="px-1.5 py-0.5 rounded text-[10px] font-semibold uppercase bg-yellow-100 text-yellow-800">
+        {verdict}
+      </span>
+    );
+  };
+
+  const formatTime = (ts: string) => {
+    try {
+      return new Date(ts).toLocaleTimeString([], {
+        hour: "2-digit",
+        minute: "2-digit",
+        second: "2-digit",
+      });
+    } catch {
+      return ts;
+    }
+  };
 
   return (
     <div className="flex flex-col h-full bg-white rounded-lg border border-gray-200 overflow-hidden">
       {/* Header */}
-      <div className="px-3 py-2 border-b border-gray-200">
+      <div className="px-3 py-2 border-b border-gray-200 flex items-center justify-between">
         <h3 className="text-xs font-bold uppercase tracking-wide text-gray-600">
           Review Panel
         </h3>
+        <div className="flex items-center gap-2">
+          <span className="text-xs text-gray-500 font-mono">
+            {task.local_task_id}
+          </span>
+          <span className="text-xs font-medium text-gray-700 truncate max-w-48">
+            {task.title}
+          </span>
+        </div>
       </div>
 
       <div className="flex-1 overflow-y-auto p-3 space-y-3">
-        {/* Task info */}
-        <div>
-          <p className="text-xs text-gray-500 font-mono">{task.local_task_id}</p>
-          <p className="text-sm font-medium text-gray-900">{task.title}</p>
-        </div>
-
-        {hasReview ? (
-          <>
-            {/* Review progress */}
-            <div>
-              <div className="flex justify-between text-xs text-gray-500 mb-1">
-                <span>Review progress</span>
-                <span>
-                  {review.rounds_completed} / {review.rounds_total}
-                </span>
-              </div>
-              <div className="w-full bg-gray-200 rounded-full h-2">
-                <div
-                  className="bg-indigo-500 h-2 rounded-full transition-all"
-                  style={{ width: `${progressPct}%` }}
-                />
-              </div>
+        {/* Progress bar */}
+        {hasReview && (
+          <div className="pb-2 border-b border-gray-100">
+            <div className="flex justify-between text-xs text-gray-500 mb-1">
+              <span>Review progress</span>
+              <span>
+                {review.rounds_completed} / {review.rounds_total}
+              </span>
             </div>
+            <div className="w-full bg-gray-200 rounded-full h-1.5">
+              <div
+                className="bg-indigo-500 h-1.5 rounded-full transition-all"
+                style={{ width: `${progressPct}%` }}
+              />
+            </div>
+          </div>
+        )}
 
-            {/* Consensus score */}
-            {review.consensus_score !== null && (
-              <div>
-                <p className="text-xs text-gray-500 mb-1">Consensus score</p>
-                <div className="flex items-center gap-2">
-                  <div className="w-full bg-gray-200 rounded-full h-3">
-                    <div
-                      className={`h-3 rounded-full transition-all ${
-                        review.consensus_score >= 0.8
-                          ? "bg-green-500"
-                          : review.consensus_score >= 0.5
-                            ? "bg-yellow-500"
-                            : "bg-red-500"
-                      }`}
-                      style={{
-                        width: `${Math.round(review.consensus_score * 100)}%`,
-                      }}
-                    />
+        {/* Conversation-style review history */}
+        {historyLoading && historyEntries.length === 0 ? (
+          <p className="text-xs text-gray-400 text-center py-2">
+            Loading review history...
+          </p>
+        ) : historyEntries.length > 0 ? (
+          <div className="space-y-2">
+            {historyEntries.map((entry) => (
+              <div
+                key={entry.id}
+                className="rounded-lg border border-gray-200 bg-gray-50 p-2.5"
+              >
+                {/* Reviewer header */}
+                <div className="flex items-center justify-between mb-1.5">
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-[10px] font-semibold uppercase text-indigo-600 bg-indigo-50 px-1.5 py-0.5 rounded">
+                      {entry.reviewer_focus}
+                    </span>
+                    <span className="text-[10px] text-gray-400">
+                      {entry.reviewer_model}
+                    </span>
+                    <span className="text-[10px] text-gray-400">
+                      Round {entry.round_number}
+                    </span>
                   </div>
-                  <span className="text-sm font-semibold text-gray-700 whitespace-nowrap">
-                    {(review.consensus_score * 100).toFixed(0)}%
-                  </span>
+                  <div className="flex items-center gap-1.5">
+                    {verdictBadge(entry.verdict)}
+                    <span className="text-[10px] text-gray-400">
+                      {formatTime(entry.timestamp)}
+                    </span>
+                  </div>
                 </div>
-              </div>
-            )}
 
-            {/* Decision points */}
-            {review.decision_points.length > 0 && (
-              <div>
-                <p className="text-xs text-gray-500 mb-1">Decision points</p>
-                <ul className="space-y-1">
-                  {review.decision_points.map((point, i) => (
-                    <li
-                      key={i}
-                      className="text-xs text-gray-700 bg-gray-50 rounded px-2 py-1"
-                    >
-                      {point}
-                    </li>
-                  ))}
-                </ul>
-              </div>
-            )}
-
-            {/* Human choice indicator */}
-            {review.human_choice && (
-              <div className="text-xs">
-                <span className="text-gray-500">Human decision: </span>
-                <span
-                  className={`font-semibold ${
-                    review.human_choice === "approve"
-                      ? "text-green-700"
-                      : "text-red-700"
-                  }`}
-                >
-                  {review.human_choice.toUpperCase()}
-                </span>
-              </div>
-            )}
-
-            {/* Decision buttons */}
-            {review.human_decision_needed && !review.human_choice && (
-              <div className="pt-2 border-t border-gray-200">
-                <p className="text-xs text-orange-600 font-medium mb-2">
-                  Human decision required
+                {/* Summary */}
+                <p className="text-xs text-gray-700 leading-relaxed">
+                  {entry.summary}
                 </p>
-                <div className="flex gap-2">
-                  <button
-                    onClick={() => handleDecision("approve")}
-                    disabled={submitting}
-                    className="flex-1 rounded-md bg-green-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-                  >
-                    {submitting ? "..." : "Approve"}
-                  </button>
-                  <button
-                    onClick={() => handleDecision("reject")}
-                    disabled={submitting}
-                    className="flex-1 rounded-md bg-red-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-                  >
-                    {submitting ? "..." : "Reject"}
-                  </button>
-                </div>
+
+                {/* Suggestions */}
+                {entry.suggestions.length > 0 && (
+                  <ul className="mt-1.5 space-y-0.5">
+                    {entry.suggestions.map((s, i) => (
+                      <li
+                        key={i}
+                        className="text-xs text-gray-600 pl-3 relative before:content-['-'] before:absolute before:left-0.5 before:text-gray-400"
+                      >
+                        {s}
+                      </li>
+                    ))}
+                  </ul>
+                )}
+
+                {/* Consensus score (shown when present, typically on final round) */}
+                {entry.consensus_score !== null && (
+                  <div className="mt-1.5 pt-1.5 border-t border-gray-200 flex items-center gap-2">
+                    <span className="text-[10px] text-gray-500">
+                      Consensus:
+                    </span>
+                    <div className="flex-1 bg-gray-200 rounded-full h-1.5 max-w-24">
+                      <div
+                        className={`h-1.5 rounded-full ${
+                          entry.consensus_score >= 0.8
+                            ? "bg-green-500"
+                            : entry.consensus_score >= 0.5
+                              ? "bg-yellow-500"
+                              : "bg-red-500"
+                        }`}
+                        style={{
+                          width: `${Math.round(entry.consensus_score * 100)}%`,
+                        }}
+                      />
+                    </div>
+                    <span className="text-[10px] font-semibold text-gray-600">
+                      {(entry.consensus_score * 100).toFixed(0)}%
+                    </span>
+                  </div>
+                )}
+
+                {/* Human decision inline */}
+                {entry.human_decision && (
+                  <div className="mt-1.5 pt-1.5 border-t border-gray-200">
+                    <span className="text-[10px] text-gray-500">
+                      Human decision:{" "}
+                    </span>
+                    <span
+                      className={`text-[10px] font-semibold ${
+                        entry.human_decision === "approve"
+                          ? "text-green-700"
+                          : "text-red-700"
+                      }`}
+                    >
+                      {entry.human_decision.toUpperCase()}
+                    </span>
+                  </div>
+                )}
               </div>
-            )}
-          </>
+            ))}
+          </div>
+        ) : hasReview ? (
+          <p className="text-xs text-gray-400 text-center py-2">
+            No review rounds recorded yet
+          </p>
         ) : (
-          <p className="text-xs text-gray-400">No review data available</p>
+          <p className="text-xs text-gray-400 text-center py-2">
+            No review data available
+          </p>
+        )}
+
+        {/* Decision buttons */}
+        {hasReview && review.human_decision_needed && !review.human_choice && (
+          <div className="pt-2 border-t border-gray-200">
+            <p className="text-xs text-orange-600 font-medium mb-2">
+              Human decision required
+            </p>
+            <div className="flex gap-2">
+              <button
+                onClick={() => handleDecision("approve")}
+                disabled={submitting}
+                className="flex-1 rounded-md bg-green-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+              >
+                {submitting ? "..." : "Approve"}
+              </button>
+              <button
+                onClick={() => handleDecision("reject")}
+                disabled={submitting}
+                className="flex-1 rounded-md bg-red-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+              >
+                {submitting ? "..." : "Reject"}
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* Human choice already made */}
+        {hasReview && review.human_choice && (
+          <div className="text-xs pt-2 border-t border-gray-200">
+            <span className="text-gray-500">Human decision: </span>
+            <span
+              className={`font-semibold ${
+                review.human_choice === "approve"
+                  ? "text-green-700"
+                  : "text-red-700"
+              }`}
+            >
+              {review.human_choice.toUpperCase()}
+            </span>
+          </div>
         )}
       </div>
     </div>

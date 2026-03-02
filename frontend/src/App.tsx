@@ -499,12 +499,33 @@ function App() {
           >
             Review
           </button>
+
+          {/* Selected task indicator with clear button */}
+          {selectedTask && (
+            <div className="ml-auto flex items-center gap-1.5">
+              <span className="text-xs text-gray-500">Focused:</span>
+              <span className="text-xs font-mono font-medium text-indigo-600">
+                {selectedTask.local_task_id}
+              </span>
+              <button
+                onClick={() => setSelectedTask(null)}
+                className="ml-0.5 px-1 text-gray-400 hover:text-gray-600 text-xs rounded hover:bg-gray-100"
+                title="Clear task focus"
+              >
+                x
+              </button>
+            </div>
+          )}
         </div>
 
         {/* Panel content */}
         <div className="flex-1 min-h-0">
           {bottomPanel === "log" ? (
-            <ExecutionLog entries={logEntries} taskIds={taskIds} />
+            <ExecutionLog
+              entries={logEntries}
+              taskIds={taskIds}
+              selectedTaskId={selectedTask?.id}
+            />
           ) : (
             <ReviewPanel
               task={selectedTask}

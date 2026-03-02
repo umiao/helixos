@@ -6,9 +6,11 @@
 import type {
   BrowseResult,
   CreateTaskResult,
+  ExecutionLogsResponse,
   ImportResult,
   ProcessStatus,
   Project,
+  ReviewHistoryResponse,
   SyncResult,
   Task,
   TaskStatus,
@@ -208,4 +210,33 @@ export async function getProcessStatus(
     `/api/projects/${encodeURIComponent(projectId)}/process-status`,
   );
   return handleResponse<ProcessStatus>(res);
+}
+
+/** Fetch paginated execution logs for a task. */
+export async function fetchExecutionLogs(
+  taskId: string,
+  opts?: { limit?: number; offset?: number; level?: string },
+): Promise<ExecutionLogsResponse> {
+  const params = new URLSearchParams();
+  if (opts?.limit !== undefined) params.set("limit", String(opts.limit));
+  if (opts?.offset !== undefined) params.set("offset", String(opts.offset));
+  if (opts?.level) params.set("level", opts.level);
+  const qs = params.toString();
+  const url = `/api/tasks/${encodeURIComponent(taskId)}/logs${qs ? `?${qs}` : ""}`;
+  const res = await fetch(url);
+  return handleResponse<ExecutionLogsResponse>(res);
+}
+
+/** Fetch paginated review history for a task. */
+export async function fetchReviewHistory(
+  taskId: string,
+  opts?: { limit?: number; offset?: number },
+): Promise<ReviewHistoryResponse> {
+  const params = new URLSearchParams();
+  if (opts?.limit !== undefined) params.set("limit", String(opts.limit));
+  if (opts?.offset !== undefined) params.set("offset", String(opts.offset));
+  const qs = params.toString();
+  const url = `/api/tasks/${encodeURIComponent(taskId)}/reviews${qs ? `?${qs}` : ""}`;
+  const res = await fetch(url);
+  return handleResponse<ReviewHistoryResponse>(res);
 }

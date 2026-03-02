@@ -170,3 +170,46 @@ export interface BrowseResult {
   parent: string | null;
   entries: BrowseEntry[];
 }
+
+/** A single execution log entry from the database. */
+export interface ExecutionLogEntry {
+  id: number;
+  task_id: string;
+  timestamp: string;
+  level: string;
+  message: string;
+  source: string;
+}
+
+/** Paginated execution logs response. */
+export interface ExecutionLogsResponse {
+  task_id: string;
+  total: number;
+  offset: number;
+  limit: number;
+  entries: ExecutionLogEntry[];
+}
+
+/** A single review history entry from the database. */
+export interface ReviewHistoryEntry {
+  id: number;
+  task_id: string;
+  round_number: number;
+  reviewer_model: string;
+  reviewer_focus: string;
+  verdict: string;
+  summary: string;
+  suggestions: string[];
+  consensus_score: number | null;
+  human_decision: string | null;
+  timestamp: string;
+}
+
+/** Paginated review history response. */
+export interface ReviewHistoryResponse {
+  task_id: string;
+  total: number;
+  offset: number;
+  limit: number;
+  entries: ReviewHistoryEntry[];
+}

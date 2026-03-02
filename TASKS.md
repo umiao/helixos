@@ -20,10 +20,6 @@
 
 ### P3 -- Phase 3: UX + Polish
 
-#### T-P3-6b: Persistent execution log + review history -- frontend [M]
-- **AC**: Task-focused bottom panel, persistent history + live SSE merge, conversation-style reviews
-- **Depends on**: T-P3-6a
-
 #### T-P3-7: README overhaul [S]
 - **AC**: Project-specific README with architecture diagram, features, modules
 - **Depends on**: T-P3-6a, T-P3-6b
@@ -219,3 +215,6 @@ T-P2-6 [M] Frontend Swim Lanes [DONE] ------------------+
 
 #### [x] T-P3-6a: Persistent execution log + review history -- backend -- 2026-03-02
 - 2 new DB tables (execution_logs, review_history) with indexes. HistoryWriter service with DB-first writes, 2KB text cap, batch support. Wired into Scheduler (execution start/success/failure/cancel logs) and ReviewPipeline (per-round review persistence). 2 new API endpoints (GET /api/tasks/{id}/logs, GET /api/tasks/{id}/reviews) with pagination, level filtering, and total count. 31 new tests, 542 total passing.
+
+#### [x] T-P3-6b: Persistent execution log + review history -- frontend -- 2026-03-02
+- Task-focused bottom panel: ExecutionLog fetches persistent DB logs + merges live SSE entries with level badges and source tags. ReviewPanel shows conversation-style review history with verdict badges, suggestions, consensus bars. Task focus indicator in tab bar with clear button. 4 new TS interfaces, 2 new API client functions. npm run build succeeds, 542 tests passing.
