@@ -1,0 +1,94 @@
+#!/bin/bash
+# Autonomous task runner.
+# Runs Claude Code sessions in a loop. Each session starts with a FRESH context
+# and picks up state from .claude/session_state.json + SessionStart hook.
+# Each completed task gets a git commit. When a session ends (context full,
+# max turns, or no more tasks), a new session starts clean.
+#
+# Usage: bash scripts/autonomous_run.sh [max_sessions]
+# Default: 5 sessions. Each session gets up to 200 agent turns.
+# Ctrl+C to stop at any time. Progress is saved in PROGRESS.md and git history.
+
+set -euo pipefail
+cd "$(dirname "$0")/.."
+
+# --- PID lockfile for concurrent run protection ---
+LOCKFILE=".claude/autonomous.lock"
+if [ -f "$LOCKFILE" ] && kill -0 "$(cat "$LOCKFILE")" 2>/dev/null; then
+  echo "[orchestrator] Another instance is running (PID $(cat "$LOCKFILE")). Exiting."
+  exit 1
+fi
+echo $$ > "$LOCKFILE"
+trap 'rm -f "$LOCKFILE"' EXIT
+
+MAX_SESSIONS=${1:-5}
+session_count=0
+consecutive_failures=0
+MAX_CONSECUTIVE_FAILURES=2
+
+echo "[orchestrator] Starting autonomous run (max $MAX_SESSIONS sessions)"
+echo "[orchestrator] Progress: check git log, PROGRESS.md, TASKS.md"
+echo "[orchestrator] Press Ctrl+C to stop. Work is saved after each task."
+echo ""
+
+while [ $session_count -lt $MAX_SESSIONS ]; do
+  session_count=$((session_count + 1))
+  echo "--- Session $session_count/$MAX_SESSIONS ---"
+
+  # Capture commit SHA before session for progress detection
+  start_sha=$(git rev-parse HEAD)
+
+  claude -p "Autonomous mode. Read TASKS.md, pick ONE highest-priority unblocked task, \
+    and complete it. After completing the task: \
+    1) run tests, 2) update PROGRESS.md and TASKS.md, 3) git commit with message \
+    format '[T-XX-N] description', 4) update .claude/session_state.json, then stop. \
+    If no unblocked tasks remain, set all_done=true in session_state.json and stop." \
+    --allowedTools "Read,Write,Edit,Bash,Glob,Grep,Task" \
+    --max-turns 200
+
+  exit_code=$?
+
+  if [ $exit_code -eq 0 ]; then
+    consecutive_failures=0
+    # Check if all tasks done
+    if python3 -c "
+import json, sys
+try:
+    with open('.claude/session_state.json', encoding='utf-8') as f:
+        state = json.load(f)
+    if state.get('all_done', False):
+        sys.exit(0)
+    sys.exit(1)
+except Exception:
+    sys.exit(1)
+" 2>/dev/null; then
+      echo "[orchestrator] All tasks complete!"
+      break
+    fi
+    echo "[orchestrator] Session ended. Continuing in next session..."
+  else
+    # Git stash on failed session
+    git stash push -m "auto-stash: failed session $session_count" 2>/dev/null || true
+
+    # Distinguish context exhaustion from real failure
+    current_sha=$(git rev-parse HEAD)
+    if [ "$current_sha" != "$start_sha" ]; then
+      # New commits were made -- task is progressing (context exhaustion, not failure)
+      echo "[orchestrator] Session made progress (new commits). Not counting as failure."
+      consecutive_failures=0
+    else
+      consecutive_failures=$((consecutive_failures + 1))
+      echo "[orchestrator] Session failed ($consecutive_failures/$MAX_CONSECUTIVE_FAILURES)"
+      if [ $consecutive_failures -ge $MAX_CONSECUTIVE_FAILURES ]; then
+        echo "[orchestrator] Too many consecutive failures. Stopping."
+        break
+      fi
+    fi
+  fi
+  echo ""
+done
+
+echo ""
+echo "[orchestrator] Finished after $session_count session(s)"
+echo "[orchestrator] Review: git log --oneline -20"
+echo "[orchestrator] Status: cat TASKS.md"

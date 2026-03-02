@@ -1,0 +1,6 @@
+# Development tools
+ruff>=0.1.0
+pytest>=7.4.0
+pyyaml>=6.0.0
+
+# <!-- CUSTOMIZE: Add your project dependencies below -->

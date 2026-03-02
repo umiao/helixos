@@ -1,0 +1,44 @@
+# Environment and secrets
+.env
+.env.*
+*.cookie
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+venv/
+*.egg-info/
+.eggs/
+dist/
+build/
+
+# Data (runtime data not tracked)
+data/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Testing
+.pytest_cache/
+.coverage
+htmlcov/
+.mypy_cache/
+.ruff_cache/
+
+# Claude autonomous mode state (ephemeral, per-session)
+.claude/session_state.json
+.claude/checkpoint.json
+.claude/last_*_pass
+.claude/autonomous.lock
+
+# Misc
+*.log
