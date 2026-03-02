@@ -25,6 +25,7 @@ export interface Project {
   max_concurrency: number;
   env_keys: string[];
   claude_md_path: string | null;
+  execution_paused: boolean;
 }
 
 export interface ReviewState {

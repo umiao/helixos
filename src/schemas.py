@@ -28,6 +28,7 @@ class ProjectResponse(BaseModel):
     executor_type: ExecutorType
     max_concurrency: int = 1
     claude_md_path: str | None = None
+    execution_paused: bool = False
 
 
 class ProjectDetailResponse(BaseModel):
@@ -40,6 +41,7 @@ class ProjectDetailResponse(BaseModel):
     executor_type: ExecutorType
     max_concurrency: int = 1
     claude_md_path: str | None = None
+    execution_paused: bool = False
     tasks: list[TaskResponse] = Field(default_factory=list)
 
 

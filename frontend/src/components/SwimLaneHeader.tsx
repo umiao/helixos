@@ -1,8 +1,10 @@
 /**
- * SwimLaneHeader -- per-project action bar with Launch, New Task, Sync buttons.
+ * SwimLaneHeader -- per-project action bar with Pause/Resume, Launch, New Task, Sync.
  * Also shows warning badges for limited-mode projects (missing TASKS.md or CLAUDE.md).
  */
 
+import { useState } from "react";
+import { pauseExecution, resumeExecution } from "../api";
 import type { Project } from "../types";
 import LaunchControl from "./LaunchControl";
 
@@ -13,6 +15,7 @@ interface SwimLaneHeaderProps {
   onSync: () => void;
   onNewTask: () => void;
   onError: (msg: string) => void;
+  onPauseToggle?: (paused: boolean) => void;
 }
 
 export default function SwimLaneHeader({
@@ -22,7 +25,10 @@ export default function SwimLaneHeader({
   onSync,
   onNewTask,
   onError,
+  onPauseToggle,
 }: SwimLaneHeaderProps) {
+  const [toggling, setToggling] = useState(false);
+
   // Detect limited-mode warnings (missing repo path or CLAUDE.md)
   const warnings: { label: string; tooltip: string }[] = [];
   if (!project.repo_path) {
@@ -39,6 +45,29 @@ export default function SwimLaneHeader({
     });
   }
 
+  const handlePauseToggle = async () => {
+    setToggling(true);
+    try {
+      if (project.execution_paused) {
+        await resumeExecution(project.id);
+        onPauseToggle?.(false);
+      } else {
+        await pauseExecution(project.id);
+        onPauseToggle?.(true);
+      }
+    } catch (err) {
+      onError(
+        `Failed to ${project.execution_paused ? "resume" : "pause"} execution: ${
+          err instanceof Error ? err.message : String(err)
+        }`,
+      );
+    } finally {
+      setToggling(false);
+    }
+  };
+
+  const paused = project.execution_paused;
+
   return (
     <div className="flex items-center gap-3 px-4 py-1.5 bg-gray-200 border-b border-gray-300 rounded-t-md flex-shrink-0">
       {/* Project name + ID */}
@@ -46,6 +75,16 @@ export default function SwimLaneHeader({
         {project.name}
       </h2>
       <span className="text-xs text-gray-500 font-mono">{project.id}</span>
+
+      {/* Paused badge */}
+      {paused && (
+        <span
+          className="text-xs px-1.5 py-0.5 rounded bg-amber-100 text-amber-700 font-medium"
+          title="Execution is paused -- new tasks will not be dispatched"
+        >
+          PAUSED
+        </span>
+      )}
 
       {/* Warning badges */}
       {warnings.length > 0 && (
@@ -69,6 +108,24 @@ export default function SwimLaneHeader({
       <span className="text-xs text-gray-500">
         {taskCount} {taskCount === 1 ? "task" : "tasks"}
       </span>
+
+      {/* Pause/Resume toggle */}
+      <button
+        onClick={handlePauseToggle}
+        disabled={toggling}
+        className={`rounded px-2 py-0.5 text-xs font-medium transition-colors disabled:opacity-50 ${
+          paused
+            ? "text-amber-800 bg-amber-200 hover:bg-amber-300"
+            : "text-gray-700 bg-gray-100 hover:bg-gray-300"
+        }`}
+        title={
+          paused
+            ? "Resume execution -- new tasks will be dispatched"
+            : "Pause execution -- in-flight tasks continue, new tasks held"
+        }
+      >
+        {toggling ? "..." : paused ? "Resume" : "Pause"}
+      </button>
 
       {/* Action buttons */}
       <LaunchControl projectId={project.id} onError={onError} />

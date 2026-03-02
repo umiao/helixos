@@ -1343,3 +1343,182 @@ class TestErrorDetailsInAlerts:
         assert "Generic failure" in alert_data["error"]
         # No error_type key when not set
         assert "error_type" not in alert_data
+
+
+# ---------------------------------------------------------------------------
+# Tests -- Pause / Resume
+# ---------------------------------------------------------------------------
+
+
+class TestSchedulerPauseResume:
+    """Tests for the per-project pause/resume gate."""
+
+    async def test_paused_project_tasks_not_dispatched(
+        self, scheduler_env,
+    ) -> None:
+        """Tick should skip QUEUED tasks for a paused project."""
+        scheduler, task_manager, _event_bus, emitted = scheduler_env
+        mock_exec = MockExecutor()
+        scheduler._get_executor = lambda _: mock_exec
+
+        task = _make_task()
+        await task_manager.create_task(task)
+
+        await scheduler.pause_project("proj")
+        await scheduler.tick()
+
+        # No task dispatched
+        assert len(mock_exec.calls) == 0
+        assert len(scheduler.running) == 0
+
+    async def test_resumed_project_tasks_dispatched(
+        self, scheduler_env,
+    ) -> None:
+        """After resume, tick dispatches QUEUED tasks normally."""
+        scheduler, task_manager, _event_bus, emitted = scheduler_env
+        mock_exec = MockExecutor()
+        scheduler._get_executor = lambda _: mock_exec
+
+        task = _make_task()
+        await task_manager.create_task(task)
+
+        await scheduler.pause_project("proj")
+        await scheduler.tick()
+        assert len(mock_exec.calls) == 0
+
+        await scheduler.resume_project("proj")
+        await scheduler.tick()
+
+        running_tasks = list(scheduler.running.values())
+        if running_tasks:
+            await asyncio.gather(*running_tasks)
+
+        assert len(mock_exec.calls) == 1
+
+    async def test_pause_emits_sse_event(self, scheduler_env) -> None:
+        """Pausing should emit an execution_paused SSE event."""
+        scheduler, _task_manager, _event_bus, emitted = scheduler_env
+
+        await scheduler.pause_project("proj")
+
+        pause_events = [e for e in emitted if e[0] == "execution_paused"]
+        assert len(pause_events) == 1
+        assert pause_events[0][1] == "proj"
+        assert pause_events[0][2] == {"paused": True}
+
+    async def test_resume_emits_sse_event(self, scheduler_env) -> None:
+        """Resuming should emit an execution_paused SSE event with paused=False."""
+        scheduler, _task_manager, _event_bus, emitted = scheduler_env
+
+        await scheduler.pause_project("proj")
+        await scheduler.resume_project("proj")
+
+        pause_events = [e for e in emitted if e[0] == "execution_paused"]
+        assert len(pause_events) == 2
+        assert pause_events[1][2] == {"paused": False}
+
+    async def test_is_project_paused(self, scheduler_env) -> None:
+        """is_project_paused should reflect the current pause state."""
+        scheduler, _task_manager, _event_bus, _emitted = scheduler_env
+
+        assert scheduler.is_project_paused("proj") is False
+        await scheduler.pause_project("proj")
+        assert scheduler.is_project_paused("proj") is True
+        await scheduler.resume_project("proj")
+        assert scheduler.is_project_paused("proj") is False
+
+    async def test_in_flight_tasks_continue_when_paused(
+        self, scheduler_env,
+    ) -> None:
+        """In-flight tasks should continue to completion even after pausing."""
+        scheduler, task_manager, _event_bus, emitted = scheduler_env
+        hang_exec = MockExecutor(hang=True)
+        scheduler._get_executor = lambda _: hang_exec
+
+        task = _make_task()
+        await task_manager.create_task(task)
+
+        # Start the task
+        await scheduler.tick()
+        assert len(scheduler.running) == 1
+
+        # Pause the project -- in-flight task should not be cancelled
+        await scheduler.pause_project("proj")
+
+        # Release the hanging executor
+        hang_exec.release()
+        running_tasks = list(scheduler.running.values())
+        if running_tasks:
+            await asyncio.gather(*running_tasks)
+
+        # Task should have completed successfully
+        updated = await task_manager.get_task(task.id)
+        assert updated is not None
+        assert updated.status == TaskStatus.DONE
+
+    async def test_pause_idempotent(self, scheduler_env) -> None:
+        """Pausing twice should not error and emit two events."""
+        scheduler, _task_manager, _event_bus, emitted = scheduler_env
+
+        await scheduler.pause_project("proj")
+        await scheduler.pause_project("proj")
+
+        pause_events = [e for e in emitted if e[0] == "execution_paused"]
+        assert len(pause_events) == 2
+        assert scheduler.is_project_paused("proj") is True
+
+    async def test_resume_when_not_paused(self, scheduler_env) -> None:
+        """Resuming a non-paused project should not error."""
+        scheduler, _task_manager, _event_bus, emitted = scheduler_env
+
+        await scheduler.resume_project("proj")
+
+        resume_events = [
+            e for e in emitted
+            if e[0] == "execution_paused" and e[2]["paused"] is False
+        ]
+        assert len(resume_events) == 1
+        assert scheduler.is_project_paused("proj") is False
+
+    async def test_pause_persists_with_settings_store(
+        self, session_factory,
+    ) -> None:
+        """Pause state should be persisted to DB via settings_store."""
+        from src.project_settings import ProjectSettingsStore
+
+        task_manager = TaskManager(session_factory)
+        config = _make_config()
+        registry = ProjectRegistry(config)
+        env_loader = MagicMock()
+        env_loader.get_project_env.return_value = {}
+        event_bus = EventBus()
+        settings_store = ProjectSettingsStore(session_factory)
+
+        scheduler = Scheduler(
+            config=config,
+            task_manager=task_manager,
+            registry=registry,
+            env_loader=env_loader,
+            event_bus=event_bus,
+            settings_store=settings_store,
+        )
+
+        await scheduler.pause_project("proj")
+
+        # Verify DB state
+        assert await settings_store.is_paused("proj") is True
+
+        # Create a new scheduler and load state from DB
+        scheduler2 = Scheduler(
+            config=config,
+            task_manager=task_manager,
+            registry=registry,
+            env_loader=env_loader,
+            event_bus=EventBus(),
+            settings_store=settings_store,
+        )
+        await scheduler2.start()
+        try:
+            assert scheduler2.is_project_paused("proj") is True
+        finally:
+            await scheduler2.stop()

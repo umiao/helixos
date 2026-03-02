@@ -142,6 +142,9 @@ async def test_app(tmp_path: Path, test_session_factory):
     # Mock scheduler (no real tick loop)
     scheduler = MagicMock(spec=Scheduler)
     scheduler.cancel_task = AsyncMock(return_value=False)
+    scheduler.is_project_paused = MagicMock(return_value=False)
+    scheduler.pause_project = AsyncMock()
+    scheduler.resume_project = AsyncMock()
 
     app = FastAPI(title="HelixOS Test", version="0.1.0")
     app.include_router(sse_router)
@@ -818,3 +821,87 @@ class TestGetTaskReviews:
         """Returns 404 for a non-existent task."""
         resp = await client.get("/api/tasks/nonexistent/reviews")
         assert resp.status_code == 404
+
+
+# ---------------------------------------------------------------------------
+# Pause/Resume endpoint tests
+# ---------------------------------------------------------------------------
+
+
+class TestPauseExecution:
+    """Tests for POST /api/projects/{project_id}/pause-execution."""
+
+    async def test_pause_known_project(
+        self, client: AsyncClient, test_app,
+    ):
+        """Should call scheduler.pause_project and return 200."""
+        resp = await client.post("/api/projects/proj-a/pause-execution")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["paused"] is True
+        assert data["project_id"] == "proj-a"
+        test_app.state.scheduler.pause_project.assert_awaited_once_with("proj-a")
+
+    async def test_pause_unknown_project_returns_404(
+        self, client: AsyncClient,
+    ):
+        """Should return 404 for unknown project."""
+        resp = await client.post("/api/projects/nonexistent/pause-execution")
+        assert resp.status_code == 404
+        assert "not found" in resp.json()["detail"].lower()
+
+
+class TestResumeExecution:
+    """Tests for POST /api/projects/{project_id}/resume-execution."""
+
+    async def test_resume_known_project(
+        self, client: AsyncClient, test_app,
+    ):
+        """Should call scheduler.resume_project and return 200."""
+        resp = await client.post("/api/projects/proj-a/resume-execution")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["paused"] is False
+        assert data["project_id"] == "proj-a"
+        test_app.state.scheduler.resume_project.assert_awaited_once_with("proj-a")
+
+    async def test_resume_unknown_project_returns_404(
+        self, client: AsyncClient,
+    ):
+        """Should return 404 for unknown project."""
+        resp = await client.post("/api/projects/nonexistent/resume-execution")
+        assert resp.status_code == 404
+
+
+class TestProjectResponseIncludesPausedState:
+    """Tests that project API responses include execution_paused field."""
+
+    async def test_list_projects_includes_execution_paused(
+        self, client: AsyncClient,
+    ):
+        """GET /api/projects should include execution_paused field."""
+        resp = await client.get("/api/projects")
+        assert resp.status_code == 200
+        project = resp.json()[0]
+        assert "execution_paused" in project
+        assert project["execution_paused"] is False
+
+    async def test_get_project_includes_execution_paused(
+        self, client: AsyncClient, seeded_task: Task,
+    ):
+        """GET /api/projects/{id} should include execution_paused field."""
+        resp = await client.get("/api/projects/proj-a")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert "execution_paused" in data
+        assert data["execution_paused"] is False
+
+    async def test_list_projects_reflects_paused_state(
+        self, client: AsyncClient, test_app,
+    ):
+        """GET /api/projects should show paused=True when scheduler says so."""
+        test_app.state.scheduler.is_project_paused = MagicMock(return_value=True)
+        resp = await client.get("/api/projects")
+        assert resp.status_code == 200
+        project = resp.json()[0]
+        assert project["execution_paused"] is True

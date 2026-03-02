@@ -93,6 +93,15 @@ class ExecutionLogRow(Base):
     )
 
 
+class ProjectSettingsRow(Base):
+    """Per-project runtime settings (DB-backed, survives restarts)."""
+
+    __tablename__ = "project_settings"
+
+    project_id: Mapped[str] = mapped_column(String(32), primary_key=True)
+    execution_paused: Mapped[bool] = mapped_column(default=False)
+
+
 class ReviewHistoryRow(Base):
     """Persistent review history entries for tasks."""
 

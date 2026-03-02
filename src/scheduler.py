@@ -22,6 +22,7 @@ from src.executors.code_executor import CodeExecutor
 from src.git_ops import GitOps
 from src.history_writer import HistoryWriter
 from src.models import ExecutorType, Project, Task, TaskStatus
+from src.project_settings import ProjectSettingsStore
 from src.task_manager import TaskManager
 
 logger = logging.getLogger(__name__)
@@ -47,6 +48,7 @@ class Scheduler:
         env_loader: EnvLoader,
         event_bus: EventBus,
         history_writer: HistoryWriter | None = None,
+        settings_store: ProjectSettingsStore | None = None,
     ) -> None:
         """Initialize the scheduler with all required service dependencies.
 
@@ -57,6 +59,7 @@ class Scheduler:
             env_loader: Environment variable loader.
             event_bus: Event bus for emitting real-time events.
             history_writer: Optional DB-first log/review writer.
+            settings_store: Optional DB-backed project settings.
         """
         self._config = config
         self._task_manager = task_manager
@@ -64,17 +67,30 @@ class Scheduler:
         self._env_loader = env_loader
         self._event_bus = event_bus
         self._history_writer = history_writer
+        self._settings_store = settings_store
         self.running: dict[str, asyncio.Task[None]] = {}
         self._executors: dict[str, BaseExecutor] = {}
         self._cancelled: set[str] = set()
         self._tick_task: asyncio.Task[None] | None = None
+        self._paused_projects: set[str] = set()
 
     # ------------------------------------------------------------------
     # Tick loop lifecycle
     # ------------------------------------------------------------------
 
     async def start(self) -> None:
-        """Start the background tick loop via asyncio.create_task."""
+        """Start the background tick loop via asyncio.create_task.
+
+        Loads persisted pause states from DB before starting the loop.
+        """
+        if self._settings_store is not None:
+            self._paused_projects = await self._settings_store.get_all_paused()
+            if self._paused_projects:
+                logger.info(
+                    "Loaded %d paused projects: %s",
+                    len(self._paused_projects),
+                    ", ".join(sorted(self._paused_projects)),
+                )
         self._tick_task = asyncio.create_task(self._tick_loop())
         logger.info("Scheduler started (interval=%ds)", TICK_INTERVAL_SECONDS)
 
@@ -127,6 +143,55 @@ class Scheduler:
             )
 
         return count
+
+    # ------------------------------------------------------------------
+    # Pause / Resume
+    # ------------------------------------------------------------------
+
+    async def pause_project(self, project_id: str) -> None:
+        """Pause execution for a project.
+
+        New tasks will not be dispatched.  In-flight tasks continue.
+        The state is persisted to DB so it survives restarts.
+
+        Args:
+            project_id: The project to pause.
+        """
+        self._paused_projects.add(project_id)
+        if self._settings_store is not None:
+            await self._settings_store.set_paused(project_id, paused=True)
+        self._event_bus.emit(
+            "execution_paused", project_id, {"paused": True},
+        )
+        logger.info("Execution paused for project %s", project_id)
+
+    async def resume_project(self, project_id: str) -> None:
+        """Resume execution for a project.
+
+        Previously-paused project can dispatch tasks again on the next tick.
+        The state is persisted to DB so it survives restarts.
+
+        Args:
+            project_id: The project to resume.
+        """
+        self._paused_projects.discard(project_id)
+        if self._settings_store is not None:
+            await self._settings_store.set_paused(project_id, paused=False)
+        self._event_bus.emit(
+            "execution_paused", project_id, {"paused": False},
+        )
+        logger.info("Execution resumed for project %s", project_id)
+
+    def is_project_paused(self, project_id: str) -> bool:
+        """Check whether execution is paused for *project_id*.
+
+        Args:
+            project_id: The project to check.
+
+        Returns:
+            True if the project is paused.
+        """
+        return project_id in self._paused_projects
 
     # ------------------------------------------------------------------
     # Cancel
@@ -198,6 +263,9 @@ class Scheduler:
         for task in candidates:
             if self.available_slots <= 0:
                 break
+
+            if task.project_id in self._paused_projects:
+                continue
 
             if await self._project_is_busy(task.project_id):
                 continue

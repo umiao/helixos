@@ -21,6 +21,7 @@ interface SwimLaneProps {
   onNewTask: () => void;
   onTaskCreated: () => void;
   onError: (msg: string) => void;
+  onPauseToggle?: (paused: boolean) => void;
 }
 
 export default function SwimLane({
@@ -35,6 +36,7 @@ export default function SwimLane({
   onNewTask,
   onTaskCreated,
   onError,
+  onPauseToggle,
 }: SwimLaneProps) {
   return (
     <div
@@ -49,6 +51,7 @@ export default function SwimLane({
         onSync={onSync}
         onNewTask={onNewTask}
         onError={onError}
+        onPauseToggle={onPauseToggle}
       />
 
       {/* Kanban board -- has its own DndContext */}

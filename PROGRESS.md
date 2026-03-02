@@ -321,3 +321,10 @@
 - **Sanity check result**: pytest 569/569 passed (27 new). ruff check clean. npm run build succeeds. No emoji.
 - **Status**: [DONE]
 - **Request**: Move T-P0-15 to Completed
+
+## 2026-03-02 14:00 -- [T-P0-16] Per-project execution pause/resume gate
+- **What I did**: Added DB-backed per-project execution pause/resume gate. Created ProjectSettingsRow DB table (project_id PK, execution_paused bool) and ProjectSettingsStore service for async get/set. Scheduler now has pause_project(), resume_project(), is_project_paused() methods with DB persistence -- paused state survives server restarts. tick() skips QUEUED tasks for paused projects; in-flight tasks continue. Two new API endpoints (POST /api/projects/{id}/pause-execution, POST /api/projects/{id}/resume-execution). ProjectResponse and ProjectDetailResponse schemas include execution_paused field. Pause/resume emits execution_paused SSE event for real-time UI update. SwimLaneHeader has amber Pause/Resume toggle button with PAUSED badge and descriptive tooltips. Frontend handles SSE execution_paused events to update project state.
+- **Deliverables**: src/db.py (mod -- ProjectSettingsRow table), src/project_settings.py (new -- ProjectSettingsStore), src/scheduler.py (mod -- pause/resume methods, tick skip paused, DB persistence load), src/api.py (mod -- pause/resume endpoints, settings_store wiring, execution_paused in project responses), src/schemas.py (mod -- execution_paused on ProjectResponse/ProjectDetailResponse), frontend/src/types.ts (mod -- execution_paused on Project), frontend/src/api.ts (mod -- pauseExecution, resumeExecution), frontend/src/components/SwimLaneHeader.tsx (mod -- Pause/Resume toggle button, PAUSED badge), frontend/src/components/SwimLane.tsx (mod -- onPauseToggle prop), frontend/src/App.tsx (mod -- SSE handler, onPauseToggle prop), tests/test_project_settings.py (new -- 11 tests), tests/test_scheduler.py (mod -- 10 new tests), tests/test_api.py (mod -- 6 new tests)
+- **Sanity check result**: pytest 596/596 passed (27 new). ruff check clean. npm run build succeeds. No emoji.
+- **Status**: [DONE]
+- **Request**: Move T-P0-16 to Completed

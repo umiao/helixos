@@ -135,6 +135,20 @@ function App() {
           );
           break;
         }
+        case "execution_paused": {
+          const paused = event.data.paused as boolean;
+          const projectId = event.task_id; // task_id carries project_id for this event
+          setProjects((prev) =>
+            prev.map((p) =>
+              p.id === projectId ? { ...p, execution_paused: paused } : p,
+            ),
+          );
+          addToast(
+            `[${projectId}] Execution ${paused ? "paused" : "resumed"}`,
+            paused ? "error" : "success",
+          );
+          break;
+        }
       }
     },
     [addToast, addLogEntry],
@@ -465,6 +479,15 @@ function App() {
                     onNewTask={() => setNewTaskProject(project)}
                     onTaskCreated={handleTaskCreated}
                     onError={(msg) => addToast(msg, "error")}
+                    onPauseToggle={(paused) =>
+                      setProjects((prev) =>
+                        prev.map((p) =>
+                          p.id === pid
+                            ? { ...p, execution_paused: paused }
+                            : p,
+                        ),
+                      )
+                    }
                   />
                 </div>
               );

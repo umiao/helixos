@@ -20,16 +20,6 @@
 
 ### P3 -- Phase 3: UX + Polish
 
-#### T-P0-16: Per-project execution pause/resume gate [M]
-- **Description**: Once QUEUED, the scheduler auto-executes on next 5s tick with no user control. Need a per-project pause toggle so users can queue tasks without immediate execution.
-- **AC**:
-  - DB-backed `execution_paused: bool` on Project model (persists across server restarts)
-  - `Scheduler.pause_project()` / `resume_project()` methods; paused = skip new executions, in-flight tasks continue
-  - API: `POST /api/projects/{id}/pause-execution`, `POST /api/projects/{id}/resume-execution`
-  - SwimLaneHeader pause/resume toggle button with amber visual state + tooltip
-  - Pause/resume emits SSE event for real-time UI update
-- **Depends on**: None
-
 #### T-P3-8: Self-hosting guardrails -- design document [S]
 - **Description**: HelixOS manages itself as a project but lacks safety boundaries for self-modification. Design doc needed before implementing any self-edit workflow.
 - **AC**: Design doc (`docs/design/self-hosting-guardrails.md`) covering:
@@ -266,6 +256,9 @@ T-P2-6 [M] Frontend Swim Lanes [DONE] ------------------+
 
 #### [x] T-P0-15: Surface detailed execution error diagnostics -- 2026-03-02
 - ErrorType enum (INFRA, CLI_NOT_FOUND, REPO_NOT_FOUND, NON_ZERO_EXIT, TIMEOUT, UNKNOWN) on ExecutorResult. Pre-flight checks (repo_path exists, claude CLI on PATH). Stderr capture with 4KB truncation and ANSI stripping. Exception details in SSE alerts and execution logs. MAX_CONCURRENT_EXECUTIONS=2 hard limit. 27 new tests, 569 total passing.
+
+#### [x] T-P0-16: Per-project execution pause/resume gate -- 2026-03-02
+- DB-backed execution_paused on ProjectSettingsRow (persists across restarts). Scheduler pause_project/resume_project methods; paused = skip new executions, in-flight continue. API endpoints for pause/resume. SwimLaneHeader amber Pause/Resume toggle + PAUSED badge. SSE execution_paused events for real-time UI. 27 new tests, 596 total passing.
 
 #### [x] T-P3-7: README overhaul -- 2026-03-02
 - Project-specific README with architecture diagram, features, backend/frontend module tables, API reference, task state machine, tech stack, quick start, configuration reference, and project structure tree.

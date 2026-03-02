@@ -180,6 +180,28 @@ export async function createTask(
   return handleResponse<CreateTaskResult>(res);
 }
 
+/** Pause task execution for a project. */
+export async function pauseExecution(
+  projectId: string,
+): Promise<{ detail: string; project_id: string; paused: boolean }> {
+  const res = await fetch(
+    `/api/projects/${encodeURIComponent(projectId)}/pause-execution`,
+    { method: "POST" },
+  );
+  return handleResponse(res);
+}
+
+/** Resume task execution for a project. */
+export async function resumeExecution(
+  projectId: string,
+): Promise<{ detail: string; project_id: string; paused: boolean }> {
+  const res = await fetch(
+    `/api/projects/${encodeURIComponent(projectId)}/resume-execution`,
+    { method: "POST" },
+  );
+  return handleResponse(res);
+}
+
 /** Launch the dev server for a project. */
 export async function launchProject(
   projectId: string,

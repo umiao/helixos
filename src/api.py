@@ -27,6 +27,7 @@ from src.history_writer import HistoryWriter
 from src.models import Project, ReviewState, Task, TaskStatus
 from src.port_registry import PortRegistry
 from src.process_manager import ProcessManager
+from src.project_settings import ProjectSettingsStore
 from src.project_validator import validate_project_directory
 from src.review_pipeline import ReviewPipeline
 from src.scheduler import Scheduler
@@ -76,7 +77,9 @@ CONFIG_PATH = Path("orchestrator_config.yaml")
 # ------------------------------------------------------------------
 
 
-def _project_to_response(project: Project) -> ProjectResponse:
+def _project_to_response(
+    project: Project, *, execution_paused: bool = False,
+) -> ProjectResponse:
     """Convert a domain Project to an API response."""
     return ProjectResponse(
         id=project.id,
@@ -86,6 +89,7 @@ def _project_to_response(project: Project) -> ProjectResponse:
         executor_type=project.executor_type,
         max_concurrency=project.max_concurrency,
         claude_md_path=str(project.claude_md_path) if project.claude_md_path else None,
+        execution_paused=execution_paused,
     )
 
 
@@ -180,6 +184,9 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         max_total=config.orchestrator.max_total_subprocesses,
     )
 
+    # Project settings store (execution_paused persistence)
+    settings_store = ProjectSettingsStore(session_factory)
+
     # Scheduler
     scheduler = Scheduler(
         config=config,
@@ -188,6 +195,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         env_loader=env_loader,
         event_bus=event_bus,
         history_writer=history_writer,
+        settings_store=settings_store,
     )
 
     # Process manager (dev server lifecycle)
@@ -258,6 +266,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     app.state.port_registry = port_registry
     app.state.subprocess_registry = subprocess_registry
     app.state.process_manager = process_manager
+    app.state.settings_store = settings_store
     app.state.engine = engine
 
     logger.info("HelixOS API started")
@@ -286,8 +295,14 @@ api_router = APIRouter()
 async def list_projects(request: Request) -> list[ProjectResponse]:
     """List all registered projects."""
     registry: ProjectRegistry = request.app.state.registry
+    scheduler: Scheduler = request.app.state.scheduler
     projects = registry.list_projects()
-    return [_project_to_response(p) for p in projects]
+    return [
+        _project_to_response(
+            p, execution_paused=scheduler.is_project_paused(p.id),
+        )
+        for p in projects
+    ]
 
 
 @api_router.get(
@@ -308,6 +323,8 @@ async def get_project(project_id: str, request: Request) -> ProjectDetailRespons
 
     tasks = await task_manager.list_tasks(project_id=project_id)
 
+    scheduler: Scheduler = request.app.state.scheduler
+
     return ProjectDetailResponse(
         id=project.id,
         name=project.name,
@@ -316,6 +333,7 @@ async def get_project(project_id: str, request: Request) -> ProjectDetailRespons
         executor_type=project.executor_type,
         max_concurrency=project.max_concurrency,
         claude_md_path=str(project.claude_md_path) if project.claude_md_path else None,
+        execution_paused=scheduler.is_project_paused(project_id),
         tasks=[_task_to_response(t) for t in tasks],
     )
 
@@ -748,6 +766,66 @@ async def get_process_status(
         port=status.port,
         uptime_seconds=status.uptime_seconds,
     )
+
+
+# ------------------------------------------------------------------
+# Execution pause/resume endpoints
+# ------------------------------------------------------------------
+
+
+@api_router.post(
+    "/api/projects/{project_id}/pause-execution",
+    responses={404: {"model": ErrorResponse}},
+)
+async def pause_execution(
+    project_id: str,
+    request: Request,
+) -> dict:
+    """Pause task execution for a project.
+
+    New tasks will not be dispatched while paused; in-flight tasks continue.
+    The pause state is persisted to DB and survives server restarts.
+    """
+    registry: ProjectRegistry = request.app.state.registry
+    scheduler: Scheduler = request.app.state.scheduler
+
+    try:
+        registry.get_project(project_id)
+    except KeyError:
+        raise HTTPException(
+            status_code=404, detail=f"Project not found: {project_id}",
+        ) from None
+
+    await scheduler.pause_project(project_id)
+
+    return {"detail": "Execution paused", "project_id": project_id, "paused": True}
+
+
+@api_router.post(
+    "/api/projects/{project_id}/resume-execution",
+    responses={404: {"model": ErrorResponse}},
+)
+async def resume_execution(
+    project_id: str,
+    request: Request,
+) -> dict:
+    """Resume task execution for a project.
+
+    Previously-paused project will dispatch tasks again on the next tick.
+    """
+    registry: ProjectRegistry = request.app.state.registry
+    scheduler: Scheduler = request.app.state.scheduler
+
+    try:
+        registry.get_project(project_id)
+    except KeyError:
+        raise HTTPException(
+            status_code=404, detail=f"Project not found: {project_id}",
+        ) from None
+
+    await scheduler.resume_project(project_id)
+
+    return {"detail": "Execution resumed", "project_id": project_id, "paused": False}
 
 
 # ------------------------------------------------------------------
