@@ -22,7 +22,7 @@
   2. ReviewPipeline always created if `claude` CLI is in PATH
   3. Startup logs Claude CLI version
 - **Complexity**: S
-- **Deps**: T-P1-1
+- **Deps**: None (P1-1 done)
 
 #### T-P1-3: Remove ANTHROPIC_API_KEY dependency from env/config [S]
 - **Files**: `src/env_loader.py`, `requirements.txt`, `pyproject.toml`, `orchestrator_config.yaml`
@@ -32,7 +32,7 @@
   2. `pip install -r requirements.txt` does not install anthropic
   3. orchestrator_config.yaml reviewer sections have no `api: "anthropic"`
 - **Complexity**: S
-- **Deps**: T-P1-1
+- **Deps**: None (P1-1 done)
 
 #### T-P1-4: Update review pipeline tests for subprocess mocking [M]
 - **Files**: `tests/test_review_pipeline.py`, `tests/integration/conftest.py`
@@ -42,7 +42,7 @@
   2. Integration tests for review flow work with subprocess mocks
   3. No remaining references to MockAnthropicClient
 - **Complexity**: M
-- **Deps**: T-P1-1
+- **Deps**: None (P1-1 done)
 
 #### T-P1-5: Fix orchestrator config for self-management [S]
 - **Files**: `orchestrator_config.yaml`
@@ -71,7 +71,7 @@
   2. Screenshot or log evidence captured
   3. All prior P1 tasks completed and integrated
 - **Complexity**: S
-- **Deps**: T-P1-1, T-P1-2, T-P1-3, T-P1-4, T-P1-5, T-P1-6
+- **Deps**: None (P1-1 done), T-P1-2, T-P1-3, T-P1-4, T-P1-5, T-P1-6
 
 ### P2 -- Nice to Have (polish, optimization)
 <!-- Phase 2+: frontend E2E tests, TypeScript codegen from Pydantic, cross-platform -->
