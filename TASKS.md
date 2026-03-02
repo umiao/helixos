@@ -36,27 +36,6 @@
 
 ---
 
-#### T-P0-3: Project registry + YAML config loader
-- **Priority**: P0
-- **Complexity**: S (1 session)
-- **Depends on**: T-P0-2
-- **Acceptance Criteria**:
-  - [ ] `src/config.py`: Pydantic settings models: `OrchestratorConfig`, `ProjectConfig`, `GitConfig`, `ReviewerConfig`, `DependencyConfig` -- matching PRD Section 6.2
-  - [ ] `load_config(path: Path) -> OrchestratorConfig` parses YAML with validation
-  - [ ] `class ProjectRegistry`: `get_project(id)`, `list_projects()`, `get_project_config(id)`
-  - [ ] Converts `ProjectConfig` (YAML) -> `Project` (Pydantic model from T-P0-2)
-  - [ ] Path fields expand `~` via `Path.expanduser()`
-  - [ ] Missing repo_path: warning (not error -- repos may not be cloned)
-  - [ ] All file reads use `encoding="utf-8"`
-  - [ ] `tests/test_config.py`: YAML loading, validation, path expansion, bad YAML
-  - [ ] ruff clean, no emoji
-- **Files**: `src/config.py` (new), `tests/test_config.py` (new), `orchestrator_config.yaml` (mod)
-- **Scope boundary**:
-  - IN: YAML parsing, config validation, ProjectRegistry
-  - OUT: No .env loading. No TASKS.md parsing. No runtime state.
-
----
-
 #### T-P0-4: TASKS.md parser (one-way sync)
 - **Priority**: P0
 - **Complexity**: S (1 session)
@@ -416,3 +395,6 @@ T-P0-13 [M] Integration tests (needs T-P0-10 + T-P0-12)
 
 #### [x] T-P0-2: Data model + TaskManager + database layer -- 2026-03-01
 - Pydantic models (TaskStatus 9 values, ExecutorType, Project, Task, ReviewState, LLMReview, ExecutionState, Dependency). SQLAlchemy 2.0 async DB (TaskRow, DependencyRow, indexes). TaskManager CRUD + state machine + startup recovery. 82 tests passing.
+
+#### [x] T-P0-3: Project registry + YAML config loader -- 2026-03-01
+- Pydantic settings models (OrchestratorSettings, ProjectConfig, GitConfig, ReviewerConfig, DependencyConfig, OrchestratorConfig). YAML loader with validation. ProjectRegistry with get_project, list_projects, get_project_config. Path expansion via expanduser. 33 tests passing.

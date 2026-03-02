@@ -34,3 +34,10 @@
 - **Sanity check result**: pytest tests/ -- 82/82 passed (24 models + 8 db + 32 task_manager + 15 env_loader + 4 smoke). ruff check -- clean. check_emoji.py -- no emoji found.
 - **Status**: [DONE]
 - **Request**: Cross off T-P0-2
+
+## 2026-03-01 22:00 -- [T-P0-3] Project registry + YAML config loader
+- **What I did**: Created Pydantic settings models (OrchestratorSettings, ProjectConfig, GitConfig, StagedSafetyCheck, ReviewerConfig, ReviewPipelineConfig, DependencyConfig, OrchestratorConfig) matching PRD Section 6.2 YAML schema. Built load_config(path) YAML parser with validation. Implemented ProjectRegistry with get_project, list_projects, get_project_config that converts ProjectConfig -> Project model. All Path fields auto-expand tilde via model_validator. Missing repo_path logs warning (not error). All file reads use encoding="utf-8".
+- **Deliverables**: src/config.py (new), tests/test_config.py (new)
+- **Sanity check result**: pytest tests/ -- 115/115 passed (33 config + 82 existing). ruff check -- clean. check_emoji.py -- no emoji found.
+- **Status**: [DONE]
+- **Request**: Cross off T-P0-3

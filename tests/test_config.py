@@ -1,0 +1,455 @@
+"""Tests for src/config.py -- YAML config loader and ProjectRegistry."""
+
+from __future__ import annotations
+
+import logging
+from pathlib import Path
+
+import pytest
+import yaml
+from pydantic import ValidationError
+
+from src.config import (
+    DependencyConfig,
+    GitConfig,
+    OrchestratorConfig,
+    OrchestratorSettings,
+    ProjectConfig,
+    ProjectRegistry,
+    ReviewerConfig,
+    StagedSafetyCheck,
+    load_config,
+)
+from src.models import ExecutorType
+
+# ------------------------------------------------------------------
+# Helpers
+# ------------------------------------------------------------------
+
+MINIMAL_YAML = """\
+orchestrator:
+  global_concurrency_limit: 2
+  unified_env_path: "~/.helixos/.env"
+  state_db_path: "~/.helixos/state.db"
+
+projects:
+  P0:
+    name: "TestProject"
+    repo_path: "~/projects/test"
+    executor_type: "code"
+"""
+
+FULL_YAML = """\
+orchestrator:
+  global_concurrency_limit: 3
+  per_project_concurrency: 1
+  review_consensus_threshold: 0.8
+  session_timeout_minutes: 60
+  subprocess_terminate_grace_seconds: 5
+  unified_env_path: "~/.helixos/.env"
+  state_db_path: "~/.helixos/state.db"
+
+projects:
+  P0:
+    name: "HelixOS"
+    repo_path: "~/projects/helixos"
+    executor_type: "code"
+    tasks_file: "TASKS.md"
+    max_concurrency: 1
+  P1:
+    name: "Job Hunter"
+    repo_path: "~/projects/job-hunter"
+    executor_type: "code"
+    tasks_file: "TASKS.md"
+    claude_md_path: "~/projects/job-hunter/claude.md"
+    max_concurrency: 1
+  P2:
+    name: "Blog Reorg"
+    workspace_path: "~/projects/blog/workspace"
+    executor_type: "agent"
+    tasks_file: "TASKS.md"
+    env_keys:
+      - BLOG_API_KEY
+      - BLOG_SECRET
+
+git:
+  auto_commit: true
+  commit_message_template: "[helixos] {project}: {task_id} {task_title}"
+  staged_safety_check:
+    max_files: 50
+    max_total_size_mb: 10
+
+review_pipeline:
+  reviewers:
+    - model: "claude-sonnet-4-5"
+      focus: "feasibility_and_edge_cases"
+      api: "anthropic"
+      required: true
+    - model: "claude-sonnet-4-5"
+      focus: "adversarial_red_team"
+      api: "anthropic"
+      required: false
+
+dependencies:
+  - upstream: "P2:T-structured-output"
+    downstream: "P3:T-import-corpus"
+    contract: "contracts/blog_corpus_v1.json"
+"""
+
+
+def _write_yaml(tmp_path: Path, content: str) -> Path:
+    """Write YAML content to a temp file and return its path."""
+    p = tmp_path / "config.yaml"
+    p.write_text(content, encoding="utf-8")
+    return p
+
+
+# ------------------------------------------------------------------
+# OrchestratorSettings tests
+# ------------------------------------------------------------------
+
+
+class TestOrchestratorSettings:
+    """Tests for the orchestrator section model."""
+
+    def test_defaults(self) -> None:
+        """Default values match PRD Section 6.2."""
+        s = OrchestratorSettings()
+        assert s.global_concurrency_limit == 3
+        assert s.per_project_concurrency == 1
+        assert s.review_consensus_threshold == 0.8
+        assert s.session_timeout_minutes == 60
+        assert s.subprocess_terminate_grace_seconds == 5
+
+    def test_path_expansion(self) -> None:
+        """Tilde in paths is expanded."""
+        s = OrchestratorSettings(
+            unified_env_path=Path("~/.helixos/.env"),
+            state_db_path=Path("~/data/state.db"),
+        )
+        assert "~" not in str(s.unified_env_path)
+        assert "~" not in str(s.state_db_path)
+        assert s.unified_env_path == Path("~/.helixos/.env").expanduser()
+        assert s.state_db_path == Path("~/data/state.db").expanduser()
+
+
+# ------------------------------------------------------------------
+# ProjectConfig tests
+# ------------------------------------------------------------------
+
+
+class TestProjectConfig:
+    """Tests for project config model."""
+
+    def test_minimal(self) -> None:
+        """Minimum required fields: name only (defaults for the rest)."""
+        pc = ProjectConfig(name="Test")
+        assert pc.name == "Test"
+        assert pc.repo_path is None
+        assert pc.executor_type == ExecutorType.CODE
+        assert pc.tasks_file == "TASKS.md"
+        assert pc.max_concurrency == 1
+        assert pc.env_keys == []
+
+    def test_path_expansion(self) -> None:
+        """Tilde in repo_path, workspace_path, claude_md_path is expanded."""
+        pc = ProjectConfig(
+            name="Test",
+            repo_path=Path("~/projects/test"),
+            workspace_path=Path("~/ws"),
+            claude_md_path=Path("~/claude.md"),
+        )
+        assert "~" not in str(pc.repo_path)
+        assert "~" not in str(pc.workspace_path)
+        assert "~" not in str(pc.claude_md_path)
+
+    def test_executor_type_from_string(self) -> None:
+        """Executor type is validated from string value."""
+        pc = ProjectConfig(name="Test", executor_type="agent")
+        assert pc.executor_type == ExecutorType.AGENT
+
+    def test_invalid_executor_type(self) -> None:
+        """Invalid executor_type raises ValidationError."""
+        with pytest.raises(ValidationError):
+            ProjectConfig(name="Test", executor_type="invalid")
+
+    def test_env_keys(self) -> None:
+        """env_keys list is preserved."""
+        pc = ProjectConfig(name="Test", env_keys=["KEY_A", "KEY_B"])
+        assert pc.env_keys == ["KEY_A", "KEY_B"]
+
+
+# ------------------------------------------------------------------
+# GitConfig tests
+# ------------------------------------------------------------------
+
+
+class TestGitConfig:
+    """Tests for git config model."""
+
+    def test_defaults(self) -> None:
+        """Default git config values."""
+        gc = GitConfig()
+        assert gc.auto_commit is True
+        assert "{task_id}" in gc.commit_message_template
+        assert gc.staged_safety_check.max_files == 50
+        assert gc.staged_safety_check.max_total_size_mb == 10
+
+    def test_custom_safety(self) -> None:
+        """Custom staged safety check values."""
+        gc = GitConfig(
+            staged_safety_check=StagedSafetyCheck(max_files=20, max_total_size_mb=5),
+        )
+        assert gc.staged_safety_check.max_files == 20
+
+
+# ------------------------------------------------------------------
+# ReviewerConfig tests
+# ------------------------------------------------------------------
+
+
+class TestReviewerConfig:
+    """Tests for reviewer config model."""
+
+    def test_required_fields(self) -> None:
+        """Model and focus are required."""
+        rc = ReviewerConfig(model="claude-sonnet-4-5", focus="feasibility")
+        assert rc.model == "claude-sonnet-4-5"
+        assert rc.focus == "feasibility"
+        assert rc.api == "anthropic"
+        assert rc.required is True
+
+    def test_optional_reviewer(self) -> None:
+        """Required can be set to false."""
+        rc = ReviewerConfig(
+            model="claude-sonnet-4-5",
+            focus="adversarial",
+            required=False,
+        )
+        assert rc.required is False
+
+
+# ------------------------------------------------------------------
+# DependencyConfig tests
+# ------------------------------------------------------------------
+
+
+class TestDependencyConfig:
+    """Tests for dependency config model."""
+
+    def test_with_contract(self) -> None:
+        """Dependency with contract path."""
+        dc = DependencyConfig(
+            upstream="P0:T-1",
+            downstream="P1:T-2",
+            contract="contracts/schema.json",
+        )
+        assert dc.upstream == "P0:T-1"
+        assert dc.contract == "contracts/schema.json"
+
+    def test_without_contract(self) -> None:
+        """Dependency without contract defaults to None."""
+        dc = DependencyConfig(upstream="P0:T-1", downstream="P1:T-2")
+        assert dc.contract is None
+
+
+# ------------------------------------------------------------------
+# OrchestratorConfig (top-level) tests
+# ------------------------------------------------------------------
+
+
+class TestOrchestratorConfig:
+    """Tests for the top-level config model."""
+
+    def test_empty_yaml_uses_defaults(self) -> None:
+        """Empty dict yields all defaults."""
+        cfg = OrchestratorConfig.model_validate({})
+        assert cfg.orchestrator.global_concurrency_limit == 3
+        assert cfg.projects == {}
+        assert cfg.git.auto_commit is True
+        assert cfg.review_pipeline.reviewers == []
+        assert cfg.dependencies == []
+
+    def test_full_config(self) -> None:
+        """Full YAML round-trips correctly."""
+        raw = yaml.safe_load(FULL_YAML)
+        cfg = OrchestratorConfig.model_validate(raw)
+        assert cfg.orchestrator.global_concurrency_limit == 3
+        assert len(cfg.projects) == 3
+        assert "P0" in cfg.projects
+        assert cfg.projects["P2"].executor_type == ExecutorType.AGENT
+        assert cfg.projects["P2"].env_keys == ["BLOG_API_KEY", "BLOG_SECRET"]
+        assert cfg.git.auto_commit is True
+        assert len(cfg.review_pipeline.reviewers) == 2
+        assert cfg.review_pipeline.reviewers[0].required is True
+        assert cfg.review_pipeline.reviewers[1].required is False
+        assert len(cfg.dependencies) == 1
+        assert cfg.dependencies[0].upstream == "P2:T-structured-output"
+
+
+# ------------------------------------------------------------------
+# load_config tests
+# ------------------------------------------------------------------
+
+
+class TestLoadConfig:
+    """Tests for the YAML file loader."""
+
+    def test_load_minimal(self, tmp_path: Path) -> None:
+        """Load a minimal valid config file."""
+        p = _write_yaml(tmp_path, MINIMAL_YAML)
+        cfg = load_config(p)
+        assert cfg.orchestrator.global_concurrency_limit == 2
+        assert "P0" in cfg.projects
+        assert cfg.projects["P0"].name == "TestProject"
+
+    def test_load_full(self, tmp_path: Path) -> None:
+        """Load the full sample config."""
+        p = _write_yaml(tmp_path, FULL_YAML)
+        cfg = load_config(p)
+        assert len(cfg.projects) == 3
+        assert len(cfg.dependencies) == 1
+
+    def test_file_not_found(self, tmp_path: Path) -> None:
+        """Missing config file raises FileNotFoundError."""
+        with pytest.raises(FileNotFoundError):
+            load_config(tmp_path / "nonexistent.yaml")
+
+    def test_bad_yaml(self, tmp_path: Path) -> None:
+        """Malformed YAML raises yaml.YAMLError."""
+        p = tmp_path / "bad.yaml"
+        p.write_text("key: [\n  unclosed", encoding="utf-8")
+        with pytest.raises(yaml.YAMLError):
+            load_config(p)
+
+    def test_invalid_schema(self, tmp_path: Path) -> None:
+        """Valid YAML but invalid schema raises ValidationError."""
+        bad_schema = """\
+orchestrator:
+  global_concurrency_limit: "not_a_number"
+"""
+        p = _write_yaml(tmp_path, bad_schema)
+        with pytest.raises(ValidationError):
+            load_config(p)
+
+    def test_empty_file(self, tmp_path: Path) -> None:
+        """Empty YAML file returns default config."""
+        p = _write_yaml(tmp_path, "")
+        cfg = load_config(p)
+        assert cfg.orchestrator.global_concurrency_limit == 3
+        assert cfg.projects == {}
+
+    def test_path_expansion_through_load(self, tmp_path: Path) -> None:
+        """Paths loaded from YAML have tilde expanded."""
+        p = _write_yaml(tmp_path, MINIMAL_YAML)
+        cfg = load_config(p)
+        assert "~" not in str(cfg.orchestrator.unified_env_path)
+        assert "~" not in str(cfg.projects["P0"].repo_path)
+
+
+# ------------------------------------------------------------------
+# ProjectRegistry tests
+# ------------------------------------------------------------------
+
+
+class TestProjectRegistry:
+    """Tests for the project registry."""
+
+    @pytest.fixture()
+    def full_config(self) -> OrchestratorConfig:
+        """Return a fully loaded config from FULL_YAML."""
+        raw = yaml.safe_load(FULL_YAML)
+        return OrchestratorConfig.model_validate(raw)
+
+    @pytest.fixture()
+    def registry(self, full_config: OrchestratorConfig) -> ProjectRegistry:
+        """Return a registry built from the full config."""
+        return ProjectRegistry(full_config)
+
+    def test_list_projects(self, registry: ProjectRegistry) -> None:
+        """list_projects returns all projects."""
+        projects = registry.list_projects()
+        assert len(projects) == 3
+        ids = {p.id for p in projects}
+        assert ids == {"P0", "P1", "P2"}
+
+    def test_get_project(self, registry: ProjectRegistry) -> None:
+        """get_project returns the correct project model."""
+        p = registry.get_project("P0")
+        assert p.name == "HelixOS"
+        assert p.executor_type == ExecutorType.CODE
+
+    def test_get_project_unknown(self, registry: ProjectRegistry) -> None:
+        """get_project raises KeyError for unknown project."""
+        with pytest.raises(KeyError, match="Unknown project"):
+            registry.get_project("P99")
+
+    def test_get_project_config(self, registry: ProjectRegistry) -> None:
+        """get_project_config returns the raw ProjectConfig."""
+        pc = registry.get_project_config("P2")
+        assert isinstance(pc, ProjectConfig)
+        assert pc.name == "Blog Reorg"
+        assert pc.executor_type == ExecutorType.AGENT
+
+    def test_get_project_config_unknown(self, registry: ProjectRegistry) -> None:
+        """get_project_config raises KeyError for unknown project."""
+        with pytest.raises(KeyError, match="Unknown project"):
+            registry.get_project_config("P99")
+
+    def test_project_conversion_fields(self, registry: ProjectRegistry) -> None:
+        """Converted Project has all expected fields from ProjectConfig."""
+        p = registry.get_project("P1")
+        assert p.id == "P1"
+        assert p.name == "Job Hunter"
+        assert p.tasks_file == "TASKS.md"
+        assert p.max_concurrency == 1
+        # claude_md_path should be expanded
+        assert p.claude_md_path is not None
+        assert "~" not in str(p.claude_md_path)
+
+    def test_project_env_keys(self, registry: ProjectRegistry) -> None:
+        """env_keys are carried through to the Project model."""
+        p = registry.get_project("P2")
+        assert p.env_keys == ["BLOG_API_KEY", "BLOG_SECRET"]
+
+    def test_project_paths_expanded(self, registry: ProjectRegistry) -> None:
+        """All project paths have tilde expanded."""
+        p = registry.get_project("P0")
+        assert p.repo_path is not None
+        assert "~" not in str(p.repo_path)
+
+    def test_missing_repo_path_warning(
+        self, full_config: OrchestratorConfig, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """Warning is logged when repo_path does not exist on disk."""
+        with caplog.at_level(logging.WARNING):
+            ProjectRegistry(full_config)
+        # All projects in full_config have non-existent repo_paths (expanded ~/projects/...)
+        # so we should see warnings
+        assert any("repo_path does not exist" in msg for msg in caplog.messages)
+
+    def test_none_repo_path_no_warning(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """No warning when repo_path is None (agent-only project)."""
+        cfg = OrchestratorConfig.model_validate(
+            {
+                "projects": {
+                    "A1": {
+                        "name": "Agent Only",
+                        "executor_type": "agent",
+                        "workspace_path": "/tmp/ws",
+                    },
+                },
+            }
+        )
+        with caplog.at_level(logging.WARNING):
+            registry = ProjectRegistry(cfg)
+        assert not any("repo_path" in msg for msg in caplog.messages)
+        assert registry.get_project("A1").repo_path is None
+
+    def test_empty_config(self) -> None:
+        """Registry from empty config has no projects."""
+        cfg = OrchestratorConfig.model_validate({})
+        registry = ProjectRegistry(cfg)
+        assert registry.list_projects() == []
