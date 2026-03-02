@@ -34,7 +34,7 @@
 
 #### T-P3-5: Workflow clarity -- inline task creation, context menu, tooltips [M]
 - **AC**: Inline "Add task..." in Backlog, right-click context menu, button tooltips
-- **Depends on**: None (was: T-P3-1, now completed)
+- **Depends on**: None
 
 #### T-P3-6a: Persistent execution log + review history -- backend [M]
 - **AC**: 2 new DB tables, DB-first writes, 2KB cap, 2 API endpoints
