@@ -48,3 +48,10 @@
 - **Sanity check result**: pytest tests/ -- 158/158 passed (43 parser + 115 existing). ruff check -- clean. check_emoji.py -- no emoji found.
 - **Status**: [DONE]
 - **Request**: Cross off T-P0-4
+
+## 2026-03-02 00:00 -- [T-P0-5] CodeExecutor (subprocess + timeout + streaming)
+- **What I did**: Created ExecutorResult Pydantic model and BaseExecutor ABC with execute() and cancel() abstract methods per PRD Section 7.1. Implemented CodeExecutor that spawns `claude -p "..." --allowedTools ... --output-format json` via asyncio.create_subprocess_exec. Streams stdout line-by-line via on_log callback. Enforces session timeout with terminate -> grace wait -> kill fallback. cancel() terminates the running subprocess. _build_prompt() generates one-shot prompt per PRD 7.2. Last 100 log lines kept in result. All string decoding uses UTF-8.
+- **Deliverables**: src/executors/base.py (new), src/executors/code_executor.py (new), tests/test_code_executor.py (new)
+- **Sanity check result**: pytest tests/ -- 184/184 passed (26 executor + 158 existing). ruff check -- clean. check_emoji.py -- no emoji found.
+- **Status**: [DONE]
+- **Request**: Cross off T-P0-5
