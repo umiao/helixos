@@ -55,3 +55,10 @@
 - **Sanity check result**: pytest tests/ -- 184/184 passed (26 executor + 158 existing). ruff check -- clean. check_emoji.py -- no emoji found.
 - **Status**: [DONE]
 - **Request**: Cross off T-P0-5
+
+## 2026-03-02 01:00 -- [T-P0-6a] Scheduler core (EventBus + tick loop + concurrency)
+- **What I did**: Created EventBus pub/sub system with Event dataclass (type, task_id, data, timestamp), emit() to broadcast to all subscribers, subscribe() async generator with bounded per-subscriber queues (max 1000, drops oldest on overflow), and automatic subscriber cleanup. Implemented Scheduler with tick-based dispatch loop (5s interval via asyncio.create_task), per-project concurrency control (_project_is_busy via DB query), global concurrency limit (min(global_limit, active_projects) - running), dependency checking (_deps_fulfilled verifies all upstream DONE), executor factory (_get_executor returns CodeExecutor for MVP), and task execution handler (success -> DONE + status_change event, failure -> FAILED + alert event, exception -> FAILED + alert). Scheduler supports start/stop lifecycle.
+- **Deliverables**: src/events.py (new), src/scheduler.py (new), tests/test_events.py (new), tests/test_scheduler.py (new)
+- **Sanity check result**: pytest tests/ -- 219/219 passed (12 events + 23 scheduler + 184 existing). ruff check -- clean. check_emoji.py -- no emoji found.
+- **Status**: [DONE]
+- **Request**: Cross off T-P0-6a
