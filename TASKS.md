@@ -34,7 +34,7 @@
 
 #### T-P3-7: README overhaul [S]
 - **AC**: Project-specific README with architecture diagram, features, modules
-- **Depends on**: T-P3-4 through T-P3-6b
+- **Depends on**: T-P3-5, T-P3-6a, T-P3-6b
 
 #### T-P3-8: Self-hosting guardrails -- design document [S]
 - **AC**: Design doc covering worker isolation, commit serialization, log isolation
