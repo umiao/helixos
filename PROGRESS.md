@@ -160,3 +160,10 @@
 - **Sanity check result**: pytest 333/333 passed. ruff clean. No emoji. No MockAnthropicClient in any .py files.
 - **Status**: [DONE]
 - **Request**: Move T-P1-4 to Completed (REMOVE spec block from Active, ADD summary line to Completed Tasks)
+
+## 2026-03-02 16:00 -- [T-P1-5] Fix orchestrator config for self-management
+- **What I did**: Fixed `repo_path` in orchestrator_config.yaml from `~/projects/helixos` to `~/Desktop/Gen_AI_Proj/helixos` to match the actual project location. Added `~/.helixos/` directory auto-creation in api.py lifespan (creates parent directories for both `state_db_path` and `unified_env_path` before DB engine init, using `mkdir(parents=True, exist_ok=True)`).
+- **Deliverables**: orchestrator_config.yaml (mod -- fixed repo_path), src/api.py (mod -- added data directory creation)
+- **Sanity check result**: pytest 333/333 passed. ruff clean. No emoji.
+- **Status**: [DONE]
+- **Request**: Move T-P1-5 to Completed (REMOVE spec block from Active, ADD summary line to Completed Tasks)

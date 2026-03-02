@@ -128,6 +128,10 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     # Load config
     config = load_config(CONFIG_PATH)
 
+    # Ensure data directories exist (e.g. ~/.helixos/ for state.db and .env)
+    config.orchestrator.state_db_path.parent.mkdir(parents=True, exist_ok=True)
+    config.orchestrator.unified_env_path.parent.mkdir(parents=True, exist_ok=True)
+
     # Database
     engine = create_engine(config.orchestrator.state_db_path)
     await init_db(engine)

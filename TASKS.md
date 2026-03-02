@@ -14,15 +14,6 @@
 
 ### P1 -- Should Have (important features)
 
-#### T-P1-5: Fix orchestrator config for self-management [S]
-- **Files**: `orchestrator_config.yaml`
-- **What**: Fix `repo_path: "~/projects/helixos"` to `repo_path: "~/Desktop/Gen_AI_Proj/helixos"`. Ensure `~/.helixos/` directory creation logic exists.
-- **AC**:
-  1. `POST /api/projects/P0/sync` successfully parses this project's TASKS.md
-  2. repo_path points to actual project location
-- **Complexity**: S
-- **Deps**: None
-
 #### T-P1-6: Create root-level QUICKSTART.md [M]
 - **Files**: `QUICKSTART.md` (new, root level)
 - **What**: Comprehensive guide covering: prerequisites (Python 3.11+, Node.js 18+, Claude Code CLI), installation, configuration (orchestrator_config.yaml, adding projects), running (uvicorn, Vite dev, production, autonomous), API reference table (14 endpoints), debugging and troubleshooting, TASKS.md format requirements.
@@ -164,3 +155,6 @@ T-P1-7 [S] E2E verification (needs T-P1-4 through T-P1-6)
 
 #### [x] T-P1-4: Update review pipeline tests for subprocess mocking -- 2026-03-02
 - Verified T-P1-1 already replaced all MockAnthropicClient with subprocess mocking. No MockAnthropicClient references remain in any .py files. Fixed pre-existing SSE test timing race condition. 333 tests passing.
+
+#### [x] T-P1-5: Fix orchestrator config for self-management -- 2026-03-02
+- Fixed repo_path from ~/projects/helixos to ~/Desktop/Gen_AI_Proj/helixos. Added ~/.helixos/ directory auto-creation in API lifespan. 333 tests passing.

@@ -13,7 +13,7 @@ orchestrator:
 projects:
   P0:
     name: "HelixOS"
-    repo_path: "~/projects/helixos"
+    repo_path: "~/Desktop/Gen_AI_Proj/helixos"
     executor_type: "code"
     tasks_file: "TASKS.md"
     max_concurrency: 1
