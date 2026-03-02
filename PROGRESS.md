@@ -62,3 +62,10 @@
 - **Sanity check result**: pytest tests/ -- 219/219 passed (12 events + 23 scheduler + 184 existing). ruff check -- clean. check_emoji.py -- no emoji found.
 - **Status**: [DONE]
 - **Request**: Cross off T-P0-6a
+
+## 2026-03-02 02:00 -- [T-P0-6b] Scheduler hardening (retry + recovery + cancel)
+- **What I did**: Extended Scheduler with _run_with_retry (exponential backoff 30s/60s/120s, max 3 retries, exhausted -> FAILED -> BLOCKED), startup_recovery (marks orphaned RUNNING tasks as FAILED, emits alert per task, logs warning with count), cancel_task (calls executor.cancel() + asyncio task cancel, updates to FAILED, full cleanup of running/executors/cancelled state), and _auto_commit_hook placeholder (no-op until T-P0-12). Added _executors dict to track active executors for cancel, _cancelled set to prevent retries on cancelled tasks. Extended tests with FailThenSucceedExecutor for retry scenarios.
+- **Deliverables**: src/scheduler.py (mod), tests/test_scheduler.py (mod)
+- **Sanity check result**: pytest tests/ -- 235/235 passed (39 scheduler + 196 existing). ruff check -- clean. check_emoji.py -- no emoji found.
+- **Status**: [DONE]
+- **Request**: Cross off T-P0-6b

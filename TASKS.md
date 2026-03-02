@@ -382,3 +382,6 @@ T-P0-13 [M] Integration tests (needs T-P0-10 + T-P0-12)
 
 #### [x] T-P0-6a: Scheduler core (EventBus + tick loop + concurrency) -- 2026-03-02
 - EventBus pub/sub (Event dataclass, emit/subscribe, bounded queues max 1000, drop oldest). Scheduler with tick loop (5s interval), per-project + global concurrency control, dependency checking, executor factory (CodeExecutor MVP), task execution (success->DONE, failure->FAILED), start/stop lifecycle. 35 tests passing (12 events + 23 scheduler).
+
+#### [x] T-P0-6b: Scheduler hardening (retry + recovery + cancel) -- 2026-03-02
+- _run_with_retry with exponential backoff (30s, 60s, 120s), max retries -> BLOCKED. startup_recovery marks orphaned RUNNING tasks as FAILED with alerts. cancel_task calls executor.cancel() + asyncio task cancel, updates FAILED. _auto_commit_hook placeholder. 39 tests passing (16 new + 23 existing scheduler).

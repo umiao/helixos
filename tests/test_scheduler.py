@@ -1,4 +1,4 @@
-"""Tests for the Scheduler core (tick loop, concurrency, dependency checking)."""
+"""Tests for the Scheduler (tick loop, concurrency, dependency, retry, recovery, cancel)."""
 
 from __future__ import annotations
 
@@ -6,7 +6,7 @@ import asyncio
 import contextlib
 from collections.abc import Callable
 from pathlib import Path
-from unittest.mock import MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -15,7 +15,7 @@ from src.events import EventBus
 from src.executors.base import BaseExecutor, ExecutorResult
 from src.executors.code_executor import CodeExecutor
 from src.models import ExecutorType, Project, Task, TaskStatus
-from src.scheduler import Scheduler
+from src.scheduler import RETRY_BACKOFF_SECONDS, Scheduler
 from src.task_manager import TaskManager
 
 # ---------------------------------------------------------------------------
@@ -49,6 +49,7 @@ class MockExecutor(BaseExecutor):
         )
         self.calls: list[str] = []
         self.log_callbacks: list[Callable[[str], None]] = []
+        self._cancel_called = False
 
     async def execute(
         self,
@@ -63,6 +64,14 @@ class MockExecutor(BaseExecutor):
         on_log("mock log line")
         if self._hang and self._release_event is not None:
             await self._release_event.wait()
+        if self._cancel_called:
+            return ExecutorResult(
+                success=False,
+                exit_code=-1,
+                log_lines=[],
+                error_summary="Cancelled",
+                duration_seconds=0.0,
+            )
         return self._result
 
     def release(self) -> None:
@@ -71,7 +80,55 @@ class MockExecutor(BaseExecutor):
             self._release_event.set()
 
     async def cancel(self) -> None:
-        """Cancel (no-op for mock)."""
+        """Record that cancel was called."""
+        self._cancel_called = True
+        if self._release_event is not None:
+            self._release_event.set()
+
+
+class FailThenSucceedExecutor(BaseExecutor):
+    """Executor that fails a configurable number of times then succeeds.
+
+    This executor is shared across retries (the scheduler's _get_executor
+    is overridden to always return the same instance).
+    """
+
+    def __init__(self, fail_count: int = 1) -> None:
+        """Initialize with the number of failures before success.
+
+        Args:
+            fail_count: How many times to fail before returning success.
+        """
+        self._fail_count = fail_count
+        self.calls: list[str] = []
+
+    async def execute(
+        self,
+        task: Task,
+        project: Project,
+        env: dict[str, str],
+        on_log: Callable[[str], None],
+    ) -> ExecutorResult:
+        """Fail for the first N calls, then succeed."""
+        self.calls.append(task.id)
+        on_log(f"attempt {len(self.calls)}")
+        if len(self.calls) <= self._fail_count:
+            return ExecutorResult(
+                success=False,
+                exit_code=1,
+                log_lines=[],
+                error_summary="Execution failed",
+                duration_seconds=1.0,
+            )
+        return ExecutorResult(
+            success=True,
+            exit_code=0,
+            log_lines=[],
+            duration_seconds=1.0,
+        )
+
+    async def cancel(self) -> None:
+        """No-op."""
 
 
 # ---------------------------------------------------------------------------
@@ -159,7 +216,7 @@ async def scheduler_env(session_factory):
 
 
 # ---------------------------------------------------------------------------
-# Tests
+# Tests -- Tick dispatch
 # ---------------------------------------------------------------------------
 
 
@@ -207,8 +264,11 @@ class TestSchedulerTick:
         assert len(mock_exec.calls) == 0
         assert len(emitted) == 0
 
-    async def test_tick_failure_emits_alert(self, scheduler_env) -> None:
-        """On executor failure, task should go to FAILED and emit alert."""
+    @patch("src.scheduler.asyncio.sleep", new_callable=AsyncMock)
+    async def test_tick_failure_emits_alert(
+        self, mock_sleep, scheduler_env,
+    ) -> None:
+        """On executor failure, task should go to BLOCKED and emit alert."""
         scheduler, task_manager, _event_bus, emitted = scheduler_env
 
         fail_result = ExecutorResult(
@@ -231,17 +291,20 @@ class TestSchedulerTick:
         if running_tasks:
             await asyncio.gather(*running_tasks)
 
-        # Task should be FAILED
+        # Task should be BLOCKED (RUNNING -> FAILED -> BLOCKED)
         updated = await task_manager.get_task("proj:t1")
         assert updated is not None
-        assert updated.status == TaskStatus.FAILED
+        assert updated.status == TaskStatus.BLOCKED
 
         # Alert event should have been emitted
         alert_events = [e for e in emitted if e[0] == "alert"]
         assert len(alert_events) >= 1
         assert alert_events[0][1] == "proj:t1"
 
-    async def test_tick_executor_exception(self, scheduler_env) -> None:
+    @patch("src.scheduler.asyncio.sleep", new_callable=AsyncMock)
+    async def test_tick_executor_exception(
+        self, mock_sleep, scheduler_env,
+    ) -> None:
         """Unhandled executor exception should mark task FAILED."""
         scheduler, task_manager, _event_bus, emitted = scheduler_env
 
@@ -273,7 +336,8 @@ class TestSchedulerTick:
         alert_events = [e for e in emitted if e[0] == "alert"]
         assert len(alert_events) >= 1
 
-    async def test_tick_log_events(self, scheduler_env) -> None:
+    @patch("src.scheduler.asyncio.sleep", new_callable=AsyncMock)
+    async def test_tick_log_events(self, mock_sleep, scheduler_env) -> None:
         """Executor log callback should emit 'log' events."""
         scheduler, task_manager, _event_bus, emitted = scheduler_env
         mock_exec = MockExecutor()
@@ -292,6 +356,11 @@ class TestSchedulerTick:
         assert len(log_events) >= 1
         assert log_events[0][1] == "proj:t1"
         assert log_events[0][2] == "mock log line"
+
+
+# ---------------------------------------------------------------------------
+# Tests -- Concurrency
+# ---------------------------------------------------------------------------
 
 
 class TestConcurrency:
@@ -432,6 +501,11 @@ class TestConcurrency:
         assert len(mock_exec.calls) == 0
 
 
+# ---------------------------------------------------------------------------
+# Tests -- Dependencies
+# ---------------------------------------------------------------------------
+
+
 class TestDependencies:
     """Tests for dependency checking."""
 
@@ -456,7 +530,13 @@ class TestDependencies:
         dispatched_ids = mock_exec.calls
         assert "proj:main" not in dispatched_ids
 
-    async def test_deps_fulfilled(self, scheduler_env) -> None:
+        # Clean up any dispatched tasks to avoid leaking into other tests
+        running_tasks = list(scheduler.running.values())
+        if running_tasks:
+            await asyncio.gather(*running_tasks)
+
+    @patch("src.scheduler.asyncio.sleep", new_callable=AsyncMock)
+    async def test_deps_fulfilled(self, mock_sleep, scheduler_env) -> None:
         """Task with all deps DONE should be dispatched."""
         scheduler, task_manager, _eb, _emitted = scheduler_env
         mock_exec = MockExecutor()
@@ -505,6 +585,11 @@ class TestDependencies:
         assert "proj:t1" not in mock_exec.calls
 
 
+# ---------------------------------------------------------------------------
+# Tests -- Lifecycle
+# ---------------------------------------------------------------------------
+
+
 class TestSchedulerLifecycle:
     """Tests for scheduler start/stop lifecycle."""
 
@@ -538,6 +623,11 @@ class TestSchedulerLifecycle:
         await scheduler.stop()  # Should not raise
 
 
+# ---------------------------------------------------------------------------
+# Tests -- Executor factory
+# ---------------------------------------------------------------------------
+
+
 class TestGetExecutor:
     """Tests for the executor factory."""
 
@@ -555,6 +645,11 @@ class TestGetExecutor:
         for exec_type in ExecutorType:
             executor = scheduler._get_executor(exec_type)
             assert isinstance(executor, CodeExecutor)
+
+
+# ---------------------------------------------------------------------------
+# Tests -- _project_is_busy
+# ---------------------------------------------------------------------------
 
 
 class TestProjectIsBusy:
@@ -580,6 +675,11 @@ class TestProjectIsBusy:
         """Unknown project should be considered busy (safe default)."""
         scheduler, _tm, _eb, _emitted = scheduler_env
         assert await scheduler._project_is_busy("nonexistent")
+
+
+# ---------------------------------------------------------------------------
+# Tests -- _deps_fulfilled
+# ---------------------------------------------------------------------------
 
 
 class TestDepsFulfilled:
@@ -612,3 +712,439 @@ class TestDepsFulfilled:
 
         task = _make_task(depends_on=["proj:dep"])
         assert not await scheduler._deps_fulfilled(task)
+
+
+# ---------------------------------------------------------------------------
+# Tests -- Retry with exponential backoff
+# ---------------------------------------------------------------------------
+
+
+class TestRetry:
+    """Tests for _run_with_retry and retry behavior."""
+
+    @patch("src.scheduler.asyncio.sleep", new_callable=AsyncMock)
+    async def test_retry_succeeds_on_second_attempt(
+        self, mock_sleep, scheduler_env,
+    ) -> None:
+        """Task that fails once then succeeds should end up DONE."""
+        scheduler, task_manager, _eb, emitted = scheduler_env
+
+        # Fails first attempt, succeeds on retry 1
+        exec_instance = FailThenSucceedExecutor(fail_count=1)
+        scheduler._get_executor = lambda _: exec_instance
+
+        task = _make_task()
+        await task_manager.create_task(task)
+
+        await scheduler.tick()
+
+        running_tasks = list(scheduler.running.values())
+        if running_tasks:
+            await asyncio.gather(*running_tasks)
+
+        updated = await task_manager.get_task("proj:t1")
+        assert updated is not None
+        assert updated.status == TaskStatus.DONE
+
+        # Should have been called twice (initial + 1 retry)
+        assert len(exec_instance.calls) == 2
+
+        # Sleep was called once with 30s backoff
+        mock_sleep.assert_awaited_once_with(30)
+
+    @patch("src.scheduler.asyncio.sleep", new_callable=AsyncMock)
+    async def test_retry_succeeds_on_third_attempt(
+        self, mock_sleep, scheduler_env,
+    ) -> None:
+        """Task that fails twice then succeeds should end up DONE."""
+        scheduler, task_manager, _eb, emitted = scheduler_env
+
+        exec_instance = FailThenSucceedExecutor(fail_count=2)
+        scheduler._get_executor = lambda _: exec_instance
+
+        task = _make_task()
+        await task_manager.create_task(task)
+
+        await scheduler.tick()
+
+        running_tasks = list(scheduler.running.values())
+        if running_tasks:
+            await asyncio.gather(*running_tasks)
+
+        updated = await task_manager.get_task("proj:t1")
+        assert updated is not None
+        assert updated.status == TaskStatus.DONE
+
+        assert len(exec_instance.calls) == 3
+        assert mock_sleep.await_count == 2
+
+    @patch("src.scheduler.asyncio.sleep", new_callable=AsyncMock)
+    async def test_max_retries_leads_to_blocked(
+        self, mock_sleep, scheduler_env,
+    ) -> None:
+        """After max retries exhausted, task goes FAILED -> BLOCKED."""
+        scheduler, task_manager, _eb, emitted = scheduler_env
+
+        fail_result = ExecutorResult(
+            success=False,
+            exit_code=1,
+            log_lines=[],
+            error_summary="Build failed",
+            duration_seconds=1.0,
+        )
+        mock_exec = MockExecutor(result=fail_result)
+        scheduler._get_executor = lambda _: mock_exec
+
+        task = _make_task()
+        await task_manager.create_task(task)
+
+        await scheduler.tick()
+
+        running_tasks = list(scheduler.running.values())
+        if running_tasks:
+            await asyncio.gather(*running_tasks)
+
+        # 1 initial + 3 retries = 4 total attempts
+        assert len(mock_exec.calls) == 4
+
+        # Task should be BLOCKED
+        updated = await task_manager.get_task("proj:t1")
+        assert updated is not None
+        assert updated.status == TaskStatus.BLOCKED
+
+        # Alert emitted with error summary
+        alert_events = [e for e in emitted if e[0] == "alert"]
+        assert len(alert_events) >= 1
+
+    @patch("src.scheduler.asyncio.sleep", new_callable=AsyncMock)
+    async def test_retry_backoff_intervals(
+        self, mock_sleep, scheduler_env,
+    ) -> None:
+        """Backoff intervals should be 30s, 60s, 120s."""
+        scheduler, task_manager, _eb, _emitted = scheduler_env
+
+        fail_result = ExecutorResult(
+            success=False, exit_code=1, log_lines=[],
+            error_summary="fail", duration_seconds=1.0,
+        )
+        mock_exec = MockExecutor(result=fail_result)
+        scheduler._get_executor = lambda _: mock_exec
+
+        task = _make_task()
+        await task_manager.create_task(task)
+
+        await scheduler.tick()
+
+        running_tasks = list(scheduler.running.values())
+        if running_tasks:
+            await asyncio.gather(*running_tasks)
+
+        # Sleep called 3 times with expected backoff
+        sleep_calls = [call.args[0] for call in mock_sleep.await_args_list]
+        assert sleep_calls == RETRY_BACKOFF_SECONDS
+
+    @patch("src.scheduler.asyncio.sleep", new_callable=AsyncMock)
+    async def test_retry_emits_log_events(
+        self, mock_sleep, scheduler_env,
+    ) -> None:
+        """Each retry attempt should emit a log event."""
+        scheduler, task_manager, _eb, emitted = scheduler_env
+
+        fail_result = ExecutorResult(
+            success=False, exit_code=1, log_lines=[],
+            error_summary="fail", duration_seconds=1.0,
+        )
+        mock_exec = MockExecutor(result=fail_result)
+        scheduler._get_executor = lambda _: mock_exec
+
+        task = _make_task()
+        await task_manager.create_task(task)
+
+        await scheduler.tick()
+
+        running_tasks = list(scheduler.running.values())
+        if running_tasks:
+            await asyncio.gather(*running_tasks)
+
+        # Retry log events
+        retry_logs = [
+            e for e in emitted
+            if e[0] == "log" and isinstance(e[2], str) and "Retry" in e[2]
+        ]
+        assert len(retry_logs) == 3
+        assert "1/3" in retry_logs[0][2]
+        assert "2/3" in retry_logs[1][2]
+        assert "3/3" in retry_logs[2][2]
+
+    @patch("src.scheduler.asyncio.sleep", new_callable=AsyncMock)
+    async def test_no_retry_on_success(
+        self, mock_sleep, scheduler_env,
+    ) -> None:
+        """Successful execution should not trigger any retries."""
+        scheduler, task_manager, _eb, emitted = scheduler_env
+
+        mock_exec = MockExecutor()  # Default: success
+        scheduler._get_executor = lambda _: mock_exec
+
+        task = _make_task()
+        await task_manager.create_task(task)
+
+        await scheduler.tick()
+
+        running_tasks = list(scheduler.running.values())
+        if running_tasks:
+            await asyncio.gather(*running_tasks)
+
+        assert len(mock_exec.calls) == 1
+        mock_sleep.assert_not_awaited()
+
+
+# ---------------------------------------------------------------------------
+# Tests -- Startup recovery
+# ---------------------------------------------------------------------------
+
+
+class TestStartupRecovery:
+    """Tests for startup_recovery()."""
+
+    async def test_recovers_running_tasks(self, scheduler_env) -> None:
+        """Running tasks on startup should be marked FAILED."""
+        scheduler, task_manager, _eb, emitted = scheduler_env
+
+        # Create a task and move to RUNNING
+        task = _make_task()
+        await task_manager.create_task(task)
+        await task_manager.update_status("proj:t1", TaskStatus.RUNNING)
+
+        count = await scheduler.startup_recovery()
+
+        assert count == 1
+
+        updated = await task_manager.get_task("proj:t1")
+        assert updated is not None
+        assert updated.status == TaskStatus.FAILED
+
+    async def test_emits_alerts_for_recovered_tasks(
+        self, scheduler_env,
+    ) -> None:
+        """An alert event should be emitted for each recovered task."""
+        scheduler, task_manager, _eb, emitted = scheduler_env
+
+        # Create two tasks in RUNNING state
+        t1 = _make_task("proj:t1", "proj", "t1", "Task 1")
+        t2 = _make_task("proj:t2", "proj", "t2", "Task 2")
+        await task_manager.create_task(t1)
+        await task_manager.create_task(t2)
+        await task_manager.update_status("proj:t1", TaskStatus.RUNNING)
+        await task_manager.update_status("proj:t2", TaskStatus.RUNNING)
+
+        count = await scheduler.startup_recovery()
+
+        assert count == 2
+
+        alert_events = [e for e in emitted if e[0] == "alert"]
+        assert len(alert_events) == 2
+
+        alerted_ids = {e[1] for e in alert_events}
+        assert alerted_ids == {"proj:t1", "proj:t2"}
+
+        # Each alert should mention crash recovery
+        for _, _, data in alert_events:
+            assert "Recovered from crash" in data["error"]
+
+    async def test_no_running_tasks(self, scheduler_env) -> None:
+        """Startup recovery with no running tasks returns 0."""
+        scheduler, _tm, _eb, emitted = scheduler_env
+
+        count = await scheduler.startup_recovery()
+
+        assert count == 0
+        assert len(emitted) == 0
+
+    async def test_recovery_does_not_affect_queued(
+        self, scheduler_env,
+    ) -> None:
+        """Startup recovery should only affect RUNNING tasks."""
+        scheduler, task_manager, _eb, _emitted = scheduler_env
+
+        # One QUEUED, one RUNNING
+        t1 = _make_task("proj:q1", "proj", "q1", "Queued Task")
+        t2 = _make_task("proj:r1", "proj", "r1", "Running Task")
+        await task_manager.create_task(t1)
+        await task_manager.create_task(t2)
+        await task_manager.update_status("proj:r1", TaskStatus.RUNNING)
+
+        count = await scheduler.startup_recovery()
+
+        assert count == 1
+
+        q1 = await task_manager.get_task("proj:q1")
+        assert q1 is not None
+        assert q1.status == TaskStatus.QUEUED
+
+        r1 = await task_manager.get_task("proj:r1")
+        assert r1 is not None
+        assert r1.status == TaskStatus.FAILED
+
+
+# ---------------------------------------------------------------------------
+# Tests -- Cancel task
+# ---------------------------------------------------------------------------
+
+
+class TestCancelTask:
+    """Tests for cancel_task()."""
+
+    async def test_cancel_nonexistent_returns_false(
+        self, scheduler_env,
+    ) -> None:
+        """Cancelling a task that is not running should return False."""
+        scheduler, _tm, _eb, _emitted = scheduler_env
+        result = await scheduler.cancel_task("proj:nonexistent")
+        assert result is False
+
+    async def test_cancel_running_task(self, scheduler_env) -> None:
+        """cancel_task should stop a running task and mark it FAILED."""
+        scheduler, task_manager, _eb, emitted = scheduler_env
+
+        hanging_exec = MockExecutor(hang=True)
+        scheduler._get_executor = lambda _: hanging_exec
+
+        task = _make_task()
+        await task_manager.create_task(task)
+
+        await scheduler.tick()
+        # Let the execution task start and reach the hang point
+        await asyncio.sleep(0)
+
+        assert "proj:t1" in scheduler.running
+
+        result = await scheduler.cancel_task("proj:t1")
+        assert result is True
+
+        # Task removed from running
+        assert "proj:t1" not in scheduler.running
+
+        # Task status should be FAILED
+        updated = await task_manager.get_task("proj:t1")
+        assert updated is not None
+        assert updated.status == TaskStatus.FAILED
+
+        # Alert emitted
+        alert_events = [e for e in emitted if e[0] == "alert"]
+        cancelled_alerts = [
+            e for e in alert_events
+            if "cancelled" in str(e[2]).lower()
+        ]
+        assert len(cancelled_alerts) >= 1
+
+    async def test_cancel_calls_executor_cancel(
+        self, scheduler_env,
+    ) -> None:
+        """cancel_task should call executor.cancel()."""
+        scheduler, task_manager, _eb, _emitted = scheduler_env
+
+        hanging_exec = MockExecutor(hang=True)
+        scheduler._get_executor = lambda _: hanging_exec
+
+        task = _make_task()
+        await task_manager.create_task(task)
+
+        await scheduler.tick()
+        # Let the execution task start and reach the hang point
+        await asyncio.sleep(0)
+
+        await scheduler.cancel_task("proj:t1")
+
+        assert hanging_exec._cancel_called is True
+
+    async def test_cancel_cleans_up_state(self, scheduler_env) -> None:
+        """After cancel, task should be removed from running and executors."""
+        scheduler, task_manager, _eb, _emitted = scheduler_env
+
+        hanging_exec = MockExecutor(hang=True)
+        scheduler._get_executor = lambda _: hanging_exec
+
+        task = _make_task()
+        await task_manager.create_task(task)
+
+        await scheduler.tick()
+        # Let the execution task start and reach the hang point
+        await asyncio.sleep(0)
+
+        await scheduler.cancel_task("proj:t1")
+
+        assert "proj:t1" not in scheduler.running
+        assert "proj:t1" not in scheduler._executors
+        assert "proj:t1" not in scheduler._cancelled
+
+
+# ---------------------------------------------------------------------------
+# Tests -- Auto-commit hook
+# ---------------------------------------------------------------------------
+
+
+class TestAutoCommitHook:
+    """Tests for _auto_commit_hook placeholder."""
+
+    @patch("src.scheduler.asyncio.sleep", new_callable=AsyncMock)
+    async def test_hook_called_on_success(
+        self, mock_sleep, scheduler_env,
+    ) -> None:
+        """_auto_commit_hook should be called after successful execution."""
+        scheduler, task_manager, _eb, _emitted = scheduler_env
+
+        hook_called: list[str] = []
+        original_hook = scheduler._auto_commit_hook
+
+        async def tracking_hook(task: Task, project: Project) -> None:
+            hook_called.append(task.id)
+            await original_hook(task, project)
+
+        scheduler._auto_commit_hook = tracking_hook  # type: ignore[assignment]
+
+        mock_exec = MockExecutor()
+        scheduler._get_executor = lambda _: mock_exec
+
+        task = _make_task()
+        await task_manager.create_task(task)
+
+        await scheduler.tick()
+
+        running_tasks = list(scheduler.running.values())
+        if running_tasks:
+            await asyncio.gather(*running_tasks)
+
+        assert hook_called == ["proj:t1"]
+
+    @patch("src.scheduler.asyncio.sleep", new_callable=AsyncMock)
+    async def test_hook_not_called_on_failure(
+        self, mock_sleep, scheduler_env,
+    ) -> None:
+        """_auto_commit_hook should NOT be called on failed execution."""
+        scheduler, task_manager, _eb, _emitted = scheduler_env
+
+        hook_called: list[str] = []
+
+        async def tracking_hook(task: Task, project: Project) -> None:
+            hook_called.append(task.id)
+
+        scheduler._auto_commit_hook = tracking_hook  # type: ignore[assignment]
+
+        fail_result = ExecutorResult(
+            success=False, exit_code=1, log_lines=[],
+            error_summary="fail", duration_seconds=1.0,
+        )
+        mock_exec = MockExecutor(result=fail_result)
+        scheduler._get_executor = lambda _: mock_exec
+
+        task = _make_task()
+        await task_manager.create_task(task)
+
+        await scheduler.tick()
+
+        running_tasks = list(scheduler.running.values())
+        if running_tasks:
+            await asyncio.gather(*running_tasks)
+
+        assert hook_called == []

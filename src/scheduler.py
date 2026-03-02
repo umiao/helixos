@@ -2,7 +2,8 @@
 
 Implements the core scheduling loop from PRD Section 8: periodically checks
 for QUEUED tasks, verifies dependencies and concurrency limits, and dispatches
-executions via the appropriate executor.
+executions via the appropriate executor.  Includes retry with exponential
+backoff, startup crash recovery, and task cancellation.
 """
 
 from __future__ import annotations
@@ -10,11 +11,12 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import logging
+from collections.abc import Callable
 
 from src.config import OrchestratorConfig, ProjectRegistry
 from src.env_loader import EnvLoader
 from src.events import EventBus
-from src.executors.base import BaseExecutor
+from src.executors.base import BaseExecutor, ExecutorResult
 from src.executors.code_executor import CodeExecutor
 from src.models import ExecutorType, Project, Task, TaskStatus
 from src.task_manager import TaskManager
@@ -22,6 +24,7 @@ from src.task_manager import TaskManager
 logger = logging.getLogger(__name__)
 
 TICK_INTERVAL_SECONDS = 5
+RETRY_BACKOFF_SECONDS: list[int] = [30, 60, 120]
 
 
 class Scheduler:
@@ -55,6 +58,8 @@ class Scheduler:
         self._env_loader = env_loader
         self._event_bus = event_bus
         self.running: dict[str, asyncio.Task[None]] = {}
+        self._executors: dict[str, BaseExecutor] = {}
+        self._cancelled: set[str] = set()
         self._tick_task: asyncio.Task[None] | None = None
 
     # ------------------------------------------------------------------
@@ -83,6 +88,88 @@ class Scheduler:
             except Exception:
                 logger.exception("Error in scheduler tick")
             await asyncio.sleep(TICK_INTERVAL_SECONDS)
+
+    # ------------------------------------------------------------------
+    # Startup recovery
+    # ------------------------------------------------------------------
+
+    async def startup_recovery(self) -> int:
+        """Mark all RUNNING tasks as FAILED on boot (crash recovery).
+
+        Emits an alert for each recovered task and logs a warning with
+        the count of orphaned tasks.
+
+        Returns:
+            The number of orphaned tasks recovered.
+        """
+        running_tasks = await self._task_manager.list_tasks(
+            status=TaskStatus.RUNNING,
+        )
+        count = await self._task_manager.mark_running_as_failed()
+
+        for task in running_tasks:
+            self._event_bus.emit(
+                "alert",
+                task.id,
+                {"error": "Recovered from crash -- was RUNNING when process exited"},
+            )
+
+        if count > 0:
+            logger.warning(
+                "Startup recovery: %d orphaned tasks marked FAILED", count,
+            )
+
+        return count
+
+    # ------------------------------------------------------------------
+    # Cancel
+    # ------------------------------------------------------------------
+
+    async def cancel_task(self, task_id: str) -> bool:
+        """Cancel a running task execution.
+
+        Calls executor.cancel() on the running task, updates status to
+        FAILED, and removes from self.running.
+
+        Args:
+            task_id: The task to cancel.
+
+        Returns:
+            True if the task was running and cancelled, False otherwise.
+        """
+        if task_id not in self.running:
+            return False
+
+        self._cancelled.add(task_id)
+
+        # Cancel the executor (terminates subprocess)
+        executor = self._executors.get(task_id)
+        if executor is not None:
+            await executor.cancel()
+
+        # Cancel the asyncio task (interrupts retry backoff sleep)
+        asyncio_task = self.running.get(task_id)
+        if asyncio_task is not None:
+            asyncio_task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await asyncio_task
+
+        # Update status and emit events (the _execute_task CancelledError
+        # handler may not have been able to do async DB work)
+        with contextlib.suppress(ValueError):
+            await self._task_manager.update_status(
+                task_id, TaskStatus.FAILED,
+            )
+        self._event_bus.emit(
+            "alert", task_id, {"error": "Task cancelled"},
+        )
+
+        # Ensure cleanup (idempotent with _execute_task's finally block)
+        self.running.pop(task_id, None)
+        self._executors.pop(task_id, None)
+        self._cancelled.discard(task_id)
+
+        return True
 
     # ------------------------------------------------------------------
     # Main tick
@@ -207,7 +294,7 @@ class Scheduler:
         return CodeExecutor(self._config.orchestrator)
 
     # ------------------------------------------------------------------
-    # Task execution
+    # Task execution with retry
     # ------------------------------------------------------------------
 
     async def _execute_task(
@@ -216,49 +303,142 @@ class Scheduler:
         task: Task,
         project: Project,
     ) -> None:
-        """Execute a task and handle success/failure.
+        """Execute a task with retry logic and handle success/failure.
 
-        On success: status -> DONE, emit ``status_change`` event.
-        On failure: status -> FAILED, emit ``alert`` event.
+        On success: status -> DONE, emit ``status_change``, call auto-commit hook.
+        On cancel: status -> FAILED, emit ``alert``.
+        On max retries exhausted: status -> FAILED -> BLOCKED, emit ``alert``.
 
         Args:
             executor: The executor to run the task with.
             task: The task to execute.
             project: The project this task belongs to.
         """
+        self._executors[task.id] = executor
         try:
             env = self._env_loader.get_project_env(project)
-            result = await executor.execute(
-                task,
-                project,
-                env=env,
-                on_log=lambda line: self._event_bus.emit("log", task.id, line),
+
+            def on_log(line: str) -> None:
+                self._event_bus.emit("log", task.id, line)
+            result = await self._run_with_retry(
+                executor, task, project, env, on_log,
             )
 
             if result.success:
                 await self._task_manager.update_status(
-                    task.id, TaskStatus.DONE
+                    task.id, TaskStatus.DONE,
                 )
                 self._event_bus.emit(
-                    "status_change", task.id, {"status": "done"}
+                    "status_change", task.id, {"status": "done"},
+                )
+                await self._auto_commit_hook(task, project)
+            elif task.id in self._cancelled:
+                # Cancelled by user -- just FAILED, not BLOCKED
+                with contextlib.suppress(ValueError):
+                    await self._task_manager.update_status(
+                        task.id, TaskStatus.FAILED,
+                    )
+                self._event_bus.emit(
+                    "alert", task.id, {"error": "Task cancelled"},
                 )
             else:
+                # All retries exhausted -> FAILED -> BLOCKED
                 await self._task_manager.update_status(
-                    task.id, TaskStatus.FAILED
+                    task.id, TaskStatus.FAILED,
                 )
                 self._event_bus.emit(
                     "alert",
                     task.id,
-                    {"error": result.error_summary or "Execution failed"},
+                    {"error": result.error_summary or "Max retries exhausted"},
+                )
+                await self._task_manager.update_status(
+                    task.id, TaskStatus.BLOCKED,
+                )
+                self._event_bus.emit(
+                    "status_change", task.id, {"status": "blocked"},
                 )
         except Exception:
             logger.exception("Unhandled error executing task %s", task.id)
             with contextlib.suppress(ValueError):
                 await self._task_manager.update_status(
-                    task.id, TaskStatus.FAILED
+                    task.id, TaskStatus.FAILED,
                 )
             self._event_bus.emit(
-                "alert", task.id, {"error": "Unhandled execution error"}
+                "alert", task.id, {"error": "Unhandled execution error"},
             )
         finally:
             self.running.pop(task.id, None)
+            self._executors.pop(task.id, None)
+            self._cancelled.discard(task.id)
+
+    async def _run_with_retry(
+        self,
+        executor: BaseExecutor,
+        task: Task,
+        project: Project,
+        env: dict[str, str],
+        on_log: Callable[[str], None],
+    ) -> ExecutorResult:
+        """Execute with exponential backoff retry.
+
+        Retries up to 3 times with backoff of 30s, 60s, 120s.
+        Stops retrying if the task has been cancelled.
+
+        Args:
+            executor: The executor to run the task with.
+            task: The task to execute.
+            project: The project this task belongs to.
+            env: Environment variables for the execution.
+            on_log: Callback for log output.
+
+        Returns:
+            The final ExecutorResult (success or last failure).
+        """
+        result = await executor.execute(task, project, env=env, on_log=on_log)
+
+        if result.success:
+            return result
+
+        for attempt, delay in enumerate(RETRY_BACKOFF_SECONDS, 1):
+            if task.id in self._cancelled:
+                return result
+
+            self._event_bus.emit(
+                "log",
+                task.id,
+                f"Retry {attempt}/{len(RETRY_BACKOFF_SECONDS)} "
+                f"after {delay}s backoff",
+            )
+
+            await asyncio.sleep(delay)
+
+            if task.id in self._cancelled:
+                return result
+
+            # Create fresh executor for retry
+            executor = self._get_executor(project.executor_type)
+            self._executors[task.id] = executor
+            result = await executor.execute(
+                task, project, env=env, on_log=on_log,
+            )
+
+            if result.success:
+                return result
+
+        return result
+
+    # ------------------------------------------------------------------
+    # Auto-commit hook
+    # ------------------------------------------------------------------
+
+    async def _auto_commit_hook(
+        self, task: Task, project: Project,
+    ) -> None:
+        """Placeholder for git auto-commit after successful execution.
+
+        No-op until T-P0-12 wires in GitOps.auto_commit().
+
+        Args:
+            task: The successfully completed task.
+            project: The project this task belongs to.
+        """
