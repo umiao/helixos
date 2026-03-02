@@ -10,8 +10,6 @@
 ## Active Tasks
 
 ### P0 -- Must Have (core functionality)
-
-#### T-P0-1: Project scaffold (FastAPI + React + SQLite)
 - **Priority**: P0
 - **Complexity**: S (1 session)
 - **Depends on**: Nothing
@@ -462,3 +460,6 @@ T-P0-13 [M] Integration tests (needs T-P0-10 + T-P0-12)
 
 ## Completed Tasks
 <!-- Move finished tasks here with [x] and completion date -->
+
+#### [x] T-P0-1: Project scaffold (FastAPI + React + SQLite) -- 2026-03-01
+- Scaffold complete: pyproject.toml, requirements.txt, frontend (Vite+React+TS+Tailwind v4), orchestrator_config.yaml, contracts/, scripts/start.ps1, src/executors/, src/sync/

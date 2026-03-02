@@ -40,5 +40,12 @@ htmlcov/
 .claude/last_*_pass
 .claude/autonomous.lock
 
+# Frontend
+frontend/node_modules/
+frontend/dist/
+
+# Database
+*.db
+
 # Misc
 *.log

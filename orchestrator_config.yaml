@@ -1,0 +1,46 @@
+# orchestrator_config.yaml
+# Full schema from PRD Section 6.2 -- placeholder paths for development
+
+orchestrator:
+  global_concurrency_limit: 3       # max concurrent sessions across all projects
+  per_project_concurrency: 1        # max 1 running task per project (immutable for now)
+  review_consensus_threshold: 0.8
+  session_timeout_minutes: 60
+  subprocess_terminate_grace_seconds: 5
+  unified_env_path: "~/.helixos/.env"
+  state_db_path: "~/.helixos/state.db"
+
+projects:
+  P0:
+    name: "HelixOS"
+    repo_path: "~/projects/helixos"
+    executor_type: "code"
+    tasks_file: "TASKS.md"
+    max_concurrency: 1
+
+  # P1:
+  #   name: "Example Project"
+  #   repo_path: "~/projects/example"
+  #   executor_type: "code"
+  #   tasks_file: "TASKS.md"
+  #   max_concurrency: 1
+
+git:
+  auto_commit: true
+  commit_message_template: "[helixos] {project}: {task_id} {task_title}"
+  staged_safety_check:
+    max_files: 50
+    max_total_size_mb: 10
+
+review_pipeline:
+  reviewers:
+    - model: "claude-sonnet-4-5"
+      focus: "feasibility_and_edge_cases"
+      api: "anthropic"
+      required: true
+    - model: "claude-sonnet-4-5"
+      focus: "adversarial_red_team"
+      api: "anthropic"
+      required: false
+
+dependencies: []
