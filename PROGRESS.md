@@ -69,3 +69,10 @@
 - **Sanity check result**: pytest tests/ -- 235/235 passed (39 scheduler + 196 existing). ruff check -- clean. check_emoji.py -- no emoji found.
 - **Status**: [DONE]
 - **Request**: Cross off T-P0-6b
+
+## 2026-03-01 03:00 -- [T-P0-12] Git auto-commit with staged safety check
+- **What I did**: Created GitOps class with auto_commit (git add -A, count staged files via numstat, safety check against max_files limit, unstage+alert on abort, configurable commit message template) and check_repo_clean utility. All git subprocess calls use asyncio.create_subprocess_exec with UTF-8 decoding. Wired Scheduler._auto_commit_hook to call GitOps.auto_commit with try/except guard so git errors never affect task status. Added 8 tests using tmp_path git repos covering success, safety abort, no-changes, message format, disabled, clean/dirty repo, and no-repo-path edge case.
+- **Deliverables**: src/git_ops.py (new), src/scheduler.py (mod), tests/test_git_ops.py (new)
+- **Sanity check result**: pytest tests/ -- 243/243 passed (8 git_ops + 235 existing). ruff check -- clean. check_emoji.py -- no emoji found.
+- **Status**: [DONE]
+- **Request**: Cross off T-P0-12

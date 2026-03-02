@@ -16,7 +16,6 @@ from src.executors.base import BaseExecutor, ExecutorResult
 from src.executors.code_executor import CodeExecutor
 from src.models import ExecutorType, Project, Task
 
-
 # ------------------------------------------------------------------
 # Fixtures
 # ------------------------------------------------------------------
@@ -518,7 +517,7 @@ class TestExecuteTimeout:
         logs: list[str] = []
         await executor.execute(task, project, {}, logs.append)
 
-        timeout_logs = [l for l in logs if "[TIMEOUT]" in l]
+        timeout_logs = [line for line in logs if "[TIMEOUT]" in line]
         assert len(timeout_logs) >= 1
         assert "terminating" in timeout_logs[0].lower()
 
@@ -623,7 +622,7 @@ class TestLogTailLimit:
         task: Task,
     ) -> None:
         """When >100 lines, only the last 100 are in result.log_lines."""
-        lines = [f"line {i}\n".encode("utf-8") for i in range(150)]
+        lines = [f"line {i}\n".encode() for i in range(150)]
         proc = _make_mock_proc(stdout_lines=lines, returncode=0)
         mock_exec.return_value = proc
 
@@ -769,7 +768,7 @@ class TestUtf8Decoding:
         """UTF-8 encoded output is correctly decoded."""
         # Chinese characters encoded as UTF-8
         proc = _make_mock_proc(
-            stdout_lines=["Hello UTF-8 \u4e16\u754c\n".encode("utf-8")],
+            stdout_lines=["Hello UTF-8 \u4e16\u754c\n".encode()],
             returncode=0,
         )
         mock_exec.return_value = proc

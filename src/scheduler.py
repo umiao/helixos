@@ -18,6 +18,7 @@ from src.env_loader import EnvLoader
 from src.events import EventBus
 from src.executors.base import BaseExecutor, ExecutorResult
 from src.executors.code_executor import CodeExecutor
+from src.git_ops import GitOps
 from src.models import ExecutorType, Project, Task, TaskStatus
 from src.task_manager import TaskManager
 
@@ -434,11 +435,28 @@ class Scheduler:
     async def _auto_commit_hook(
         self, task: Task, project: Project,
     ) -> None:
-        """Placeholder for git auto-commit after successful execution.
+        """Run git auto-commit after successful task execution.
 
-        No-op until T-P0-12 wires in GitOps.auto_commit().
+        Calls ``GitOps.auto_commit()`` with the project's git config.
+        Errors are logged but never propagated -- the task is already
+        DONE and git failures must not affect task status.
 
         Args:
             task: The successfully completed task.
             project: The project this task belongs to.
         """
+        try:
+            ok = await GitOps.auto_commit(
+                project=project,
+                task=task,
+                config=self._config.git,
+                event_bus=self._event_bus,
+            )
+            if not ok:
+                logger.warning(
+                    "Auto-commit returned False for task %s", task.id,
+                )
+        except Exception:
+            logger.exception(
+                "Auto-commit failed for task %s (ignored)", task.id,
+            )
