@@ -15,6 +15,7 @@ from datetime import UTC, datetime
 from pydantic import BaseModel
 
 from src.config import ReviewerConfig, ReviewPipelineConfig
+from src.history_writer import HistoryWriter
 from src.models import LLMReview, ReviewState, Task
 
 logger = logging.getLogger(__name__)
@@ -109,16 +110,19 @@ class ReviewPipeline:
         self,
         config: ReviewPipelineConfig,
         threshold: float = 0.8,
+        history_writer: HistoryWriter | None = None,
     ) -> None:
         """Initialize the review pipeline.
 
         Args:
             config: Review pipeline configuration (reviewers list).
             threshold: Consensus score threshold for auto-approval.
+            history_writer: Optional DB-first review history writer.
         """
         self.reviewers = [r for r in config.reviewers if r.required]
         self.optional_reviewers = [r for r in config.reviewers if not r.required]
         self.threshold = threshold
+        self._history_writer = history_writer
 
     async def review_task(
         self,
@@ -174,6 +178,16 @@ class ReviewPipeline:
             disagreements = (
                 reviews[0].suggestions if score < self.threshold else []
             )
+
+        # DB-first: persist each review to history
+        if self._history_writer is not None:
+            for i, review in enumerate(reviews):
+                await self._history_writer.write_review(
+                    task_id=task.id,
+                    round_number=i + 1,
+                    review=review,
+                    consensus_score=score if i == len(reviews) - 1 else None,
+                )
 
         return ReviewState(
             rounds_total=len(active_reviewers),

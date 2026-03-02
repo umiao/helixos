@@ -20,10 +20,6 @@
 
 ### P3 -- Phase 3: UX + Polish
 
-#### T-P3-6a: Persistent execution log + review history -- backend [M]
-- **AC**: 2 new DB tables, DB-first writes, 2KB cap, 2 API endpoints
-- **Depends on**: None
-
 #### T-P3-6b: Persistent execution log + review history -- frontend [M]
 - **AC**: Task-focused bottom panel, persistent history + live SSE merge, conversation-style reviews
 - **Depends on**: T-P3-6a
@@ -220,3 +216,6 @@ T-P2-6 [M] Frontend Swim Lanes [DONE] ------------------+
 
 #### [x] T-P3-5: Workflow clarity -- inline task creation, context menu, tooltips -- 2026-03-03
 - InlineTaskCreator in Backlog column (expand-on-click title input, Enter to create, Esc to cancel). TaskContextMenu with right-click context menu (view details, move-to-column, retry for failed). Tooltips on all buttons (header, swim lane, launch, panel tabs, project selector). npm run build succeeds, 511 tests passing.
+
+#### [x] T-P3-6a: Persistent execution log + review history -- backend -- 2026-03-02
+- 2 new DB tables (execution_logs, review_history) with indexes. HistoryWriter service with DB-first writes, 2KB text cap, batch support. Wired into Scheduler (execution start/success/failure/cancel logs) and ReviewPipeline (per-round review persistence). 2 new API endpoints (GET /api/tasks/{id}/logs, GET /api/tasks/{id}/reviews) with pagination, level filtering, and total count. 31 new tests, 542 total passing.

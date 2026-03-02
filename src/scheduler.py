@@ -19,6 +19,7 @@ from src.events import EventBus
 from src.executors.base import BaseExecutor, ExecutorResult
 from src.executors.code_executor import CodeExecutor
 from src.git_ops import GitOps
+from src.history_writer import HistoryWriter
 from src.models import ExecutorType, Project, Task, TaskStatus
 from src.task_manager import TaskManager
 
@@ -43,6 +44,7 @@ class Scheduler:
         registry: ProjectRegistry,
         env_loader: EnvLoader,
         event_bus: EventBus,
+        history_writer: HistoryWriter | None = None,
     ) -> None:
         """Initialize the scheduler with all required service dependencies.
 
@@ -52,12 +54,14 @@ class Scheduler:
             registry: Project registry for looking up projects.
             env_loader: Environment variable loader.
             event_bus: Event bus for emitting real-time events.
+            history_writer: Optional DB-first log/review writer.
         """
         self._config = config
         self._task_manager = task_manager
         self._registry = registry
         self._env_loader = env_loader
         self._event_bus = event_bus
+        self._history_writer = history_writer
         self.running: dict[str, asyncio.Task[None]] = {}
         self._executors: dict[str, BaseExecutor] = {}
         self._cancelled: set[str] = set()
@@ -321,11 +325,27 @@ class Scheduler:
 
             def on_log(line: str) -> None:
                 self._event_bus.emit("log", task.id, line)
+                if self._history_writer is not None:
+                    asyncio.ensure_future(
+                        self._history_writer.write_log(task.id, line),
+                    )
+
+            # DB-first: log execution start
+            if self._history_writer is not None:
+                await self._history_writer.write_log(
+                    task.id, "Execution started", level="info", source="scheduler",
+                )
+
             result = await self._run_with_retry(
                 executor, task, project, env, on_log,
             )
 
             if result.success:
+                if self._history_writer is not None:
+                    await self._history_writer.write_log(
+                        task.id, "Execution completed successfully",
+                        level="info", source="scheduler",
+                    )
                 await self._task_manager.update_status(
                     task.id, TaskStatus.DONE,
                 )
@@ -334,6 +354,11 @@ class Scheduler:
                 )
                 await self._auto_commit_hook(task, project)
             elif task.id in self._cancelled:
+                if self._history_writer is not None:
+                    await self._history_writer.write_log(
+                        task.id, "Task cancelled by user",
+                        level="warn", source="scheduler",
+                    )
                 # Cancelled by user -- just FAILED, not BLOCKED
                 with contextlib.suppress(ValueError):
                     await self._task_manager.update_status(
@@ -343,6 +368,12 @@ class Scheduler:
                     "alert", task.id, {"error": "Task cancelled"},
                 )
             else:
+                error_msg = result.error_summary or "Max retries exhausted"
+                if self._history_writer is not None:
+                    await self._history_writer.write_log(
+                        task.id, f"Execution failed: {error_msg}",
+                        level="error", source="scheduler",
+                    )
                 # All retries exhausted -> FAILED -> BLOCKED
                 await self._task_manager.update_status(
                     task.id, TaskStatus.FAILED,
@@ -350,7 +381,7 @@ class Scheduler:
                 self._event_bus.emit(
                     "alert",
                     task.id,
-                    {"error": result.error_summary or "Max retries exhausted"},
+                    {"error": error_msg},
                 )
                 await self._task_manager.update_status(
                     task.id, TaskStatus.BLOCKED,
@@ -360,6 +391,12 @@ class Scheduler:
                 )
         except Exception:
             logger.exception("Unhandled error executing task %s", task.id)
+            if self._history_writer is not None:
+                with contextlib.suppress(Exception):
+                    await self._history_writer.write_log(
+                        task.id, "Unhandled execution error",
+                        level="error", source="scheduler",
+                    )
             with contextlib.suppress(ValueError):
                 await self._task_manager.update_status(
                     task.id, TaskStatus.FAILED,

@@ -12,7 +12,7 @@ from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from sqlalchemy import Index, String, Text
+from sqlalchemy import Float, Index, Integer, String, Text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
@@ -73,6 +73,45 @@ class DependencyRow(Base):
 
     __table_args__ = (
         Index("ix_deps_downstream", "downstream_task"),
+    )
+
+
+class ExecutionLogRow(Base):
+    """Persistent execution log entries for tasks."""
+
+    __tablename__ = "execution_logs"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    task_id: Mapped[str] = mapped_column(String(128), nullable=False, index=True)
+    timestamp: Mapped[str] = mapped_column(String(64), nullable=False)
+    level: Mapped[str] = mapped_column(String(16), nullable=False, default="info")
+    message: Mapped[str] = mapped_column(Text, nullable=False)
+    source: Mapped[str] = mapped_column(String(32), nullable=False, default="executor")
+
+    __table_args__ = (
+        Index("ix_exec_logs_task_ts", "task_id", "timestamp"),
+    )
+
+
+class ReviewHistoryRow(Base):
+    """Persistent review history entries for tasks."""
+
+    __tablename__ = "review_history"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    task_id: Mapped[str] = mapped_column(String(128), nullable=False, index=True)
+    round_number: Mapped[int] = mapped_column(Integer, nullable=False)
+    reviewer_model: Mapped[str] = mapped_column(String(128), nullable=False)
+    reviewer_focus: Mapped[str] = mapped_column(String(128), nullable=False)
+    verdict: Mapped[str] = mapped_column(String(16), nullable=False)
+    summary: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    suggestions_json: Mapped[str] = mapped_column(Text, nullable=False, default="[]")
+    consensus_score: Mapped[float | None] = mapped_column(Float, nullable=True)
+    human_decision: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    timestamp: Mapped[str] = mapped_column(String(64), nullable=False)
+
+    __table_args__ = (
+        Index("ix_review_hist_task_ts", "task_id", "timestamp"),
     )
 
 

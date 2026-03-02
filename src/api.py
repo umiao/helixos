@@ -23,6 +23,7 @@ from src.config_writer import add_project_to_config, suggest_next_project_id
 from src.db import create_engine, create_session_factory, init_db
 from src.env_loader import EnvLoader
 from src.events import EventBus, sse_router
+from src.history_writer import HistoryWriter
 from src.models import Project, ReviewState, Task, TaskStatus
 from src.port_registry import PortRegistry
 from src.process_manager import ProcessManager
@@ -36,6 +37,8 @@ from src.schemas import (
     CreateTaskResponse,
     DashboardSummary,
     ErrorResponse,
+    ExecutionLogEntry,
+    ExecutionLogsResponse,
     ExecutionStateResponse,
     ImportProjectRequest,
     ImportProjectResponse,
@@ -44,6 +47,8 @@ from src.schemas import (
     ProjectProcessStatus,
     ProjectResponse,
     ReviewDecisionRequest,
+    ReviewHistoryEntry,
+    ReviewHistoryResponse,
     ReviewStateResponse,
     StatusTransitionRequest,
     SyncAllResponse,
@@ -164,6 +169,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     registry = ProjectRegistry(config)
     env_loader = EnvLoader(config.orchestrator.unified_env_path)
     event_bus = EventBus()
+    history_writer = HistoryWriter(session_factory)
 
     # Port registry
     ports_path = config.orchestrator.state_db_path.parent / "ports.json"
@@ -181,6 +187,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         registry=registry,
         env_loader=env_loader,
         event_bus=event_bus,
+        history_writer=history_writer,
     )
 
     # Process manager (dev server lifecycle)
@@ -207,6 +214,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
             review_pipeline = ReviewPipeline(
                 config=config.review_pipeline,
                 threshold=config.orchestrator.review_consensus_threshold,
+                history_writer=history_writer,
             )
         else:
             logger.warning(
@@ -246,6 +254,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     app.state.event_bus = event_bus
     app.state.scheduler = scheduler
     app.state.review_pipeline = review_pipeline
+    app.state.history_writer = history_writer
     app.state.port_registry = port_registry
     app.state.subprocess_registry = subprocess_registry
     app.state.process_manager = process_manager
@@ -900,6 +909,10 @@ async def submit_review_decision(
     updated_task = task.model_copy(update={"review": review_state})
     await task_manager.update_task(updated_task)
 
+    # Persist human decision to review history
+    history_writer: HistoryWriter = request.app.state.history_writer
+    await history_writer.write_review_decision(task_id, body.decision)
+
     new_status = TaskStatus.QUEUED if body.decision == "approve" else TaskStatus.BACKLOG
 
     updated = await task_manager.update_status(task_id, new_status)
@@ -990,6 +1003,87 @@ async def cancel_task(task_id: str, request: Request) -> dict:
         )
 
     return {"detail": "Task cancelled", "task_id": task_id}
+
+
+# ------------------------------------------------------------------
+# Execution log + review history endpoints
+# ------------------------------------------------------------------
+
+
+@api_router.get(
+    "/api/tasks/{task_id}/logs",
+    responses={404: {"model": ErrorResponse}},
+)
+async def get_task_logs(
+    task_id: str,
+    request: Request,
+    limit: int = 100,
+    offset: int = 0,
+    level: str | None = None,
+) -> ExecutionLogsResponse:
+    """Get paginated execution logs for a task.
+
+    Query params:
+        limit: Max entries to return (default 100).
+        offset: Number of entries to skip (default 0).
+        level: Optional filter by log level (info, warn, error).
+    """
+    task_manager: TaskManager = request.app.state.task_manager
+    history_writer: HistoryWriter = request.app.state.history_writer
+
+    task = await task_manager.get_task(task_id)
+    if task is None:
+        raise HTTPException(status_code=404, detail=f"Task not found: {task_id}")
+
+    entries = await history_writer.get_logs(
+        task_id, limit=limit, offset=offset, level=level,
+    )
+    total = await history_writer.count_logs(task_id)
+
+    return ExecutionLogsResponse(
+        task_id=task_id,
+        total=total,
+        offset=offset,
+        limit=limit,
+        entries=[ExecutionLogEntry(**e) for e in entries],
+    )
+
+
+@api_router.get(
+    "/api/tasks/{task_id}/reviews",
+    responses={404: {"model": ErrorResponse}},
+)
+async def get_task_reviews(
+    task_id: str,
+    request: Request,
+    limit: int = 50,
+    offset: int = 0,
+) -> ReviewHistoryResponse:
+    """Get paginated review history for a task.
+
+    Query params:
+        limit: Max entries to return (default 50).
+        offset: Number of entries to skip (default 0).
+    """
+    task_manager: TaskManager = request.app.state.task_manager
+    history_writer: HistoryWriter = request.app.state.history_writer
+
+    task = await task_manager.get_task(task_id)
+    if task is None:
+        raise HTTPException(status_code=404, detail=f"Task not found: {task_id}")
+
+    entries = await history_writer.get_reviews(
+        task_id, limit=limit, offset=offset,
+    )
+    total = await history_writer.count_reviews(task_id)
+
+    return ReviewHistoryResponse(
+        task_id=task_id,
+        total=total,
+        offset=offset,
+        limit=limit,
+        entries=[ReviewHistoryEntry(**e) for e in entries],
+    )
 
 
 # ------------------------------------------------------------------

@@ -125,6 +125,7 @@ async def test_app(tmp_path: Path, test_session_factory):
     from src.config import ProjectRegistry
     from src.env_loader import EnvLoader
     from src.events import sse_router
+    from src.history_writer import HistoryWriter
 
     config = _make_config(tmp_path)
     task_manager = TaskManager(test_session_factory)
@@ -136,6 +137,7 @@ async def test_app(tmp_path: Path, test_session_factory):
     env_loader = EnvLoader(env_path)
 
     event_bus = EventBus()
+    history_writer = HistoryWriter(test_session_factory)
 
     # Mock scheduler (no real tick loop)
     scheduler = MagicMock(spec=Scheduler)
@@ -153,6 +155,7 @@ async def test_app(tmp_path: Path, test_session_factory):
     app.state.event_bus = event_bus
     app.state.scheduler = scheduler
     app.state.review_pipeline = None  # No Claude CLI in tests
+    app.state.history_writer = history_writer
     app.state.engine = None
 
     # Mock ProcessManager -- status returns not-running for any project
@@ -658,3 +661,160 @@ class TestStatusTransitionToRunning:
         )
         assert resp.status_code == 200
         assert resp.json()["status"] == "failed"
+
+
+# ---------------------------------------------------------------------------
+# Execution log endpoint tests
+# ---------------------------------------------------------------------------
+
+
+class TestGetTaskLogs:
+    """Tests for GET /api/tasks/{task_id}/logs."""
+
+    async def test_empty_logs(
+        self, client: AsyncClient, seeded_task: Task,
+    ):
+        """Returns empty list when no logs exist."""
+        resp = await client.get(f"/api/tasks/{seeded_task.id}/logs")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["task_id"] == seeded_task.id
+        assert data["total"] == 0
+        assert data["entries"] == []
+
+    async def test_logs_with_data(
+        self, client: AsyncClient, test_app, seeded_task: Task,
+    ):
+        """Returns log entries after writes."""
+        hw = test_app.state.history_writer
+        await hw.write_log(seeded_task.id, "Build started", level="info")
+        await hw.write_log(seeded_task.id, "Warning found", level="warn")
+
+        resp = await client.get(f"/api/tasks/{seeded_task.id}/logs")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["total"] == 2
+        assert len(data["entries"]) == 2
+        assert data["entries"][0]["message"] == "Build started"
+        assert data["entries"][1]["level"] == "warn"
+
+    async def test_logs_pagination(
+        self, client: AsyncClient, test_app, seeded_task: Task,
+    ):
+        """Pagination with limit and offset works."""
+        hw = test_app.state.history_writer
+        for i in range(5):
+            await hw.write_log(seeded_task.id, f"Line {i}")
+
+        resp = await client.get(
+            f"/api/tasks/{seeded_task.id}/logs?limit=2&offset=2",
+        )
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["total"] == 5
+        assert len(data["entries"]) == 2
+        assert data["offset"] == 2
+        assert data["limit"] == 2
+
+    async def test_logs_level_filter(
+        self, client: AsyncClient, test_app, seeded_task: Task,
+    ):
+        """Level filter returns only matching entries."""
+        hw = test_app.state.history_writer
+        await hw.write_log(seeded_task.id, "Info", level="info")
+        await hw.write_log(seeded_task.id, "Error", level="error")
+
+        resp = await client.get(
+            f"/api/tasks/{seeded_task.id}/logs?level=error",
+        )
+        assert resp.status_code == 200
+        data = resp.json()
+        assert len(data["entries"]) == 1
+        assert data["entries"][0]["level"] == "error"
+
+    async def test_logs_404_for_missing_task(self, client: AsyncClient):
+        """Returns 404 for a non-existent task."""
+        resp = await client.get("/api/tasks/nonexistent/logs")
+        assert resp.status_code == 404
+
+
+# ---------------------------------------------------------------------------
+# Review history endpoint tests
+# ---------------------------------------------------------------------------
+
+
+class TestGetTaskReviews:
+    """Tests for GET /api/tasks/{task_id}/reviews."""
+
+    async def test_empty_reviews(
+        self, client: AsyncClient, seeded_task: Task,
+    ):
+        """Returns empty list when no reviews exist."""
+        resp = await client.get(f"/api/tasks/{seeded_task.id}/reviews")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["task_id"] == seeded_task.id
+        assert data["total"] == 0
+        assert data["entries"] == []
+
+    async def test_reviews_with_data(
+        self, client: AsyncClient, test_app, seeded_task: Task,
+    ):
+        """Returns review entries after writes."""
+        from datetime import UTC, datetime
+
+        from src.models import LLMReview
+
+        hw = test_app.state.history_writer
+        review = LLMReview(
+            model="claude-sonnet-4-5",
+            focus="feasibility",
+            verdict="approve",
+            summary="Looks good",
+            suggestions=["Add more tests"],
+            timestamp=datetime.now(UTC),
+        )
+        await hw.write_review(seeded_task.id, 1, review, consensus_score=0.95)
+
+        resp = await client.get(f"/api/tasks/{seeded_task.id}/reviews")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["total"] == 1
+        entry = data["entries"][0]
+        assert entry["reviewer_model"] == "claude-sonnet-4-5"
+        assert entry["verdict"] == "approve"
+        assert entry["consensus_score"] == 0.95
+        assert entry["suggestions"] == ["Add more tests"]
+
+    async def test_reviews_pagination(
+        self, client: AsyncClient, test_app, seeded_task: Task,
+    ):
+        """Pagination with limit and offset works."""
+        from datetime import UTC, datetime
+
+        from src.models import LLMReview
+
+        hw = test_app.state.history_writer
+        for i in range(4):
+            review = LLMReview(
+                model="claude-sonnet-4-5",
+                focus="feasibility",
+                verdict="approve",
+                summary=f"Round {i + 1}",
+                timestamp=datetime.now(UTC),
+            )
+            await hw.write_review(seeded_task.id, i + 1, review)
+
+        resp = await client.get(
+            f"/api/tasks/{seeded_task.id}/reviews?limit=2&offset=1",
+        )
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["total"] == 4
+        assert len(data["entries"]) == 2
+        assert data["offset"] == 1
+
+    async def test_reviews_404_for_missing_task(self, client: AsyncClient):
+        """Returns 404 for a non-existent task."""
+        resp = await client.get("/api/tasks/nonexistent/reviews")
+        assert resp.status_code == 404

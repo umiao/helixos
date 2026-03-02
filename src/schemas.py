@@ -282,6 +282,58 @@ class ProcessStatusResponse(BaseModel):
 
 
 # ------------------------------------------------------------------
+# Execution log + review history schemas
+# ------------------------------------------------------------------
+
+
+class ExecutionLogEntry(BaseModel):
+    """A single execution log entry."""
+
+    id: int
+    task_id: str
+    timestamp: str
+    level: str
+    message: str
+    source: str
+
+
+class ExecutionLogsResponse(BaseModel):
+    """Paginated execution logs for a task."""
+
+    task_id: str
+    total: int
+    offset: int
+    limit: int
+    entries: list[ExecutionLogEntry] = Field(default_factory=list)
+
+
+class ReviewHistoryEntry(BaseModel):
+    """A single review history entry."""
+
+    id: int
+    task_id: str
+    round_number: int
+    reviewer_model: str
+    reviewer_focus: str
+    verdict: str
+    summary: str
+    suggestions: list[str] = Field(default_factory=list)
+    consensus_score: float | None = None
+    human_decision: str | None = None
+    timestamp: str
+
+
+class ReviewHistoryResponse(BaseModel):
+    """Paginated review history for a task."""
+
+    task_id: str
+    total: int
+    offset: int
+    limit: int
+    entries: list[ReviewHistoryEntry] = Field(default_factory=list)
+
+
+# ------------------------------------------------------------------
 # Error schemas
 # ------------------------------------------------------------------
 

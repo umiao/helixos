@@ -293,3 +293,10 @@
 - **Sanity check result**: pytest 511/511 passed. npm run build succeeds.
 - **Status**: [DONE]
 - **Request**: Move T-P3-5 to Completed
+
+## 2026-03-02 10:00 -- [T-P3-6a] Persistent execution log + review history -- backend
+- **What I did**: Added 2 new SQLAlchemy ORM tables (ExecutionLogRow, ReviewHistoryRow) with composite indexes on (task_id, timestamp). Created HistoryWriter service with DB-first write_log (single + batch), write_review, write_review_decision, and paginated get_logs/get_reviews with count helpers. All text fields enforce 2KB cap via _truncate. Wired HistoryWriter into Scheduler (logs execution start, success, failure, cancel events) and ReviewPipeline (persists each reviewer round with consensus score on final round). Added human decision persistence in review/decide endpoint. Created 2 new API endpoints: GET /api/tasks/{id}/logs (paginated, level-filterable) and GET /api/tasks/{id}/reviews (paginated). Added response schemas (ExecutionLogEntry, ExecutionLogsResponse, ReviewHistoryEntry, ReviewHistoryResponse).
+- **Deliverables**: src/db.py (mod -- ExecutionLogRow + ReviewHistoryRow), src/history_writer.py (new -- HistoryWriter service), src/scheduler.py (mod -- history_writer param + DB-first log writes), src/review_pipeline.py (mod -- history_writer param + DB-first review writes), src/api.py (mod -- HistoryWriter in lifespan, 2 new endpoints, review decide persistence), src/schemas.py (mod -- 4 new response schemas), tests/test_history_writer.py (new -- 22 tests), tests/test_api.py (mod -- history_writer fixture + 9 new endpoint tests)
+- **Sanity check result**: pytest 542/542 passed (31 new + 511 existing). ruff check clean. npm run build succeeds. No emoji.
+- **Status**: [DONE]
+- **Request**: Move T-P3-6a to Completed
