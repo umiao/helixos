@@ -1,15 +1,18 @@
 /**
  * TaskCard -- displays a single task inside a Kanban column.
  * Shows: project ID, task ID, title, status badge, dependency indicator.
+ * Running cards show elapsed time via a client-side timer.
  * Supports drag via @dnd-kit/core useDraggable.
  */
 
 import { useDraggable } from "@dnd-kit/core";
 import { CSS } from "@dnd-kit/utilities";
+import { useEffect, useState } from "react";
 import type { Task, TaskStatus } from "../types";
 
 interface TaskCardProps {
   task: Task;
+  onClick?: () => void;
 }
 
 const STATUS_COLORS: Record<TaskStatus, string> = {
@@ -36,7 +39,33 @@ const STATUS_LABELS: Record<TaskStatus, string> = {
   blocked: "BLOCKED",
 };
 
-export default function TaskCard({ task }: TaskCardProps) {
+function formatElapsed(seconds: number): string {
+  const m = Math.floor(seconds / 60);
+  const s = seconds % 60;
+  return `${m}:${s.toString().padStart(2, "0")}`;
+}
+
+function ElapsedTimer({ startedAt }: { startedAt: string }) {
+  const [elapsed, setElapsed] = useState(0);
+
+  useEffect(() => {
+    const start = new Date(startedAt).getTime();
+    const update = () => {
+      setElapsed(Math.floor((Date.now() - start) / 1000));
+    };
+    update();
+    const interval = setInterval(update, 1000);
+    return () => clearInterval(interval);
+  }, [startedAt]);
+
+  return (
+    <span className="text-xs text-indigo-500 font-mono tabular-nums">
+      {formatElapsed(elapsed)}
+    </span>
+  );
+}
+
+export default function TaskCard({ task, onClick }: TaskCardProps) {
   const { attributes, listeners, setNodeRef, transform, isDragging } =
     useDraggable({
       id: task.id,
@@ -51,6 +80,8 @@ export default function TaskCard({ task }: TaskCardProps) {
   const badgeClass = STATUS_COLORS[task.status];
   const label = STATUS_LABELS[task.status];
   const hasDeps = task.depends_on.length > 0;
+  const isRunning = task.status === "running";
+  const startedAt = task.execution?.started_at;
 
   return (
     <div
@@ -58,6 +89,7 @@ export default function TaskCard({ task }: TaskCardProps) {
       style={style}
       {...listeners}
       {...attributes}
+      onClick={onClick}
       className="rounded-lg border border-gray-200 bg-white p-3 shadow-sm hover:shadow-md transition-shadow cursor-grab active:cursor-grabbing"
     >
       {/* Header: project + task ID */}
@@ -73,13 +105,16 @@ export default function TaskCard({ task }: TaskCardProps) {
         {task.title}
       </p>
 
-      {/* Footer: status badge + dependency indicator */}
+      {/* Footer: status badge + elapsed/dependency */}
       <div className="flex items-center justify-between">
-        <span
-          className={`inline-block rounded-full px-2 py-0.5 text-xs font-semibold ${badgeClass}`}
-        >
-          {label}
-        </span>
+        <div className="flex items-center gap-2">
+          <span
+            className={`inline-block rounded-full px-2 py-0.5 text-xs font-semibold ${badgeClass}`}
+          >
+            {label}
+          </span>
+          {isRunning && startedAt && <ElapsedTimer startedAt={startedAt} />}
+        </div>
 
         {hasDeps && (
           <span

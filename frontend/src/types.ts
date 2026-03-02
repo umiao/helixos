@@ -27,19 +27,9 @@ export interface Project {
   claude_md_path: string | null;
 }
 
-export interface LLMReview {
-  model: string;
-  focus: string;
-  verdict: string;
-  summary: string;
-  suggestions: string[];
-  timestamp: string;
-}
-
 export interface ReviewState {
   rounds_total: number;
   rounds_completed: number;
-  reviews: LLMReview[];
   consensus_score: number | null;
   human_decision_needed: boolean;
   decision_points: string[];

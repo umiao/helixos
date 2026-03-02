@@ -151,27 +151,6 @@
 
 ---
 
-#### T-P0-8c: Dashboard -- ExecutionLog + ReviewPanel + SSE
-- **Priority**: P0
-- **Complexity**: M (1-2 sessions)
-- **Depends on**: T-P0-8a, T-P0-9
-- **Acceptance Criteria**:
-  - [ ] `frontend/src/hooks/useSSE.ts`: connects to `GET /api/events`, auto-reconnects (backoff: 1s, 2s, 4s, max 30s), provides `connected` boolean
-  - [ ] `frontend/src/components/ExecutionLog.tsx`: scrollable log panel, filterable by task, auto-scroll with scroll-lock, timestamps, max 500 lines
-  - [ ] `frontend/src/components/ReviewPanel.tsx`: review progress, verdicts, consensus score, decision buttons when `human_decision_needed`
-  - [ ] SSE `status_change` events auto-update card positions (no refresh needed)
-  - [ ] SSE `alert` events show as toast notifications
-  - [ ] Running cards show elapsed time (client-side timer)
-  - [ ] Connection status indicator in header (connected/disconnected)
-  - [ ] `npm run build` succeeds
-  - [ ] No emoji
-- **Files**: `frontend/src/hooks/useSSE.ts` (new), `frontend/src/components/ExecutionLog.tsx` (new), `frontend/src/components/ReviewPanel.tsx` (new), `frontend/src/components/KanbanBoard.tsx` (mod), `frontend/src/App.tsx` (mod)
-- **Scope boundary**:
-  - IN: SSE hook, ExecutionLog, ReviewPanel, real-time updates, review decision UI
-  - OUT: No task detail expansion panel. No settings page.
-
----
-
 #### T-P0-13: Integration testing (end-to-end)
 - **Priority**: P0
 - **Complexity**: M (1-2 sessions)
@@ -283,3 +262,6 @@ T-P0-13 [M] Integration tests (needs T-P0-10 + T-P0-12)
 
 #### [x] T-P0-8b: Dashboard Kanban -- drag-drop + API integration -- 2026-03-01
 - Installed @dnd-kit/core. Real fetch calls replacing mock data. Drag-drop cards between columns with PATCH /api/tasks/{id}/status and optimistic update + rollback. Invalid transitions show error toast. Sync All calls POST /api/sync-all and refreshes. SkeletonCard loading states. Filter bar (project, status, search) functional. Toast notification system. npm run build succeeds.
+
+#### [x] T-P0-8c: Dashboard -- ExecutionLog + ReviewPanel + SSE -- 2026-03-01
+- useSSE hook (EventSource, auto-reconnect with exponential backoff 1s/2s/4s/max 30s, connected boolean). ExecutionLog (scrollable dark log, task filter, auto-scroll with scroll-lock, timestamps, max 500 lines). ReviewPanel (progress bar, consensus score, decision points, approve/reject buttons). SSE status_change auto-updates card positions, alert events as toasts, log events populate ExecutionLog. Connection indicator in header. Elapsed timer on running cards. Bottom panel with log/review tabs. npm run build succeeds.

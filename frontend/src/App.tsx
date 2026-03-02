@@ -1,9 +1,13 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import KanbanBoard from "./components/KanbanBoard";
+import ExecutionLog, { type LogEntry } from "./components/ExecutionLog";
+import ReviewPanel from "./components/ReviewPanel";
 import Toast, { type ToastMessage } from "./components/Toast";
+import useSSE, { type SSEEvent } from "./hooks/useSSE";
 import {
   fetchProjects,
   fetchTasks,
+  fetchTask,
   syncAll,
   updateTaskStatus,
   ApiError,
@@ -11,6 +15,7 @@ import {
 import type { Project, Task, TaskStatus } from "./types";
 
 let toastIdCounter = 0;
+let logIdCounter = 0;
 
 function App() {
   const [tasks, setTasks] = useState<Task[]>([]);
@@ -21,6 +26,13 @@ function App() {
   const [filterStatus, setFilterStatus] = useState("");
   const [searchQuery, setSearchQuery] = useState("");
   const [toasts, setToasts] = useState<ToastMessage[]>([]);
+  const [logEntries, setLogEntries] = useState<LogEntry[]>([]);
+  const [selectedTask, setSelectedTask] = useState<Task | null>(null);
+  const [bottomPanel, setBottomPanel] = useState<"log" | "review">("log");
+
+  // Keep a ref to tasks for SSE handler (avoid stale closure)
+  const tasksRef = useRef(tasks);
+  tasksRef.current = tasks;
 
   const addToast = useCallback(
     (text: string, type: "success" | "error") => {
@@ -33,6 +45,90 @@ function App() {
   const dismissToast = useCallback((id: number) => {
     setToasts((prev) => prev.filter((t) => t.id !== id));
   }, []);
+
+  const addLogEntry = useCallback(
+    (task_id: string, message: string, timestamp: string) => {
+      setLogEntries((prev) => {
+        const entry: LogEntry = {
+          id: ++logIdCounter,
+          task_id,
+          message,
+          timestamp,
+        };
+        const next = [...prev, entry];
+        // Keep max 500 entries
+        return next.length > 500 ? next.slice(-500) : next;
+      });
+    },
+    [],
+  );
+
+  // SSE event handler
+  const handleSSEEvent = useCallback(
+    (event: SSEEvent) => {
+      switch (event.type) {
+        case "status_change": {
+          const newStatus = event.data.status as TaskStatus;
+          // Update card position in real-time
+          setTasks((prev) =>
+            prev.map((t) =>
+              t.id === event.task_id ? { ...t, status: newStatus } : t,
+            ),
+          );
+          addLogEntry(
+            event.task_id,
+            `Status changed to ${newStatus}`,
+            event.timestamp,
+          );
+          // Fetch full task data for the updated task to get execution/review state
+          fetchTask(event.task_id)
+            .then((updated) => {
+              setTasks((prev) =>
+                prev.map((t) => (t.id === updated.id ? updated : t)),
+              );
+              // Update selected task if it matches
+              setSelectedTask((sel) =>
+                sel && sel.id === updated.id ? updated : sel,
+              );
+            })
+            .catch(() => {
+              // Ignore fetch errors -- the status is already updated optimistically
+            });
+          break;
+        }
+        case "log": {
+          const msg =
+            typeof event.data.message === "string"
+              ? event.data.message
+              : JSON.stringify(event.data);
+          addLogEntry(event.task_id, msg, event.timestamp);
+          break;
+        }
+        case "alert": {
+          const alertMsg =
+            typeof event.data.error === "string"
+              ? event.data.error
+              : JSON.stringify(event.data);
+          addToast(`[${event.task_id}] ${alertMsg}`, "error");
+          addLogEntry(event.task_id, `ALERT: ${alertMsg}`, event.timestamp);
+          break;
+        }
+        case "review_progress": {
+          const completed = event.data.completed as number;
+          const total = event.data.total as number;
+          addLogEntry(
+            event.task_id,
+            `Review progress: ${completed}/${total}`,
+            event.timestamp,
+          );
+          break;
+        }
+      }
+    },
+    [addToast, addLogEntry],
+  );
+
+  const { connected } = useSSE(handleSSEEvent);
 
   const loadData = useCallback(async () => {
     try {
@@ -66,6 +162,9 @@ function App() {
     }
     return true;
   });
+
+  // Unique task IDs for log filtering
+  const taskIds = [...new Set(tasks.map((t) => t.id))];
 
   const handleSyncAll = async () => {
     setSyncing(true);
@@ -101,7 +200,7 @@ function App() {
       setTasks((prev) => prev.map((t) => (t.id === taskId ? updated : t)));
     } catch (err) {
       // Revert optimistic update on error
-      const original = tasks.find((t) => t.id === taskId);
+      const original = tasksRef.current.find((t) => t.id === taskId);
       if (original) {
         setTasks((prev) =>
           prev.map((t) => (t.id === taskId ? original : t)),
@@ -115,6 +214,30 @@ function App() {
     }
   };
 
+  const handleSelectTask = useCallback((task: Task) => {
+    setSelectedTask(task);
+    // Switch to review panel if the task is in a review state
+    if (
+      task.status === "review" ||
+      task.status === "review_auto_approved" ||
+      task.status === "review_needs_human"
+    ) {
+      setBottomPanel("review");
+    }
+  }, []);
+
+  const handleReviewDecision = useCallback(
+    (taskId: string, decision: string) => {
+      addToast(
+        `Review decision "${decision}" submitted for ${taskId}`,
+        "success",
+      );
+      // The SSE status_change event will update the card position
+      setSelectedTask(null);
+    },
+    [addToast],
+  );
+
   return (
     <div className="flex flex-col h-screen bg-gray-100">
       {/* Toasts */}
@@ -126,6 +249,21 @@ function App() {
           HelixOS Dashboard
         </h1>
         <div className="flex items-center gap-4">
+          {/* Connection status indicator */}
+          <span
+            className="flex items-center gap-1.5 text-xs"
+            title={connected ? "SSE connected" : "SSE disconnected"}
+          >
+            <span
+              className={`inline-block w-2 h-2 rounded-full ${
+                connected ? "bg-green-500" : "bg-red-500"
+              }`}
+            />
+            <span className={connected ? "text-green-700" : "text-red-600"}>
+              {connected ? "Connected" : "Disconnected"}
+            </span>
+          </span>
+
           <span className="text-sm text-gray-500">
             Running:{" "}
             <span className="font-semibold text-indigo-600">
@@ -184,13 +322,54 @@ function App() {
       </div>
 
       {/* Kanban board */}
-      <main className="flex-1 overflow-hidden p-4">
+      <main className="flex-1 overflow-hidden p-4 min-h-0">
         <KanbanBoard
           tasks={filteredTasks}
           loading={loading}
           onMoveTask={handleMoveTask}
+          onSelectTask={handleSelectTask}
         />
       </main>
+
+      {/* Bottom panel: ExecutionLog / ReviewPanel */}
+      <div className="h-56 border-t border-gray-300 bg-white flex flex-col min-h-0">
+        {/* Panel tabs */}
+        <div className="flex items-center border-b border-gray-200 px-4">
+          <button
+            onClick={() => setBottomPanel("log")}
+            className={`px-3 py-1.5 text-xs font-medium border-b-2 transition-colors ${
+              bottomPanel === "log"
+                ? "border-indigo-500 text-indigo-700"
+                : "border-transparent text-gray-500 hover:text-gray-700"
+            }`}
+          >
+            Execution Log
+          </button>
+          <button
+            onClick={() => setBottomPanel("review")}
+            className={`px-3 py-1.5 text-xs font-medium border-b-2 transition-colors ${
+              bottomPanel === "review"
+                ? "border-indigo-500 text-indigo-700"
+                : "border-transparent text-gray-500 hover:text-gray-700"
+            }`}
+          >
+            Review
+          </button>
+        </div>
+
+        {/* Panel content */}
+        <div className="flex-1 min-h-0">
+          {bottomPanel === "log" ? (
+            <ExecutionLog entries={logEntries} taskIds={taskIds} />
+          ) : (
+            <ReviewPanel
+              task={selectedTask}
+              onDecisionSubmitted={handleReviewDecision}
+              onError={(msg) => addToast(msg, "error")}
+            />
+          )}
+        </div>
+      </div>
     </div>
   );
 }

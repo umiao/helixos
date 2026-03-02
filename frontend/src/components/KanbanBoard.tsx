@@ -24,6 +24,7 @@ interface KanbanBoardProps {
   tasks: Task[];
   loading: boolean;
   onMoveTask: (taskId: string, newStatus: TaskStatus) => void;
+  onSelectTask?: (task: Task) => void;
 }
 
 const COLUMN_STYLES: Record<KanbanColumn, string> = {
@@ -74,6 +75,7 @@ export default function KanbanBoard({
   tasks,
   loading,
   onMoveTask,
+  onSelectTask,
 }: KanbanBoardProps) {
   const columns = groupByColumn(tasks);
   const [activeTask, setActiveTask] = useState<Task | null>(null);
@@ -143,7 +145,15 @@ export default function KanbanBoard({
                 </p>
               ) : (
                 columns[col].map((task) => (
-                  <TaskCard key={task.id} task={task} />
+                  <TaskCard
+                    key={task.id}
+                    task={task}
+                    onClick={
+                      onSelectTask
+                        ? () => onSelectTask(task)
+                        : undefined
+                    }
+                  />
                 ))
               )}
             </DroppableColumn>

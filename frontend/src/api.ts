@@ -77,6 +77,23 @@ export async function updateTaskStatus(
   return handleResponse<Task>(res);
 }
 
+/** Submit a human review decision (approve/reject) for a task. */
+export async function submitReviewDecision(
+  taskId: string,
+  decision: string,
+  reason: string = "",
+): Promise<Task> {
+  const res = await fetch(
+    `/api/tasks/${encodeURIComponent(taskId)}/review/decide`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ decision, reason }),
+    },
+  );
+  return handleResponse<Task>(res);
+}
+
 /** Trigger sync for all projects. Returns sync results. */
 export async function syncAll(): Promise<{
   results: Array<{

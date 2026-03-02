@@ -111,3 +111,10 @@
 - **Sanity check result**: npm run build -- success. pytest tests/ -- 316/316 passed. ruff check -- clean. check_emoji.py -- no emoji found.
 - **Status**: [DONE]
 - **Request**: Cross off T-P0-8b
+
+## 2026-03-01 09:00 -- [T-P0-8c] Dashboard -- ExecutionLog + ReviewPanel + SSE
+- **What I did**: Created useSSE hook (EventSource with auto-reconnect and exponential backoff 1s/2s/4s/max 30s, connected boolean). Created ExecutionLog component (scrollable dark log panel, task filter dropdown, auto-scroll with scroll-lock detection, timestamps, max 500 lines). Created ReviewPanel component (review progress bar, consensus score visualization, decision points list, approve/reject buttons when human_decision_needed, calls POST /api/tasks/{id}/review/decide). Wired SSE into App: status_change events auto-update card positions (+ fetch full task for execution/review state), alert events show as error toasts, log events populate ExecutionLog, review_progress events logged. Added connection status indicator (green/red dot) in header. Added elapsed time timer on running cards (ElapsedTimer component with 1s interval). Added bottom panel with tab switching between ExecutionLog and ReviewPanel. Added submitReviewDecision to api.ts. Updated types.ts to match API response schema (removed unused LLMReview, removed reviews from ReviewState). Added onClick to TaskCard/KanbanBoard for task selection.
+- **Deliverables**: frontend/src/hooks/useSSE.ts (new), frontend/src/components/ExecutionLog.tsx (new), frontend/src/components/ReviewPanel.tsx (new), frontend/src/components/KanbanBoard.tsx (mod -- onSelectTask), frontend/src/components/TaskCard.tsx (mod -- elapsed timer, onClick), frontend/src/App.tsx (rewritten -- SSE, log, review, connection indicator), frontend/src/api.ts (mod -- submitReviewDecision), frontend/src/types.ts (mod -- removed unused LLMReview, cleaned ReviewState)
+- **Sanity check result**: npm run build -- success. pytest tests/ -- 316/316 passed. ruff check -- clean. check_emoji.py -- no emoji found.
+- **Status**: [DONE]
+- **Request**: Cross off T-P0-8c
