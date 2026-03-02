@@ -259,7 +259,7 @@ class ProcessManager:
         # Wait for graceful exit
         try:
             await asyncio.wait_for(proc.wait(), timeout=timeout)
-        except asyncio.TimeoutError:
+        except TimeoutError:
             # Force kill
             logger.warning(
                 "Dev server pid=%d did not exit within %.1fs; force killing",

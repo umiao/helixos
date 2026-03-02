@@ -7,13 +7,13 @@ Project, Task, ReviewState, LLMReview, ExecutionState, and Dependency.
 from __future__ import annotations
 
 from datetime import UTC, datetime
-from enum import Enum
+from enum import StrEnum
 from pathlib import Path
 
 from pydantic import BaseModel, Field
 
 
-class TaskStatus(str, Enum):
+class TaskStatus(StrEnum):
     """Task lifecycle states per PRD Section 5.3."""
 
     BACKLOG = "backlog"
@@ -27,7 +27,7 @@ class TaskStatus(str, Enum):
     BLOCKED = "blocked"
 
 
-class ExecutorType(str, Enum):
+class ExecutorType(StrEnum):
     """Executor classification per PRD Section 4.2."""
 
     CODE = "code"

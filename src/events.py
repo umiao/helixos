@@ -147,7 +147,7 @@ async def sse_stream(
             try:
                 event = await asyncio.wait_for(queue.get(), timeout=keepalive_interval)
                 yield format_sse(event)
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 yield ": keepalive\n\n"
     finally:
         with contextlib.suppress(ValueError):

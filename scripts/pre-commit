@@ -1,0 +1,14 @@
+#!/usr/bin/env bash
+# Pre-commit hook: run ruff check on staged Python files
+
+STAGED=$(git diff --cached --name-only --diff-filter=ACM -- '*.py')
+if [ -z "$STAGED" ]; then
+    exit 0
+fi
+
+echo "[pre-commit] Running ruff check on staged files..."
+ruff check $STAGED
+if [ $? -ne 0 ]; then
+    echo "[pre-commit] Lint errors found. Fix them before committing."
+    exit 1
+fi

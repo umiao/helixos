@@ -251,3 +251,10 @@
 - **Sanity check result**: pytest 494/494 passed (14 new + 480 existing). ruff check clean. npm run build succeeds.
 - **Status**: [DONE]
 - **Request**: Move T-P2-8 to Completed
+
+## 2026-03-03 04:00 -- [CI-FIX] Fix CI ruff lint failures + add pre-commit hook
+- **What I did**: Fixed 3 ruff lint errors caused by CI using latest ruff (which promoted UP041/UP042 to stable) while local had ruff 0.1.14. Changed `asyncio.TimeoutError` to `TimeoutError` in events.py and process_manager.py (UP041). Changed `(str, Enum)` to `StrEnum` in models.py (UP042). Upgraded local ruff to 0.15.4 and pinned it exactly in requirements.txt (`ruff==0.15.4`). Updated CI to use `pip install -r requirements.txt` instead of `pip install ruff`. Created scripts/pre-commit (ruff check on staged .py files) and scripts/install-hooks.sh (copies hook to .git/hooks/). Added lesson #8 to LESSONS.md about pinning linter versions.
+- **Deliverables**: src/events.py (mod), src/process_manager.py (mod), src/models.py (mod), requirements.txt (mod), .github/workflows/ci.yml (mod), scripts/pre-commit (new), scripts/install-hooks.sh (new), LESSONS.md (mod)
+- **Sanity check result**: ruff check src/ tests/ -- 0 errors. pytest 494/494 passed. npm run build succeeds.
+- **Status**: [DONE]
+- **Request**: No task status change (CI fix, not a tracked task)

@@ -45,3 +45,9 @@
   - Fix: `if sys.platform == "win32": asyncio.set_event_loop_policy(asyncio.WindowsProactorEventLoopPolicy())` at module level, before any async code runs.
   - Also broaden `except FileNotFoundError` to catch `NotImplementedError` and `OSError` as defensive fallback.
   - Lesson: Always test the full startup path on the target platform. Unit tests with mocked subprocesses do not catch event loop policy issues.
+
+  8. Pin linter versions exactly
+  - Broad rule categories (e.g. `"UP"` in ruff) + loose version bounds (`ruff>=0.1.0`) = silent CI drift when new rules are promoted to stable.
+  - Root cause: CI ran `pip install ruff` (latest), while local had ruff 0.1.14. New ruff promoted UP041 and UP042 to stable, activating them automatically under the `"UP"` category.
+  - Fix: Pin exactly in requirements.txt (`ruff==0.15.4`). CI uses `pip install -r requirements.txt` instead of `pip install ruff`. Add a git pre-commit hook running `ruff check` on staged files.
+  - Rule: Always pin linter/formatter versions with `==`. Use a pre-commit hook to catch lint errors before they reach CI.
