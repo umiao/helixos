@@ -41,3 +41,10 @@
 - **Sanity check result**: pytest tests/ -- 115/115 passed (33 config + 82 existing). ruff check -- clean. check_emoji.py -- no emoji found.
 - **Status**: [DONE]
 - **Request**: Cross off T-P0-3
+
+## 2026-03-01 23:00 -- [T-P0-4] TASKS.md parser (one-way sync)
+- **What I did**: Created TasksParser class that parses TASKS.md markdown into structured ParsedTask objects. Strict regex matches only T-P\d+-\d+ task IDs. Status inferred from ## section headers (In Progress -> RUNNING, Active Tasks -> BACKLOG, Completed -> DONE, Blocked -> BLOCKED) with configurable status_sections mapping. Built sync_project_tasks async function that reads TASKS.md, parses, and upserts into DB. New BACKLOG tasks enter DB as QUEUED per PRD Section 12.3. Tasks marked done in TASKS.md are force-updated to DONE. Removed tasks stay in DB. Added status_sections field to ProjectConfig. Handles edge cases: tasks without IDs (skip+warn), duplicate IDs (last wins+warn), empty sections, tasks outside sections.
+- **Deliverables**: src/sync/tasks_parser.py (new), src/config.py (mod -- status_sections field), tests/test_tasks_parser.py (new), tests/fixtures/sample_tasks.md (new), tests/fixtures/tasks_no_ids.md (new), tests/fixtures/tasks_duplicates.md (new), tests/fixtures/tasks_empty.md (new)
+- **Sanity check result**: pytest tests/ -- 158/158 passed (43 parser + 115 existing). ruff check -- clean. check_emoji.py -- no emoji found.
+- **Status**: [DONE]
+- **Request**: Cross off T-P0-4

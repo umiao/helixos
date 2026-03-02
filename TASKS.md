@@ -36,31 +36,6 @@
 
 ---
 
-#### T-P0-4: TASKS.md parser (one-way sync)
-- **Priority**: P0
-- **Complexity**: S (1 session)
-- **Depends on**: T-P0-3
-- **Acceptance Criteria**:
-  - [ ] `src/sync/tasks_parser.py`: `class TasksParser` with `parse(content, project_id) -> list[ParsedTask]`
-  - [ ] `ParsedTask` dataclass: `local_task_id`, `title`, `status`, `description` (opaque blob)
-  - [ ] Strict regex: only matches `T-P\d+-\d+` pattern (other projects must adopt this convention)
-  - [ ] Status inferred from section headers: "In Progress" -> RUNNING, "Active Tasks" -> BACKLOG, "Completed"/"Done" -> DONE, "Blocked" -> BLOCKED
-  - [ ] Section header mapping configurable via `status_sections` in project config (with defaults)
-  - [ ] Edge cases: tasks without IDs (skip+warn), duplicate IDs (last wins+warn), empty sections
-  - [ ] `sync_project_tasks(project_id, task_manager, registry) -> SyncResult`: reads TASKS.md, parses, upserts DB
-  - [ ] `SyncResult`: `added`, `updated`, `unchanged`, `warnings`
-  - [ ] Synced tasks enter DB as QUEUED (not BACKLOG) per PRD Section 12.3 review-skip rule
-  - [ ] Tasks done in TASKS.md -> DB updated to DONE. Tasks removed from TASKS.md -> stay in DB.
-  - [ ] All file reads use `encoding="utf-8"`
-  - [ ] `tests/test_tasks_parser.py` with sample TASKS.md fixtures
-  - [ ] ruff clean, no emoji
-- **Files**: `src/sync/tasks_parser.py` (new), `tests/test_tasks_parser.py` (new), `tests/fixtures/` (new -- sample TASKS.md files)
-- **Scope boundary**:
-  - IN: Markdown parsing, regex extraction, section-to-status mapping, DB upsert
-  - OUT: No API endpoint (T-P0-10). No cross-project deps. Parser never writes back to TASKS.md.
-
----
-
 #### T-P0-8a: Dashboard Kanban -- static layout + TaskCard
 - **Priority**: P0
 - **Complexity**: S (1 session)
@@ -398,3 +373,6 @@ T-P0-13 [M] Integration tests (needs T-P0-10 + T-P0-12)
 
 #### [x] T-P0-3: Project registry + YAML config loader -- 2026-03-01
 - Pydantic settings models (OrchestratorSettings, ProjectConfig, GitConfig, ReviewerConfig, DependencyConfig, OrchestratorConfig). YAML loader with validation. ProjectRegistry with get_project, list_projects, get_project_config. Path expansion via expanduser. 33 tests passing.
+
+#### [x] T-P0-4: TASKS.md parser (one-way sync) -- 2026-03-01
+- TasksParser with regex-based T-P\d+-\d+ extraction, section-to-status mapping, configurable status_sections. sync_project_tasks async upsert (BACKLOG->QUEUED, DONE force-update). ParsedTask/SyncResult dataclasses. Edge cases: no IDs, duplicates, empty sections. 43 tests passing.

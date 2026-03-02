@@ -52,6 +52,7 @@ class ProjectConfig(BaseModel):
     max_concurrency: int = 1
     env_keys: list[str] = Field(default_factory=list)
     claude_md_path: Path | None = None
+    status_sections: dict[str, str] | None = None
 
     @model_validator(mode="after")
     def _expand_paths(self) -> ProjectConfig:
