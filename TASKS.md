@@ -22,7 +22,7 @@
   2. All 14 API endpoints documented with method, path, and description
   3. Troubleshooting section covers common errors
 - **Complexity**: M
-- **Deps**: None (was T-P1-5, now completed)
+- **Deps**: None
 
 #### T-P1-7: E2E startup verification [S]
 - **Files**: None (verification only)
