@@ -17,25 +17,6 @@
 
 ### P2 -- Nice to Have (polish, optimization)
 
-#### T-P2-6: Frontend -- ProjectSelector + SwimLane + KanbanBoard refactor
-- **Complexity**: M | **Depends on**: None (pure frontend)
-- **What**: Transform flat Kanban into per-project swim lanes.
-  - `ProjectSelector.tsx`: multi-select checkbox dropdown replacing single-select
-  - `SwimLane.tsx`: wrapper component rendering one KanbanBoard per project, with project header and divider bar
-  - Refactor `KanbanBoard.tsx`: accept `projectId` prop, filter tasks internally
-  - DnD context per SwimLane (no cross-project drag)
-  - Persist selected projects in localStorage
-  - Vertical scroll for swim lane area
-  - Global status filter + search apply across all swim lanes
-- **AC**:
-  - [ ] Multi-select project dropdown with checkboxes
-  - [ ] Each selected project renders as separate swim lane
-  - [ ] Visible divider bars between swim lanes
-  - [ ] Drag-drop within swim lane only (no cross-project)
-  - [ ] Selected projects persist in localStorage
-  - [ ] Existing filters (status, search) still work globally
-  - [ ] npm run build succeeds
-
 #### T-P2-7: Frontend -- SwimLaneHeader + ImportModal + NewTaskModal + LaunchControl
 - **Complexity**: M | **Depends on**: T-P2-6 (ProcessManager + TasksWriter + validate/import API all done)
 - **What**: All frontend UI components for the operations portal.
@@ -232,3 +213,6 @@ T-P2-6 [M] Frontend Swim Lanes (no deps) ----------------+
 
 #### [x] T-P2-5: ProcessManager + SubprocessRegistry -- launch/stop project processes -- 2026-03-03
 - SubprocessRegistry (unified tracker, shared global limit, orphan cleanup). ProcessManager (launch with PORT injection, graceful stop with timeout, stop_all, cleanup_orphans). Windows compatible (CREATE_NEW_PROCESS_GROUP + CTRL_BREAK_EVENT). 3 API endpoints (launch, stop, process-status). Shutdown order enforced. 31 new tests, 480 total passing.
+
+#### [x] T-P2-6: Frontend -- ProjectSelector + SwimLane + KanbanBoard refactor -- 2026-03-03
+- ProjectSelector.tsx (multi-select checkbox dropdown with Select all/Clear, localStorage persistence). SwimLane.tsx (per-project wrapper with header bar + KanbanBoard, solo/multi-lane height modes). App.tsx refactored: swim lane layout, tasks grouped by project, each SwimLane has own DndContext (no cross-project drag), visible dividers between lanes, global status/search filters apply across all lanes. npm run build succeeds, 480 tests passing.

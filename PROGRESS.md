@@ -230,3 +230,10 @@
 - **Sanity check result**: pytest 480/480 passed (31 new + 449 existing). ruff check clean. No emoji.
 - **Status**: [DONE]
 - **Request**: Move T-P2-5 to Completed
+
+## 2026-03-03 01:00 -- [T-P2-6] Frontend -- ProjectSelector + SwimLane + KanbanBoard refactor
+- **What I did**: Transformed flat Kanban into per-project swim lanes. Created ProjectSelector.tsx (multi-select checkbox dropdown with Select all/Clear, click-outside-to-close, shows project name + ID). Created SwimLane.tsx (wrapper rendering project header bar + KanbanBoard per project; solo mode takes full height, multi-lane mode uses fixed 320px height). Refactored App.tsx: replaced single-select project filter with ProjectSelector; renders one SwimLane per selected project with visible dividers between lanes; groups tasks by project_id; localStorage persistence via loadSelectedProjects/saveSelectedProjects; new projects auto-selected; global status filter + search apply across all swim lanes. Each SwimLane has its own DndContext (via KanbanBoard) so drag-drop is scoped per project with no cross-project dragging.
+- **Deliverables**: frontend/src/components/ProjectSelector.tsx (new), frontend/src/components/SwimLane.tsx (new), frontend/src/App.tsx (mod -- swim lane layout, ProjectSelector integration, localStorage persistence)
+- **Sanity check result**: npm run build succeeds. pytest 480/480 passed. ruff check clean.
+- **Status**: [DONE]
+- **Request**: Move T-P2-6 to Completed

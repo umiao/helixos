@@ -1,8 +1,12 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import KanbanBoard from "./components/KanbanBoard";
+import SwimLane from "./components/SwimLane";
 import ExecutionLog, { type LogEntry } from "./components/ExecutionLog";
 import ReviewPanel from "./components/ReviewPanel";
 import Toast, { type ToastMessage } from "./components/Toast";
+import ProjectSelector, {
+  loadSelectedProjects,
+  saveSelectedProjects,
+} from "./components/ProjectSelector";
 import useSSE, { type SSEEvent } from "./hooks/useSSE";
 import {
   fetchProjects,
@@ -22,7 +26,7 @@ function App() {
   const [projects, setProjects] = useState<Project[]>([]);
   const [loading, setLoading] = useState(true);
   const [syncing, setSyncing] = useState(false);
-  const [filterProject, setFilterProject] = useState("");
+  const [selectedProjects, setSelectedProjects] = useState<string[]>([]);
   const [filterStatus, setFilterStatus] = useState("");
   const [searchQuery, setSearchQuery] = useState("");
   const [toasts, setToasts] = useState<ToastMessage[]>([]);
@@ -135,6 +139,21 @@ function App() {
       const [p, t] = await Promise.all([fetchProjects(), fetchTasks()]);
       setProjects(p);
       setTasks(t);
+
+      // Initialize selected projects from localStorage, or select all
+      const saved = loadSelectedProjects();
+      if (saved !== null) {
+        // Keep only IDs that still exist
+        const validIds = saved.filter((id) => p.some((proj) => proj.id === id));
+        // Add any new projects not in saved
+        const newIds = p
+          .filter((proj) => !saved.includes(proj.id))
+          .map((proj) => proj.id);
+        setSelectedProjects([...validIds, ...newIds]);
+      } else {
+        // First time: select all
+        setSelectedProjects(p.map((proj) => proj.id));
+      }
     } catch (err) {
       const msg =
         err instanceof ApiError ? err.detail : "Failed to load data";
@@ -148,10 +167,16 @@ function App() {
     loadData();
   }, [loadData]);
 
+  // Persist selected projects to localStorage
+  const handleSelectedProjectsChange = useCallback((ids: string[]) => {
+    setSelectedProjects(ids);
+    saveSelectedProjects(ids);
+  }, []);
+
   const runningCount = tasks.filter((t) => t.status === "running").length;
 
-  const filteredTasks = tasks.filter((t) => {
-    if (filterProject && t.project_id !== filterProject) return false;
+  // Apply global filters (status + search) to all tasks
+  const globallyFiltered = tasks.filter((t) => {
     if (filterStatus && t.status !== filterStatus) return false;
     if (
       searchQuery &&
@@ -162,6 +187,21 @@ function App() {
     }
     return true;
   });
+
+  // Determine which projects to show swim lanes for
+  const activeProjectIds =
+    selectedProjects.length > 0
+      ? selectedProjects
+      : projects.map((p) => p.id);
+
+  // Group filtered tasks by project
+  const tasksByProject = new Map<string, Task[]>();
+  for (const pid of activeProjectIds) {
+    tasksByProject.set(
+      pid,
+      globallyFiltered.filter((t) => t.project_id === pid),
+    );
+  }
 
   // Unique task IDs for log filtering
   const taskIds = [...new Set(tasks.map((t) => t.id))];
@@ -238,6 +278,8 @@ function App() {
     [addToast],
   );
 
+  const soloLane = activeProjectIds.length === 1;
+
   return (
     <div className="flex flex-col h-screen bg-gray-100">
       {/* Toasts */}
@@ -282,18 +324,11 @@ function App() {
 
       {/* Filter bar */}
       <div className="flex items-center gap-3 px-6 py-2 bg-white border-b border-gray-100">
-        <select
-          value={filterProject}
-          onChange={(e) => setFilterProject(e.target.value)}
-          className="rounded-md border border-gray-300 px-2 py-1 text-sm text-gray-700 bg-white"
-        >
-          <option value="">All projects</option>
-          {projects.map((p) => (
-            <option key={p.id} value={p.id}>
-              {p.name}
-            </option>
-          ))}
-        </select>
+        <ProjectSelector
+          projects={projects}
+          selectedIds={selectedProjects}
+          onChange={handleSelectedProjectsChange}
+        />
 
         <select
           value={filterStatus}
@@ -321,14 +356,40 @@ function App() {
         />
       </div>
 
-      {/* Kanban board */}
-      <main className="flex-1 overflow-hidden p-4 min-h-0">
-        <KanbanBoard
-          tasks={filteredTasks}
-          loading={loading}
-          onMoveTask={handleMoveTask}
-          onSelectTask={handleSelectTask}
-        />
+      {/* Swim lane area */}
+      <main className="flex-1 overflow-y-auto p-4 min-h-0">
+        {activeProjectIds.length === 0 ? (
+          <div className="flex items-center justify-center h-full text-gray-400 text-sm">
+            Select at least one project to view tasks
+          </div>
+        ) : (
+          <div
+            className={`flex flex-col gap-0 ${soloLane ? "h-full" : ""}`}
+          >
+            {activeProjectIds.map((pid, idx) => {
+              const project = projects.find((p) => p.id === pid);
+              if (!project) return null;
+              const laneTasks = tasksByProject.get(pid) ?? [];
+
+              return (
+                <div key={pid} className={`flex flex-col ${soloLane ? "flex-1" : ""} min-h-0`}>
+                  {/* Divider between swim lanes */}
+                  {idx > 0 && (
+                    <div className="h-px bg-gray-300 my-2 flex-shrink-0" />
+                  )}
+                  <SwimLane
+                    project={project}
+                    tasks={laneTasks}
+                    loading={loading}
+                    onMoveTask={handleMoveTask}
+                    onSelectTask={handleSelectTask}
+                    solo={soloLane}
+                  />
+                </div>
+              );
+            })}
+          </div>
+        )}
       </main>
 
       {/* Bottom panel: ExecutionLog / ReviewPanel */}
