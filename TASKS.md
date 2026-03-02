@@ -18,7 +18,7 @@
 ### P2 -- Nice to Have (polish, optimization)
 
 #### T-P2-7: Frontend -- SwimLaneHeader + ImportModal + NewTaskModal + LaunchControl
-- **Complexity**: M | **Depends on**: T-P2-6 (ProcessManager + TasksWriter + validate/import API all done)
+- **Complexity**: M | **Depends on**: Swim Lanes [done] (ProcessManager + TasksWriter + validate/import API all done)
 - **What**: All frontend UI components for the operations portal.
   - `SwimLaneHeader.tsx`: per-project action bar with Launch, New Task, Sync buttons
   - `ImportProjectModal.tsx`: path input -> validate API -> show results -> confirm import
@@ -115,7 +115,7 @@ T-P2-1 [S] Config extension (no deps)
   |                                                        |
   +---> T-P2-4 [M] TasksWriter [DONE] --------------------+
                                                            |
-T-P2-6 [M] Frontend Swim Lanes (no deps) ----------------+
+T-P2-6 [M] Frontend Swim Lanes [DONE] ------------------+
                                                            |
                                                     T-P2-7 [M] Frontend Operations UI
                                                            |
