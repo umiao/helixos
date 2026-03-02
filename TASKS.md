@@ -14,16 +14,6 @@
 
 ### P1 -- Should Have (important features)
 
-#### T-P1-4: Update review pipeline tests for subprocess mocking [M]
-- **Files**: `tests/test_review_pipeline.py`, `tests/integration/conftest.py`
-- **What**: Replace MockAnthropicClient with subprocess mocking. Patch `asyncio.create_subprocess_exec` to return mock process with JSON stdout matching Claude CLI output format. Keep MockExecutor unchanged.
-- **AC**:
-  1. All 335+ tests pass
-  2. Integration tests for review flow work with subprocess mocks
-  3. No remaining references to MockAnthropicClient
-- **Complexity**: M
-- **Deps**: None (P1-1 done)
-
 #### T-P1-5: Fix orchestrator config for self-management [S]
 - **Files**: `orchestrator_config.yaml`
 - **What**: Fix `repo_path: "~/projects/helixos"` to `repo_path: "~/Desktop/Gen_AI_Proj/helixos"`. Ensure `~/.helixos/` directory creation logic exists.
@@ -51,7 +41,7 @@
   2. Screenshot or log evidence captured
   3. All prior P1 tasks completed and integrated
 - **Complexity**: S
-- **Deps**: P1-3 (done), T-P1-4, T-P1-5, T-P1-6
+- **Deps**: T-P1-4 (done), T-P1-5, T-P1-6
 
 ### P2 -- Nice to Have (polish, optimization)
 <!-- Phase 2+: frontend E2E tests, TypeScript codegen from Pydantic, cross-platform -->
@@ -104,7 +94,7 @@ T-P1-5 [S] Fix config (no deps)
   |
   +---> T-P1-6 [M] QUICKSTART.md
 
-T-P1-7 [S] E2E verification (needs T-P1-2 through T-P1-6)
+T-P1-7 [S] E2E verification (needs T-P1-4 through T-P1-6)
 ```
 
 ---
@@ -171,3 +161,6 @@ T-P1-7 [S] E2E verification (needs T-P1-2 through T-P1-6)
 
 #### [x] T-P1-3: Remove ANTHROPIC_API_KEY dependency from env/config -- 2026-03-02
 - Removed ANTHROPIC_API_KEY warning from env_loader. Removed anthropic SDK from dependencies. Changed reviewer api default from "anthropic" to "claude_cli". Updated all test fixtures. 333 tests passing.
+
+#### [x] T-P1-4: Update review pipeline tests for subprocess mocking -- 2026-03-02
+- Verified T-P1-1 already replaced all MockAnthropicClient with subprocess mocking. No MockAnthropicClient references remain in any .py files. Fixed pre-existing SSE test timing race condition. 333 tests passing.

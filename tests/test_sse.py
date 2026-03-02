@@ -151,7 +151,7 @@ class TestSSEStream:
         frames: list[str] = []
 
         async def collect() -> None:
-            async for frame in sse_stream(bus, keepalive_interval=0.05):
+            async for frame in sse_stream(bus, keepalive_interval=0.15):
                 frames.append(frame)
                 if len(frames) >= 3:
                     break
@@ -161,7 +161,7 @@ class TestSSEStream:
 
         # Emit one event immediately, then wait for keepalive, then another event
         bus.emit("log", "t1", "first")
-        await asyncio.sleep(0.08)  # Enough for one keepalive
+        await asyncio.sleep(0.25)  # Enough for exactly one keepalive (0.15s interval)
         bus.emit("log", "t1", "second")
         await task
 

@@ -153,3 +153,10 @@
 - **Sanity check result**: pytest 333/333 passed (2 removed warning tests). ruff clean. No emoji. No ANTHROPIC_API_KEY in src/.
 - **Status**: [DONE]
 - **Request**: Move T-P1-3 to Completed (REMOVE spec block from Active, ADD summary line to Completed Tasks)
+
+## 2026-03-02 15:00 -- [T-P1-4] Update review pipeline tests for subprocess mocking
+- **What I did**: Verified that T-P1-1 already completed all subprocess mocking work (no MockAnthropicClient references in any .py files, all test files use `@patch("src.review_pipeline.asyncio.create_subprocess_exec")`, MockExecutor unchanged in integration conftest). Fixed a pre-existing race condition in test_sse.py::test_mixed_events_and_keepalive where tight timing (0.05s keepalive interval, 0.08s sleep) caused two keepalives to fire instead of one on loaded systems. Increased keepalive_interval to 0.15s and sleep to 0.25s for reliable single-keepalive timing.
+- **Deliverables**: tests/test_sse.py (mod -- fixed timing race condition)
+- **Sanity check result**: pytest 333/333 passed. ruff clean. No emoji. No MockAnthropicClient in any .py files.
+- **Status**: [DONE]
+- **Request**: Move T-P1-4 to Completed (REMOVE spec block from Active, ADD summary line to Completed Tasks)
