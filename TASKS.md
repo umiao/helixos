@@ -13,8 +13,7 @@
 <!-- All 13 P0 tasks completed. See Completed Tasks below. -->
 
 ### P1 -- Should Have (important features)
-
-<!-- T-P1-7 completed, moved to Completed Tasks -->
+<!-- All 7 P1 tasks completed. See Completed Tasks below. -->
 
 ### P2 -- Nice to Have (polish, optimization)
 <!-- Phase 2+: frontend E2E tests, TypeScript codegen from Pydantic, cross-platform -->
