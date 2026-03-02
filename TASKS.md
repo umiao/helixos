@@ -169,25 +169,6 @@
 
 ---
 
-#### T-P0-9: SSE event stream endpoint
-- **Priority**: P0
-- **Complexity**: S (1 session)
-- **Depends on**: T-P0-6a
-- **Acceptance Criteria**:
-  - [ ] `src/events.py` extended: `format_sse(event) -> str` formats as `data: {json}\n\n`
-  - [ ] SSE endpoint: `GET /api/events` returns `StreamingResponse(media_type="text/event-stream")`
-  - [ ] Subscribes to EventBus, yields formatted SSE events
-  - [ ] Keepalive: `: keepalive\n\n` every 15 seconds
-  - [ ] Client disconnect: unsubscribe from EventBus gracefully
-  - [ ] Event types: `log`, `status_change`, `review_progress`, `alert`
-  - [ ] Each event JSON: `{type, task_id, data, timestamp}`
-  - [ ] `tests/test_sse.py`: httpx AsyncClient stream -- event delivery, keepalive, disconnect cleanup
-  - [ ] ruff clean, no emoji
-- **Files**: `src/events.py` (mod), `tests/test_sse.py` (new)
-- **Scope boundary**:
-  - IN: SSE HTTP endpoint, event formatting, keepalive, disconnect handling
-  - OUT: No EventBus creation (T-P0-6a). No frontend consumer (T-P0-8c).
-
 ---
 
 #### T-P0-10: API endpoints (CRUD + sync + execute + review + lifespan)
@@ -368,3 +349,6 @@ T-P0-13 [M] Integration tests (needs T-P0-10 + T-P0-12)
 
 #### [x] T-P0-7: Review pipeline (Anthropic-only, opt-in, async) -- 2026-03-01
 - ReviewPipeline with review_task (required + optional adversarial for M/L), _call_reviewer (Anthropic Messages API), _build_review_prompt (focus-area prompts), _parse_review (JSON -> LLMReview with fallback), _synthesize (multi-review consensus), SynthesisResult model. Scoring: approve=1.0, reject=0.3, multi=synthesized. Configurable threshold, on_progress callback. 20 tests passing.
+
+#### [x] T-P0-9: SSE event stream endpoint -- 2026-03-01
+- format_sse (Event -> SSE data frame), sse_stream async generator (EventBus subscriber with keepalive on idle), sse_router (GET /api/events, StreamingResponse, text/event-stream). Disconnect cleanup via generator finally. Event JSON: {type, task_id, data, timestamp}. 21 tests passing.

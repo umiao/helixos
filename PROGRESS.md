@@ -83,3 +83,10 @@
 - **Sanity check result**: pytest tests/ -- 263/263 passed (20 review_pipeline + 243 existing). ruff check -- clean. check_emoji.py -- no emoji found.
 - **Status**: [DONE]
 - **Request**: Cross off T-P0-7
+
+## 2026-03-01 05:00 -- [T-P0-9] SSE event stream endpoint
+- **What I did**: Extended src/events.py with format_sse (Event -> "data: {json}\n\n"), sse_stream async generator (subscribes to EventBus, yields SSE data frames with keepalive comments on idle via asyncio.wait_for timeout), and sse_router (FastAPI APIRouter with GET /api/events endpoint returning StreamingResponse with text/event-stream content type, Cache-Control: no-cache, X-Accel-Buffering: no headers). Cleanup on disconnect via generator finally block. Event JSON schema: {type, task_id, data, timestamp}. Event types: log, status_change, review_progress, alert. Keepalive interval: 15 seconds (configurable in sse_stream).
+- **Deliverables**: src/events.py (mod), tests/test_sse.py (new)
+- **Sanity check result**: pytest tests/ -- 284/284 passed (21 SSE + 263 existing). ruff check -- clean. check_emoji.py -- no emoji found.
+- **Status**: [DONE]
+- **Request**: Cross off T-P0-9
