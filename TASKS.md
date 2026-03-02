@@ -22,7 +22,7 @@
   2. All 14 API endpoints documented with method, path, and description
   3. Troubleshooting section covers common errors
 - **Complexity**: M
-- **Deps**: T-P1-5
+- **Deps**: None (was T-P1-5, now completed)
 
 #### T-P1-7: E2E startup verification [S]
 - **Files**: None (verification only)
@@ -32,7 +32,7 @@
   2. Screenshot or log evidence captured
   3. All prior P1 tasks completed and integrated
 - **Complexity**: S
-- **Deps**: T-P1-5, T-P1-6
+- **Deps**: T-P1-6
 
 ### P2 -- Nice to Have (polish, optimization)
 <!-- Phase 2+: frontend E2E tests, TypeScript codegen from Pydantic, cross-platform -->
