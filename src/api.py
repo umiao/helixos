@@ -29,6 +29,8 @@ from src.project_validator import validate_project_directory
 from src.review_pipeline import ReviewPipeline
 from src.scheduler import Scheduler
 from src.schemas import (
+    CreateTaskRequest,
+    CreateTaskResponse,
     DashboardSummary,
     ErrorResponse,
     ExecutionStateResponse,
@@ -47,6 +49,7 @@ from src.schemas import (
 )
 from src.sync.tasks_parser import sync_project_tasks
 from src.task_manager import TaskManager
+from src.tasks_writer import NewTask, TasksWriter
 
 logger = logging.getLogger(__name__)
 
@@ -433,6 +436,94 @@ async def import_project(
         synced=synced,
         sync_result=sync_result_resp,
         warnings=warnings,
+    )
+
+
+# ------------------------------------------------------------------
+# Task creation endpoint (writes to TASKS.md)
+# ------------------------------------------------------------------
+
+
+@api_router.post(
+    "/api/projects/{project_id}/tasks",
+    responses={
+        400: {"model": ErrorResponse},
+        404: {"model": ErrorResponse},
+    },
+)
+async def create_project_task(
+    project_id: str,
+    body: CreateTaskRequest,
+    request: Request,
+) -> CreateTaskResponse:
+    """Create a new task by appending to the project's TASKS.md.
+
+    Uses filelock for safe concurrent writes, creates a .bak backup,
+    and auto-triggers sync to bring the new task into the database.
+    """
+    registry: ProjectRegistry = request.app.state.registry
+    task_manager: TaskManager = request.app.state.task_manager
+
+    # Verify project exists
+    try:
+        project = registry.get_project(project_id)
+    except KeyError:
+        raise HTTPException(
+            status_code=404, detail=f"Project not found: {project_id}",
+        ) from None
+
+    # Verify repo_path and TASKS.md path
+    if project.repo_path is None:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Project {project_id} has no repo_path configured",
+        )
+
+    tasks_md_path = project.repo_path / project.tasks_file
+    writer = TasksWriter(tasks_md_path)
+
+    # Create the new task
+    new_task = NewTask(
+        title=body.title,
+        description=body.description,
+        priority=body.priority,
+    )
+    result = writer.append_task(new_task)
+
+    if not result.success:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Failed to write task: {result.error}",
+        )
+
+    # Auto-trigger sync to bring the new task into the database
+    sync_result_resp = None
+    synced = False
+    try:
+        sync_result = await sync_project_tasks(
+            project_id, task_manager, registry,
+        )
+        sync_result_resp = SyncResponse(
+            project_id=project_id,
+            added=sync_result.added,
+            updated=sync_result.updated,
+            unchanged=sync_result.unchanged,
+            warnings=sync_result.warnings,
+        )
+        synced = True
+    except Exception:
+        logger.warning(
+            "Auto-sync failed after task creation for project %s",
+            project_id,
+            exc_info=True,
+        )
+
+    return CreateTaskResponse(
+        task_id=result.task_id,
+        success=True,
+        backup_path=result.backup_path,
+        synced=synced,
+        sync_result=sync_result_resp,
     )
 
 

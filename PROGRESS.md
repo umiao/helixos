@@ -216,3 +216,10 @@
 - **Sanity check result**: pytest 421/421 passed (29 new + 392 existing). ruff check clean. No emoji.
 - **Status**: [DONE]
 - **Request**: Move T-P2-3 to Completed
+
+## 2026-03-02 23:30 -- [T-P2-4] TasksWriter -- create tasks by appending to TASKS.md (with filelock)
+- **What I did**: Created src/tasks_writer.py with TasksWriter class. Uses filelock + threading.Lock for cross-platform concurrent write protection. Features: generate_next_task_id (scans existing IDs, computes next sequential), _find_active_section_end (locates insertion point), _build_task_block (formats markdown), .bak backup before every write, post-write validation (re-reads file, checks task ID exists, checks for corruption). Handles edge cases: empty file (creates minimal structure), no Active section (adds one), ID format variations. Added POST /api/projects/{id}/tasks endpoint to api.py with auto-sync after write. Added CreateTaskRequest/CreateTaskResponse schemas.
+- **Deliverables**: src/tasks_writer.py (new), src/api.py (mod -- 1 new endpoint), src/schemas.py (mod -- 2 new schemas), requirements.txt (mod -- filelock), tests/test_tasks_writer.py (new -- 28 tests)
+- **Sanity check result**: pytest 449/449 passed (28 new + 421 existing). ruff check clean. No emoji.
+- **Status**: [DONE]
+- **Request**: Move T-P2-4 to Completed

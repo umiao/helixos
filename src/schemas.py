@@ -209,6 +209,34 @@ class ImportProjectResponse(BaseModel):
 
 
 # ------------------------------------------------------------------
+# Task creation schemas
+# ------------------------------------------------------------------
+
+
+class CreateTaskRequest(BaseModel):
+    """Request to create a new task in a project's TASKS.md."""
+
+    title: str = Field(..., min_length=1, description="Task title")
+    description: str = Field(default="", description="Task description")
+    priority: str = Field(
+        default="P0",
+        pattern=r"^P\d+$",
+        description="Priority level (e.g. P0, P1, P2)",
+    )
+
+
+class CreateTaskResponse(BaseModel):
+    """Result of creating a task in TASKS.md."""
+
+    task_id: str
+    success: bool
+    backup_path: str | None = None
+    synced: bool = False
+    sync_result: SyncResponse | None = None
+    error: str | None = None
+
+
+# ------------------------------------------------------------------
 # Error schemas
 # ------------------------------------------------------------------
 

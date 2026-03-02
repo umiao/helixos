@@ -17,24 +17,6 @@
 
 ### P2 -- Nice to Have (polish, optimization)
 
-#### T-P2-4: TasksWriter -- create tasks by appending to TASKS.md (with filelock)
-- **Complexity**: M | **Depends on**: None (all deps done)
-- **What**: New `src/tasks_writer.py`. Safely appends tasks to a project's TASKS.md.
-  - Uses `filelock` library for cross-platform file locking
-  - Lock acquired before read-modify-write cycle
-  - ID generation inside lock: scan existing IDs, compute next available
-  - Create `.bak` backup before every write
-  - Validate after write: re-parse to confirm valid markdown + correct IDs
-  - New endpoint: `POST /api/projects/{id}/tasks` { title, description, priority }
-  - Auto-triggers sync after write (task enters DB)
-- **AC**:
-  - [ ] File lock prevents concurrent write corruption
-  - [ ] Auto-generated IDs are unique and sequential
-  - [ ] .bak created before every write
-  - [ ] Post-write validation confirms file integrity
-  - [ ] Handles edge cases: empty file, no Active section, ID format variations
-  - [ ] 12+ tests
-
 #### T-P2-5: ProcessManager + SubprocessRegistry -- launch/stop project processes
 - **Complexity**: M | **Depends on**: None (all deps done)
 - **What**: New `src/process_manager.py` and `src/subprocess_registry.py`.
@@ -77,7 +59,7 @@
   - [ ] npm run build succeeds
 
 #### T-P2-7: Frontend -- SwimLaneHeader + ImportModal + NewTaskModal + LaunchControl
-- **Complexity**: M | **Depends on**: T-P2-4, T-P2-5, T-P2-6 (validate/import API done)
+- **Complexity**: M | **Depends on**: T-P2-5, T-P2-6 (TasksWriter done, validate/import API done)
 - **What**: All frontend UI components for the operations portal.
   - `SwimLaneHeader.tsx`: per-project action bar with Launch, New Task, Sync buttons
   - `ImportProjectModal.tsx`: path input -> validate API -> show results -> confirm import
@@ -172,7 +154,7 @@ T-P2-1 [S] Config extension (no deps)
   |       |                                                |
   |       +---> T-P2-5 [M] ProcessManager ----------------+
   |                                                        |
-  +---> T-P2-4 [M] TasksWriter ---------------------------+
+  +---> T-P2-4 [M] TasksWriter [DONE] --------------------+
                                                            |
 T-P2-6 [M] Frontend Swim Lanes (no deps) ----------------+
                                                            |
@@ -266,3 +248,6 @@ T-P2-6 [M] Frontend Swim Lanes (no deps) ----------------+
 
 #### [x] T-P2-3: Project validation + import API + config writer (ruamel.yaml) -- 2026-03-02
 - config_writer.py (ruamel.yaml comment-preserving read-modify-write, atomic write, suggest_next_project_id), project_validator.py (directory validation with limited-mode detection). POST /api/projects/validate and POST /api/projects/import endpoints. Auto-assign port, auto-sync, duplicate/invalid-path rejection. 29 new tests, 421 total passing.
+
+#### [x] T-P2-4: TasksWriter -- create tasks by appending to TASKS.md (with filelock) -- 2026-03-02
+- TasksWriter with filelock + threading.Lock for concurrent write safety. ID generation inside lock, .bak backup before every write, post-write validation. Handles empty file, no Active section, ID format variations. POST /api/projects/{id}/tasks endpoint with auto-sync. 28 new tests, 449 total passing.
