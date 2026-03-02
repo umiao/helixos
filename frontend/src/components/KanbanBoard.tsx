@@ -30,6 +30,8 @@ interface KanbanBoardProps {
   projectId?: string;
   onTaskCreated?: () => void;
   onError?: (msg: string) => void;
+  /** Called when inline creator Tab key triggers enrich-expand. */
+  onEnrichExpand?: (title: string) => void;
 }
 
 const COLUMN_STYLES: Record<KanbanColumn, string> = {
@@ -84,6 +86,7 @@ export default function KanbanBoard({
   projectId,
   onTaskCreated,
   onError,
+  onEnrichExpand,
 }: KanbanBoardProps) {
   const columns = groupByColumn(tasks);
   const [activeTask, setActiveTask] = useState<Task | null>(null);
@@ -186,6 +189,7 @@ export default function KanbanBoard({
                   projectId={projectId}
                   onCreated={onTaskCreated}
                   onError={onError}
+                  onEnrichExpand={onEnrichExpand}
                 />
               )}
             </DroppableColumn>

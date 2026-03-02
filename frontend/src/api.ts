@@ -6,6 +6,7 @@
 import type {
   BrowseResult,
   CreateTaskResult,
+  EnrichResult,
   ExecutionLogsResponse,
   ImportResult,
   ProcessStatus,
@@ -178,6 +179,16 @@ export async function createTask(
     },
   );
   return handleResponse<CreateTaskResult>(res);
+}
+
+/** Enrich a task title with AI-suggested description and priority. */
+export async function enrichTask(title: string): Promise<EnrichResult> {
+  const res = await fetch("/api/tasks/enrich", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ title }),
+  });
+  return handleResponse<EnrichResult>(res);
 }
 
 /** Pause task execution for a project. */

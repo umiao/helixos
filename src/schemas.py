@@ -243,6 +243,28 @@ class ImportProjectResponse(BaseModel):
 
 
 # ------------------------------------------------------------------
+# Task enrichment schemas
+# ------------------------------------------------------------------
+
+
+class EnrichTaskRequest(BaseModel):
+    """Request to enrich a task title with AI-suggested description and priority."""
+
+    title: str = Field(..., min_length=1, description="Task title to enrich")
+
+
+class EnrichTaskResponse(BaseModel):
+    """AI-generated enrichment suggestions."""
+
+    description: str = Field(..., description="AI-suggested description")
+    priority: str = Field(
+        ...,
+        pattern=r"^P\d+$",
+        description="AI-suggested priority (P0, P1, P2)",
+    )
+
+
+# ------------------------------------------------------------------
 # Task creation schemas
 # ------------------------------------------------------------------
 

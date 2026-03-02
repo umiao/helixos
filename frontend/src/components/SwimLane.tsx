@@ -22,6 +22,8 @@ interface SwimLaneProps {
   onTaskCreated: () => void;
   onError: (msg: string) => void;
   onPauseToggle?: (paused: boolean) => void;
+  /** Called when inline creator Tab triggers enrich-expand into NewTaskModal. */
+  onEnrichExpand?: (title: string) => void;
 }
 
 export default function SwimLane({
@@ -37,6 +39,7 @@ export default function SwimLane({
   onTaskCreated,
   onError,
   onPauseToggle,
+  onEnrichExpand,
 }: SwimLaneProps) {
   return (
     <div
@@ -64,6 +67,7 @@ export default function SwimLane({
           projectId={project.id}
           onTaskCreated={onTaskCreated}
           onError={onError}
+          onEnrichExpand={onEnrichExpand}
         />
       </div>
     </div>

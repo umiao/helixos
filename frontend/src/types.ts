@@ -145,6 +145,12 @@ export interface ImportResult {
   warnings: string[];
 }
 
+/** Result of AI-assisted task enrichment. */
+export interface EnrichResult {
+  description: string;
+  priority: string;
+}
+
 /** Result of creating a task. */
 export interface CreateTaskResult {
   task_id: string;

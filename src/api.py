@@ -21,6 +21,7 @@ from fastapi.staticfiles import StaticFiles
 from src.config import ProjectRegistry, load_config
 from src.config_writer import add_project_to_config, suggest_next_project_id
 from src.db import create_engine, create_session_factory, init_db
+from src.enrichment import enrich_task_title, is_claude_cli_available
 from src.env_loader import EnvLoader
 from src.events import EventBus, sse_router
 from src.history_writer import HistoryWriter
@@ -37,6 +38,8 @@ from src.schemas import (
     CreateTaskRequest,
     CreateTaskResponse,
     DashboardSummary,
+    EnrichTaskRequest,
+    EnrichTaskResponse,
     ErrorResponse,
     ExecutionLogEntry,
     ExecutionLogsResponse,
@@ -574,6 +577,44 @@ async def import_project(
         synced=synced,
         sync_result=sync_result_resp,
         warnings=warnings,
+    )
+
+
+# ------------------------------------------------------------------
+# Task enrichment endpoint (AI-assisted via Claude CLI)
+# ------------------------------------------------------------------
+
+
+@api_router.post(
+    "/api/tasks/enrich",
+    responses={
+        503: {"model": ErrorResponse},
+    },
+)
+async def enrich_task(body: EnrichTaskRequest) -> EnrichTaskResponse:
+    """Enrich a task title with AI-suggested description and priority.
+
+    Uses Claude CLI (``claude -p``) to generate structured suggestions.
+    Returns 503 if Claude CLI is not available on PATH.
+    """
+    if not is_claude_cli_available():
+        raise HTTPException(
+            status_code=503,
+            detail="Claude CLI not available -- enrichment disabled",
+        )
+
+    try:
+        result = await enrich_task_title(body.title)
+    except RuntimeError as exc:
+        logger.warning("Task enrichment failed: %s", exc)
+        raise HTTPException(
+            status_code=503,
+            detail=f"Enrichment failed: {exc}",
+        ) from exc
+
+    return EnrichTaskResponse(
+        description=result["description"],
+        priority=result["priority"],
     )
 
 

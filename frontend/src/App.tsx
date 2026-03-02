@@ -41,6 +41,8 @@ function App() {
   const [bottomPanel, setBottomPanel] = useState<"log" | "review">("log");
   const [showImportModal, setShowImportModal] = useState(false);
   const [newTaskProject, setNewTaskProject] = useState<Project | null>(null);
+  const [enrichTitle, setEnrichTitle] = useState("");
+  const [autoEnrich, setAutoEnrich] = useState(false);
 
   // Keep a ref to tasks for SSE handler (avoid stale closure)
   const tasksRef = useRef(tasks);
@@ -476,7 +478,11 @@ function App() {
                     solo={soloLane}
                     syncing={syncingProjects.has(pid)}
                     onSync={() => handleSyncProject(pid)}
-                    onNewTask={() => setNewTaskProject(project)}
+                    onNewTask={() => {
+                      setEnrichTitle("");
+                      setAutoEnrich(false);
+                      setNewTaskProject(project);
+                    }}
                     onTaskCreated={handleTaskCreated}
                     onError={(msg) => addToast(msg, "error")}
                     onPauseToggle={(paused) =>
@@ -488,6 +494,11 @@ function App() {
                         ),
                       )
                     }
+                    onEnrichExpand={(title) => {
+                      setEnrichTitle(title);
+                      setAutoEnrich(true);
+                      setNewTaskProject(project);
+                    }}
                   />
                 </div>
               );
@@ -571,9 +582,15 @@ function App() {
         <NewTaskModal
           projectId={newTaskProject.id}
           projectName={newTaskProject.name}
-          onClose={() => setNewTaskProject(null)}
+          onClose={() => {
+            setNewTaskProject(null);
+            setEnrichTitle("");
+            setAutoEnrich(false);
+          }}
           onCreated={handleTaskCreated}
           onError={(msg) => addToast(msg, "error")}
+          initialTitle={enrichTitle}
+          autoEnrich={autoEnrich}
         />
       )}
     </div>

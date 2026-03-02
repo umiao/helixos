@@ -335,3 +335,10 @@
 - **Sanity check result**: pytest 596/596 passed. ruff check clean. npm run build succeeds. No emoji in document.
 - **Status**: [DONE]
 - **Request**: Move T-P3-8 to Completed
+
+## 2026-03-02 16:30 -- [T-P3-9] AI-assisted task enrichment via Claude CLI
+- **What I did**: Implemented full AI-assisted task enrichment feature. Backend: created src/enrichment.py with Claude CLI integration (reuses review_pipeline JSON extraction pattern and code_executor pre-flight check pattern), added EnrichTaskRequest/EnrichTaskResponse schemas, added POST /api/tasks/enrich endpoint (returns 503 if Claude CLI unavailable). Frontend: added enrichTask() API client function, "Enrich with AI" button in NewTaskModal that pre-fills description and priority (editable before submit), InlineTaskCreator Tab key expands to NewTaskModal with auto-enrich triggered, loading states and error handling throughout.
+- **Deliverables**: src/enrichment.py (new), src/schemas.py (updated), src/api.py (updated), frontend/src/types.ts (updated), frontend/src/api.ts (updated), frontend/src/components/NewTaskModal.tsx (updated), frontend/src/components/InlineTaskCreator.tsx (updated), frontend/src/components/KanbanBoard.tsx (updated), frontend/src/components/SwimLane.tsx (updated), frontend/src/App.tsx (updated), tests/test_enrichment.py (new -- 19 tests)
+- **Sanity check result**: pytest 615/615 passed. ruff check clean. npm run build succeeds.
+- **Status**: [DONE]
+- **Request**: Move T-P3-9 to Completed

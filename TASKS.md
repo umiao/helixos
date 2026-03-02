@@ -20,17 +20,6 @@
 
 ### P3 -- Phase 3: UX + Polish
 
-#### T-P3-9: AI-assisted task enrichment via Claude CLI [M]
-- **Description**: Task creation (both InlineTaskCreator and NewTaskModal) accepts only raw user input with no AI assistance. Add endpoint and UI to auto-generate structured description and priority suggestion from a title.
-- **AC**:
-  - `POST /api/tasks/enrich` endpoint: takes title, returns suggested description + priority (JSON via `claude -p`)
-  - Reuses review_pipeline JSON extraction pattern; reuses P0-15 pre-flight checks for CLI availability
-  - Returns 503 if Claude CLI unavailable; frontend disables "Enrich" button accordingly
-  - NewTaskModal: "Enrich with AI" button pre-fills description + priority (editable before submit)
-  - InlineTaskCreator: Tab key expands to NewTaskModal with auto-enrich triggered
-  - Loading state + error toast on failure
-- **Depends on**: None
-
 #### T-P3-10: Done column sorting and sub-status filtering [S]
 - **Description**: DONE column displays tasks in arbitrary DB insertion order. Add client-side sorting and sub-status visibility.
 - **AC**:
@@ -254,3 +243,6 @@ T-P2-6 [M] Frontend Swim Lanes [DONE] ------------------+
 
 #### [x] T-P3-8: Self-hosting guardrails -- design document -- 2026-03-02
 - Design doc at docs/design/self-hosting-guardrails.md covering: worker isolation via git worktree branches, commit serialization with pytest validation gate, log isolation with [SELF-HOST] tags, human-triggered-only restart (no auto-restart), safety boundary classification (safe: code/tests/docs; unsafe: DB schema/config/scheduler/hooks), state diagram for self-modification lifecycle, recursive execution prevention, and 5-phase implementation plan.
+
+#### [x] T-P3-9: AI-assisted task enrichment via Claude CLI -- 2026-03-02
+- POST /api/tasks/enrich endpoint (Claude CLI, JSON schema, 503 if unavailable). NewTaskModal "Enrich with AI" button pre-fills description + priority. InlineTaskCreator Tab key expands to NewTaskModal with auto-enrich. Reuses review_pipeline JSON extraction and code_executor pre-flight patterns. 19 new tests, 615 total passing.
