@@ -149,26 +149,6 @@
 
 ---
 
-#### T-P0-8b: Dashboard Kanban -- drag-drop + API integration
-- **Priority**: P0
-- **Complexity**: M (1-2 sessions)
-- **Depends on**: T-P0-8a, T-P0-10
-- **Acceptance Criteria**:
-  - [ ] Install `@dnd-kit/core` for drag-drop
-  - [ ] Cards draggable between columns; on drop calls `PATCH /api/tasks/{id}/status`
-  - [ ] Invalid transitions: show error toast
-  - [ ] `frontend/src/api.ts` updated: real fetch calls (remove mock data)
-  - [ ] Filter bar functional: project, status, search
-  - [ ] "Sync All" button calls `POST /api/sync-all`, refreshes board
-  - [ ] Error handling: toast on API errors
-  - [ ] Loading states: skeleton cards while fetching
-  - [ ] `npm run build` succeeds
-  - [ ] No emoji
-- **Files**: `frontend/src/components/KanbanBoard.tsx` (mod), `frontend/src/components/TaskCard.tsx` (mod), `frontend/src/api.ts` (mod), `frontend/package.json` (mod)
-- **Scope boundary**:
-  - IN: Drag-drop, real API calls, filtering, sync buttons, error/loading states
-  - OUT: No ExecutionLog (T-P0-8c). No ReviewPanel (T-P0-8c). No SSE.
-
 ---
 
 #### T-P0-8c: Dashboard -- ExecutionLog + ReviewPanel + SSE
@@ -300,3 +280,6 @@ T-P0-13 [M] Integration tests (needs T-P0-10 + T-P0-12)
 
 #### [x] T-P0-10: API endpoints (CRUD + sync + execute + review + lifespan) -- 2026-03-01
 - FastAPI app with lifespan (init DB, config, services, startup_recovery, scheduler start/stop). CORS for localhost:5173. Static mount for frontend/dist/. All 14 PRD Section 10 endpoints: project CRUD, task CRUD+filter, status transitions (state machine validated), review trigger (202 async), review decide, force-execute, retry, cancel, project sync, sync-all, dashboard summary, SSE events. Pydantic request/response schemas (src/schemas.py). Error responses with 404/409 codes. 32 tests passing.
+
+#### [x] T-P0-8b: Dashboard Kanban -- drag-drop + API integration -- 2026-03-01
+- Installed @dnd-kit/core. Real fetch calls replacing mock data. Drag-drop cards between columns with PATCH /api/tasks/{id}/status and optimistic update + rollback. Invalid transitions show error toast. Sync All calls POST /api/sync-all and refreshes. SkeletonCard loading states. Filter bar (project, status, search) functional. Toast notification system. npm run build succeeds.

@@ -103,3 +103,12 @@ export const KANBAN_COLUMNS: KanbanColumn[] = [
   "RUNNING",
   "DONE",
 ];
+
+/** Map Kanban columns to the target task status for drag-drop transitions. */
+export const COLUMN_TO_STATUS: Record<KanbanColumn, TaskStatus> = {
+  BACKLOG: "backlog",
+  REVIEW: "review",
+  QUEUED: "queued",
+  RUNNING: "running",
+  DONE: "done",
+};

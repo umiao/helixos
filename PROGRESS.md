@@ -104,3 +104,10 @@
 - **Sanity check result**: pytest tests/ -- 316/316 passed (32 new API + 284 existing). ruff check -- clean. check_emoji.py -- no emoji found.
 - **Status**: [DONE]
 - **Request**: Cross off T-P0-10
+
+## 2026-03-01 08:00 -- [T-P0-8b] Dashboard Kanban -- drag-drop + API integration
+- **What I did**: Replaced mock API stubs with real fetch calls (fetchProjects, fetchTasks, fetchTask, updateTaskStatus, syncAll) with typed ApiError class and error parsing. Installed @dnd-kit/core + @dnd-kit/utilities. Made TaskCard draggable via useDraggable. Wrapped KanbanBoard columns in useDroppable with DndContext, DragOverlay (follows pointer with rotation effect), and drop-to-column status transitions via COLUMN_TO_STATUS mapping. On drop, calls PATCH /api/tasks/{id}/status with optimistic update and rollback on error. Sync All button calls POST /api/sync-all and refreshes board with result counts toast. Added SkeletonCard loading placeholders. Added Toast component for success/error notifications (auto-dismiss 4s). Filter bar fully functional: project dropdown, status dropdown, search input all filter in real-time.
+- **Deliverables**: frontend/src/api.ts (rewritten -- real fetch), frontend/src/types.ts (mod -- COLUMN_TO_STATUS), frontend/src/components/KanbanBoard.tsx (rewritten -- dnd-kit), frontend/src/components/TaskCard.tsx (mod -- useDraggable), frontend/src/components/Toast.tsx (new), frontend/src/components/SkeletonCard.tsx (new), frontend/src/App.tsx (rewritten -- loading/sync/toast/drag-drop), frontend/package.json (mod -- @dnd-kit deps)
+- **Sanity check result**: npm run build -- success. pytest tests/ -- 316/316 passed. ruff check -- clean. check_emoji.py -- no emoji found.
+- **Status**: [DONE]
+- **Request**: Cross off T-P0-8b

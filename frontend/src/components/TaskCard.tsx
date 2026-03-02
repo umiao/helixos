@@ -1,8 +1,11 @@
 /**
  * TaskCard -- displays a single task inside a Kanban column.
  * Shows: project ID, task ID, title, status badge, dependency indicator.
+ * Supports drag via @dnd-kit/core useDraggable.
  */
 
+import { useDraggable } from "@dnd-kit/core";
+import { CSS } from "@dnd-kit/utilities";
 import type { Task, TaskStatus } from "../types";
 
 interface TaskCardProps {
@@ -34,12 +37,29 @@ const STATUS_LABELS: Record<TaskStatus, string> = {
 };
 
 export default function TaskCard({ task }: TaskCardProps) {
+  const { attributes, listeners, setNodeRef, transform, isDragging } =
+    useDraggable({
+      id: task.id,
+      data: { task },
+    });
+
+  const style = {
+    transform: CSS.Translate.toString(transform),
+    opacity: isDragging ? 0.5 : 1,
+  };
+
   const badgeClass = STATUS_COLORS[task.status];
   const label = STATUS_LABELS[task.status];
   const hasDeps = task.depends_on.length > 0;
 
   return (
-    <div className="rounded-lg border border-gray-200 bg-white p-3 shadow-sm hover:shadow-md transition-shadow">
+    <div
+      ref={setNodeRef}
+      style={style}
+      {...listeners}
+      {...attributes}
+      className="rounded-lg border border-gray-200 bg-white p-3 shadow-sm hover:shadow-md transition-shadow cursor-grab active:cursor-grabbing"
+    >
       {/* Header: project + task ID */}
       <div className="flex items-center justify-between text-xs text-gray-500 mb-1">
         <span className="font-mono">{task.project_id}</span>
