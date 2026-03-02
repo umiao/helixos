@@ -13,7 +13,75 @@
 <!-- All 13 P0 tasks completed. See Completed Tasks below. -->
 
 ### P1 -- Should Have (important features)
-<!-- Phase 2 backlog: AgentExecutor, ScheduledExecutor, multi-LLM review, failure auto-diagnosis -->
+
+#### T-P1-1: Review pipeline refactor -- Replace Anthropic SDK with `claude -p` [M]
+- **Files**: `src/review_pipeline.py`
+- **What**: Replace `_call_reviewer()` and `_synthesize()` to use `asyncio.create_subprocess_exec("claude", "-p", ...)` with `--system-prompt`, `--model`, `--output-format json`, `--json-schema`, `--no-session-persistence`, `--max-budget-usd 0.50`. Remove `anthropic_client` parameter from `__init__`. Parse: extract `result` field from Claude CLI JSON output, then parse inner JSON (verdict/summary/suggestions).
+- **AC**:
+  1. ReviewPipeline works without Anthropic SDK import
+  2. All 20 existing review tests adapted and passing
+  3. `anthropic_client` parameter removed from `__init__`
+- **Complexity**: M
+- **Deps**: None
+
+#### T-P1-2: API lifespan cleanup -- Remove Anthropic SDK init [S]
+- **Files**: `src/api.py`
+- **What**: Remove `import anthropic` + `AsyncAnthropic()` creation (lines 153-163). Create `ReviewPipeline(config=..., threshold=...)` without `anthropic_client`. Add `claude --version` check at startup.
+- **AC**:
+  1. API starts without ANTHROPIC_API_KEY env var
+  2. ReviewPipeline always created if `claude` CLI is in PATH
+  3. Startup logs Claude CLI version
+- **Complexity**: S
+- **Deps**: T-P1-1
+
+#### T-P1-3: Remove ANTHROPIC_API_KEY dependency from env/config [S]
+- **Files**: `src/env_loader.py`, `requirements.txt`, `pyproject.toml`, `orchestrator_config.yaml`
+- **What**: Remove ANTHROPIC_API_KEY warning from env_loader (lines 79-81). Remove or make optional `anthropic` from deps. Remove `api: "anthropic"` from reviewer configs.
+- **AC**:
+  1. No reference to ANTHROPIC_API_KEY in non-test code
+  2. `pip install -r requirements.txt` does not install anthropic
+  3. orchestrator_config.yaml reviewer sections have no `api: "anthropic"`
+- **Complexity**: S
+- **Deps**: T-P1-1
+
+#### T-P1-4: Update review pipeline tests for subprocess mocking [M]
+- **Files**: `tests/test_review_pipeline.py`, `tests/integration/conftest.py`
+- **What**: Replace MockAnthropicClient with subprocess mocking. Patch `asyncio.create_subprocess_exec` to return mock process with JSON stdout matching Claude CLI output format. Keep MockExecutor unchanged.
+- **AC**:
+  1. All 335+ tests pass
+  2. Integration tests for review flow work with subprocess mocks
+  3. No remaining references to MockAnthropicClient
+- **Complexity**: M
+- **Deps**: T-P1-1
+
+#### T-P1-5: Fix orchestrator config for self-management [S]
+- **Files**: `orchestrator_config.yaml`
+- **What**: Fix `repo_path: "~/projects/helixos"` to `repo_path: "~/Desktop/Gen_AI_Proj/helixos"`. Ensure `~/.helixos/` directory creation logic exists.
+- **AC**:
+  1. `POST /api/projects/P0/sync` successfully parses this project's TASKS.md
+  2. repo_path points to actual project location
+- **Complexity**: S
+- **Deps**: None
+
+#### T-P1-6: Create root-level QUICKSTART.md [M]
+- **Files**: `QUICKSTART.md` (new, root level)
+- **What**: Comprehensive guide covering: prerequisites (Python 3.11+, Node.js 18+, Claude Code CLI), installation, configuration (orchestrator_config.yaml, adding projects), running (uvicorn, Vite dev, production, autonomous), API reference table (14 endpoints), debugging and troubleshooting, TASKS.md format requirements.
+- **AC**:
+  1. New user can follow QUICKSTART.md to install, configure, start server, see dashboard, and sync a project
+  2. All 14 API endpoints documented with method, path, and description
+  3. Troubleshooting section covers common errors
+- **Complexity**: M
+- **Deps**: T-P1-5
+
+#### T-P1-7: E2E startup verification [S]
+- **Files**: None (verification only)
+- **What**: Verify full pipeline: server starts, dashboard loads at localhost:8000, `POST /api/sync-all` syncs TASKS.md, task cards appear on Kanban, review trigger spawns `claude -p`.
+- **AC**:
+  1. Documented verification checklist passes
+  2. Screenshot or log evidence captured
+  3. All prior P1 tasks completed and integrated
+- **Complexity**: S
+- **Deps**: T-P1-1, T-P1-2, T-P1-3, T-P1-4, T-P1-5, T-P1-6
 
 ### P2 -- Nice to Have (polish, optimization)
 <!-- Phase 2+: frontend E2E tests, TypeScript codegen from Pydantic, cross-platform -->
@@ -51,6 +119,22 @@ T-P0-1 [S] Scaffold
 
 T-P0-10 [L] API (needs T-P0-6b + T-P0-7 + T-P0-4)
 T-P0-13 [M] Integration tests (needs T-P0-10 + T-P0-12)
+
+--- P1 ---
+
+T-P1-1 [M] Review pipeline refactor (no deps)
+  |
+  +---> T-P1-2 [S] API lifespan cleanup
+  |
+  +---> T-P1-3 [S] Remove API key deps
+  |
+  +---> T-P1-4 [M] Update tests
+
+T-P1-5 [S] Fix config (no deps)
+  |
+  +---> T-P1-6 [M] QUICKSTART.md
+
+T-P1-7 [S] E2E verification (needs T-P1-1 through T-P1-6)
 ```
 
 ---
