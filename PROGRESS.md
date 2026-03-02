@@ -118,3 +118,10 @@
 - **Sanity check result**: npm run build -- success. pytest tests/ -- 316/316 passed. ruff check -- clean. check_emoji.py -- no emoji found.
 - **Status**: [DONE]
 - **Request**: Cross off T-P0-8c
+
+## 2026-03-01 10:00 -- [T-P0-13] Integration testing (end-to-end)
+- **What I did**: Created full integration test suite with 19 tests across 5 test modules covering all major backend lifecycle flows. Built shared fixtures in conftest.py: MockExecutor (configurable success/fail results with delay), MockAnthropicClient (configurable JSON responses), temp git repo, config factory, in-memory SQLite. test_sync_to_execute (4 tests): TASKS.md sync creates QUEUED tasks, scheduler tick dispatches and completes, git auto-commit runs after success, SSE events emitted. test_review_flow (4 tests): single reviewer auto-approve, reviewer reject triggers REVIEW_NEEDS_HUMAN, human reject returns to BACKLOG, multi-reviewer synthesis with consensus scoring. test_failure_retry (3 tests): fail-then-succeed on retry, max retries exhausted becomes BLOCKED with [30,60,120]s backoff, retry log events emitted. test_concurrency (3 tests): per-project limit enforced, global effective limit with 2 projects (interleaved task creation), dependency blocking prevents dispatch. test_startup_recovery (5 tests): orphaned RUNNING marked FAILED, alerts emitted per task, no-op when clean, error_summary set on recovered tasks, recovered tasks can be re-queued.
+- **Deliverables**: tests/integration/__init__.py (new), tests/integration/conftest.py (new), tests/integration/test_sync_to_execute.py (new), tests/integration/test_review_flow.py (new), tests/integration/test_failure_retry.py (new), tests/integration/test_concurrency.py (new), tests/integration/test_startup_recovery.py (new)
+- **Sanity check result**: pytest tests/ -- 335/335 passed (19 integration + 316 existing). ruff check -- clean. check_emoji.py -- no emoji found.
+- **Status**: [DONE]
+- **Request**: Cross off T-P0-13

@@ -147,29 +147,6 @@
   - IN: Git stage, safety check, commit, scheduler integration
   - OUT: No push. No branch management. No .gitignore editing.
 
----
-
----
-
-#### T-P0-13: Integration testing (end-to-end)
-- **Priority**: P0
-- **Complexity**: M (1-2 sessions)
-- **Depends on**: T-P0-10, T-P0-12
-- **Acceptance Criteria**:
-  - [ ] `tests/integration/conftest.py`: fixtures -- temp project repo, temp config, temp .env, in-memory SQLite, full app instance
-  - [ ] `tests/integration/test_sync_to_execute.py`: sync -> QUEUED -> RUNNING -> DONE -> git commit (mock claude CLI)
-  - [ ] `tests/integration/test_review_flow.py`: BACKLOG -> review -> REVIEW_NEEDS_HUMAN -> decide -> QUEUED (mock Anthropic API)
-  - [ ] `tests/integration/test_failure_retry.py`: fail -> retry with backoff -> BLOCKED after max retries (mock sleep)
-  - [ ] `tests/integration/test_concurrency.py`: 5 tasks across 2 projects, verify per-project + global limits
-  - [ ] `tests/integration/test_startup_recovery.py`: insert RUNNING tasks -> startup_recovery -> FAILED
-  - [ ] All tests marked `@pytest.mark.integration`
-  - [ ] `pytest tests/integration/ -v` passes
-  - [ ] ruff clean, no emoji
-- **Files**: `tests/integration/__init__.py` (new), `tests/integration/conftest.py` (new), `tests/integration/test_*.py` (5 new)
-- **Scope boundary**:
-  - IN: Full backend lifecycle with mocked externals (claude CLI, Anthropic API)
-  - OUT: No frontend testing (Cypress/Playwright is Phase 2). No real API calls.
-
 ### P1 -- Should Have (important features)
 
 <!-- Phase 2 backlog: AgentExecutor, ScheduledExecutor, multi-LLM review, failure auto-diagnosis -->
@@ -265,3 +242,6 @@ T-P0-13 [M] Integration tests (needs T-P0-10 + T-P0-12)
 
 #### [x] T-P0-8c: Dashboard -- ExecutionLog + ReviewPanel + SSE -- 2026-03-01
 - useSSE hook (EventSource, auto-reconnect with exponential backoff 1s/2s/4s/max 30s, connected boolean). ExecutionLog (scrollable dark log, task filter, auto-scroll with scroll-lock, timestamps, max 500 lines). ReviewPanel (progress bar, consensus score, decision points, approve/reject buttons). SSE status_change auto-updates card positions, alert events as toasts, log events populate ExecutionLog. Connection indicator in header. Elapsed timer on running cards. Bottom panel with log/review tabs. npm run build succeeds.
+
+#### [x] T-P0-13: Integration testing (end-to-end) -- 2026-03-01
+- 19 integration tests across 5 modules. conftest with MockExecutor, MockAnthropicClient, temp git repo, config factory. test_sync_to_execute (sync->QUEUED->RUNNING->DONE->git commit). test_review_flow (approve/reject/human decide/multi-reviewer synthesis). test_failure_retry (retry backoff 30/60/120s, max retries->BLOCKED). test_concurrency (per-project + global limits, dependency blocking). test_startup_recovery (orphaned RUNNING->FAILED, alerts, error_summary). 335 total tests passing.
