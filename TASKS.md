@@ -14,16 +14,6 @@
 
 ### P1 -- Should Have (important features)
 
-#### T-P1-3: Remove ANTHROPIC_API_KEY dependency from env/config [S]
-- **Files**: `src/env_loader.py`, `requirements.txt`, `pyproject.toml`, `orchestrator_config.yaml`
-- **What**: Remove ANTHROPIC_API_KEY warning from env_loader (lines 79-81). Remove or make optional `anthropic` from deps. Remove `api: "anthropic"` from reviewer configs.
-- **AC**:
-  1. No reference to ANTHROPIC_API_KEY in non-test code
-  2. `pip install -r requirements.txt` does not install anthropic
-  3. orchestrator_config.yaml reviewer sections have no `api: "anthropic"`
-- **Complexity**: S
-- **Deps**: None (P1-1 done)
-
 #### T-P1-4: Update review pipeline tests for subprocess mocking [M]
 - **Files**: `tests/test_review_pipeline.py`, `tests/integration/conftest.py`
 - **What**: Replace MockAnthropicClient with subprocess mocking. Patch `asyncio.create_subprocess_exec` to return mock process with JSON stdout matching Claude CLI output format. Keep MockExecutor unchanged.
@@ -178,3 +168,6 @@ T-P1-7 [S] E2E verification (needs T-P1-2 through T-P1-6)
 
 #### [x] T-P1-2: API lifespan cleanup -- Remove Anthropic SDK init -- 2026-03-02
 - Added `claude --version` check at startup. If Claude CLI is in PATH, logs version and creates ReviewPipeline. If not found, logs warning and sets review_pipeline to None. Removed ANTHROPIC_API_KEY from test fixtures. 335 tests passing.
+
+#### [x] T-P1-3: Remove ANTHROPIC_API_KEY dependency from env/config -- 2026-03-02
+- Removed ANTHROPIC_API_KEY warning from env_loader. Removed anthropic SDK from dependencies. Changed reviewer api default from "anthropic" to "claude_cli". Updated all test fixtures. 333 tests passing.

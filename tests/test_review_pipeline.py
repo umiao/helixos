@@ -72,13 +72,13 @@ def _default_config() -> ReviewPipelineConfig:
             ReviewerConfig(
                 model="claude-sonnet-4-5",
                 focus="feasibility_and_edge_cases",
-                api="anthropic",
+                api="claude_cli",
                 required=True,
             ),
             ReviewerConfig(
                 model="claude-sonnet-4-5",
                 focus="adversarial_red_team",
-                api="anthropic",
+                api="claude_cli",
                 required=False,
             ),
         ],
@@ -458,7 +458,7 @@ async def test_no_active_reviewers_auto_approve() -> None:
             ReviewerConfig(
                 model="claude-sonnet-4-5",
                 focus="adversarial",
-                api="anthropic",
+                api="claude_cli",
                 required=False,
             ),
         ],

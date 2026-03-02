@@ -9,7 +9,6 @@ dependencies = [
     "sqlalchemy[asyncio]>=2.0.0",
     "aiosqlite>=0.19.0",
     "pydantic>=2.0",
-    "anthropic>=0.40.0",
     "python-dotenv>=1.0.0",
     "pyyaml>=6.0.0",
 ]

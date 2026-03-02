@@ -88,7 +88,7 @@ class ReviewerConfig(BaseModel):
 
     model: str
     focus: str
-    api: str = "anthropic"
+    api: str = "claude_cli"
     required: bool = True
 
 

@@ -28,19 +28,11 @@ def env_file(tmp_path: Path) -> Path:
     """Create a temporary .env file with sample keys."""
     p = tmp_path / ".env"
     p.write_text(
-        "ANTHROPIC_API_KEY=sk-test-123\n"
+        "API_KEY=sk-test-123\n"
         "DATABASE_URL=sqlite:///test.db\n"
         "SECRET_TOKEN=abc-xyz\n",
         encoding="utf-8",
     )
-    return p
-
-
-@pytest.fixture()
-def env_file_no_anthropic(tmp_path: Path) -> Path:
-    """Create a .env without ANTHROPIC_API_KEY to trigger the warning."""
-    p = tmp_path / ".env"
-    p.write_text("OTHER_VAR=hello\n", encoding="utf-8")
     return p
 
 
@@ -56,7 +48,7 @@ class TestLoading:
         loader = EnvLoader(env_file)
         all_vars = loader.get_all()
         assert all_vars == {
-            "ANTHROPIC_API_KEY": "sk-test-123",
+            "API_KEY": "sk-test-123",
             "DATABASE_URL": "sqlite:///test.db",
             "SECRET_TOKEN": "abc-xyz",
         }
@@ -110,7 +102,7 @@ class TestGetProjectEnv:
 
     def test_all_keys_requested(self, env_file: Path) -> None:
         loader = EnvLoader(env_file)
-        project = FakeProject(env_keys=["ANTHROPIC_API_KEY", "DATABASE_URL", "SECRET_TOKEN"])
+        project = FakeProject(env_keys=["API_KEY", "DATABASE_URL", "SECRET_TOKEN"])
         result = loader.get_project_env(project)
         assert len(result) == 3
 
@@ -125,12 +117,12 @@ class TestValidateProjectKeys:
 
     def test_all_present(self, env_file: Path) -> None:
         loader = EnvLoader(env_file)
-        project = FakeProject(env_keys=["ANTHROPIC_API_KEY", "DATABASE_URL"])
+        project = FakeProject(env_keys=["API_KEY", "DATABASE_URL"])
         assert loader.validate_project_keys(project) == []
 
     def test_some_missing(self, env_file: Path) -> None:
         loader = EnvLoader(env_file)
-        project = FakeProject(env_keys=["ANTHROPIC_API_KEY", "MISSING_1", "MISSING_2"])
+        project = FakeProject(env_keys=["API_KEY", "MISSING_1", "MISSING_2"])
         missing = loader.validate_project_keys(project)
         assert missing == ["MISSING_1", "MISSING_2"]
 
@@ -145,28 +137,6 @@ class TestValidateProjectKeys:
         loader = EnvLoader(env_file)
         project = FakeProject(env_keys=[])
         assert loader.validate_project_keys(project) == []
-
-
-# ------------------------------------------------------------------
-# Tests: ANTHROPIC_API_KEY warning
-# ------------------------------------------------------------------
-
-
-class TestAnthropicKeyWarning:
-    """Tests for the ANTHROPIC_API_KEY missing warning."""
-
-    def test_no_warning_when_present(self, env_file: Path, caplog: pytest.LogCaptureFixture) -> None:
-        with caplog.at_level(logging.WARNING):
-            EnvLoader(env_file)
-        assert "ANTHROPIC_API_KEY" not in caplog.text
-
-    def test_warning_when_missing(
-        self, env_file_no_anthropic: Path, caplog: pytest.LogCaptureFixture
-    ) -> None:
-        with caplog.at_level(logging.WARNING):
-            EnvLoader(env_file_no_anthropic)
-        assert "ANTHROPIC_API_KEY" in caplog.text
-        assert "review pipeline" in caplog.text
 
 
 # ------------------------------------------------------------------

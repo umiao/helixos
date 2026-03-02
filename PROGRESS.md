@@ -146,3 +146,10 @@
 - **Sanity check result**: pytest 335/335 passed. ruff clean. No emoji.
 - **Status**: [DONE]
 - **Request**: Move T-P1-2 to Completed (REMOVE spec block from Active, ADD summary line to Completed Tasks)
+
+## 2026-03-02 14:00 -- [T-P1-3] Remove ANTHROPIC_API_KEY dependency from env/config
+- **What I did**: Removed ANTHROPIC_API_KEY warning from env_loader.py _load(). Removed `anthropic>=0.40.0` from requirements.txt and pyproject.toml dependencies. Changed `api: "anthropic"` to `api: "claude_cli"` in orchestrator_config.yaml and ReviewerConfig default. Updated all test fixtures/assertions: removed TestAnthropicKeyWarning class and env_file_no_anthropic fixture from test_env_loader.py, replaced ANTHROPIC_API_KEY with API_KEY in test .env fixtures, updated test_config.py and test_review_pipeline.py api references.
+- **Deliverables**: src/env_loader.py (mod), src/config.py (mod), requirements.txt (mod), pyproject.toml (mod), orchestrator_config.yaml (mod), tests/test_env_loader.py (mod), tests/test_config.py (mod), tests/test_review_pipeline.py (mod), tests/integration/conftest.py (mod)
+- **Sanity check result**: pytest 333/333 passed (2 removed warning tests). ruff clean. No emoji. No ANTHROPIC_API_KEY in src/.
+- **Status**: [DONE]
+- **Request**: Move T-P1-3 to Completed (REMOVE spec block from Active, ADD summary line to Completed Tasks)

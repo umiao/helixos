@@ -83,11 +83,11 @@ review_pipeline:
   reviewers:
     - model: "claude-sonnet-4-5"
       focus: "feasibility_and_edge_cases"
-      api: "anthropic"
+      api: "claude_cli"
       required: true
     - model: "claude-sonnet-4-5"
       focus: "adversarial_red_team"
-      api: "anthropic"
+      api: "claude_cli"
       required: false
 
 dependencies:
@@ -216,7 +216,7 @@ class TestReviewerConfig:
         rc = ReviewerConfig(model="claude-sonnet-4-5", focus="feasibility")
         assert rc.model == "claude-sonnet-4-5"
         assert rc.focus == "feasibility"
-        assert rc.api == "anthropic"
+        assert rc.api == "claude_cli"
         assert rc.required is True
 
     def test_optional_reviewer(self) -> None:

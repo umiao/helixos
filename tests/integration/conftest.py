@@ -210,7 +210,7 @@ def make_config(
     ) -> OrchestratorConfig:
         env_path = tmp_path / ".env"
         env_path.write_text(
-            "ANTHROPIC_API_KEY=test-key\n", encoding="utf-8",
+            "API_KEY=test-key\n", encoding="utf-8",
         )
         db_path = tmp_path / "state.db"
 
@@ -252,6 +252,6 @@ def env_loader(tmp_path: Path) -> EnvLoader:
     """Create an EnvLoader with a temp .env file."""
     env_path = tmp_path / ".env"
     env_path.write_text(
-        "ANTHROPIC_API_KEY=test-key\n", encoding="utf-8",
+        "API_KEY=test-key\n", encoding="utf-8",
     )
     return EnvLoader(env_path)

@@ -36,11 +36,11 @@ review_pipeline:
   reviewers:
     - model: "claude-sonnet-4-5"
       focus: "feasibility_and_edge_cases"
-      api: "anthropic"
+      api: "claude_cli"
       required: true
     - model: "claude-sonnet-4-5"
       focus: "adversarial_red_team"
-      api: "anthropic"
+      api: "claude_cli"
       required: false
 
 dependencies: []

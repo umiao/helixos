@@ -75,9 +75,3 @@ class EnvLoader:
         # dotenv_values can return None values for keys without '=';
         # we only keep string values.
         self._vars = {k: v for k, v in raw.items() if v is not None}
-
-        if "ANTHROPIC_API_KEY" not in self._vars:
-            logger.warning(
-                "ANTHROPIC_API_KEY not found in %s -- review pipeline will not work",
-                self._env_path,
-            )
