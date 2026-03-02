@@ -20,10 +20,6 @@
 
 ### P3 -- Phase 3: UX + Polish
 
-#### T-P3-7: README overhaul [S]
-- **AC**: Project-specific README with architecture diagram, features, modules
-- **Depends on**: T-P3-6a, T-P3-6b
-
 #### T-P3-8: Self-hosting guardrails -- design document [S]
 - **AC**: Design doc covering worker isolation, commit serialization, log isolation
 - **Depends on**: T-P3-6a
@@ -218,3 +214,6 @@ T-P2-6 [M] Frontend Swim Lanes [DONE] ------------------+
 
 #### [x] T-P3-6b: Persistent execution log + review history -- frontend -- 2026-03-02
 - Task-focused bottom panel: ExecutionLog fetches persistent DB logs + merges live SSE entries with level badges and source tags. ReviewPanel shows conversation-style review history with verdict badges, suggestions, consensus bars. Task focus indicator in tab bar with clear button. 4 new TS interfaces, 2 new API client functions. npm run build succeeds, 542 tests passing.
+
+#### [x] T-P3-7: README overhaul -- 2026-03-02
+- Project-specific README with architecture diagram, features, backend/frontend module tables, API reference, task state machine, tech stack, quick start, configuration reference, and project structure tree.

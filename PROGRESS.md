@@ -307,3 +307,10 @@
 - **Sanity check result**: pytest 542/542 passed. ruff check clean. npm run build succeeds. No emoji.
 - **Status**: [DONE]
 - **Request**: Move T-P3-6b to Completed
+
+## 2026-03-02 12:00 -- [T-P3-7] README overhaul
+- **What I did**: Replaced the generic "Claude Code Project Template" README with a project-specific HelixOS README. New content includes: project description, feature list (6 key features), ASCII architecture diagram showing component relationships and data flow, task state machine diagram, tech stack table, quick start with cross-platform instructions, configuration reference, backend modules table (20 modules), frontend components table (16 components), API reference table (14 key endpoints), TASKS.md format documentation, testing commands, project structure tree, and development workflow section covering hooks and autonomous mode.
+- **Deliverables**: README.md (rewrite -- from generic template to project-specific documentation)
+- **Sanity check result**: pytest 542/542 passed. ruff check clean. npm run build succeeds. No emoji.
+- **Status**: [DONE]
+- **Request**: Move T-P3-7 to Completed
