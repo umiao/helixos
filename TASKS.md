@@ -34,7 +34,7 @@
 
 #### T-P3-5: Workflow clarity -- inline task creation, context menu, tooltips [M]
 - **AC**: Inline "Add task..." in Backlog, right-click context menu, button tooltips
-- **Depends on**: T-P3-1
+- **Depends on**: None (was: T-P3-1, now completed)
 
 #### T-P3-6a: Persistent execution log + review history -- backend [M]
 - **AC**: 2 new DB tables, DB-first writes, 2KB cap, 2 API endpoints
@@ -46,7 +46,7 @@
 
 #### T-P3-7: README overhaul [S]
 - **AC**: Project-specific README with architecture diagram, features, modules
-- **Depends on**: T-P3-1 through T-P3-6b
+- **Depends on**: T-P3-2 through T-P3-6b
 
 #### T-P3-8: Self-hosting guardrails -- design document [S]
 - **AC**: Design doc covering worker isolation, commit serialization, log isolation
