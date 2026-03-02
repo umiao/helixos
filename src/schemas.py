@@ -160,6 +160,25 @@ class SyncAllResponse(BaseModel):
 # ------------------------------------------------------------------
 
 
+class BrowseEntry(BaseModel):
+    """A single entry in a directory listing."""
+
+    name: str
+    path: str
+    is_dir: bool
+    has_git: bool = False
+    has_tasks_md: bool = False
+    has_claude_md: bool = False
+
+
+class BrowseResponse(BaseModel):
+    """Response from browsing a directory."""
+
+    path: str
+    parent: str | None = None
+    entries: list[BrowseEntry] = Field(default_factory=list)
+
+
 class ValidateProjectRequest(BaseModel):
     """Request to validate a directory for import."""
 

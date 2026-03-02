@@ -8,6 +8,7 @@
 import { useCallback, useState } from "react";
 import { ApiError, importProject, validateProject } from "../api";
 import type { ImportResult, ValidationResult } from "../types";
+import DirectoryPicker from "./DirectoryPicker";
 
 interface ImportProjectModalProps {
   onClose: () => void;
@@ -28,6 +29,9 @@ export default function ImportProjectModal({
   const [error, setError] = useState<string | null>(null);
   const [validation, setValidation] = useState<ValidationResult | null>(null);
   const [importResult, setImportResult] = useState<ImportResult | null>(null);
+
+  // Browse mode toggle
+  const [browsing, setBrowsing] = useState(false);
 
   // Override fields for import
   const [nameOverride, setNameOverride] = useState("");
@@ -107,58 +111,93 @@ export default function ImportProjectModal({
         </div>
 
         <div className="p-5">
-          {/* Step 1: Path input */}
+          {/* Step 1: Path input (text or browse) */}
           {step === "input" && (
-            <form onSubmit={handleValidate} className="space-y-4">
-              <div>
-                <label className="block text-xs font-medium text-gray-700 mb-1">
-                  Project directory path
-                </label>
-                <input
-                  type="text"
-                  value={path}
-                  onChange={(e) => setPath(e.target.value)}
-                  placeholder="C:\Users\...\my-project  or  ~/projects/my-project"
-                  className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm text-gray-700 font-mono focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
-                  autoFocus
-                  disabled={loading}
-                />
-              </div>
-
-              {/* Show validation errors if directory was invalid */}
-              {validation && !validation.valid && (
-                <div className="text-xs text-red-600 bg-red-50 px-3 py-2 rounded space-y-1">
-                  <p className="font-medium">Cannot import this directory:</p>
-                  {validation.limited_mode_reasons.map((r, i) => (
-                    <p key={i}>- {r}</p>
-                  ))}
+            <>
+              {browsing ? (
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between">
+                    <label className="block text-xs font-medium text-gray-700">
+                      Browse for project directory
+                    </label>
+                    <button
+                      type="button"
+                      onClick={() => setBrowsing(false)}
+                      className="text-xs text-indigo-600 hover:text-indigo-800"
+                    >
+                      Type path instead
+                    </button>
+                  </div>
+                  <DirectoryPicker
+                    onSelect={(selectedPath) => {
+                      setPath(selectedPath);
+                      setBrowsing(false);
+                    }}
+                    onCancel={() => setBrowsing(false)}
+                  />
                 </div>
-              )}
+              ) : (
+                <form onSubmit={handleValidate} className="space-y-4">
+                  <div>
+                    <div className="flex items-center justify-between mb-1">
+                      <label className="block text-xs font-medium text-gray-700">
+                        Project directory path
+                      </label>
+                      <button
+                        type="button"
+                        onClick={() => setBrowsing(true)}
+                        className="text-xs text-indigo-600 hover:text-indigo-800"
+                      >
+                        Browse...
+                      </button>
+                    </div>
+                    <input
+                      type="text"
+                      value={path}
+                      onChange={(e) => setPath(e.target.value)}
+                      placeholder="C:\Users\...\my-project  or  ~/projects/my-project"
+                      className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm text-gray-700 font-mono focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                      autoFocus
+                      disabled={loading}
+                    />
+                  </div>
 
-              {error && !validation && (
-                <p className="text-xs text-red-600 bg-red-50 px-3 py-2 rounded">
-                  {error}
-                </p>
-              )}
+                  {/* Show validation errors if directory was invalid */}
+                  {validation && !validation.valid && (
+                    <div className="text-xs text-red-600 bg-red-50 px-3 py-2 rounded space-y-1">
+                      <p className="font-medium">Cannot import this directory:</p>
+                      {validation.limited_mode_reasons.map((r, i) => (
+                        <p key={i}>- {r}</p>
+                      ))}
+                    </div>
+                  )}
 
-              <div className="flex items-center justify-end gap-2 pt-1">
-                <button
-                  type="button"
-                  onClick={onClose}
-                  className="rounded-md px-3 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-100 transition-colors"
-                  disabled={loading}
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  disabled={loading || !path.trim()}
-                  className="rounded-md bg-indigo-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-                >
-                  {loading ? "Validating..." : "Validate"}
-                </button>
-              </div>
-            </form>
+                  {error && !validation && (
+                    <p className="text-xs text-red-600 bg-red-50 px-3 py-2 rounded">
+                      {error}
+                    </p>
+                  )}
+
+                  <div className="flex items-center justify-end gap-2 pt-1">
+                    <button
+                      type="button"
+                      onClick={onClose}
+                      className="rounded-md px-3 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-100 transition-colors"
+                      disabled={loading}
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      type="submit"
+                      disabled={loading || !path.trim()}
+                      className="rounded-md bg-indigo-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                    >
+                      {loading ? "Validating..." : "Validate"}
+                    </button>
+                  </div>
+                </form>
+              )}
+            </>
           )}
 
           {/* Step 2: Review validation + configure import */}

@@ -20,10 +20,6 @@
 
 ### P3 -- Phase 3: UX + Polish
 
-#### T-P3-2: Backend directory browser + frontend picker [M]
-- **AC**: GET /api/filesystem/browse with $HOME sandbox, frontend dir picker in ImportProjectModal
-- **Depends on**: None
-
 #### T-P3-3: Import Project in ProjectSelector dropdown [S]
 - **AC**: "Import Project" button in dropdown, opens ImportProjectModal
 - **Depends on**: T-P3-2
@@ -224,3 +220,6 @@ T-P2-6 [M] Frontend Swim Lanes [DONE] ------------------+
 
 #### [x] T-P3-1: Fix "No CLAUDE.md" false-positive badge -- 2026-03-03
 - Added claude_md_path to ProjectResponse/ProjectDetailResponse schemas. ProjectRegistry auto-detects CLAUDE.md at repo_path when not explicitly configured. Import endpoint auto-sets claude_md_path in YAML config. SwimLaneHeader badge now shows descriptive tooltip. 6 new tests, 500 total passing.
+
+#### [x] T-P3-2: Backend directory browser + frontend picker -- 2026-03-03
+- GET /api/filesystem/browse with $HOME sandbox, hidden dir filtering, project indicator flags. DirectoryPicker component with breadcrumb navigation. Integrated into ImportProjectModal as toggleable browse mode. 11 new tests, 511 total passing.

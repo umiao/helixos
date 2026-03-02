@@ -265,3 +265,10 @@
 - **Sanity check result**: pytest 500/500 passed (6 new + 494 existing). ruff check clean. npm run build succeeds.
 - **Status**: [DONE]
 - **Request**: Move T-P3-1 to Completed
+
+## 2026-03-03 06:00 -- [T-P3-2] Backend directory browser + frontend picker
+- **What I did**: Implemented GET /api/filesystem/browse endpoint with $HOME sandbox. The endpoint lists subdirectories within a given path (defaulting to $HOME), filters hidden directories, and includes project indicator flags (has_git, has_tasks_md, has_claude_md). Created a DirectoryPicker React component that navigates directories with breadcrumb, parent navigation, project indicator badges, and per-entry select buttons. Integrated the picker into ImportProjectModal as a toggleable "Browse..." option alongside the existing text input.
+- **Deliverables**: src/api.py (mod -- browse_directory endpoint), src/schemas.py (mod -- BrowseEntry, BrowseResponse), frontend/src/api.ts (mod -- browseDirectory), frontend/src/types.ts (mod -- BrowseEntry, BrowseResult), frontend/src/components/DirectoryPicker.tsx (new), frontend/src/components/ImportProjectModal.tsx (mod -- browse toggle), tests/test_browse.py (new -- 11 tests)
+- **Sanity check result**: pytest 511/511 passed (11 new + 500 existing). ruff check clean. npm run build succeeds.
+- **Status**: [DONE]
+- **Request**: Move T-P3-2 to Completed

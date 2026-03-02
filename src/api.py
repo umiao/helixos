@@ -30,6 +30,8 @@ from src.project_validator import validate_project_directory
 from src.review_pipeline import ReviewPipeline
 from src.scheduler import Scheduler
 from src.schemas import (
+    BrowseEntry,
+    BrowseResponse,
     CreateTaskRequest,
     CreateTaskResponse,
     DashboardSummary,
@@ -306,6 +308,76 @@ async def get_project(project_id: str, request: Request) -> ProjectDetailRespons
         max_concurrency=project.max_concurrency,
         claude_md_path=str(project.claude_md_path) if project.claude_md_path else None,
         tasks=[_task_to_response(t) for t in tasks],
+    )
+
+
+# ------------------------------------------------------------------
+# Filesystem browse endpoint
+# ------------------------------------------------------------------
+
+
+@api_router.get(
+    "/api/filesystem/browse",
+    responses={400: {"model": ErrorResponse}},
+)
+async def browse_directory(
+    path: str | None = None,
+) -> BrowseResponse:
+    """Browse a directory, sandboxed to the user's home directory.
+
+    Returns subdirectories with project indicator flags (has .git, TASKS.md,
+    CLAUDE.md).  Hidden directories (starting with '.') are excluded.
+    The path must be within the user's home directory.
+    """
+    home = Path.home().resolve()
+    target = Path(path).expanduser().resolve() if path else home
+
+    # Sandbox: target must be home or a descendant of home
+    try:
+        target.relative_to(home)
+    except ValueError:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Path is outside the home directory: {target}",
+        ) from None
+
+    if not target.is_dir():
+        raise HTTPException(
+            status_code=400,
+            detail=f"Not a directory: {target}",
+        )
+
+    # Compute parent (None if already at home)
+    parent: str | None = None
+    if target != home:
+        parent = str(target.parent)
+
+    entries: list[BrowseEntry] = []
+    try:
+        for item in sorted(target.iterdir(), key=lambda p: p.name.lower()):
+            if not item.is_dir():
+                continue
+            # Skip hidden directories
+            if item.name.startswith("."):
+                continue
+            entries.append(BrowseEntry(
+                name=item.name,
+                path=str(item),
+                is_dir=True,
+                has_git=(item / ".git").is_dir(),
+                has_tasks_md=(item / "TASKS.md").is_file(),
+                has_claude_md=(item / "CLAUDE.md").is_file(),
+            ))
+    except PermissionError:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Permission denied: {target}",
+        ) from None
+
+    return BrowseResponse(
+        path=str(target),
+        parent=parent,
+        entries=entries,
     )
 
 

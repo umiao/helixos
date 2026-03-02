@@ -153,3 +153,20 @@ export interface CreateTaskResult {
   sync_result: SyncResult | null;
   error: string | null;
 }
+
+/** A single entry returned by the directory browser. */
+export interface BrowseEntry {
+  name: string;
+  path: string;
+  is_dir: boolean;
+  has_git: boolean;
+  has_tasks_md: boolean;
+  has_claude_md: boolean;
+}
+
+/** Response from the directory browser endpoint. */
+export interface BrowseResult {
+  path: string;
+  parent: string | null;
+  entries: BrowseEntry[];
+}

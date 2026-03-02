@@ -4,6 +4,7 @@
  */
 
 import type {
+  BrowseResult,
   CreateTaskResult,
   ImportResult,
   ProcessStatus,
@@ -118,6 +119,18 @@ export async function syncProject(projectId: string): Promise<SyncResult> {
     { method: "POST" },
   );
   return handleResponse<SyncResult>(res);
+}
+
+/** Browse a directory on the server (sandboxed to $HOME). */
+export async function browseDirectory(
+  path?: string,
+): Promise<BrowseResult> {
+  const params = new URLSearchParams();
+  if (path) params.set("path", path);
+  const qs = params.toString();
+  const url = qs ? `/api/filesystem/browse?${qs}` : "/api/filesystem/browse";
+  const res = await fetch(url);
+  return handleResponse<BrowseResult>(res);
 }
 
 /** Validate a directory for project import. */
