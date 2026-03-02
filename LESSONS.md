@@ -38,3 +38,10 @@
   - "Validation failed" = schema mismatch (deterministic). Not "LLM non-determinism".
   - Rule: (1) read exact error, (2) read docs for expected schema, (3) compare actual vs expected, (4) fix minimal delta. Never rewrite
   architecture on first failure.
+
+  7. Windows asyncio subprocess requires ProactorEventLoop
+  - `asyncio.create_subprocess_exec` raises `NotImplementedError` on Windows because the default `SelectorEventLoop` does not support subprocesses.
+  - Root cause: Python on Windows defaults to SelectorEventLoop. ProactorEventLoop is required for subprocess support.
+  - Fix: `if sys.platform == "win32": asyncio.set_event_loop_policy(asyncio.WindowsProactorEventLoopPolicy())` at module level, before any async code runs.
+  - Also broaden `except FileNotFoundError` to catch `NotImplementedError` and `OSError` as defensive fallback.
+  - Lesson: Always test the full startup path on the target platform. Unit tests with mocked subprocesses do not catch event loop policy issues.

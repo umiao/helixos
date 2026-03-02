@@ -188,3 +188,10 @@
 - **Sanity check result**: Grep confirms no `&&` remains in user-runnable code blocks. All `rm -rf` occurrences in docs now have PowerShell alternatives. Remaining matches are in CLAUDE.md rule text (mentioning what to avoid) and claude-code-workflow-guide.md (explanatory text, not user commands -- explicitly out of scope).
 - **Status**: [DONE]
 - **Request**: No task status change (ad-hoc fix, not a tracked task)
+
+## 2026-03-02 20:00 -- [Ad-hoc] Fix Windows asyncio subprocess crash on startup
+- **What I did**: Fixed `NotImplementedError` from `asyncio.create_subprocess_exec` on Windows. Added `import sys` and `asyncio.set_event_loop_policy(asyncio.WindowsProactorEventLoopPolicy())` at module level in src/api.py, guarded by `sys.platform == "win32"`. Broadened the Claude CLI check `except FileNotFoundError` to also catch `NotImplementedError` and `OSError` as defensive fallback. Added "Windows asyncio subprocess" rule to CLAUDE.md Code Style section to prevent recurrence. Added LESSONS.md entry (#7) documenting the pattern and root cause. Created regression test (tests/test_windows_asyncio.py) with 2 tests: one verifying the policy is set on import, one verifying the except clause catches the right exceptions.
+- **Deliverables**: src/api.py (mod -- import sys, ProactorEventLoop policy, broadened except), CLAUDE.md (mod -- new rule), LESSONS.md (mod -- lesson #7), tests/test_windows_asyncio.py (new -- 2 tests)
+- **Sanity check result**: pytest 335/335 passed (2 new + 333 existing). ruff check src/api.py -- clean. No emoji.
+- **Status**: [DONE]
+- **Request**: No task status change (ad-hoc bug fix, not a tracked task)

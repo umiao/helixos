@@ -42,6 +42,9 @@
   bash and Windows PowerShell 5.x. Use separate lines instead of `&&` chaining.
   For bash-only commands (`source`, `rm -rf`, `~` paths), provide a labeled
   PowerShell alternative.
+- **Windows asyncio subprocess**: Any use of `asyncio.create_subprocess_exec` or
+  `create_subprocess_shell` requires `WindowsProactorEventLoopPolicy` at app startup.
+  Guard with `sys.platform == "win32"`.
 
 ## Prohibited Actions
 - Never hardcode API keys, cookies, or personal info

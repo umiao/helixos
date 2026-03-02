@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import sys
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -41,6 +42,10 @@ from src.sync.tasks_parser import sync_project_tasks
 from src.task_manager import TaskManager
 
 logger = logging.getLogger(__name__)
+
+# Windows: ProactorEventLoop required for asyncio.create_subprocess_exec
+if sys.platform == "win32":
+    asyncio.set_event_loop_policy(asyncio.WindowsProactorEventLoopPolicy())
 
 CONFIG_PATH = Path("orchestrator_config.yaml")
 
@@ -173,7 +178,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
                 "Claude CLI exited with code %d -- review pipeline disabled",
                 proc.returncode,
             )
-    except FileNotFoundError:
+    except (FileNotFoundError, NotImplementedError, OSError):
         logger.warning(
             "Claude CLI not found in PATH -- review pipeline disabled"
         )
