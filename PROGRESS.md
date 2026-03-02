@@ -125,3 +125,10 @@
 - **Sanity check result**: pytest tests/ -- 335/335 passed (19 integration + 316 existing). ruff check -- clean. check_emoji.py -- no emoji found.
 - **Status**: [DONE]
 - **Request**: Cross off T-P0-13
+
+## 2026-03-01 11:00 -- [SOP-FIX] Fix TASKS.md task lifecycle SOP
+- **What I did**: Defense-in-depth fix for orphaned task specs in TASKS.md Active section causing the session context hook to surface completed tasks as pending work. Level 0: removed 5 orphaned spec blocks from Active Tasks. Level 1: updated CLAUDE.md and exit-protocol.md to explicitly require "remove from Active + add to Completed" (two-step). Level 2: added completed_ids dedup filter to session_context.py _get_active_tasks(). Level 3: created task_dedup_check.py stop hook (blocks exit on overlap) and registered it in settings.json.
+- **Deliverables**: TASKS.md (mod), CLAUDE.md (mod), docs/workflow/exit-protocol.md (mod), .claude/hooks/session_context.py (mod), .claude/hooks/task_dedup_check.py (new), .claude/settings.json (mod)
+- **Sanity check result**: task_dedup_check.py exit 0 on clean TASKS.md, exit 2 on synthetic overlap. session_context.py shows no orphaned tasks. pytest 335/335 passed. ruff clean. No emoji.
+- **Status**: [DONE]
+- **Request**: No task status change (SOP fix, not a TASKS.md task)

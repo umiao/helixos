@@ -107,7 +107,7 @@ Before stopping, complete these steps (the **Stop hook** enforces them):
 - **Deliverables**: Files created/modified
 - **Sanity check result**: What was verified
 - **Status**: [DONE] / [PARTIAL] (what remains) / [BLOCKED] (why)
-- **Request**: Cross off TASK-XXX / No change
+- **Request**: Move TASK-XXX to Completed (REMOVE spec block from Active/In Progress, ADD summary line to Completed Tasks) / No change
 ```
 
 Full protocol details: `docs/workflow/exit-protocol.md`

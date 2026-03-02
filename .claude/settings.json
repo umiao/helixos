@@ -56,6 +56,11 @@
             "type": "command",
             "command": "python \"$CLAUDE_PROJECT_DIR/.claude/hooks/test_check.py\"",
             "timeout": 120
+          },
+          {
+            "type": "command",
+            "command": "python \"$CLAUDE_PROJECT_DIR/.claude/hooks/task_dedup_check.py\"",
+            "timeout": 10
           }
         ]
       }

@@ -23,7 +23,7 @@ Append an entry at the bottom using this exact format:
 Keep it brief. 5-8 lines max.
 
 ## 3. Update TASKS.md
-- Done: move to "Completed Tasks" with `[x]` and date
+- Done: REMOVE the task spec block from "Active Tasks" (or "In Progress") AND ADD a one-line summary to "Completed Tasks" with `[x]` and date. Both steps required.
 - Partial: leave in "In Progress", add a brief note on what remains
 - Blocked: move to "Blocked" with reason
 - New work discovered: add new task entries
