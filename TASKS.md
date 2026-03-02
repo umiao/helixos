@@ -18,7 +18,7 @@
 ### P2 -- Nice to Have (polish, optimization)
 
 #### T-P2-8: E2E integration + SSE events for P2 features
-- **Complexity**: S | **Depends on**: T-P2-7 [done]
+- **Complexity**: S | **Depends on**: Frontend Operations UI [done]
 - **What**: Wire everything together and verify end-to-end.
   - SSE event types: process_start, process_stop (from ProcessManager)
   - Dashboard summary includes process_status per project
