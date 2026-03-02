@@ -14,16 +14,6 @@
 
 ### P1 -- Should Have (important features)
 
-#### T-P1-6: Create root-level QUICKSTART.md [M]
-- **Files**: `QUICKSTART.md` (new, root level)
-- **What**: Comprehensive guide covering: prerequisites (Python 3.11+, Node.js 18+, Claude Code CLI), installation, configuration (orchestrator_config.yaml, adding projects), running (uvicorn, Vite dev, production, autonomous), API reference table (14 endpoints), debugging and troubleshooting, TASKS.md format requirements.
-- **AC**:
-  1. New user can follow QUICKSTART.md to install, configure, start server, see dashboard, and sync a project
-  2. All 14 API endpoints documented with method, path, and description
-  3. Troubleshooting section covers common errors
-- **Complexity**: M
-- **Deps**: None
-
 #### T-P1-7: E2E startup verification [S]
 - **Files**: None (verification only)
 - **What**: Verify full pipeline: server starts, dashboard loads at localhost:8000, `POST /api/sync-all` syncs TASKS.md, task cards appear on Kanban, review trigger spawns `claude -p`.
@@ -158,3 +148,6 @@ T-P1-7 [S] E2E verification (needs T-P1-4 through T-P1-6)
 
 #### [x] T-P1-5: Fix orchestrator config for self-management -- 2026-03-02
 - Fixed repo_path from ~/projects/helixos to ~/Desktop/Gen_AI_Proj/helixos. Added ~/.helixos/ directory auto-creation in API lifespan. 333 tests passing.
+
+#### [x] T-P1-6: Create root-level QUICKSTART.md -- 2026-03-02
+- Comprehensive guide with prerequisites, installation, configuration (orchestrator_config.yaml, adding projects), running (dev/production/Windows), TASKS.md format, all 14 API endpoints documented, autonomous mode, and troubleshooting section. 333 tests passing.

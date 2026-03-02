@@ -167,3 +167,10 @@
 - **Sanity check result**: pytest 333/333 passed. ruff clean. No emoji.
 - **Status**: [DONE]
 - **Request**: Move T-P1-5 to Completed (REMOVE spec block from Active, ADD summary line to Completed Tasks)
+
+## 2026-03-02 17:00 -- [T-P1-6] Create root-level QUICKSTART.md
+- **What I did**: Created comprehensive QUICKSTART.md at project root covering all required sections: prerequisites (Python 3.11+, Node.js 18+, Claude Code CLI), installation (venv, pip, npm), configuration (orchestrator_config.yaml with all sections: orchestrator settings, adding projects, git auto-commit, review pipeline, env vars), running (development with hot-reload, production, Windows PowerShell script), first sync walkthrough, TASKS.md format requirements (structure, task ID convention, section-to-status mapping), full API reference table (all 14 endpoints with method, path, description, and example curl commands), autonomous mode explanation, and troubleshooting section (server startup, Claude CLI, database, frontend build, sync issues, stuck tasks, SSE connection).
+- **Deliverables**: QUICKSTART.md (new)
+- **Sanity check result**: pytest 333/333 passed. ruff clean. No emoji.
+- **Status**: [DONE]
+- **Request**: Move T-P1-6 to Completed (REMOVE spec block from Active, ADD summary line to Completed Tasks)
