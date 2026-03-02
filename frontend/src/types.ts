@@ -102,3 +102,54 @@ export const COLUMN_TO_STATUS: Record<KanbanColumn, TaskStatus> = {
   RUNNING: "running",
   DONE: "done",
 };
+
+/** Process status for a project's dev server. */
+export interface ProcessStatus {
+  running: boolean;
+  pid: number | null;
+  port: number | null;
+  uptime_seconds: number | null;
+}
+
+/** Result of validating a project directory. */
+export interface ValidationResult {
+  valid: boolean;
+  name: string;
+  path: string;
+  has_git: boolean;
+  has_tasks_md: boolean;
+  has_claude_config: boolean;
+  suggested_id: string;
+  warnings: string[];
+  limited_mode_reasons: string[];
+}
+
+/** Sync result for a single project. */
+export interface SyncResult {
+  project_id: string;
+  added: number;
+  updated: number;
+  unchanged: number;
+  warnings: string[];
+}
+
+/** Result of importing a project. */
+export interface ImportResult {
+  project_id: string;
+  name: string;
+  repo_path: string;
+  port: number | null;
+  synced: boolean;
+  sync_result: SyncResult | null;
+  warnings: string[];
+}
+
+/** Result of creating a task. */
+export interface CreateTaskResult {
+  task_id: string;
+  success: boolean;
+  backup_path: string | null;
+  synced: boolean;
+  sync_result: SyncResult | null;
+  error: string | null;
+}

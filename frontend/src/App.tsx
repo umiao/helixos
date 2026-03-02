@@ -7,12 +7,15 @@ import ProjectSelector, {
   loadSelectedProjects,
   saveSelectedProjects,
 } from "./components/ProjectSelector";
+import ImportProjectModal from "./components/ImportProjectModal";
+import NewTaskModal from "./components/NewTaskModal";
 import useSSE, { type SSEEvent } from "./hooks/useSSE";
 import {
   fetchProjects,
   fetchTasks,
   fetchTask,
   syncAll,
+  syncProject,
   updateTaskStatus,
   ApiError,
 } from "./api";
@@ -26,6 +29,9 @@ function App() {
   const [projects, setProjects] = useState<Project[]>([]);
   const [loading, setLoading] = useState(true);
   const [syncing, setSyncing] = useState(false);
+  const [syncingProjects, setSyncingProjects] = useState<Set<string>>(
+    new Set(),
+  );
   const [selectedProjects, setSelectedProjects] = useState<string[]>([]);
   const [filterStatus, setFilterStatus] = useState("");
   const [searchQuery, setSearchQuery] = useState("");
@@ -33,6 +39,8 @@ function App() {
   const [logEntries, setLogEntries] = useState<LogEntry[]>([]);
   const [selectedTask, setSelectedTask] = useState<Task | null>(null);
   const [bottomPanel, setBottomPanel] = useState<"log" | "review">("log");
+  const [showImportModal, setShowImportModal] = useState(false);
+  const [newTaskProject, setNewTaskProject] = useState<Project | null>(null);
 
   // Keep a ref to tasks for SSE handler (avoid stale closure)
   const tasksRef = useRef(tasks);
@@ -228,6 +236,33 @@ function App() {
     }
   };
 
+  const handleSyncProject = useCallback(
+    async (projectId: string) => {
+      setSyncingProjects((prev) => new Set(prev).add(projectId));
+      try {
+        const result = await syncProject(projectId);
+        addToast(
+          `[${projectId}] Sync: ${result.added} added, ${result.updated} updated`,
+          "success",
+        );
+        // Refresh tasks after sync
+        const updatedTasks = await fetchTasks();
+        setTasks(updatedTasks);
+      } catch (err) {
+        const msg =
+          err instanceof ApiError ? err.detail : "Sync failed";
+        addToast(msg, "error");
+      } finally {
+        setSyncingProjects((prev) => {
+          const next = new Set(prev);
+          next.delete(projectId);
+          return next;
+        });
+      }
+    },
+    [addToast],
+  );
+
   const handleMoveTask = async (taskId: string, newStatus: TaskStatus) => {
     // Optimistic update: move card immediately
     setTasks((prev) =>
@@ -278,6 +313,38 @@ function App() {
     [addToast],
   );
 
+  const handleImported = useCallback(async () => {
+    // Reload projects and tasks after import
+    try {
+      const [p, t] = await Promise.all([fetchProjects(), fetchTasks()]);
+      setProjects(p);
+      setTasks(t);
+      // Auto-select the new project
+      setSelectedProjects((prev) => {
+        const newIds = p
+          .filter((proj) => !prev.includes(proj.id))
+          .map((proj) => proj.id);
+        const updated = [...prev, ...newIds];
+        saveSelectedProjects(updated);
+        return updated;
+      });
+      addToast("Project imported successfully", "success");
+    } catch {
+      // Data will be stale but not broken
+    }
+  }, [addToast]);
+
+  const handleTaskCreated = useCallback(async () => {
+    // Refresh tasks after creation
+    try {
+      const updatedTasks = await fetchTasks();
+      setTasks(updatedTasks);
+      addToast("Task created", "success");
+    } catch {
+      // Data will be stale but not broken
+    }
+  }, [addToast]);
+
   const soloLane = activeProjectIds.length === 1;
 
   return (
@@ -312,6 +379,12 @@ function App() {
               {runningCount}
             </span>
           </span>
+          <button
+            onClick={() => setShowImportModal(true)}
+            className="rounded-md bg-gray-100 border border-gray-300 px-3 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-200 transition-colors"
+          >
+            Import Project
+          </button>
           <button
             onClick={handleSyncAll}
             disabled={syncing}
@@ -384,6 +457,10 @@ function App() {
                     onMoveTask={handleMoveTask}
                     onSelectTask={handleSelectTask}
                     solo={soloLane}
+                    syncing={syncingProjects.has(pid)}
+                    onSync={() => handleSyncProject(pid)}
+                    onNewTask={() => setNewTaskProject(project)}
+                    onError={(msg) => addToast(msg, "error")}
                   />
                 </div>
               );
@@ -431,6 +508,24 @@ function App() {
           )}
         </div>
       </div>
+
+      {/* Modals */}
+      {showImportModal && (
+        <ImportProjectModal
+          onClose={() => setShowImportModal(false)}
+          onImported={handleImported}
+          onError={(msg) => addToast(msg, "error")}
+        />
+      )}
+      {newTaskProject && (
+        <NewTaskModal
+          projectId={newTaskProject.id}
+          projectName={newTaskProject.name}
+          onClose={() => setNewTaskProject(null)}
+          onCreated={handleTaskCreated}
+          onError={(msg) => addToast(msg, "error")}
+        />
+      )}
     </div>
   );
 }

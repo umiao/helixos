@@ -17,27 +17,8 @@
 
 ### P2 -- Nice to Have (polish, optimization)
 
-#### T-P2-7: Frontend -- SwimLaneHeader + ImportModal + NewTaskModal + LaunchControl
-- **Complexity**: M | **Depends on**: Swim Lanes [done] (ProcessManager + TasksWriter + validate/import API all done)
-- **What**: All frontend UI components for the operations portal.
-  - `SwimLaneHeader.tsx`: per-project action bar with Launch, New Task, Sync buttons
-  - `ImportProjectModal.tsx`: path input -> validate API -> show results -> confirm import
-  - `NewTaskModal.tsx`: title + description + priority form -> create task API
-  - `LaunchControl.tsx`: launch/stop toggle + port display + running indicator
-  - "Import Project" button in main header
-  - Warning badges for limited-mode projects (missing TASKS.md or CLAUDE.md)
-  - New types in `types.ts`, new API calls in `api.ts`
-- **AC**:
-  - [ ] Import modal validates and imports projects
-  - [ ] New Task modal creates task and it appears in swim lane
-  - [ ] Launch/stop toggles project process, shows port and status
-  - [ ] Per-project sync button works
-  - [ ] Limited-mode warnings visible
-  - [ ] All modals have loading states and error handling
-  - [ ] npm run build succeeds
-
 #### T-P2-8: E2E integration + SSE events for P2 features
-- **Complexity**: S | **Depends on**: T-P2-7
+- **Complexity**: S | **Depends on**: T-P2-7 [done]
 - **What**: Wire everything together and verify end-to-end.
   - SSE event types: process_start, process_stop (from ProcessManager)
   - Dashboard summary includes process_status per project
@@ -117,7 +98,7 @@ T-P2-1 [S] Config extension (no deps)
                                                            |
 T-P2-6 [M] Frontend Swim Lanes [DONE] ------------------+
                                                            |
-                                                    T-P2-7 [M] Frontend Operations UI
+                                                    T-P2-7 [M] Frontend Operations UI [DONE]
                                                            |
                                                     T-P2-8 [S] E2E Integration
 ```
@@ -216,3 +197,6 @@ T-P2-6 [M] Frontend Swim Lanes [DONE] ------------------+
 
 #### [x] T-P2-6: Frontend -- ProjectSelector + SwimLane + KanbanBoard refactor -- 2026-03-03
 - ProjectSelector.tsx (multi-select checkbox dropdown with Select all/Clear, localStorage persistence). SwimLane.tsx (per-project wrapper with header bar + KanbanBoard, solo/multi-lane height modes). App.tsx refactored: swim lane layout, tasks grouped by project, each SwimLane has own DndContext (no cross-project drag), visible dividers between lanes, global status/search filters apply across all lanes. npm run build succeeds, 480 tests passing.
+
+#### [x] T-P2-7: Frontend -- SwimLaneHeader + ImportModal + NewTaskModal + LaunchControl -- 2026-03-03
+- SwimLaneHeader.tsx (per-project action bar with Launch/Stop, New Task, Sync buttons, limited-mode warning badges). LaunchControl.tsx (launch/stop toggle with port display, running indicator, uptime, 5s polling). ImportProjectModal.tsx (3-step: path input -> validate -> review/configure -> import with success feedback). NewTaskModal.tsx (title + description + priority form). "Import Project" button in header. All modals have loading states and error handling. New types in types.ts (ProcessStatus, ValidationResult, ImportResult, CreateTaskResult). New API calls in api.ts (syncProject, validateProject, importProject, createTask, launchProject, stopProject, getProcessStatus). npm run build succeeds, 480 tests passing.

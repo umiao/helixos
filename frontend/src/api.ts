@@ -3,7 +3,16 @@
  * All calls go through the Vite dev proxy (/api -> localhost:8000).
  */
 
-import type { Project, Task, TaskStatus } from "./types";
+import type {
+  CreateTaskResult,
+  ImportResult,
+  ProcessStatus,
+  Project,
+  SyncResult,
+  Task,
+  TaskStatus,
+  ValidationResult,
+} from "./types";
 
 /** Error class for API errors with status code and detail. */
 export class ApiError extends Error {
@@ -96,14 +105,94 @@ export async function submitReviewDecision(
 
 /** Trigger sync for all projects. Returns sync results. */
 export async function syncAll(): Promise<{
-  results: Array<{
-    project_id: string;
-    added: number;
-    updated: number;
-    unchanged: number;
-    warnings: string[];
-  }>;
+  results: SyncResult[];
 }> {
   const res = await fetch("/api/sync-all", { method: "POST" });
   return handleResponse(res);
+}
+
+/** Sync a single project's TASKS.md. */
+export async function syncProject(projectId: string): Promise<SyncResult> {
+  const res = await fetch(
+    `/api/projects/${encodeURIComponent(projectId)}/sync`,
+    { method: "POST" },
+  );
+  return handleResponse<SyncResult>(res);
+}
+
+/** Validate a directory for project import. */
+export async function validateProject(
+  path: string,
+): Promise<ValidationResult> {
+  const res = await fetch("/api/projects/validate", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ path }),
+  });
+  return handleResponse<ValidationResult>(res);
+}
+
+/** Import a project into the orchestrator. */
+export async function importProject(params: {
+  path: string;
+  project_id?: string;
+  name?: string;
+  project_type?: string;
+  launch_command?: string;
+  preferred_port?: number;
+}): Promise<ImportResult> {
+  const res = await fetch("/api/projects/import", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(params),
+  });
+  return handleResponse<ImportResult>(res);
+}
+
+/** Create a new task in a project's TASKS.md. */
+export async function createTask(
+  projectId: string,
+  params: { title: string; description?: string; priority?: string },
+): Promise<CreateTaskResult> {
+  const res = await fetch(
+    `/api/projects/${encodeURIComponent(projectId)}/tasks`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(params),
+    },
+  );
+  return handleResponse<CreateTaskResult>(res);
+}
+
+/** Launch the dev server for a project. */
+export async function launchProject(
+  projectId: string,
+): Promise<ProcessStatus> {
+  const res = await fetch(
+    `/api/projects/${encodeURIComponent(projectId)}/launch`,
+    { method: "POST" },
+  );
+  return handleResponse<ProcessStatus>(res);
+}
+
+/** Stop the dev server for a project. */
+export async function stopProject(
+  projectId: string,
+): Promise<{ detail: string; project_id: string }> {
+  const res = await fetch(
+    `/api/projects/${encodeURIComponent(projectId)}/stop`,
+    { method: "POST" },
+  );
+  return handleResponse(res);
+}
+
+/** Get the dev server status for a project. */
+export async function getProcessStatus(
+  projectId: string,
+): Promise<ProcessStatus> {
+  const res = await fetch(
+    `/api/projects/${encodeURIComponent(projectId)}/process-status`,
+  );
+  return handleResponse<ProcessStatus>(res);
 }

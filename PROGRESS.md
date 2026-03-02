@@ -237,3 +237,10 @@
 - **Sanity check result**: npm run build succeeds. pytest 480/480 passed. ruff check clean.
 - **Status**: [DONE]
 - **Request**: Move T-P2-6 to Completed
+
+## 2026-03-03 02:00 -- [T-P2-7] Frontend -- SwimLaneHeader + ImportModal + NewTaskModal + LaunchControl
+- **What I did**: Built all frontend UI components for the operations portal. Created SwimLaneHeader.tsx (per-project action bar with Launch/Stop, New Task, Sync buttons, limited-mode warning badges). Created LaunchControl.tsx (launch/stop toggle with port display, running indicator with green pulse dot, uptime display, 5s status polling when running). Created ImportProjectModal.tsx (3-step flow: path input -> validate -> review with name/type/port/command overrides -> import with success summary and warnings). Created NewTaskModal.tsx (title + description + priority form with validation, loading states, error display). Added "Import Project" button in main header. Updated types.ts with ProcessStatus, ValidationResult, ImportResult, CreateTaskResult, SyncResult. Updated api.ts with 7 new API calls (syncProject, validateProject, importProject, createTask, launchProject, stopProject, getProcessStatus). Refactored SwimLane.tsx to use SwimLaneHeader. Updated App.tsx with per-project sync state tracking, modal state management, and data reload after import/create.
+- **Deliverables**: frontend/src/components/SwimLaneHeader.tsx (new), frontend/src/components/LaunchControl.tsx (new), frontend/src/components/ImportProjectModal.tsx (new), frontend/src/components/NewTaskModal.tsx (new), frontend/src/types.ts (mod -- 5 new types), frontend/src/api.ts (mod -- 7 new API functions), frontend/src/components/SwimLane.tsx (mod -- uses SwimLaneHeader), frontend/src/App.tsx (mod -- Import button, modals, per-project sync)
+- **Sanity check result**: npm run build succeeds. pytest 480/480 passed. ruff check clean.
+- **Status**: [DONE]
+- **Request**: Move T-P2-7 to Completed
