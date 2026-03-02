@@ -656,6 +656,69 @@ class TestProjectRegistry:
         assert not any("repo_path" in msg for msg in caplog.messages)
         assert registry.get_project("A1").repo_path is None
 
+    def test_auto_detect_claude_md(self, tmp_path: Path) -> None:
+        """Auto-detects CLAUDE.md when file exists at repo_path."""
+        project_dir = tmp_path / "myproject"
+        project_dir.mkdir()
+        (project_dir / "CLAUDE.md").write_text("# Claude\n", encoding="utf-8")
+
+        cfg = OrchestratorConfig.model_validate(
+            {
+                "projects": {
+                    "P0": {
+                        "name": "My Project",
+                        "repo_path": str(project_dir),
+                    },
+                },
+            }
+        )
+        registry = ProjectRegistry(cfg)
+        p = registry.get_project("P0")
+        assert p.claude_md_path is not None
+        assert p.claude_md_path == project_dir / "CLAUDE.md"
+
+    def test_no_auto_detect_when_claude_md_missing(self, tmp_path: Path) -> None:
+        """claude_md_path stays None when CLAUDE.md does not exist."""
+        project_dir = tmp_path / "myproject"
+        project_dir.mkdir()
+
+        cfg = OrchestratorConfig.model_validate(
+            {
+                "projects": {
+                    "P0": {
+                        "name": "My Project",
+                        "repo_path": str(project_dir),
+                    },
+                },
+            }
+        )
+        registry = ProjectRegistry(cfg)
+        p = registry.get_project("P0")
+        assert p.claude_md_path is None
+
+    def test_explicit_claude_md_path_not_overridden(self, tmp_path: Path) -> None:
+        """Explicit claude_md_path in config is not overridden by auto-detect."""
+        project_dir = tmp_path / "myproject"
+        project_dir.mkdir()
+        (project_dir / "CLAUDE.md").write_text("# Claude\n", encoding="utf-8")
+        custom_path = tmp_path / "custom_claude.md"
+        custom_path.write_text("# Custom\n", encoding="utf-8")
+
+        cfg = OrchestratorConfig.model_validate(
+            {
+                "projects": {
+                    "P0": {
+                        "name": "My Project",
+                        "repo_path": str(project_dir),
+                        "claude_md_path": str(custom_path),
+                    },
+                },
+            }
+        )
+        registry = ProjectRegistry(cfg)
+        p = registry.get_project("P0")
+        assert p.claude_md_path == custom_path
+
     def test_empty_config(self) -> None:
         """Registry from empty config has no projects."""
         cfg = OrchestratorConfig.model_validate({})

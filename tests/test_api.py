@@ -203,13 +203,14 @@ class TestListProjects:
         assert data[0]["executor_type"] == "code"
 
     async def test_list_projects_shape(self, client: AsyncClient):
-        """Response should have correct fields."""
+        """Response should have correct fields including claude_md_path."""
         resp = await client.get("/api/projects")
         project = resp.json()[0]
         assert "id" in project
         assert "name" in project
         assert "tasks_file" in project
         assert "max_concurrency" in project
+        assert "claude_md_path" in project
 
 
 class TestGetProject:

@@ -78,6 +78,7 @@ def _project_to_response(project: Project) -> ProjectResponse:
         tasks_file=project.tasks_file,
         executor_type=project.executor_type,
         max_concurrency=project.max_concurrency,
+        claude_md_path=str(project.claude_md_path) if project.claude_md_path else None,
     )
 
 
@@ -303,6 +304,7 @@ async def get_project(project_id: str, request: Request) -> ProjectDetailRespons
         tasks_file=project.tasks_file,
         executor_type=project.executor_type,
         max_concurrency=project.max_concurrency,
+        claude_md_path=str(project.claude_md_path) if project.claude_md_path else None,
         tasks=[_task_to_response(t) for t in tasks],
     )
 
@@ -402,6 +404,11 @@ async def import_project(
         project_data["launch_command"] = body.launch_command
     if body.preferred_port is not None:
         project_data["preferred_port"] = body.preferred_port
+
+    # Auto-set claude_md_path if CLAUDE.md exists in the project directory
+    claude_md_file = directory / "CLAUDE.md"
+    if claude_md_file.is_file():
+        project_data["claude_md_path"] = str(claude_md_file)
 
     # Write to YAML (atomic, comment-preserving)
     try:

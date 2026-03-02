@@ -230,8 +230,19 @@ class ProjectRegistry:
     # ------------------------------------------------------------------
 
     def _build(self) -> None:
-        """Convert each ``ProjectConfig`` to a ``Project`` model."""
+        """Convert each ``ProjectConfig`` to a ``Project`` model.
+
+        Auto-detects ``CLAUDE.md`` when ``claude_md_path`` is not explicitly
+        set in the config but the file exists at ``repo_path/CLAUDE.md``.
+        """
         for project_id, pc in self._config.projects.items():
+            # Auto-detect CLAUDE.md if not explicitly configured
+            claude_md_path = pc.claude_md_path
+            if claude_md_path is None and pc.repo_path is not None:
+                candidate = pc.repo_path / "CLAUDE.md"
+                if candidate.is_file():
+                    claude_md_path = candidate
+
             project = Project(
                 id=project_id,
                 name=pc.name,
@@ -241,7 +252,7 @@ class ProjectRegistry:
                 executor_type=pc.executor_type,
                 max_concurrency=pc.max_concurrency,
                 env_keys=pc.env_keys,
-                claude_md_path=pc.claude_md_path,
+                claude_md_path=claude_md_path,
             )
             self._projects[project_id] = project
 

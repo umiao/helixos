@@ -258,3 +258,10 @@
 - **Sanity check result**: ruff check src/ tests/ -- 0 errors. pytest 494/494 passed. npm run build succeeds.
 - **Status**: [DONE]
 - **Request**: No task status change (CI fix, not a tracked task)
+
+## 2026-03-03 05:00 -- [T-P3-1] Fix "No CLAUDE.md" false-positive badge
+- **What I did**: Fixed the false-positive "No CLAUDE.md" badge in SwimLaneHeader. The root cause was that `ProjectResponse` schema was missing the `claude_md_path` field, so the frontend always received `null`. Added `claude_md_path` to `ProjectResponse` and `ProjectDetailResponse` schemas. Updated `_project_to_response()` and `get_project()` to include the field. Added auto-detection in `ProjectRegistry._build()` that checks for `repo_path/CLAUDE.md` when `claude_md_path` is not explicitly set in config. Updated import endpoint to auto-write `claude_md_path` to YAML config when CLAUDE.md exists. Updated SwimLaneHeader to use descriptive tooltips (e.g., "No CLAUDE.md found in project root -- Claude agent lacks project-specific context and conventions").
+- **Deliverables**: src/schemas.py (mod), src/api.py (mod), src/config.py (mod), frontend/src/components/SwimLaneHeader.tsx (mod), tests/test_config.py (mod -- 3 new tests), tests/test_api.py (mod -- 1 updated test), tests/test_project_onboarding.py (mod -- 3 new tests)
+- **Sanity check result**: pytest 500/500 passed (6 new + 494 existing). ruff check clean. npm run build succeeds.
+- **Status**: [DONE]
+- **Request**: Move T-P3-1 to Completed

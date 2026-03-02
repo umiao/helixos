@@ -23,13 +23,20 @@ export default function SwimLaneHeader({
   onNewTask,
   onError,
 }: SwimLaneHeaderProps) {
-  // Detect limited-mode warnings (missing TASKS.md path or CLAUDE.md)
-  const warnings: string[] = [];
+  // Detect limited-mode warnings (missing repo path or CLAUDE.md)
+  const warnings: { label: string; tooltip: string }[] = [];
   if (!project.repo_path) {
-    warnings.push("No repo path");
+    warnings.push({
+      label: "No repo path",
+      tooltip: "No repository path configured -- file operations unavailable",
+    });
   }
   if (!project.claude_md_path) {
-    warnings.push("No CLAUDE.md");
+    warnings.push({
+      label: "No CLAUDE.md",
+      tooltip:
+        "No CLAUDE.md found in project root -- Claude agent lacks project-specific context and conventions",
+    });
   }
 
   return (
@@ -45,11 +52,11 @@ export default function SwimLaneHeader({
         <span className="flex items-center gap-1">
           {warnings.map((w) => (
             <span
-              key={w}
+              key={w.label}
               className="text-xs px-1.5 py-0.5 rounded bg-yellow-100 text-yellow-700"
-              title={w}
+              title={w.tooltip}
             >
-              {w}
+              {w.label}
             </span>
           ))}
         </span>

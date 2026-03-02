@@ -27,6 +27,7 @@ class ProjectResponse(BaseModel):
     tasks_file: str = "TASKS.md"
     executor_type: ExecutorType
     max_concurrency: int = 1
+    claude_md_path: str | None = None
 
 
 class ProjectDetailResponse(BaseModel):
@@ -38,6 +39,7 @@ class ProjectDetailResponse(BaseModel):
     tasks_file: str = "TASKS.md"
     executor_type: ExecutorType
     max_concurrency: int = 1
+    claude_md_path: str | None = None
     tasks: list[TaskResponse] = Field(default_factory=list)
 
 

@@ -481,3 +481,55 @@ class TestImportEndpoint:
         registry = onboarding_app.state.registry
         project_ids = [p.id for p in registry.list_projects()]
         assert "P1" in project_ids
+
+    @pytest.mark.asyncio
+    async def test_import_auto_sets_claude_md_path(
+        self,
+        onboarding_client: AsyncClient,
+        onboarding_app,
+        sample_project_dir: Path,
+    ) -> None:
+        """Import auto-sets claude_md_path when CLAUDE.md exists."""
+        resp = await onboarding_client.post(
+            "/api/projects/import",
+            json={"path": str(sample_project_dir)},
+        )
+        assert resp.status_code == 200
+        # Registry should have claude_md_path set via auto-detect
+        registry = onboarding_app.state.registry
+        project = registry.get_project("P1")
+        assert project.claude_md_path is not None
+        assert str(project.claude_md_path).endswith("CLAUDE.md")
+
+    @pytest.mark.asyncio
+    async def test_import_no_claude_md_warning(
+        self,
+        onboarding_client: AsyncClient,
+        tmp_path: Path,
+    ) -> None:
+        """Import without CLAUDE.md includes warning."""
+        proj = tmp_path / "no_claude_repo"
+        proj.mkdir()
+        (proj / ".git").mkdir()
+        resp = await onboarding_client.post(
+            "/api/projects/import",
+            json={"path": str(proj)},
+        )
+        assert resp.status_code == 200
+        data = resp.json()
+        assert any("CLAUDE.md" in w for w in data["warnings"])
+
+    @pytest.mark.asyncio
+    async def test_import_with_claude_md_no_warning(
+        self,
+        onboarding_client: AsyncClient,
+        sample_project_dir: Path,
+    ) -> None:
+        """Import with CLAUDE.md present does not emit CLAUDE.md warning."""
+        resp = await onboarding_client.post(
+            "/api/projects/import",
+            json={"path": str(sample_project_dir)},
+        )
+        assert resp.status_code == 200
+        data = resp.json()
+        assert not any("CLAUDE.md" in w for w in data["warnings"])

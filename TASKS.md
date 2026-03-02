@@ -20,10 +20,6 @@
 
 ### P3 -- Phase 3: UX + Polish
 
-#### T-P3-1: Fix "No CLAUDE.md" false-positive badge [S]
-- **AC**: ProjectResponse includes claude_md_path, import auto-sets it, ProjectRegistry auto-detects, SwimLaneHeader tooltip shows descriptive message
-- **Depends on**: None
-
 #### T-P3-2: Backend directory browser + frontend picker [M]
 - **AC**: GET /api/filesystem/browse with $HOME sandbox, frontend dir picker in ImportProjectModal
 - **Depends on**: None
@@ -225,3 +221,6 @@ T-P2-6 [M] Frontend Swim Lanes [DONE] ------------------+
 
 #### [x] T-P2-8: E2E integration + SSE events for P2 features -- 2026-03-03
 - Added per-project process_status to dashboard summary endpoint. Verified SSE events (process_start/process_stop), startup orphan cleanup (SubprocessRegistry + PortRegistry + ProcessManager), and shutdown order (ProcessManager -> Scheduler -> DB). 14 new integration tests covering import-to-swimlane, task creation, process lifecycle with SSE, orphan cleanup, shutdown order, and full E2E flow. 494 total tests passing.
+
+#### [x] T-P3-1: Fix "No CLAUDE.md" false-positive badge -- 2026-03-03
+- Added claude_md_path to ProjectResponse/ProjectDetailResponse schemas. ProjectRegistry auto-detects CLAUDE.md at repo_path when not explicitly configured. Import endpoint auto-sets claude_md_path in YAML config. SwimLaneHeader badge now shows descriptive tooltip. 6 new tests, 500 total passing.
