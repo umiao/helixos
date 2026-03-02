@@ -272,3 +272,10 @@
 - **Sanity check result**: pytest 511/511 passed (11 new + 500 existing). ruff check clean. npm run build succeeds.
 - **Status**: [DONE]
 - **Request**: Move T-P3-2 to Completed
+
+## 2026-03-03 07:00 -- [T-P3-3] Import Project in ProjectSelector dropdown
+- **What I did**: Added an "Import Project" button at the bottom of the ProjectSelector dropdown menu. The button has a + icon, is separated by a divider, closes the dropdown, and opens the existing ImportProjectModal. Wired up via a new optional `onImportClick` prop on ProjectSelector, connected in App.tsx.
+- **Deliverables**: frontend/src/components/ProjectSelector.tsx (mod -- onImportClick prop + Import button in dropdown), frontend/src/App.tsx (mod -- pass onImportClick to ProjectSelector)
+- **Sanity check result**: pytest 511/511 passed. ruff check clean. npm run build succeeds.
+- **Status**: [DONE]
+- **Request**: Move T-P3-3 to Completed

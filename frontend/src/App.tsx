@@ -401,6 +401,7 @@ function App() {
           projects={projects}
           selectedIds={selectedProjects}
           onChange={handleSelectedProjectsChange}
+          onImportClick={() => setShowImportModal(true)}
         />
 
         <select

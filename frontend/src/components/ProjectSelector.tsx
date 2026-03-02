@@ -12,6 +12,7 @@ interface ProjectSelectorProps {
   projects: Project[];
   selectedIds: string[];
   onChange: (ids: string[]) => void;
+  onImportClick?: () => void;
 }
 
 /** Load selected project IDs from localStorage, or null if not set. */
@@ -40,6 +41,7 @@ export default function ProjectSelector({
   projects,
   selectedIds,
   onChange,
+  onImportClick,
 }: ProjectSelectorProps) {
   const [open, setOpen] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -162,6 +164,34 @@ export default function ProjectSelector({
               </p>
             )}
           </div>
+
+          {/* Import Project action */}
+          {onImportClick && (
+            <div className="border-t border-gray-100">
+              <button
+                onClick={() => {
+                  setOpen(false);
+                  onImportClick();
+                }}
+                className="flex items-center gap-2 w-full px-3 py-2 text-sm text-indigo-600 hover:bg-indigo-50 font-medium transition-colors"
+              >
+                <svg
+                  className="w-3.5 h-3.5"
+                  fill="none"
+                  stroke="currentColor"
+                  viewBox="0 0 24 24"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2}
+                    d="M12 4v16m8-8H4"
+                  />
+                </svg>
+                Import Project
+              </button>
+            </div>
+          )}
         </div>
       )}
     </div>

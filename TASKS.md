@@ -20,10 +20,6 @@
 
 ### P3 -- Phase 3: UX + Polish
 
-#### T-P3-3: Import Project in ProjectSelector dropdown [S]
-- **AC**: "Import Project" button in dropdown, opens ImportProjectModal
-- **Depends on**: None (directory browser completed)
-
 #### T-P3-4: Task card hover popover with details [S]
 - **AC**: Hover 300ms+ shows popover with full task details via React portal
 - **Depends on**: None
@@ -223,3 +219,6 @@ T-P2-6 [M] Frontend Swim Lanes [DONE] ------------------+
 
 #### [x] T-P3-2: Backend directory browser + frontend picker -- 2026-03-03
 - GET /api/filesystem/browse with $HOME sandbox, hidden dir filtering, project indicator flags. DirectoryPicker component with breadcrumb navigation. Integrated into ImportProjectModal as toggleable browse mode. 11 new tests, 511 total passing.
+
+#### [x] T-P3-3: Import Project in ProjectSelector dropdown -- 2026-03-03
+- Added "Import Project" button with + icon at bottom of ProjectSelector dropdown. Closes dropdown and opens ImportProjectModal. Connected via onImportClick prop.
