@@ -149,44 +149,6 @@
 
 ---
 
----
-
-#### T-P0-10: API endpoints (CRUD + sync + execute + review + lifespan)
-- **Priority**: P0
-- **Complexity**: L (2-3 sessions)
-- **Depends on**: T-P0-6b, T-P0-7, T-P0-4
-- **Acceptance Criteria**:
-  - [ ] `src/api.py`: `app = FastAPI(title="HelixOS", version="0.1.0")`
-  - [ ] Lifespan handler: init DB, load config, create all service objects, startup_recovery, start scheduler tick, shutdown cleanup
-  - [ ] Static mount: `frontend/dist/` served at `/` (after API routes)
-  - [ ] CORS middleware for `localhost:5173` (Vite dev)
-  - [ ] All PRD Section 10 endpoints:
-    - `GET /api/projects` -- list projects
-    - `GET /api/projects/{id}` -- project + tasks
-    - `GET /api/tasks` -- all tasks (filterable: project_id, status)
-    - `GET /api/tasks/{id}` -- task detail
-    - `PATCH /api/tasks/{id}/status` -- transition (validates state machine)
-    - `POST /api/tasks/{id}/review` -- trigger review (202, async)
-    - `POST /api/tasks/{id}/review/decide` -- submit human decision
-    - `POST /api/tasks/{id}/execute` -- force-execute
-    - `POST /api/tasks/{id}/retry` -- reset retry count, move to QUEUED
-    - `POST /api/tasks/{id}/cancel` -- cancel running
-    - `POST /api/projects/{id}/sync` -- re-parse TASKS.md
-    - `POST /api/sync-all` -- re-parse all
-    - `GET /api/dashboard/summary` -- aggregate stats
-    - `GET /api/events` -- SSE (wired from T-P0-9)
-  - [ ] Pydantic request/response schemas for all endpoints
-  - [ ] HTTP status codes: 200, 201, 202, 400, 404, 409, 500
-  - [ ] Error responses: `{"detail": "message"}`
-  - [ ] `tests/test_api.py`: httpx AsyncClient -- each endpoint happy path, bad transitions, 404s, 202 review
-  - [ ] ruff clean, no emoji
-- **Files**: `src/api.py` (new), `src/schemas.py` (new, optional), `tests/test_api.py` (new), `tests/conftest.py` (mod)
-- **Scope boundary**:
-  - IN: All HTTP endpoints, app creation, lifespan wiring, CORS, static mount, validation
-  - OUT: No frontend. No business logic (delegates to TaskManager, Scheduler, ReviewPipeline).
-
----
-
 #### T-P0-8b: Dashboard Kanban -- drag-drop + API integration
 - **Priority**: P0
 - **Complexity**: M (1-2 sessions)
@@ -335,3 +297,6 @@ T-P0-13 [M] Integration tests (needs T-P0-10 + T-P0-12)
 
 #### [x] T-P0-8a: Dashboard Kanban -- static layout + TaskCard -- 2026-03-01
 - TypeScript interfaces matching backend Pydantic models. API client stubs with mock data (5 tasks). KanbanBoard 5 columns (BACKLOG, REVIEW, QUEUED, RUNNING, DONE). TaskCard with project ID, task ID, title, status badge, dependency indicator. App layout with header (title, Sync All, running count), filter bar (project, status, search). npm run build succeeds.
+
+#### [x] T-P0-10: API endpoints (CRUD + sync + execute + review + lifespan) -- 2026-03-01
+- FastAPI app with lifespan (init DB, config, services, startup_recovery, scheduler start/stop). CORS for localhost:5173. Static mount for frontend/dist/. All 14 PRD Section 10 endpoints: project CRUD, task CRUD+filter, status transitions (state machine validated), review trigger (202 async), review decide, force-execute, retry, cancel, project sync, sync-all, dashboard summary, SSE events. Pydantic request/response schemas (src/schemas.py). Error responses with 404/409 codes. 32 tests passing.

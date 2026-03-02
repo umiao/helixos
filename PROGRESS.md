@@ -97,3 +97,10 @@
 - **Sanity check result**: npm run build -- success (no TS errors). pytest tests/ -- 284/284 passed. ruff check -- clean. check_emoji.py -- no emoji found.
 - **Status**: [DONE]
 - **Request**: Cross off T-P0-8a
+
+## 2026-03-01 07:00 -- [T-P0-10] API endpoints (CRUD + sync + execute + review + lifespan)
+- **What I did**: Created the full FastAPI REST API layer. Built src/schemas.py with Pydantic request/response schemas (ProjectResponse, ProjectDetailResponse, TaskResponse, ReviewStateResponse, ExecutionStateResponse, StatusTransitionRequest, ReviewDecisionRequest, DashboardSummary, SyncResponse, SyncAllResponse, ErrorResponse). Built src/api.py with lifespan handler (init DB, load config, create all services, startup_recovery, start scheduler, shutdown cleanup), CORS middleware for localhost:5173, static mount for frontend/dist/, and all 14 PRD Section 10 endpoints: GET /api/projects, GET /api/projects/{id}, GET /api/tasks (filterable by project_id, status), GET /api/tasks/{id}, PATCH /api/tasks/{id}/status (state machine validated), POST /api/tasks/{id}/review (202, async background), POST /api/tasks/{id}/review/decide, POST /api/tasks/{id}/execute (202), POST /api/tasks/{id}/retry, POST /api/tasks/{id}/cancel, POST /api/projects/{id}/sync, POST /api/sync-all, GET /api/dashboard/summary, GET /api/events (SSE wired from T-P0-9). All endpoints delegate to TaskManager, Scheduler, ReviewPipeline, and TasksParser. Error responses use {"detail": "message"} format with 404/409/500 status codes.
+- **Deliverables**: src/schemas.py (new), src/api.py (new), tests/test_api.py (new)
+- **Sanity check result**: pytest tests/ -- 316/316 passed (32 new API + 284 existing). ruff check -- clean. check_emoji.py -- no emoji found.
+- **Status**: [DONE]
+- **Request**: Cross off T-P0-10
