@@ -38,6 +38,10 @@
   Use ASCII text tags (e.g., [DONE], [FAIL], [WARN]) instead.
 - **Explicit UTF-8**: All file I/O and subprocess calls must specify `encoding="utf-8"`.
   Never rely on locale defaults (cp1252 on Windows).
+- **Windows-compatible docs**: Shell commands in documentation must work on both
+  bash and Windows PowerShell 5.x. Use separate lines instead of `&&` chaining.
+  For bash-only commands (`source`, `rm -rf`, `~` paths), provide a labeled
+  PowerShell alternative.
 
 ## Prohibited Actions
 - Never hardcode API keys, cookies, or personal info

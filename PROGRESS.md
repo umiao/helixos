@@ -181,3 +181,10 @@
 - **Sanity check result**: pytest 333/333 passed. ruff clean. No emoji. All verification checks pass.
 - **Status**: [DONE]
 - **Request**: Move T-P1-7 to Completed (REMOVE spec block from Active, ADD summary line to Completed Tasks)
+
+## 2026-03-02 19:00 -- [Ad-hoc] Fix Windows PowerShell compatibility in docs
+- **What I did**: Fixed bash-only shell syntax in user-facing docs that fails on Windows PowerShell 5.x. Split `&&` chains into separate lines, added labeled PowerShell alternatives for `source`, `rm -rf`, `rm ~` commands. Added a "Windows-compatible docs" rule to CLAUDE.md Code Style section to prevent regressions.
+- **Deliverables**: QUICKSTART.md (4 fixes), README.md (1 fix), CLAUDE.md (1 rule added)
+- **Sanity check result**: Grep confirms no `&&` remains in user-runnable code blocks. All `rm -rf` occurrences in docs now have PowerShell alternatives. Remaining matches are in CLAUDE.md rule text (mentioning what to avoid) and claude-code-workflow-guide.md (explanatory text, not user commands -- explicitly out of scope).
+- **Status**: [DONE]
+- **Request**: No task status change (ad-hoc fix, not a tracked task)

@@ -188,7 +188,8 @@ See `scripts/QUICKSTART.md` for the full setup guide. The essentials:
 
 ```bash
 # 1. Clone and install
-git clone <this-repo> my-project && cd my-project
+git clone <this-repo> my-project
+cd my-project
 pip install -r requirements.txt
 
 # 2. Customize for your project

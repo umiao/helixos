@@ -34,11 +34,17 @@ cd helixos
 
 ```bash
 python -m venv .venv
+```
 
-# Linux / macOS
+Activate the virtual environment:
+
+**Linux / macOS (bash):**
+```bash
 source .venv/bin/activate
+```
 
-# Windows (PowerShell)
+**Windows (PowerShell):**
+```powershell
 .venv\Scripts\Activate.ps1
 ```
 
@@ -177,7 +183,9 @@ Build the frontend and serve everything from the backend:
 
 ```bash
 # Build frontend
-cd frontend && npm run build && cd ..
+cd frontend
+npm run build
+cd ..
 
 # Start server (serves both API and dashboard)
 uvicorn src.api:app --host 127.0.0.1 --port 8000
@@ -407,16 +415,33 @@ The state database is stored at `~/.helixos/state.db` by default. The server
 auto-creates the `~/.helixos/` directory on startup.
 
 **Reset the database**:
+
+**Linux / macOS (bash):**
 ```bash
 rm ~/.helixos/state.db
-# Restart the server -- tables are recreated automatically
 ```
+
+**Windows (PowerShell):**
+```powershell
+Remove-Item "$HOME\.helixos\state.db"
+```
+
+Restart the server -- tables are recreated automatically.
 
 ### Frontend build failures
 
+**Linux / macOS (bash):**
 ```bash
 cd frontend
 rm -rf node_modules
+npm install
+npm run build
+```
+
+**Windows (PowerShell):**
+```powershell
+cd frontend
+Remove-Item -Recurse -Force node_modules
 npm install
 npm run build
 ```
