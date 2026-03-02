@@ -16,7 +16,143 @@
 <!-- All 7 P1 tasks completed. See Completed Tasks below. -->
 
 ### P2 -- Nice to Have (polish, optimization)
-<!-- Phase 2+: frontend E2E tests, TypeScript codegen from Pydantic, cross-platform -->
+
+#### T-P2-1: Extend ProjectConfig + OrchestratorSettings for P2 features
+- **Complexity**: S | **Depends on**: None
+- **What**: Add fields to support import, launch, and port management.
+  - `ProjectConfig`: add optional `launch_command` (str), `project_type` ("frontend"/"backend"/"other"), `preferred_port` (int|None)
+  - `OrchestratorSettings`: add `port_ranges` dict (frontend: [3100, 3999], backend: [8100, 8999]), `max_total_subprocesses` (default 5)
+  - All new fields optional with defaults (backward compatible)
+- **AC**:
+  - [ ] Existing config loading unchanged (no breakage)
+  - [ ] New fields validated by Pydantic (type, range checks)
+  - [ ] Tests pass
+
+#### T-P2-2: PortRegistry -- auto-assign ports, conflict detection, persistence
+- **Complexity**: M | **Depends on**: T-P2-1
+- **What**: New `src/port_registry.py`. Manages port assignments per project.
+  - `assign_port(project_id, project_type)` -- pick next available from configured range
+  - `release_port(project_id)` -- free assignment
+  - `get_assignment(project_id)` -- lookup
+  - Persist to `~/.helixos/ports.json` via atomic write (tmp + os.replace)
+  - `cleanup_orphans()` at startup: scan PIDs in ports.json, remove entries for dead processes
+  - No TCP pre-check. If launch fails (port in use), retry with next port.
+- **AC**:
+  - [ ] Auto-assigns from configured range per project_type
+  - [ ] Atomic persistence (no corruption on crash)
+  - [ ] Orphan cleanup removes stale entries
+  - [ ] No duplicate port assignments
+  - [ ] 10+ tests
+
+#### T-P2-3: Project validation + import API + config writer (ruamel.yaml)
+- **Complexity**: M | **Depends on**: T-P2-1, T-P2-2
+- **What**: Backend endpoints for UI-driven project onboarding.
+  - `POST /api/projects/validate` -- validate directory: .git/ required, TASKS.md + CLAUDE.md optional (warnings + limited mode flags)
+  - `POST /api/projects/import` -- register project: ruamel.yaml read-modify-write to orchestrator_config.yaml (preserves comments, atomic write), reload ProjectRegistry, auto-assign port, auto-sync if TASKS.md present
+  - Reject duplicate project IDs (409), invalid paths (400)
+  - Suggested project ID auto-generated (next available P-number)
+- **AC**:
+  - [ ] Validate returns { valid, name, has_git, has_tasks_md, has_claude_config, suggested_id, warnings, limited_mode_reasons }
+  - [ ] Import writes to YAML via ruamel.yaml without corrupting comments/formatting
+  - [ ] Atomic config write (tmp + os.replace)
+  - [ ] Registry reloaded in-memory after import
+  - [ ] Auto-sync triggered for new project
+  - [ ] 15+ tests
+
+#### T-P2-4: TasksWriter -- create tasks by appending to TASKS.md (with filelock)
+- **Complexity**: M | **Depends on**: T-P2-1
+- **What**: New `src/tasks_writer.py`. Safely appends tasks to a project's TASKS.md.
+  - Uses `filelock` library for cross-platform file locking
+  - Lock acquired before read-modify-write cycle
+  - ID generation inside lock: scan existing IDs, compute next available
+  - Create `.bak` backup before every write
+  - Validate after write: re-parse to confirm valid markdown + correct IDs
+  - New endpoint: `POST /api/projects/{id}/tasks` { title, description, priority }
+  - Auto-triggers sync after write (task enters DB)
+- **AC**:
+  - [ ] File lock prevents concurrent write corruption
+  - [ ] Auto-generated IDs are unique and sequential
+  - [ ] .bak created before every write
+  - [ ] Post-write validation confirms file integrity
+  - [ ] Handles edge cases: empty file, no Active section, ID format variations
+  - [ ] 12+ tests
+
+#### T-P2-5: ProcessManager + SubprocessRegistry -- launch/stop project processes
+- **Complexity**: M | **Depends on**: T-P2-1, T-P2-2
+- **What**: New `src/process_manager.py` and `src/subprocess_registry.py`.
+  - SubprocessRegistry: unified tracker for ALL subprocesses (Scheduler executors + ProcessManager dev servers). Tracks PID, type, project_id, start_time. Shared `MAX_TOTAL_SUBPROCESSES` limit.
+  - ProcessManager: launch/stop project dev servers.
+    - `launch(project_id)` -- spawn launch_command in repo_path, inject PORT env var, register in SubprocessRegistry
+    - `stop(project_id)` -- SIGTERM -> grace (10s) -> SIGKILL, deregister
+    - `status(project_id)` -- { running, pid, port, uptime }
+    - `stop_all(timeout=10s)` -- shutdown hook
+    - `cleanup_orphans()` -- startup scan for stale PIDs
+  - Endpoints: `POST /api/projects/{id}/launch`, `POST /api/projects/{id}/stop`, `GET /api/projects/{id}/process-status`
+  - Windows: CREATE_NEW_PROCESS_GROUP + CTRL_BREAK_EVENT for clean termination
+  - Shutdown order: ProcessManager.stop_all -> Scheduler.stop -> EventBus -> DB
+- **AC**:
+  - [ ] Launch spawns process with correct PORT
+  - [ ] Stop terminates cleanly (no zombies)
+  - [ ] Global subprocess limit enforced (shared with Scheduler)
+  - [ ] Orphan cleanup at startup
+  - [ ] Windows compatible
+  - [ ] Shutdown order enforced in lifespan
+  - [ ] 10+ tests
+
+#### T-P2-6: Frontend -- ProjectSelector + SwimLane + KanbanBoard refactor
+- **Complexity**: M | **Depends on**: None (pure frontend)
+- **What**: Transform flat Kanban into per-project swim lanes.
+  - `ProjectSelector.tsx`: multi-select checkbox dropdown replacing single-select
+  - `SwimLane.tsx`: wrapper component rendering one KanbanBoard per project, with project header and divider bar
+  - Refactor `KanbanBoard.tsx`: accept `projectId` prop, filter tasks internally
+  - DnD context per SwimLane (no cross-project drag)
+  - Persist selected projects in localStorage
+  - Vertical scroll for swim lane area
+  - Global status filter + search apply across all swim lanes
+- **AC**:
+  - [ ] Multi-select project dropdown with checkboxes
+  - [ ] Each selected project renders as separate swim lane
+  - [ ] Visible divider bars between swim lanes
+  - [ ] Drag-drop within swim lane only (no cross-project)
+  - [ ] Selected projects persist in localStorage
+  - [ ] Existing filters (status, search) still work globally
+  - [ ] npm run build succeeds
+
+#### T-P2-7: Frontend -- SwimLaneHeader + ImportModal + NewTaskModal + LaunchControl
+- **Complexity**: M | **Depends on**: T-P2-3, T-P2-4, T-P2-5, T-P2-6
+- **What**: All frontend UI components for the operations portal.
+  - `SwimLaneHeader.tsx`: per-project action bar with Launch, New Task, Sync buttons
+  - `ImportProjectModal.tsx`: path input -> validate API -> show results -> confirm import
+  - `NewTaskModal.tsx`: title + description + priority form -> create task API
+  - `LaunchControl.tsx`: launch/stop toggle + port display + running indicator
+  - "Import Project" button in main header
+  - Warning badges for limited-mode projects (missing TASKS.md or CLAUDE.md)
+  - New types in `types.ts`, new API calls in `api.ts`
+- **AC**:
+  - [ ] Import modal validates and imports projects
+  - [ ] New Task modal creates task and it appears in swim lane
+  - [ ] Launch/stop toggles project process, shows port and status
+  - [ ] Per-project sync button works
+  - [ ] Limited-mode warnings visible
+  - [ ] All modals have loading states and error handling
+  - [ ] npm run build succeeds
+
+#### T-P2-8: E2E integration + SSE events for P2 features
+- **Complexity**: S | **Depends on**: T-P2-7
+- **What**: Wire everything together and verify end-to-end.
+  - SSE event types: process_start, process_stop (from ProcessManager)
+  - Dashboard summary includes process_status per project
+  - Full flow: Import -> appears in selector -> select -> swim lane renders -> create task -> appears in BACKLOG -> launch project -> running indicator
+  - Startup: cleanup_orphans for both SubprocessRegistry and PortRegistry
+  - Verify shutdown order works cleanly
+- **AC**:
+  - [ ] Import-to-swim-lane flow works end-to-end
+  - [ ] Task creation flow works end-to-end
+  - [ ] Process launch/stop flow works with SSE updates
+  - [ ] Startup orphan cleanup works
+  - [ ] Shutdown is clean (no zombies, no hanging)
+  - [ ] All existing tests still pass
+  - [ ] New integration tests
 
 ---
 
@@ -67,6 +203,24 @@ T-P1-5 [S] Fix config (no deps)
   +---> T-P1-6 [M] QUICKSTART.md
 
 T-P1-7 [S] E2E verification (needs T-P1-4 through T-P1-6)
+
+--- P2 ---
+
+T-P2-1 [S] Config extension (no deps)
+  |
+  +---> T-P2-2 [M] PortRegistry
+  |       |
+  |       +---> T-P2-3 [M] Validate/Import API ----------+
+  |       |                                                |
+  |       +---> T-P2-5 [M] ProcessManager ----------------+
+  |                                                        |
+  +---> T-P2-4 [M] TasksWriter ---------------------------+
+                                                           |
+T-P2-6 [M] Frontend Swim Lanes (no deps) ----------------+
+                                                           |
+                                                    T-P2-7 [M] Frontend Operations UI
+                                                           |
+                                                    T-P2-8 [S] E2E Integration
 ```
 
 ---
