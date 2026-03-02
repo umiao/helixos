@@ -14,15 +14,7 @@
 
 ### P1 -- Should Have (important features)
 
-#### T-P1-7: E2E startup verification [S]
-- **Files**: None (verification only)
-- **What**: Verify full pipeline: server starts, dashboard loads at localhost:8000, `POST /api/sync-all` syncs TASKS.md, task cards appear on Kanban, review trigger spawns `claude -p`.
-- **AC**:
-  1. Documented verification checklist passes
-  2. Screenshot or log evidence captured
-  3. All prior P1 tasks completed and integrated
-- **Complexity**: S
-- **Deps**: All prior P1 tasks
+<!-- T-P1-7 completed, moved to Completed Tasks -->
 
 ### P2 -- Nice to Have (polish, optimization)
 <!-- Phase 2+: frontend E2E tests, TypeScript codegen from Pydantic, cross-platform -->
@@ -151,3 +143,6 @@ T-P1-7 [S] E2E verification (needs T-P1-4 through T-P1-6)
 
 #### [x] T-P1-6: Create root-level QUICKSTART.md -- 2026-03-02
 - Comprehensive guide with prerequisites, installation, configuration (orchestrator_config.yaml, adding projects), running (dev/production/Windows), TASKS.md format, all 14 API endpoints documented, autonomous mode, and troubleshooting section. 333 tests passing.
+
+#### [x] T-P1-7: E2E startup verification -- 2026-03-02
+- Full pipeline verified: server starts on port 8000, dashboard loads from static build, sync-all parses 20 tasks from TASKS.md, all 14 API endpoints respond correctly, SSE streams with text/event-stream, review pipeline initialized with Claude CLI 2.1.63, state machine enforces transitions. Verification checklist in docs/e2e_verification.md. 333 tests passing.

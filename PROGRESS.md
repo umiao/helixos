@@ -174,3 +174,10 @@
 - **Sanity check result**: pytest 333/333 passed. ruff clean. No emoji.
 - **Status**: [DONE]
 - **Request**: Move T-P1-6 to Completed (REMOVE spec block from Active, ADD summary line to Completed Tasks)
+
+## 2026-03-02 18:00 -- [T-P1-7] E2E startup verification
+- **What I did**: Ran full E2E verification of the HelixOS pipeline. Started uvicorn server (port 8000), verified all 14 API endpoints respond correctly, confirmed frontend dashboard loads from static build, verified POST /api/sync-all parses TASKS.md (20 tasks synced: 19 done, 1 running), confirmed SSE endpoint streams with correct content-type, verified review pipeline initialized with Claude CLI 2.1.63, confirmed state machine enforces valid transitions (409 on invalid). Created docs/e2e_verification.md with full checklist and evidence.
+- **Deliverables**: docs/e2e_verification.md (new)
+- **Sanity check result**: pytest 333/333 passed. ruff clean. No emoji. All verification checks pass.
+- **Status**: [DONE]
+- **Request**: Move T-P1-7 to Completed (REMOVE spec block from Active, ADD summary line to Completed Tasks)
