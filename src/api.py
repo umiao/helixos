@@ -148,11 +148,31 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         event_bus=event_bus,
     )
 
-    # ReviewPipeline -- uses Claude CLI (claude -p) for LLM calls
-    review_pipeline = ReviewPipeline(
-        config=config.review_pipeline,
-        threshold=config.orchestrator.review_consensus_threshold,
-    )
+    # Claude CLI check -- verify claude is available before creating pipeline
+    review_pipeline: ReviewPipeline | None = None
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            "claude", "--version",
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        stdout_bytes, _ = await proc.communicate()
+        if proc.returncode == 0:
+            claude_version = stdout_bytes.decode("utf-8").strip()
+            logger.info("Claude CLI available: %s", claude_version)
+            review_pipeline = ReviewPipeline(
+                config=config.review_pipeline,
+                threshold=config.orchestrator.review_consensus_threshold,
+            )
+        else:
+            logger.warning(
+                "Claude CLI exited with code %d -- review pipeline disabled",
+                proc.returncode,
+            )
+    except FileNotFoundError:
+        logger.warning(
+            "Claude CLI not found in PATH -- review pipeline disabled"
+        )
 
     # Startup recovery
     recovered = await scheduler.startup_recovery()

@@ -129,9 +129,9 @@ async def test_app(tmp_path: Path, test_session_factory):
     task_manager = TaskManager(test_session_factory)
     registry = ProjectRegistry(config)
 
-    # Create a dummy .env file
+    # Create a dummy .env file (no ANTHROPIC_API_KEY needed -- uses Claude CLI)
     env_path = tmp_path / ".env"
-    env_path.write_text("ANTHROPIC_API_KEY=test-key\n", encoding="utf-8")
+    env_path.write_text("", encoding="utf-8")
     env_loader = EnvLoader(env_path)
 
     event_bus = EventBus()
@@ -151,7 +151,7 @@ async def test_app(tmp_path: Path, test_session_factory):
     app.state.env_loader = env_loader
     app.state.event_bus = event_bus
     app.state.scheduler = scheduler
-    app.state.review_pipeline = None  # No Anthropic client in tests
+    app.state.review_pipeline = None  # No Claude CLI in tests
     app.state.engine = None
 
     yield app

@@ -14,16 +14,6 @@
 
 ### P1 -- Should Have (important features)
 
-#### T-P1-2: API lifespan cleanup -- Remove Anthropic SDK init [S]
-- **Files**: `src/api.py`
-- **What**: Remove `import anthropic` + `AsyncAnthropic()` creation (lines 153-163). Create `ReviewPipeline(config=..., threshold=...)` without `anthropic_client`. Add `claude --version` check at startup.
-- **AC**:
-  1. API starts without ANTHROPIC_API_KEY env var
-  2. ReviewPipeline always created if `claude` CLI is in PATH
-  3. Startup logs Claude CLI version
-- **Complexity**: S
-- **Deps**: None (P1-1 done)
-
 #### T-P1-3: Remove ANTHROPIC_API_KEY dependency from env/config [S]
 - **Files**: `src/env_loader.py`, `requirements.txt`, `pyproject.toml`, `orchestrator_config.yaml`
 - **What**: Remove ANTHROPIC_API_KEY warning from env_loader (lines 79-81). Remove or make optional `anthropic` from deps. Remove `api: "anthropic"` from reviewer configs.
@@ -71,7 +61,7 @@
   2. Screenshot or log evidence captured
   3. All prior P1 tasks completed and integrated
 - **Complexity**: S
-- **Deps**: None (P1-1 done), T-P1-2, T-P1-3, T-P1-4, T-P1-5, T-P1-6
+- **Deps**: T-P1-3, T-P1-4, T-P1-5, T-P1-6
 
 ### P2 -- Nice to Have (polish, optimization)
 <!-- Phase 2+: frontend E2E tests, TypeScript codegen from Pydantic, cross-platform -->
@@ -124,7 +114,7 @@ T-P1-5 [S] Fix config (no deps)
   |
   +---> T-P1-6 [M] QUICKSTART.md
 
-T-P1-7 [S] E2E verification (needs T-P1-1 through T-P1-6)
+T-P1-7 [S] E2E verification (needs T-P1-2 through T-P1-6)
 ```
 
 ---
@@ -185,3 +175,6 @@ T-P1-7 [S] E2E verification (needs T-P1-1 through T-P1-6)
 
 #### [x] T-P1-1: Review pipeline refactor -- Replace Anthropic SDK with `claude -p` -- 2026-03-01
 - Replaced Anthropic SDK calls with `asyncio.create_subprocess_exec("claude", "-p", ...)` using `--system-prompt`, `--model`, `--output-format json`, `--json-schema`, `--no-session-persistence`, `--max-budget-usd 0.50`. Removed `anthropic_client` parameter from `__init__`. Added `_call_claude_cli()` method. Adapted all 20 unit tests and 4 integration tests to use subprocess mocking. Updated api.py lifespan. 335 tests passing.
+
+#### [x] T-P1-2: API lifespan cleanup -- Remove Anthropic SDK init -- 2026-03-02
+- Added `claude --version` check at startup. If Claude CLI is in PATH, logs version and creates ReviewPipeline. If not found, logs warning and sets review_pipeline to None. Removed ANTHROPIC_API_KEY from test fixtures. 335 tests passing.

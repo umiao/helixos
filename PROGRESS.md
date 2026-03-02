@@ -139,3 +139,10 @@
 - **Sanity check result**: pytest 335/335 passed. ruff clean. No emoji.
 - **Status**: [DONE]
 - **Request**: Move T-P1-1 to Completed (REMOVE spec block from Active, ADD summary line to Completed Tasks)
+
+## 2026-03-02 13:00 -- [T-P1-2] API lifespan cleanup -- Remove Anthropic SDK init
+- **What I did**: Added `claude --version` check at startup in api.py lifespan. If the Claude CLI is in PATH and returns exit 0, the version is logged and ReviewPipeline is created. If claude is not found (FileNotFoundError) or exits non-zero, a warning is logged and review_pipeline is set to None. Removed ANTHROPIC_API_KEY from test_api.py fixture .env file. Updated test comment to reference Claude CLI instead of Anthropic client.
+- **Deliverables**: src/api.py (mod -- claude --version check in lifespan), tests/test_api.py (mod -- removed ANTHROPIC_API_KEY from test .env)
+- **Sanity check result**: pytest 335/335 passed. ruff clean. No emoji.
+- **Status**: [DONE]
+- **Request**: Move T-P1-2 to Completed (REMOVE spec block from Active, ADD summary line to Completed Tasks)
