@@ -20,17 +20,6 @@
 
 ### P3 -- Phase 3: UX + Polish
 
-#### T-P3-8: Self-hosting guardrails -- design document [S]
-- **Description**: HelixOS manages itself as a project but lacks safety boundaries for self-modification. Design doc needed before implementing any self-edit workflow.
-- **AC**: Design doc (`docs/design/self-hosting-guardrails.md`) covering:
-  - Worker isolation: self-modification tasks execute in git worktree branch, not live codebase
-  - Commit serialization: changes validated via `pytest` before merge to main
-  - Log isolation: separate log streams for self-managed tasks
-  - Restart mechanism: human-triggered only (no auto-restart, prevents crash loop)
-  - Safety boundary: code+test changes safe; DB schema/config/scheduler changes = unsafe, require human gate
-  - State diagram for the self-modification lifecycle
-- **Depends on**: None
-
 #### T-P3-9: AI-assisted task enrichment via Claude CLI [M]
 - **Description**: Task creation (both InlineTaskCreator and NewTaskModal) accepts only raw user input with no AI assistance. Add endpoint and UI to auto-generate structured description and priority suggestion from a title.
 - **AC**:
@@ -262,3 +251,6 @@ T-P2-6 [M] Frontend Swim Lanes [DONE] ------------------+
 
 #### [x] T-P3-7: README overhaul -- 2026-03-02
 - Project-specific README with architecture diagram, features, backend/frontend module tables, API reference, task state machine, tech stack, quick start, configuration reference, and project structure tree.
+
+#### [x] T-P3-8: Self-hosting guardrails -- design document -- 2026-03-02
+- Design doc at docs/design/self-hosting-guardrails.md covering: worker isolation via git worktree branches, commit serialization with pytest validation gate, log isolation with [SELF-HOST] tags, human-triggered-only restart (no auto-restart), safety boundary classification (safe: code/tests/docs; unsafe: DB schema/config/scheduler/hooks), state diagram for self-modification lifecycle, recursive execution prevention, and 5-phase implementation plan.

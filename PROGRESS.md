@@ -328,3 +328,10 @@
 - **Sanity check result**: pytest 596/596 passed (27 new). ruff check clean. npm run build succeeds. No emoji.
 - **Status**: [DONE]
 - **Request**: Move T-P0-16 to Completed
+
+## 2026-03-02 15:00 -- [T-P3-8] Self-hosting guardrails -- design document
+- **What I did**: Created comprehensive design document for self-hosting guardrails at docs/design/self-hosting-guardrails.md. Covers all 6 AC areas: worker isolation via git worktree branches (agent works in .worktrees/<task-id> instead of live codebase), commit serialization with pytest+ruff validation gate before fast-forward merge to main, log isolation with [SELF-HOST] source tagging, human-triggered-only restart mechanism (no auto-restart to prevent crash loops), safety boundary classification (code/tests/docs=SAFE; DB schema/config/scheduler/hooks=UNSAFE requiring human gate), and ASCII state diagram for the full self-modification lifecycle. Also addresses recursive execution prevention, security considerations, and a 5-phase implementation plan.
+- **Deliverables**: docs/design/self-hosting-guardrails.md (new -- design document)
+- **Sanity check result**: pytest 596/596 passed. ruff check clean. npm run build succeeds. No emoji in document.
+- **Status**: [DONE]
+- **Request**: Move T-P3-8 to Completed
