@@ -1,9 +1,12 @@
 """Integration test: BACKLOG -> review -> REVIEW_NEEDS_HUMAN -> decide -> QUEUED.
 
-Tests the review pipeline flow with a mock Anthropic client.
+Tests the review pipeline flow with subprocess mocking for Claude CLI.
 """
 
 from __future__ import annotations
+
+import json
+from unittest.mock import AsyncMock, patch
 
 import pytest
 
@@ -15,11 +18,25 @@ from src.models import ExecutorType, ReviewState, Task, TaskStatus
 from src.review_pipeline import ReviewPipeline
 from src.task_manager import TaskManager
 
-from .conftest import MockAnthropicClient
+
+def _make_cli_output(inner_json: str) -> bytes:
+    """Create mock Claude CLI stdout bytes."""
+    cli_output = {"type": "result", "result": inner_json}
+    return json.dumps(cli_output).encode("utf-8")
+
+
+def _mock_proc(stdout: bytes) -> AsyncMock:
+    """Create a mock subprocess with given stdout."""
+    proc = AsyncMock()
+    proc.communicate = AsyncMock(return_value=(stdout, b""))
+    proc.returncode = 0
+    return proc
 
 
 @pytest.mark.integration
+@patch("src.review_pipeline.asyncio.create_subprocess_exec")
 async def test_review_approve_auto(
+    mock_exec: AsyncMock,
     task_manager: TaskManager,
     event_bus: EventBus,
     make_config,
@@ -50,14 +67,12 @@ async def test_review_approve_auto(
     # Transition BACKLOG -> REVIEW
     await task_manager.update_status(task.id, TaskStatus.REVIEW)
 
-    # Create mock Anthropic client that approves
-    mock_client = MockAnthropicClient([
-        '{"verdict": "approve", "summary": "Looks good", "suggestions": []}',
-    ])
+    # Mock Claude CLI subprocess that approves
+    inner = json.dumps({"verdict": "approve", "summary": "Looks good", "suggestions": []})
+    mock_exec.return_value = _mock_proc(_make_cli_output(inner))
 
     pipeline = ReviewPipeline(
         config=config.review_pipeline,
-        anthropic_client=mock_client,
         threshold=0.8,
     )
 
@@ -87,7 +102,9 @@ async def test_review_approve_auto(
 
 
 @pytest.mark.integration
+@patch("src.review_pipeline.asyncio.create_subprocess_exec")
 async def test_review_reject_needs_human(
+    mock_exec: AsyncMock,
     task_manager: TaskManager,
     event_bus: EventBus,
     make_config,
@@ -115,14 +132,14 @@ async def test_review_reject_needs_human(
     await task_manager.create_task(task)
     await task_manager.update_status(task.id, TaskStatus.REVIEW)
 
-    # Mock client returns reject
-    mock_client = MockAnthropicClient([
-        '{"verdict": "reject", "summary": "Too risky", "suggestions": ["Add tests"]}',
-    ])
+    # Mock Claude CLI subprocess that rejects
+    inner = json.dumps(
+        {"verdict": "reject", "summary": "Too risky", "suggestions": ["Add tests"]}
+    )
+    mock_exec.return_value = _mock_proc(_make_cli_output(inner))
 
     pipeline = ReviewPipeline(
         config=config.review_pipeline,
-        anthropic_client=mock_client,
         threshold=0.8,
     )
 
@@ -162,7 +179,9 @@ async def test_review_reject_needs_human(
 
 
 @pytest.mark.integration
+@patch("src.review_pipeline.asyncio.create_subprocess_exec")
 async def test_review_reject_then_human_rejects(
+    mock_exec: AsyncMock,
     task_manager: TaskManager,
     make_config,
 ) -> None:
@@ -189,13 +208,13 @@ async def test_review_reject_then_human_rejects(
     await task_manager.create_task(task)
     await task_manager.update_status(task.id, TaskStatus.REVIEW)
 
-    mock_client = MockAnthropicClient([
-        '{"verdict": "reject", "summary": "Bad idea", "suggestions": ["Dont do this"]}',
-    ])
+    inner = json.dumps(
+        {"verdict": "reject", "summary": "Bad idea", "suggestions": ["Dont do this"]}
+    )
+    mock_exec.return_value = _mock_proc(_make_cli_output(inner))
 
     pipeline = ReviewPipeline(
         config=config.review_pipeline,
-        anthropic_client=mock_client,
         threshold=0.8,
     )
 
@@ -216,7 +235,9 @@ async def test_review_reject_then_human_rejects(
 
 
 @pytest.mark.integration
+@patch("src.review_pipeline.asyncio.create_subprocess_exec")
 async def test_multi_reviewer_synthesis(
+    mock_exec: AsyncMock,
     task_manager: TaskManager,
     make_config,
 ) -> None:
@@ -248,15 +269,23 @@ async def test_multi_reviewer_synthesis(
     await task_manager.create_task(task)
 
     # First reviewer approves, second (adversarial) rejects, synthesis returns 0.6
-    mock_client = MockAnthropicClient([
-        '{"verdict": "approve", "summary": "OK", "suggestions": []}',
-        '{"verdict": "reject", "summary": "Risky", "suggestions": ["Watch out"]}',
-        '{"score": 0.6, "disagreements": ["Security concern"]}',
-    ])
+    approve_inner = json.dumps(
+        {"verdict": "approve", "summary": "OK", "suggestions": []}
+    )
+    reject_inner = json.dumps(
+        {"verdict": "reject", "summary": "Risky", "suggestions": ["Watch out"]}
+    )
+    synth_inner = json.dumps(
+        {"score": 0.6, "disagreements": ["Security concern"]}
+    )
+    mock_exec.side_effect = [
+        _mock_proc(_make_cli_output(approve_inner)),
+        _mock_proc(_make_cli_output(reject_inner)),
+        _mock_proc(_make_cli_output(synth_inner)),
+    ]
 
     pipeline = ReviewPipeline(
         config=config.review_pipeline,
-        anthropic_client=mock_client,
         threshold=0.8,
     )
 

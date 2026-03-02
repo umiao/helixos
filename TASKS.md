@@ -14,16 +14,6 @@
 
 ### P1 -- Should Have (important features)
 
-#### T-P1-1: Review pipeline refactor -- Replace Anthropic SDK with `claude -p` [M]
-- **Files**: `src/review_pipeline.py`
-- **What**: Replace `_call_reviewer()` and `_synthesize()` to use `asyncio.create_subprocess_exec("claude", "-p", ...)` with `--system-prompt`, `--model`, `--output-format json`, `--json-schema`, `--no-session-persistence`, `--max-budget-usd 0.50`. Remove `anthropic_client` parameter from `__init__`. Parse: extract `result` field from Claude CLI JSON output, then parse inner JSON (verdict/summary/suggestions).
-- **AC**:
-  1. ReviewPipeline works without Anthropic SDK import
-  2. All 20 existing review tests adapted and passing
-  3. `anthropic_client` parameter removed from `__init__`
-- **Complexity**: M
-- **Deps**: None
-
 #### T-P1-2: API lifespan cleanup -- Remove Anthropic SDK init [S]
 - **Files**: `src/api.py`
 - **What**: Remove `import anthropic` + `AsyncAnthropic()` creation (lines 153-163). Create `ReviewPipeline(config=..., threshold=...)` without `anthropic_client`. Add `claude --version` check at startup.
@@ -192,3 +182,6 @@ T-P1-7 [S] E2E verification (needs T-P1-1 through T-P1-6)
 
 #### [x] T-P0-13: Integration testing (end-to-end) -- 2026-03-01
 - 19 integration tests across 5 modules. conftest with MockExecutor, MockAnthropicClient, temp git repo, config factory. test_sync_to_execute (sync->QUEUED->RUNNING->DONE->git commit). test_review_flow (approve/reject/human decide/multi-reviewer synthesis). test_failure_retry (retry backoff 30/60/120s, max retries->BLOCKED). test_concurrency (per-project + global limits, dependency blocking). test_startup_recovery (orphaned RUNNING->FAILED, alerts, error_summary). 335 total tests passing.
+
+#### [x] T-P1-1: Review pipeline refactor -- Replace Anthropic SDK with `claude -p` -- 2026-03-01
+- Replaced Anthropic SDK calls with `asyncio.create_subprocess_exec("claude", "-p", ...)` using `--system-prompt`, `--model`, `--output-format json`, `--json-schema`, `--no-session-persistence`, `--max-budget-usd 0.50`. Removed `anthropic_client` parameter from `__init__`. Added `_call_claude_cli()` method. Adapted all 20 unit tests and 4 integration tests to use subprocess mocking. Updated api.py lifespan. 335 tests passing.

@@ -148,19 +148,11 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         event_bus=event_bus,
     )
 
-    # ReviewPipeline -- optional, requires anthropic package + API key
-    review_pipeline: ReviewPipeline | None = None
-    try:
-        import anthropic  # noqa: F811
-
-        client = anthropic.AsyncAnthropic()
-        review_pipeline = ReviewPipeline(
-            config=config.review_pipeline,
-            anthropic_client=client,
-            threshold=config.orchestrator.review_consensus_threshold,
-        )
-    except Exception:
-        logger.warning("Anthropic client not available -- review pipeline disabled")
+    # ReviewPipeline -- uses Claude CLI (claude -p) for LLM calls
+    review_pipeline = ReviewPipeline(
+        config=config.review_pipeline,
+        threshold=config.orchestrator.review_consensus_threshold,
+    )
 
     # Startup recovery
     recovered = await scheduler.startup_recovery()
@@ -319,7 +311,7 @@ async def trigger_review(task_id: str, request: Request) -> dict:
     if review_pipeline is None:
         raise HTTPException(
             status_code=409,
-            detail="Review pipeline not available (no Anthropic API key)",
+            detail="Review pipeline not available",
         )
 
     try:

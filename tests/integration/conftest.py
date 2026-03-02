@@ -11,7 +11,6 @@ import asyncio
 import subprocess
 from collections.abc import Callable
 from pathlib import Path
-from typing import Any
 
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
@@ -83,57 +82,6 @@ class MockExecutor(BaseExecutor):
     async def cancel(self) -> None:
         """Mark as cancelled."""
         self._cancelled = True
-
-
-# ---------------------------------------------------------------------------
-# Mock Anthropic client
-# ---------------------------------------------------------------------------
-
-
-class MockAnthropicMessage:
-    """Mock for a single Anthropic message content block."""
-
-    def __init__(self, text: str) -> None:
-        """Initialize with response text."""
-        self.text = text
-
-
-class MockAnthropicResponse:
-    """Mock for Anthropic messages.create() response."""
-
-    def __init__(self, text: str) -> None:
-        """Initialize with response text."""
-        self.content = [MockAnthropicMessage(text)]
-
-
-class MockAnthropicMessages:
-    """Mock for the Anthropic client.messages interface."""
-
-    def __init__(self, responses: list[str] | None = None) -> None:
-        """Initialize with a list of JSON response strings.
-
-        Args:
-            responses: JSON strings to return. Defaults to approve.
-        """
-        self._responses = responses or [
-            '{"verdict": "approve", "summary": "Looks good", "suggestions": []}',
-        ]
-        self._call_count = 0
-
-    async def create(self, **kwargs: Any) -> MockAnthropicResponse:
-        """Return the next configured response."""
-        idx = min(self._call_count, len(self._responses) - 1)
-        resp = MockAnthropicResponse(self._responses[idx])
-        self._call_count += 1
-        return resp
-
-
-class MockAnthropicClient:
-    """Mock for the full Anthropic AsyncAnthropic client."""
-
-    def __init__(self, responses: list[str] | None = None) -> None:
-        """Initialize with response strings."""
-        self.messages = MockAnthropicMessages(responses)
 
 
 # ---------------------------------------------------------------------------

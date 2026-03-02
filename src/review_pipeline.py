@@ -1,16 +1,16 @@
 """Review pipeline for HelixOS orchestrator.
 
 Implements LLM-based task plan review per PRD Section 9. Reviews are opt-in
-and run as background tasks. MVP supports Anthropic API only.
+and run as background tasks. Uses Claude CLI (``claude -p``) for LLM calls.
 """
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 from collections.abc import Callable
 from datetime import UTC, datetime
-from typing import Any
 
 from pydantic import BaseModel
 
@@ -30,6 +30,30 @@ class SynthesisResult(BaseModel):
 
     score: float
     disagreements: list[str]
+
+
+# ------------------------------------------------------------------
+# JSON schemas for Claude CLI structured output
+# ------------------------------------------------------------------
+
+_REVIEW_JSON_SCHEMA = json.dumps({
+    "type": "object",
+    "properties": {
+        "verdict": {"type": "string", "enum": ["approve", "reject"]},
+        "summary": {"type": "string"},
+        "suggestions": {"type": "array", "items": {"type": "string"}},
+    },
+    "required": ["verdict", "summary", "suggestions"],
+})
+
+_SYNTHESIS_JSON_SCHEMA = json.dumps({
+    "type": "object",
+    "properties": {
+        "score": {"type": "number"},
+        "disagreements": {"type": "array", "items": {"type": "string"}},
+    },
+    "required": ["score", "disagreements"],
+})
 
 
 # ------------------------------------------------------------------
@@ -76,28 +100,25 @@ _DEFAULT_REVIEW_PROMPT = (
 class ReviewPipeline:
     """LLM-based review pipeline for task plans.
 
-    MVP: 1 primary reviewer + 1 optional adversarial, both Anthropic API.
-    Reviews are opt-in and run as background tasks (via asyncio.create_task).
-    Results are pushed to the frontend via SSE.
+    Uses Claude CLI (``claude -p``) for LLM calls. 1 primary reviewer
+    + 1 optional adversarial. Reviews are opt-in and run as background
+    tasks (via ``asyncio.create_task``). Results are pushed via SSE.
     """
 
     def __init__(
         self,
         config: ReviewPipelineConfig,
-        anthropic_client: Any,
         threshold: float = 0.8,
     ) -> None:
         """Initialize the review pipeline.
 
         Args:
             config: Review pipeline configuration (reviewers list).
-            anthropic_client: Injected Anthropic async client instance.
             threshold: Consensus score threshold for auto-approval.
         """
         self.reviewers = [r for r in config.reviewers if r.required]
         self.optional_reviewers = [r for r in config.reviewers if not r.required]
         self.threshold = threshold
-        self._client = anthropic_client
 
     async def review_task(
         self,
@@ -163,13 +184,64 @@ class ReviewPipeline:
             decision_points=disagreements,
         )
 
+    async def _call_claude_cli(
+        self,
+        prompt: str,
+        system_prompt: str,
+        model: str,
+        json_schema: str | None = None,
+    ) -> str:
+        """Call the Claude CLI subprocess and return the result text.
+
+        Invokes ``claude -p`` with ``--output-format json`` and parses the
+        outer JSON wrapper to extract the ``result`` field.
+
+        Args:
+            prompt: The user prompt to send.
+            system_prompt: The system prompt.
+            model: Model identifier (e.g., ``"claude-sonnet-4-5"``).
+            json_schema: Optional JSON schema for structured output.
+
+        Returns:
+            The ``result`` field from the Claude CLI JSON output.
+
+        Raises:
+            RuntimeError: If the subprocess exits with a non-zero code.
+        """
+        args = [
+            "claude", "-p", prompt,
+            "--system-prompt", system_prompt,
+            "--model", model,
+            "--output-format", "json",
+            "--no-session-persistence",
+            "--max-budget-usd", "0.50",
+        ]
+        if json_schema is not None:
+            args.extend(["--json-schema", json_schema])
+
+        proc = await asyncio.create_subprocess_exec(
+            *args,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        stdout_bytes, stderr_bytes = await proc.communicate()
+
+        if proc.returncode != 0:
+            stderr_text = stderr_bytes.decode("utf-8", errors="replace")
+            raise RuntimeError(
+                f"Claude CLI failed (exit {proc.returncode}): {stderr_text}"
+            )
+
+        cli_output = json.loads(stdout_bytes.decode("utf-8"))
+        return cli_output.get("result", "")
+
     async def _call_reviewer(
         self,
         reviewer: ReviewerConfig,
         task: Task,
         plan_content: str,
     ) -> LLMReview:
-        """Call an Anthropic API reviewer.
+        """Call a reviewer via the Claude CLI.
 
         Args:
             reviewer: Reviewer configuration (model, focus).
@@ -188,14 +260,14 @@ class ReviewPipeline:
             f"Plan:\n{plan_content}"
         )
 
-        response = await self._client.messages.create(
+        result_text = await self._call_claude_cli(
+            prompt=user_content,
+            system_prompt=system_prompt,
             model=reviewer.model,
-            max_tokens=2000,
-            system=system_prompt,
-            messages=[{"role": "user", "content": user_content}],
+            json_schema=_REVIEW_JSON_SCHEMA,
         )
 
-        return self._parse_review(response, reviewer)
+        return self._parse_review(result_text, reviewer)
 
     def _build_review_prompt(self, focus: str) -> str:
         """Generate a focus-area system prompt for a reviewer.
@@ -208,18 +280,16 @@ class ReviewPipeline:
         """
         return _REVIEW_PROMPTS.get(focus, _DEFAULT_REVIEW_PROMPT)
 
-    def _parse_review(self, response: Any, reviewer: ReviewerConfig) -> LLMReview:
-        """Parse an Anthropic API response into an LLMReview.
+    def _parse_review(self, text: str, reviewer: ReviewerConfig) -> LLMReview:
+        """Parse a Claude CLI result into an LLMReview.
 
         Args:
-            response: The Anthropic ``messages.create`` response.
+            text: The ``result`` text from Claude CLI JSON output.
             reviewer: The reviewer config that generated this response.
 
         Returns:
             LLMReview with extracted verdict, summary, suggestions.
         """
-        text = response.content[0].text
-
         try:
             data = json.loads(text)
             verdict = data.get("verdict", "reject")
@@ -250,7 +320,7 @@ class ReviewPipeline:
     ) -> SynthesisResult:
         """Synthesize multiple reviews into a consensus score.
 
-        Uses Claude to analyze all reviews and determine a consensus score
+        Uses Claude CLI to analyze all reviews and determine a consensus score
         and list of key disagreements.
 
         Args:
@@ -274,25 +344,24 @@ class ReviewPipeline:
             'Respond in JSON: {{"score": 0.85, "disagreements": ["..."]}}'
         )
 
-        response = await self._client.messages.create(
+        result_text = await self._call_claude_cli(
+            prompt=synthesis_prompt,
+            system_prompt="You are a review synthesis engine.",
             model="claude-sonnet-4-5",
-            max_tokens=1500,
-            messages=[{"role": "user", "content": synthesis_prompt}],
+            json_schema=_SYNTHESIS_JSON_SCHEMA,
         )
 
-        return self._parse_synthesis(response)
+        return self._parse_synthesis(result_text)
 
-    def _parse_synthesis(self, response: Any) -> SynthesisResult:
-        """Parse synthesis API response into a SynthesisResult.
+    def _parse_synthesis(self, text: str) -> SynthesisResult:
+        """Parse synthesis result text into a SynthesisResult.
 
         Args:
-            response: The Anthropic ``messages.create`` response.
+            text: The ``result`` text from Claude CLI JSON output.
 
         Returns:
             SynthesisResult with score and disagreements.
         """
-        text = response.content[0].text
-
         try:
             data = json.loads(text)
             score = float(data.get("score", 0.5))

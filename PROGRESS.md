@@ -132,3 +132,10 @@
 - **Sanity check result**: task_dedup_check.py exit 0 on clean TASKS.md, exit 2 on synthetic overlap. session_context.py shows no orphaned tasks. pytest 335/335 passed. ruff clean. No emoji.
 - **Status**: [DONE]
 - **Request**: No task status change (SOP fix, not a TASKS.md task)
+
+## 2026-03-01 12:00 -- [T-P1-1] Review pipeline refactor -- Replace Anthropic SDK with claude -p
+- **What I did**: Refactored ReviewPipeline to use Claude CLI subprocess (`claude -p`) instead of the Anthropic Python SDK. Added `_call_claude_cli()` method that invokes `asyncio.create_subprocess_exec` with `--system-prompt`, `--model`, `--output-format json`, `--json-schema`, `--no-session-persistence`, `--max-budget-usd 0.50`. Removed `anthropic_client` parameter from `__init__`. Updated `_call_reviewer()` and `_synthesize()` to use the new CLI method. Adapted all 20 unit tests and 4 integration tests to mock `asyncio.create_subprocess_exec` instead of the Anthropic client. Removed `MockAnthropicClient` from integration conftest. Updated api.py lifespan to create ReviewPipeline without anthropic import.
+- **Deliverables**: src/review_pipeline.py (rewritten), tests/test_review_pipeline.py (rewritten), tests/integration/test_review_flow.py (rewritten), tests/integration/conftest.py (mod -- removed MockAnthropicClient), src/api.py (mod -- removed anthropic import)
+- **Sanity check result**: pytest 335/335 passed. ruff clean. No emoji.
+- **Status**: [DONE]
+- **Request**: Move T-P1-1 to Completed (REMOVE spec block from Active, ADD summary line to Completed Tasks)

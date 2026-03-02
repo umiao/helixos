@@ -1,13 +1,14 @@
 """Tests for the ReviewPipeline.
 
-Uses mock Anthropic clients to test approve, reject, disagree, progress
-callback, synthesis, and error-handling scenarios.
+Uses subprocess mocking (patching asyncio.create_subprocess_exec) to test
+approve, reject, disagree, progress callback, synthesis, and error-handling
+scenarios. All LLM calls go through the Claude CLI subprocess.
 """
 
 from __future__ import annotations
 
 import json
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, patch
 
 import pytest
 
@@ -20,39 +21,48 @@ from src.review_pipeline import ReviewPipeline
 # ------------------------------------------------------------------
 
 
-def _make_response(text: str) -> MagicMock:
-    """Create a mock Anthropic response with the given text."""
-    block = MagicMock()
-    block.text = text
-    response = MagicMock()
-    response.content = [block]
-    return response
+def _make_cli_output(inner_json: str) -> bytes:
+    """Create mock Claude CLI stdout bytes wrapping an inner JSON string.
+
+    The Claude CLI with ``--output-format json`` returns a JSON object
+    with a ``result`` field containing the LLM response text.
+    """
+    cli_output = {"type": "result", "result": inner_json}
+    return json.dumps(cli_output).encode("utf-8")
 
 
-def _make_json_response(
+def _make_review_output(
     verdict: str,
     summary: str,
     suggestions: list[str] | None = None,
-) -> MagicMock:
-    """Create a mock Anthropic response with JSON review data."""
-    data = {
+) -> bytes:
+    """Create mock Claude CLI stdout for a review response."""
+    inner = json.dumps({
         "verdict": verdict,
         "summary": summary,
         "suggestions": suggestions or [],
-    }
-    return _make_response(json.dumps(data))
+    })
+    return _make_cli_output(inner)
 
 
-def _make_synthesis_response(
+def _make_synthesis_output(
     score: float,
     disagreements: list[str] | None = None,
-) -> MagicMock:
-    """Create a mock Anthropic response with synthesis JSON."""
-    data = {
+) -> bytes:
+    """Create mock Claude CLI stdout for a synthesis response."""
+    inner = json.dumps({
         "score": score,
         "disagreements": disagreements or [],
-    }
-    return _make_response(json.dumps(data))
+    })
+    return _make_cli_output(inner)
+
+
+def _mock_proc(stdout: bytes, returncode: int = 0) -> AsyncMock:
+    """Create a mock subprocess with given stdout and return code."""
+    proc = AsyncMock()
+    proc.communicate = AsyncMock(return_value=(stdout, b""))
+    proc.returncode = returncode
+    return proc
 
 
 def _default_config() -> ReviewPipelineConfig:
@@ -88,28 +98,20 @@ def _sample_task() -> Task:
     )
 
 
-def _mock_client() -> MagicMock:
-    """Create a mock Anthropic client with async messages.create."""
-    client = MagicMock()
-    client.messages = MagicMock()
-    client.messages.create = AsyncMock()
-    return client
-
-
 # ------------------------------------------------------------------
 # Single-reviewer tests
 # ------------------------------------------------------------------
 
 
 @pytest.mark.asyncio
-async def test_single_reviewer_approve() -> None:
+@patch("src.review_pipeline.asyncio.create_subprocess_exec")
+async def test_single_reviewer_approve(mock_exec: AsyncMock) -> None:
     """Single required reviewer approves -> score 1.0, no human decision."""
-    client = _mock_client()
-    client.messages.create.return_value = _make_json_response(
-        "approve", "Plan looks good", []
+    mock_exec.return_value = _mock_proc(
+        _make_review_output("approve", "Plan looks good", [])
     )
 
-    pipeline = ReviewPipeline(_default_config(), client, threshold=0.8)
+    pipeline = ReviewPipeline(_default_config(), threshold=0.8)
 
     progress_calls: list[tuple[int, int]] = []
     result = await pipeline.review_task(
@@ -126,18 +128,18 @@ async def test_single_reviewer_approve() -> None:
     assert result.rounds_total == 1
     assert result.rounds_completed == 1
     # Only required reviewer called for S complexity
-    assert client.messages.create.call_count == 1
+    assert mock_exec.call_count == 1
 
 
 @pytest.mark.asyncio
-async def test_single_reviewer_reject() -> None:
+@patch("src.review_pipeline.asyncio.create_subprocess_exec")
+async def test_single_reviewer_reject(mock_exec: AsyncMock) -> None:
     """Single required reviewer rejects -> score 0.3, human decision needed."""
-    client = _mock_client()
-    client.messages.create.return_value = _make_json_response(
-        "reject", "Plan has issues", ["Fix error handling", "Add tests"]
+    mock_exec.return_value = _mock_proc(
+        _make_review_output("reject", "Plan has issues", ["Fix error handling", "Add tests"])
     )
 
-    pipeline = ReviewPipeline(_default_config(), client, threshold=0.8)
+    pipeline = ReviewPipeline(_default_config(), threshold=0.8)
 
     result = await pipeline.review_task(
         _sample_task(), "Build the thing", lambda c, t: None, complexity="S"
@@ -156,16 +158,16 @@ async def test_single_reviewer_reject() -> None:
 
 
 @pytest.mark.asyncio
-async def test_multi_reviewer_disagree() -> None:
+@patch("src.review_pipeline.asyncio.create_subprocess_exec")
+async def test_multi_reviewer_disagree(mock_exec: AsyncMock) -> None:
     """Two reviewers disagree -> synthesis called, score from synthesis."""
-    client = _mock_client()
-    approve_resp = _make_json_response("approve", "Looks feasible")
-    reject_resp = _make_json_response("reject", "Security risk", ["Add auth check"])
-    synth_resp = _make_synthesis_response(0.65, ["Security concerns"])
+    mock_exec.side_effect = [
+        _mock_proc(_make_review_output("approve", "Looks feasible")),
+        _mock_proc(_make_review_output("reject", "Security risk", ["Add auth check"])),
+        _mock_proc(_make_synthesis_output(0.65, ["Security concerns"])),
+    ]
 
-    client.messages.create.side_effect = [approve_resp, reject_resp, synth_resp]
-
-    pipeline = ReviewPipeline(_default_config(), client, threshold=0.8)
+    pipeline = ReviewPipeline(_default_config(), threshold=0.8)
 
     result = await pipeline.review_task(
         _sample_task(), "Build the thing", lambda c, t: None, complexity="M"
@@ -176,20 +178,20 @@ async def test_multi_reviewer_disagree() -> None:
     assert len(result.reviews) == 2
     assert result.decision_points == ["Security concerns"]
     # 2 review calls + 1 synthesis call = 3 total
-    assert client.messages.create.call_count == 3
+    assert mock_exec.call_count == 3
 
 
 @pytest.mark.asyncio
-async def test_multi_reviewer_agree() -> None:
+@patch("src.review_pipeline.asyncio.create_subprocess_exec")
+async def test_multi_reviewer_agree(mock_exec: AsyncMock) -> None:
     """Two reviewers both approve -> synthesis called, high score."""
-    client = _mock_client()
-    approve1 = _make_json_response("approve", "Feasible")
-    approve2 = _make_json_response("approve", "No risks found")
-    synth_resp = _make_synthesis_response(0.95, [])
+    mock_exec.side_effect = [
+        _mock_proc(_make_review_output("approve", "Feasible")),
+        _mock_proc(_make_review_output("approve", "No risks found")),
+        _mock_proc(_make_synthesis_output(0.95, [])),
+    ]
 
-    client.messages.create.side_effect = [approve1, approve2, synth_resp]
-
-    pipeline = ReviewPipeline(_default_config(), client, threshold=0.8)
+    pipeline = ReviewPipeline(_default_config(), threshold=0.8)
 
     result = await pipeline.review_task(
         _sample_task(), "Build the thing", lambda c, t: None, complexity="L"
@@ -207,14 +209,16 @@ async def test_multi_reviewer_agree() -> None:
 
 
 @pytest.mark.asyncio
-async def test_progress_callback() -> None:
+@patch("src.review_pipeline.asyncio.create_subprocess_exec")
+async def test_progress_callback(mock_exec: AsyncMock) -> None:
     """on_progress is called with (completed, total) after each reviewer."""
-    client = _mock_client()
-    approve_resp = _make_json_response("approve", "OK")
-    synth_resp = _make_synthesis_response(0.9, [])
-    client.messages.create.side_effect = [approve_resp, approve_resp, synth_resp]
+    mock_exec.side_effect = [
+        _mock_proc(_make_review_output("approve", "OK")),
+        _mock_proc(_make_review_output("approve", "OK")),
+        _mock_proc(_make_synthesis_output(0.9, [])),
+    ]
 
-    pipeline = ReviewPipeline(_default_config(), client, threshold=0.8)
+    pipeline = ReviewPipeline(_default_config(), threshold=0.8)
 
     progress_calls: list[tuple[int, int]] = []
     await pipeline.review_task(
@@ -228,12 +232,14 @@ async def test_progress_callback() -> None:
 
 
 @pytest.mark.asyncio
-async def test_progress_callback_single_reviewer() -> None:
+@patch("src.review_pipeline.asyncio.create_subprocess_exec")
+async def test_progress_callback_single_reviewer(mock_exec: AsyncMock) -> None:
     """Progress callback for single reviewer shows (1, 1)."""
-    client = _mock_client()
-    client.messages.create.return_value = _make_json_response("approve", "OK")
+    mock_exec.return_value = _mock_proc(
+        _make_review_output("approve", "OK")
+    )
 
-    pipeline = ReviewPipeline(_default_config(), client)
+    pipeline = ReviewPipeline(_default_config())
 
     progress_calls: list[tuple[int, int]] = []
     await pipeline.review_task(
@@ -252,30 +258,34 @@ async def test_progress_callback_single_reviewer() -> None:
 
 
 @pytest.mark.asyncio
-async def test_s_complexity_skips_optional() -> None:
+@patch("src.review_pipeline.asyncio.create_subprocess_exec")
+async def test_s_complexity_skips_optional(mock_exec: AsyncMock) -> None:
     """S complexity only runs required reviewers."""
-    client = _mock_client()
-    client.messages.create.return_value = _make_json_response("approve", "OK")
+    mock_exec.return_value = _mock_proc(
+        _make_review_output("approve", "OK")
+    )
 
-    pipeline = ReviewPipeline(_default_config(), client)
+    pipeline = ReviewPipeline(_default_config())
 
     result = await pipeline.review_task(
         _sample_task(), "Plan", lambda c, t: None, complexity="S"
     )
 
     assert len(result.reviews) == 1
-    assert client.messages.create.call_count == 1
+    assert mock_exec.call_count == 1
 
 
 @pytest.mark.asyncio
-async def test_m_complexity_includes_optional() -> None:
+@patch("src.review_pipeline.asyncio.create_subprocess_exec")
+async def test_m_complexity_includes_optional(mock_exec: AsyncMock) -> None:
     """M complexity includes optional adversarial reviewer."""
-    client = _mock_client()
-    approve_resp = _make_json_response("approve", "OK")
-    synth_resp = _make_synthesis_response(0.9, [])
-    client.messages.create.side_effect = [approve_resp, approve_resp, synth_resp]
+    mock_exec.side_effect = [
+        _mock_proc(_make_review_output("approve", "OK")),
+        _mock_proc(_make_review_output("approve", "OK")),
+        _mock_proc(_make_synthesis_output(0.9, [])),
+    ]
 
-    pipeline = ReviewPipeline(_default_config(), client)
+    pipeline = ReviewPipeline(_default_config())
 
     result = await pipeline.review_task(
         _sample_task(), "Plan", lambda c, t: None, complexity="M"
@@ -283,18 +293,20 @@ async def test_m_complexity_includes_optional() -> None:
 
     assert len(result.reviews) == 2
     # 2 reviews + 1 synthesis
-    assert client.messages.create.call_count == 3
+    assert mock_exec.call_count == 3
 
 
 @pytest.mark.asyncio
-async def test_l_complexity_includes_optional() -> None:
+@patch("src.review_pipeline.asyncio.create_subprocess_exec")
+async def test_l_complexity_includes_optional(mock_exec: AsyncMock) -> None:
     """L complexity also includes optional adversarial reviewer."""
-    client = _mock_client()
-    approve_resp = _make_json_response("approve", "OK")
-    synth_resp = _make_synthesis_response(0.9, [])
-    client.messages.create.side_effect = [approve_resp, approve_resp, synth_resp]
+    mock_exec.side_effect = [
+        _mock_proc(_make_review_output("approve", "OK")),
+        _mock_proc(_make_review_output("approve", "OK")),
+        _mock_proc(_make_synthesis_output(0.9, [])),
+    ]
 
-    pipeline = ReviewPipeline(_default_config(), client)
+    pipeline = ReviewPipeline(_default_config())
 
     result = await pipeline.review_task(
         _sample_task(), "Plan", lambda c, t: None, complexity="L"
@@ -309,12 +321,14 @@ async def test_l_complexity_includes_optional() -> None:
 
 
 @pytest.mark.asyncio
-async def test_parse_failure_treated_as_reject() -> None:
+@patch("src.review_pipeline.asyncio.create_subprocess_exec")
+async def test_parse_failure_treated_as_reject(mock_exec: AsyncMock) -> None:
     """Invalid JSON from reviewer -> treated as reject."""
-    client = _mock_client()
-    client.messages.create.return_value = _make_response("This is not valid JSON")
+    mock_exec.return_value = _mock_proc(
+        _make_cli_output("This is not valid JSON")
+    )
 
-    pipeline = ReviewPipeline(_default_config(), client, threshold=0.8)
+    pipeline = ReviewPipeline(_default_config(), threshold=0.8)
 
     result = await pipeline.review_task(
         _sample_task(), "Plan", lambda c, t: None, complexity="S"
@@ -327,16 +341,16 @@ async def test_parse_failure_treated_as_reject() -> None:
 
 
 @pytest.mark.asyncio
-async def test_synthesis_parse_failure() -> None:
+@patch("src.review_pipeline.asyncio.create_subprocess_exec")
+async def test_synthesis_parse_failure(mock_exec: AsyncMock) -> None:
     """Invalid JSON from synthesis -> default score 0.5, human decision needed."""
-    client = _mock_client()
-    approve_resp = _make_json_response("approve", "OK")
-    reject_resp = _make_json_response("reject", "Bad")
-    bad_synth = _make_response("not json at all")
+    mock_exec.side_effect = [
+        _mock_proc(_make_review_output("approve", "OK")),
+        _mock_proc(_make_review_output("reject", "Bad")),
+        _mock_proc(_make_cli_output("not json at all")),
+    ]
 
-    client.messages.create.side_effect = [approve_resp, reject_resp, bad_synth]
-
-    pipeline = ReviewPipeline(_default_config(), client, threshold=0.8)
+    pipeline = ReviewPipeline(_default_config(), threshold=0.8)
 
     result = await pipeline.review_task(
         _sample_task(), "Plan", lambda c, t: None, complexity="M"
@@ -355,7 +369,7 @@ async def test_synthesis_parse_failure() -> None:
 
 def test_build_review_prompt_feasibility() -> None:
     """Known focus 'feasibility_and_edge_cases' returns specific prompt."""
-    pipeline = ReviewPipeline(_default_config(), _mock_client())
+    pipeline = ReviewPipeline(_default_config())
 
     prompt = pipeline._build_review_prompt("feasibility_and_edge_cases")
 
@@ -365,7 +379,7 @@ def test_build_review_prompt_feasibility() -> None:
 
 def test_build_review_prompt_adversarial() -> None:
     """Known focus 'adversarial_red_team' returns specific prompt."""
-    pipeline = ReviewPipeline(_default_config(), _mock_client())
+    pipeline = ReviewPipeline(_default_config())
 
     prompt = pipeline._build_review_prompt("adversarial_red_team")
 
@@ -375,7 +389,7 @@ def test_build_review_prompt_adversarial() -> None:
 
 def test_build_review_prompt_unknown_focus() -> None:
     """Unknown focus area returns the default prompt."""
-    pipeline = ReviewPipeline(_default_config(), _mock_client())
+    pipeline = ReviewPipeline(_default_config())
 
     prompt = pipeline._build_review_prompt("unknown_focus")
 
@@ -383,46 +397,52 @@ def test_build_review_prompt_unknown_focus() -> None:
 
 
 # ------------------------------------------------------------------
-# API call content verification
+# CLI call content verification
 # ------------------------------------------------------------------
 
 
 @pytest.mark.asyncio
-async def test_reviewer_receives_task_context() -> None:
-    """API call includes task title, ID, description, and plan content."""
-    client = _mock_client()
-    client.messages.create.return_value = _make_json_response("approve", "OK")
+@patch("src.review_pipeline.asyncio.create_subprocess_exec")
+async def test_reviewer_receives_task_context(mock_exec: AsyncMock) -> None:
+    """CLI call includes task title, ID, description, and plan content."""
+    mock_exec.return_value = _mock_proc(
+        _make_review_output("approve", "OK")
+    )
 
-    pipeline = ReviewPipeline(_default_config(), client)
+    pipeline = ReviewPipeline(_default_config())
     task = _sample_task()
 
     await pipeline.review_task(
         task, "My detailed plan", lambda c, t: None, complexity="S"
     )
 
-    call_kwargs = client.messages.create.call_args
-    messages = call_kwargs.kwargs["messages"]
-    user_msg = messages[0]["content"]
+    call_args = mock_exec.call_args.args
+    # call_args = ("claude", "-p", prompt, "--system-prompt", system, ...)
+    prompt = call_args[2]  # The -p argument value
 
-    assert task.title in user_msg
-    assert task.id in user_msg
-    assert "My detailed plan" in user_msg
+    assert task.title in prompt
+    assert task.id in prompt
+    assert "My detailed plan" in prompt
 
 
 @pytest.mark.asyncio
-async def test_reviewer_uses_correct_model() -> None:
-    """API call uses the model specified in the reviewer config."""
-    client = _mock_client()
-    client.messages.create.return_value = _make_json_response("approve", "OK")
+@patch("src.review_pipeline.asyncio.create_subprocess_exec")
+async def test_reviewer_uses_correct_model(mock_exec: AsyncMock) -> None:
+    """CLI call uses the model specified in the reviewer config."""
+    mock_exec.return_value = _mock_proc(
+        _make_review_output("approve", "OK")
+    )
 
-    pipeline = ReviewPipeline(_default_config(), client)
+    pipeline = ReviewPipeline(_default_config())
 
     await pipeline.review_task(
         _sample_task(), "Plan", lambda c, t: None, complexity="S"
     )
 
-    call_kwargs = client.messages.create.call_args
-    assert call_kwargs.kwargs["model"] == "claude-sonnet-4-5"
+    call_args = mock_exec.call_args.args
+    # Find --model flag and its value
+    model_idx = list(call_args).index("--model") + 1
+    assert call_args[model_idx] == "claude-sonnet-4-5"
 
 
 # ------------------------------------------------------------------
@@ -443,8 +463,7 @@ async def test_no_active_reviewers_auto_approve() -> None:
             ),
         ],
     )
-    client = _mock_client()
-    pipeline = ReviewPipeline(config, client)
+    pipeline = ReviewPipeline(config)
 
     result = await pipeline.review_task(
         _sample_task(), "Plan", lambda c, t: None, complexity="S"
@@ -454,16 +473,13 @@ async def test_no_active_reviewers_auto_approve() -> None:
     assert result.human_decision_needed is False
     assert len(result.reviews) == 0
     assert result.rounds_total == 0
-    # No API calls made
-    assert client.messages.create.call_count == 0
 
 
 @pytest.mark.asyncio
 async def test_empty_reviewers_config() -> None:
     """Empty reviewers list -> auto-approve."""
     config = ReviewPipelineConfig(reviewers=[])
-    client = _mock_client()
-    pipeline = ReviewPipeline(config, client)
+    pipeline = ReviewPipeline(config)
 
     result = await pipeline.review_task(
         _sample_task(), "Plan", lambda c, t: None, complexity="M"
@@ -471,21 +487,19 @@ async def test_empty_reviewers_config() -> None:
 
     assert result.consensus_score == 1.0
     assert result.human_decision_needed is False
-    assert client.messages.create.call_count == 0
 
 
 @pytest.mark.asyncio
-async def test_threshold_boundary() -> None:
+@patch("src.review_pipeline.asyncio.create_subprocess_exec")
+async def test_threshold_boundary(mock_exec: AsyncMock) -> None:
     """Score exactly at threshold -> no human decision needed."""
-    client = _mock_client()
-    approve1 = _make_json_response("approve", "OK")
-    approve2 = _make_json_response("approve", "OK")
-    # Synthesis returns score exactly at threshold
-    synth_resp = _make_synthesis_response(0.8, [])
+    mock_exec.side_effect = [
+        _mock_proc(_make_review_output("approve", "OK")),
+        _mock_proc(_make_review_output("approve", "OK")),
+        _mock_proc(_make_synthesis_output(0.8, [])),
+    ]
 
-    client.messages.create.side_effect = [approve1, approve2, synth_resp]
-
-    pipeline = ReviewPipeline(_default_config(), client, threshold=0.8)
+    pipeline = ReviewPipeline(_default_config(), threshold=0.8)
 
     result = await pipeline.review_task(
         _sample_task(), "Plan", lambda c, t: None, complexity="M"
@@ -497,17 +511,16 @@ async def test_threshold_boundary() -> None:
 
 
 @pytest.mark.asyncio
-async def test_synthesis_score_clamped() -> None:
+@patch("src.review_pipeline.asyncio.create_subprocess_exec")
+async def test_synthesis_score_clamped(mock_exec: AsyncMock) -> None:
     """Synthesis score > 1.0 is clamped to 1.0."""
-    client = _mock_client()
-    approve1 = _make_json_response("approve", "OK")
-    approve2 = _make_json_response("approve", "OK")
-    # Synthesis returns out-of-range score
-    synth_resp = _make_synthesis_response(1.5, [])
+    mock_exec.side_effect = [
+        _mock_proc(_make_review_output("approve", "OK")),
+        _mock_proc(_make_review_output("approve", "OK")),
+        _mock_proc(_make_synthesis_output(1.5, [])),
+    ]
 
-    client.messages.create.side_effect = [approve1, approve2, synth_resp]
-
-    pipeline = ReviewPipeline(_default_config(), client, threshold=0.8)
+    pipeline = ReviewPipeline(_default_config(), threshold=0.8)
 
     result = await pipeline.review_task(
         _sample_task(), "Plan", lambda c, t: None, complexity="M"
