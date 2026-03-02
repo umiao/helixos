@@ -76,3 +76,10 @@
 - **Sanity check result**: pytest tests/ -- 243/243 passed (8 git_ops + 235 existing). ruff check -- clean. check_emoji.py -- no emoji found.
 - **Status**: [DONE]
 - **Request**: Cross off T-P0-12
+
+## 2026-03-01 04:00 -- [T-P0-7] Review pipeline (Anthropic-only, opt-in, async)
+- **What I did**: Created ReviewPipeline class with review_task (1 required + 1 optional adversarial reviewer for M/L tasks), _call_reviewer (Anthropic Messages API), _build_review_prompt (focus-area system prompts for feasibility and adversarial), _parse_review (JSON response -> LLMReview with graceful fallback on parse failure), _synthesize (multi-review consensus via Claude), and _parse_synthesis (score + disagreements extraction). Scoring: single approve=1.0, reject=0.3, multi=synthesized. SynthesisResult model. Score clamping to [0.0, 1.0]. Auto-approve when no active reviewers. Configurable threshold (default 0.8), on_progress callback for SSE progress reporting.
+- **Deliverables**: src/review_pipeline.py (new), tests/test_review_pipeline.py (new)
+- **Sanity check result**: pytest tests/ -- 263/263 passed (20 review_pipeline + 243 existing). ruff check -- clean. check_emoji.py -- no emoji found.
+- **Status**: [DONE]
+- **Request**: Cross off T-P0-7

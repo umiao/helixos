@@ -85,29 +85,6 @@
 
 ---
 
-#### T-P0-7: Review pipeline (Anthropic-only, opt-in, async)
-- **Priority**: P0
-- **Complexity**: M (1-2 sessions)
-- **Depends on**: T-P0-2
-- **Acceptance Criteria**:
-  - [ ] `src/review_pipeline.py`: `class ReviewPipeline` per PRD Section 9
-  - [ ] `__init__(config, anthropic_client)` -- client injected, not created here
-  - [ ] `review_task(task, plan_content, on_progress) -> ReviewState`
-  - [ ] 1 required reviewer (claude-sonnet-4-5, feasibility) + 1 optional adversarial (M/L tasks only)
-  - [ ] `_call_reviewer` uses Anthropic Messages API
-  - [ ] `_build_review_prompt(focus)` generates focus-area system prompt
-  - [ ] `_parse_review(response, reviewer) -> LLMReview`
-  - [ ] `_synthesize(reviews, plan) -> SynthesisResult` (only when >1 review)
-  - [ ] Scoring: single approve=1.0, single reject=0.3, multi=synthesized
-  - [ ] `human_decision_needed = True` when score < 0.8 threshold
-  - [ ] `on_progress: Callable[[int, int], None]` -- (completed, total) rounds
-  - [ ] `tests/test_review_pipeline.py`: mock Anthropic client -- approve, reject, disagree, progress callback
-  - [ ] ruff clean, no emoji, no hardcoded API keys
-- **Files**: `src/review_pipeline.py` (new), `tests/test_review_pipeline.py` (new)
-- **Scope boundary**:
-  - IN: Anthropic review calls, prompt engineering, synthesis, consensus scoring
-  - OUT: No HTTP endpoint (T-P0-10). No EventBus wiring (T-P0-10 does that). No multi-LLM (Phase 2).
-
 ---
 
 #### T-P0-6a: Scheduler core (EventBus + tick loop + concurrency)
@@ -388,3 +365,6 @@ T-P0-13 [M] Integration tests (needs T-P0-10 + T-P0-12)
 
 #### [x] T-P0-12: Git auto-commit with staged safety check -- 2026-03-01
 - GitOps.auto_commit with git add -A, staged file count via numstat, safety check (max_files limit), unstage+alert on abort, configurable commit message template. check_repo_clean utility. Wired into Scheduler._auto_commit_hook with try/except guard. 8 tests passing.
+
+#### [x] T-P0-7: Review pipeline (Anthropic-only, opt-in, async) -- 2026-03-01
+- ReviewPipeline with review_task (required + optional adversarial for M/L), _call_reviewer (Anthropic Messages API), _build_review_prompt (focus-area prompts), _parse_review (JSON -> LLMReview with fallback), _synthesize (multi-review consensus), SynthesisResult model. Scoring: approve=1.0, reject=0.3, multi=synthesized. Configurable threshold, on_progress callback. 20 tests passing.
