@@ -237,6 +237,20 @@ class CreateTaskResponse(BaseModel):
 
 
 # ------------------------------------------------------------------
+# Process management schemas
+# ------------------------------------------------------------------
+
+
+class ProcessStatusResponse(BaseModel):
+    """Status of a project's dev server process."""
+
+    running: bool
+    pid: int | None = None
+    port: int | None = None
+    uptime_seconds: float | None = None
+
+
+# ------------------------------------------------------------------
 # Error schemas
 # ------------------------------------------------------------------
 

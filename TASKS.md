@@ -17,28 +17,6 @@
 
 ### P2 -- Nice to Have (polish, optimization)
 
-#### T-P2-5: ProcessManager + SubprocessRegistry -- launch/stop project processes
-- **Complexity**: M | **Depends on**: None (all deps done)
-- **What**: New `src/process_manager.py` and `src/subprocess_registry.py`.
-  - SubprocessRegistry: unified tracker for ALL subprocesses (Scheduler executors + ProcessManager dev servers). Tracks PID, type, project_id, start_time. Shared `MAX_TOTAL_SUBPROCESSES` limit.
-  - ProcessManager: launch/stop project dev servers.
-    - `launch(project_id)` -- spawn launch_command in repo_path, inject PORT env var, register in SubprocessRegistry
-    - `stop(project_id)` -- SIGTERM -> grace (10s) -> SIGKILL, deregister
-    - `status(project_id)` -- { running, pid, port, uptime }
-    - `stop_all(timeout=10s)` -- shutdown hook
-    - `cleanup_orphans()` -- startup scan for stale PIDs
-  - Endpoints: `POST /api/projects/{id}/launch`, `POST /api/projects/{id}/stop`, `GET /api/projects/{id}/process-status`
-  - Windows: CREATE_NEW_PROCESS_GROUP + CTRL_BREAK_EVENT for clean termination
-  - Shutdown order: ProcessManager.stop_all -> Scheduler.stop -> EventBus -> DB
-- **AC**:
-  - [ ] Launch spawns process with correct PORT
-  - [ ] Stop terminates cleanly (no zombies)
-  - [ ] Global subprocess limit enforced (shared with Scheduler)
-  - [ ] Orphan cleanup at startup
-  - [ ] Windows compatible
-  - [ ] Shutdown order enforced in lifespan
-  - [ ] 10+ tests
-
 #### T-P2-6: Frontend -- ProjectSelector + SwimLane + KanbanBoard refactor
 - **Complexity**: M | **Depends on**: None (pure frontend)
 - **What**: Transform flat Kanban into per-project swim lanes.
@@ -152,7 +130,7 @@ T-P2-1 [S] Config extension (no deps)
   |       |
   |       +---> T-P2-3 [M] Validate/Import API ----------+
   |       |                                                |
-  |       +---> T-P2-5 [M] ProcessManager ----------------+
+  |       +---> T-P2-5 [M] ProcessManager [DONE] ----------+
   |                                                        |
   +---> T-P2-4 [M] TasksWriter [DONE] --------------------+
                                                            |
@@ -251,3 +229,6 @@ T-P2-6 [M] Frontend Swim Lanes (no deps) ----------------+
 
 #### [x] T-P2-4: TasksWriter -- create tasks by appending to TASKS.md (with filelock) -- 2026-03-02
 - TasksWriter with filelock + threading.Lock for concurrent write safety. ID generation inside lock, .bak backup before every write, post-write validation. Handles empty file, no Active section, ID format variations. POST /api/projects/{id}/tasks endpoint with auto-sync. 28 new tests, 449 total passing.
+
+#### [x] T-P2-5: ProcessManager + SubprocessRegistry -- launch/stop project processes -- 2026-03-03
+- SubprocessRegistry (unified tracker, shared global limit, orphan cleanup). ProcessManager (launch with PORT injection, graceful stop with timeout, stop_all, cleanup_orphans). Windows compatible (CREATE_NEW_PROCESS_GROUP + CTRL_BREAK_EVENT). 3 API endpoints (launch, stop, process-status). Shutdown order enforced. 31 new tests, 480 total passing.

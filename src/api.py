@@ -25,6 +25,7 @@ from src.env_loader import EnvLoader
 from src.events import EventBus, sse_router
 from src.models import Project, ReviewState, Task, TaskStatus
 from src.port_registry import PortRegistry
+from src.process_manager import ProcessManager
 from src.project_validator import validate_project_directory
 from src.review_pipeline import ReviewPipeline
 from src.scheduler import Scheduler
@@ -36,6 +37,7 @@ from src.schemas import (
     ExecutionStateResponse,
     ImportProjectRequest,
     ImportProjectResponse,
+    ProcessStatusResponse,
     ProjectDetailResponse,
     ProjectResponse,
     ReviewDecisionRequest,
@@ -47,6 +49,7 @@ from src.schemas import (
     ValidateProjectRequest,
     ValidateProjectResponse,
 )
+from src.subprocess_registry import SubprocessRegistry
 from src.sync.tasks_parser import sync_project_tasks
 from src.task_manager import TaskManager
 from src.tasks_writer import NewTask, TasksWriter
@@ -162,12 +165,26 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     ports_path = config.orchestrator.state_db_path.parent / "ports.json"
     port_registry = PortRegistry(config.orchestrator.port_ranges, ports_path)
 
+    # Subprocess registry (shared limit across Scheduler + ProcessManager)
+    subprocess_registry = SubprocessRegistry(
+        max_total=config.orchestrator.max_total_subprocesses,
+    )
+
     # Scheduler
     scheduler = Scheduler(
         config=config,
         task_manager=task_manager,
         registry=registry,
         env_loader=env_loader,
+        event_bus=event_bus,
+    )
+
+    # Process manager (dev server lifecycle)
+    process_manager = ProcessManager(
+        config=config,
+        registry=registry,
+        port_registry=port_registry,
+        subprocess_registry=subprocess_registry,
         event_bus=event_bus,
     )
 
@@ -202,6 +219,17 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     if recovered > 0:
         logger.info("Recovered %d orphaned tasks", recovered)
 
+    # Orphan cleanup for subprocesses and ports
+    subprocess_orphans = subprocess_registry.cleanup_dead()
+    if subprocess_orphans:
+        logger.info("Cleaned up %d orphaned subprocesses", len(subprocess_orphans))
+    port_orphans = port_registry.cleanup_orphans()
+    if port_orphans:
+        logger.info("Cleaned up %d orphaned port assignments", len(port_orphans))
+    pm_orphans = process_manager.cleanup_orphans()
+    if pm_orphans:
+        logger.info("Cleaned up %d orphaned dev servers", len(pm_orphans))
+
     # Start scheduler
     await scheduler.start()
 
@@ -215,12 +243,15 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     app.state.scheduler = scheduler
     app.state.review_pipeline = review_pipeline
     app.state.port_registry = port_registry
+    app.state.subprocess_registry = subprocess_registry
+    app.state.process_manager = process_manager
     app.state.engine = engine
 
     logger.info("HelixOS API started")
     yield
 
-    # Shutdown
+    # Shutdown order: ProcessManager -> Scheduler -> EventBus -> DB
+    await process_manager.stop_all()
     await scheduler.stop()
     await engine.dispose()
     logger.info("HelixOS API stopped")
@@ -524,6 +555,109 @@ async def create_project_task(
         backup_path=result.backup_path,
         synced=synced,
         sync_result=sync_result_resp,
+    )
+
+
+# ------------------------------------------------------------------
+# Process management endpoints
+# ------------------------------------------------------------------
+
+
+@api_router.post(
+    "/api/projects/{project_id}/launch",
+    responses={
+        400: {"model": ErrorResponse},
+        404: {"model": ErrorResponse},
+        409: {"model": ErrorResponse},
+    },
+)
+async def launch_project(
+    project_id: str,
+    request: Request,
+) -> ProcessStatusResponse:
+    """Launch the dev server for a project."""
+    registry: ProjectRegistry = request.app.state.registry
+    pm: ProcessManager = request.app.state.process_manager
+
+    try:
+        registry.get_project(project_id)
+    except KeyError:
+        raise HTTPException(
+            status_code=404, detail=f"Project not found: {project_id}",
+        ) from None
+
+    try:
+        status = await pm.launch(project_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from None
+    except RuntimeError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from None
+
+    return ProcessStatusResponse(
+        running=status.running,
+        pid=status.pid,
+        port=status.port,
+        uptime_seconds=status.uptime_seconds,
+    )
+
+
+@api_router.post(
+    "/api/projects/{project_id}/stop",
+    responses={
+        404: {"model": ErrorResponse},
+        409: {"model": ErrorResponse},
+    },
+)
+async def stop_project(
+    project_id: str,
+    request: Request,
+) -> dict:
+    """Stop the dev server for a project."""
+    registry: ProjectRegistry = request.app.state.registry
+    pm: ProcessManager = request.app.state.process_manager
+
+    try:
+        registry.get_project(project_id)
+    except KeyError:
+        raise HTTPException(
+            status_code=404, detail=f"Project not found: {project_id}",
+        ) from None
+
+    stopped = await pm.stop(project_id)
+    if not stopped:
+        raise HTTPException(
+            status_code=409,
+            detail=f"No running dev server for project {project_id}",
+        )
+
+    return {"detail": "Dev server stopped", "project_id": project_id}
+
+
+@api_router.get(
+    "/api/projects/{project_id}/process-status",
+    responses={404: {"model": ErrorResponse}},
+)
+async def get_process_status(
+    project_id: str,
+    request: Request,
+) -> ProcessStatusResponse:
+    """Get the dev server status for a project."""
+    registry: ProjectRegistry = request.app.state.registry
+    pm: ProcessManager = request.app.state.process_manager
+
+    try:
+        registry.get_project(project_id)
+    except KeyError:
+        raise HTTPException(
+            status_code=404, detail=f"Project not found: {project_id}",
+        ) from None
+
+    status = pm.status(project_id)
+    return ProcessStatusResponse(
+        running=status.running,
+        pid=status.pid,
+        port=status.port,
+        uptime_seconds=status.uptime_seconds,
     )
 
 

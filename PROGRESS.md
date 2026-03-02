@@ -223,3 +223,10 @@
 - **Sanity check result**: pytest 449/449 passed (28 new + 421 existing). ruff check clean. No emoji.
 - **Status**: [DONE]
 - **Request**: Move T-P2-4 to Completed
+
+## 2026-03-03 00:00 -- [T-P2-5] ProcessManager + SubprocessRegistry -- launch/stop project processes
+- **What I did**: Created SubprocessRegistry (unified tracker for ALL subprocesses with shared global limit) and ProcessManager (launch/stop project dev servers). SubprocessRegistry tracks PID, type, project_id, start_time; enforces max_total_subprocesses limit; supports cleanup_dead for orphan removal. ProcessManager spawns launch_command via asyncio.create_subprocess_shell with PORT env var injection; graceful stop (terminate -> grace timeout -> force kill); per-project status with uptime; stop_all for shutdown; cleanup_orphans at startup. Windows compatible (CREATE_NEW_PROCESS_GROUP + CTRL_BREAK_EVENT). Added 3 API endpoints: POST /launch, POST /stop, GET /process-status. Wired shutdown order: ProcessManager.stop_all -> Scheduler.stop -> DB. Added orphan cleanup for subprocesses, ports, and dev servers at startup.
+- **Deliverables**: src/subprocess_registry.py (new), src/process_manager.py (new), src/api.py (mod -- 3 new endpoints, SubprocessRegistry + ProcessManager in lifespan, shutdown order), src/schemas.py (mod -- ProcessStatusResponse), tests/test_process_manager.py (new -- 31 tests)
+- **Sanity check result**: pytest 480/480 passed (31 new + 449 existing). ruff check clean. No emoji.
+- **Status**: [DONE]
+- **Request**: Move T-P2-5 to Completed
