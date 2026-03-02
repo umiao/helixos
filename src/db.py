@@ -1,0 +1,172 @@
+"""SQLAlchemy 2.0 async database layer for HelixOS.
+
+Provides async engine creation, session management, and ORM table
+definitions mapping to the Pydantic models in models.py.
+"""
+
+from __future__ import annotations
+
+import json
+import logging
+from collections.abc import AsyncGenerator
+from contextlib import asynccontextmanager
+from pathlib import Path
+
+from sqlalchemy import Index, String, Text
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
+from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
+
+logger = logging.getLogger(__name__)
+
+DEFAULT_DB_PATH = Path.home() / ".helixos" / "state.db"
+
+
+# ---------------------------------------------------------------------------
+# ORM Base
+# ---------------------------------------------------------------------------
+
+
+class Base(DeclarativeBase):
+    """Declarative base for all ORM models."""
+
+
+# ---------------------------------------------------------------------------
+# ORM Table Models
+# ---------------------------------------------------------------------------
+
+
+class TaskRow(Base):
+    """SQLAlchemy ORM model for tasks."""
+
+    __tablename__ = "tasks"
+
+    id: Mapped[str] = mapped_column(String(128), primary_key=True)
+    project_id: Mapped[str] = mapped_column(String(32), nullable=False, index=True)
+    local_task_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    title: Mapped[str] = mapped_column(String(512), nullable=False)
+    description: Mapped[str] = mapped_column(Text, default="")
+    status: Mapped[str] = mapped_column(String(32), nullable=False, default="backlog")
+    executor_type: Mapped[str] = mapped_column(String(32), nullable=False, default="code")
+    depends_on_json: Mapped[str] = mapped_column(Text, default="[]")
+    review_json: Mapped[str | None] = mapped_column(Text, nullable=True)
+    execution_json: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[str] = mapped_column(String(64), nullable=False)
+    updated_at: Mapped[str] = mapped_column(String(64), nullable=False)
+    completed_at: Mapped[str | None] = mapped_column(String(64), nullable=True)
+
+    __table_args__ = (
+        Index("ix_tasks_status", "status"),
+        Index("ix_tasks_project_status", "project_id", "status"),
+    )
+
+
+class DependencyRow(Base):
+    """SQLAlchemy ORM model for cross-project dependencies."""
+
+    __tablename__ = "dependencies"
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    upstream_task: Mapped[str] = mapped_column(String(128), nullable=False)
+    downstream_task: Mapped[str] = mapped_column(String(128), nullable=False)
+    contract_path: Mapped[str | None] = mapped_column(String(512), nullable=True)
+    fulfilled: Mapped[bool] = mapped_column(default=False)
+
+    __table_args__ = (
+        Index("ix_deps_downstream", "downstream_task"),
+    )
+
+
+# ---------------------------------------------------------------------------
+# Conversion helpers
+# ---------------------------------------------------------------------------
+
+
+def task_row_to_dict(row: TaskRow) -> dict:
+    """Convert a TaskRow ORM object to a dict suitable for Task.model_validate."""
+    return {
+        "id": row.id,
+        "project_id": row.project_id,
+        "local_task_id": row.local_task_id,
+        "title": row.title,
+        "description": row.description or "",
+        "status": row.status,
+        "executor_type": row.executor_type,
+        "depends_on": json.loads(row.depends_on_json) if row.depends_on_json else [],
+        "review": json.loads(row.review_json) if row.review_json else None,
+        "execution": json.loads(row.execution_json) if row.execution_json else None,
+        "created_at": row.created_at,
+        "updated_at": row.updated_at,
+        "completed_at": row.completed_at,
+    }
+
+
+def task_dict_to_row_kwargs(data: dict) -> dict:
+    """Convert a Task-like dict to keyword args for TaskRow construction."""
+    return {
+        "id": data["id"],
+        "project_id": data["project_id"],
+        "local_task_id": data["local_task_id"],
+        "title": data["title"],
+        "description": data.get("description", ""),
+        "status": data["status"] if isinstance(data["status"], str) else data["status"].value,
+        "executor_type": (
+            data["executor_type"]
+            if isinstance(data["executor_type"], str)
+            else data["executor_type"].value
+        ),
+        "depends_on_json": json.dumps(data.get("depends_on", [])),
+        "review_json": (
+            json.dumps(data["review"]) if data.get("review") is not None else None
+        ),
+        "execution_json": (
+            json.dumps(data["execution"]) if data.get("execution") is not None else None
+        ),
+        "created_at": data["created_at"],
+        "updated_at": data["updated_at"],
+        "completed_at": data.get("completed_at"),
+    }
+
+
+# ---------------------------------------------------------------------------
+# Engine + Session
+# ---------------------------------------------------------------------------
+
+
+def _make_url(db_path: Path) -> str:
+    """Build an aiosqlite connection URL from a file path."""
+    return f"sqlite+aiosqlite:///{db_path}"
+
+
+def create_engine(db_path: Path = DEFAULT_DB_PATH):
+    """Create an async SQLAlchemy engine for the given SQLite path."""
+    url = _make_url(db_path)
+    return create_async_engine(url, echo=False)
+
+
+def create_session_factory(engine) -> async_sessionmaker[AsyncSession]:
+    """Create an async session factory bound to *engine*."""
+    return async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
+
+
+async def init_db(engine) -> None:
+    """Create all tables if they don't already exist."""
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+    logger.info("Database tables initialized")
+
+
+@asynccontextmanager
+async def get_session(
+    session_factory: async_sessionmaker[AsyncSession],
+) -> AsyncGenerator[AsyncSession, None]:
+    """Async context manager yielding an AsyncSession.
+
+    Commits on clean exit, rolls back on exception.
+    """
+    async with session_factory() as session:
+        try:
+            yield session
+            await session.commit()
+        except Exception:
+            await session.rollback()
+            raise

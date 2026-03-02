@@ -36,37 +36,6 @@
 
 ---
 
-#### T-P0-2: Data model + TaskManager + database layer
-- **Priority**: P0
-- **Complexity**: M (2 sessions)
-- **Depends on**: T-P0-1
-- **Acceptance Criteria**:
-  - [ ] `src/models.py`: All Pydantic models from PRD Section 6.1: `TaskStatus` (8 values), `ExecutorType` (3 values), `Project`, `Task`, `ReviewState`, `LLMReview`, `ExecutionState`, `Dependency`
-  - [ ] Every model has type hints, docstring, `model_config` with `from_attributes = True`
-  - [ ] `src/db.py`: SQLAlchemy 2.0 async engine + session factory (aiosqlite)
-  - [ ] `src/db.py`: ORM table models with column types, foreign keys, indexes
-  - [ ] `src/db.py`: `async def init_db()` creates all tables via `metadata.create_all()`
-  - [ ] `src/db.py`: `async def get_session()` async context manager yielding `AsyncSession`
-  - [ ] DB path configurable (default `~/.helixos/state.db`), parent dir auto-created
-  - [ ] `src/task_manager.py`: `TaskManager` class with CRUD + state machine:
-    - `create_task`, `get_task`, `list_tasks` (filterable by project/status)
-    - `update_status` (validates transitions per PRD Section 5.3 state machine)
-    - `get_ready_tasks` (queued + deps met + project not busy)
-    - `count_running_by_project`
-    - `mark_running_as_failed` (startup recovery helper)
-  - [ ] `update_status()` raises `ValueError` on illegal state transitions
-  - [ ] All file I/O uses `encoding="utf-8"`
-  - [ ] `tests/test_models.py`: Pydantic validation, serialization round-trip
-  - [ ] `tests/test_db.py`: DB init, CRUD operations (in-memory SQLite)
-  - [ ] `tests/test_task_manager.py`: state machine transitions, edge cases
-  - [ ] ruff clean, no emoji
-- **Files**: `src/models.py` (new), `src/db.py` (new), `src/task_manager.py` (new), `tests/test_models.py` (new), `tests/test_db.py` (new), `tests/test_task_manager.py` (new), `tests/conftest.py` (mod -- add async DB fixture)
-- **Scope boundary**:
-  - IN: Pydantic models, SQLAlchemy ORM, async DB, TaskManager CRUD + state machine
-  - OUT: No API layer. No YAML config loading. No TASKS.md parsing.
-
----
-
 #### T-P0-3: Project registry + YAML config loader
 - **Priority**: P0
 - **Complexity**: S (1 session)
@@ -444,3 +413,6 @@ T-P0-13 [M] Integration tests (needs T-P0-10 + T-P0-12)
 
 #### [x] T-P0-11: Unified .env loader + env injection -- 2026-03-01
 - EnvLoader class with per-project key filtering, validation, missing-file handling, ANTHROPIC_API_KEY warning. 15 tests passing.
+
+#### [x] T-P0-2: Data model + TaskManager + database layer -- 2026-03-01
+- Pydantic models (TaskStatus 9 values, ExecutorType, Project, Task, ReviewState, LLMReview, ExecutionState, Dependency). SQLAlchemy 2.0 async DB (TaskRow, DependencyRow, indexes). TaskManager CRUD + state machine + startup recovery. 82 tests passing.

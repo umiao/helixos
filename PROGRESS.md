@@ -27,3 +27,10 @@
 - **Sanity check result**: pytest tests/ -- 19/19 passed (15 env_loader + 4 smoke). ruff check -- clean. check_emoji.py -- no emoji found.
 - **Status**: [DONE]
 - **Request**: Cross off T-P0-11
+
+## 2026-03-01 21:00 -- [T-P0-2] Data model + TaskManager + database layer
+- **What I did**: Created all Pydantic models (TaskStatus 9 values, ExecutorType 3 values, Project, Task, ReviewState, LLMReview, ExecutionState, Dependency) with type hints, docstrings, and model_config from_attributes=True. Built SQLAlchemy 2.0 async DB layer with ORM tables (TaskRow, DependencyRow), indexes, conversion helpers, in-memory SQLite support, and async session management. Implemented TaskManager with full CRUD (create, get, list with filters, update), state machine enforcement (VALID_TRANSITIONS dict covering all 9 states), get_ready_tasks, count_running_by_project, and mark_running_as_failed for startup recovery.
+- **Deliverables**: src/models.py (new), src/db.py (new), src/task_manager.py (new), tests/test_models.py (new), tests/test_db.py (new), tests/test_task_manager.py (new), tests/conftest.py (mod -- async DB fixtures)
+- **Sanity check result**: pytest tests/ -- 82/82 passed (24 models + 8 db + 32 task_manager + 15 env_loader + 4 smoke). ruff check -- clean. check_emoji.py -- no emoji found.
+- **Status**: [DONE]
+- **Request**: Cross off T-P0-2
