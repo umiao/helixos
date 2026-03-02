@@ -1,0 +1,105 @@
+/**
+ * TypeScript interfaces matching backend Pydantic models (src/models.py).
+ */
+
+export type TaskStatus =
+  | "backlog"
+  | "review"
+  | "review_auto_approved"
+  | "review_needs_human"
+  | "queued"
+  | "running"
+  | "done"
+  | "failed"
+  | "blocked";
+
+export type ExecutorType = "code" | "agent" | "scheduled";
+
+export interface Project {
+  id: string;
+  name: string;
+  repo_path: string | null;
+  workspace_path: string | null;
+  tasks_file: string;
+  executor_type: ExecutorType;
+  max_concurrency: number;
+  env_keys: string[];
+  claude_md_path: string | null;
+}
+
+export interface LLMReview {
+  model: string;
+  focus: string;
+  verdict: string;
+  summary: string;
+  suggestions: string[];
+  timestamp: string;
+}
+
+export interface ReviewState {
+  rounds_total: number;
+  rounds_completed: number;
+  reviews: LLMReview[];
+  consensus_score: number | null;
+  human_decision_needed: boolean;
+  decision_points: string[];
+  human_choice: string | null;
+}
+
+export interface ExecutionState {
+  started_at: string | null;
+  finished_at: string | null;
+  retry_count: number;
+  max_retries: number;
+  exit_code: number | null;
+  log_tail: string[];
+  result: string;
+  error_summary: string | null;
+}
+
+export interface Task {
+  id: string;
+  project_id: string;
+  local_task_id: string;
+  title: string;
+  description: string;
+  status: TaskStatus;
+  executor_type: ExecutorType;
+  depends_on: string[];
+  review: ReviewState | null;
+  execution: ExecutionState | null;
+  created_at: string;
+  updated_at: string;
+  completed_at: string | null;
+}
+
+export interface Dependency {
+  upstream_task: string;
+  downstream_task: string;
+  contract_path: string | null;
+  fulfilled: boolean;
+}
+
+/** Kanban column identifiers. */
+export type KanbanColumn = "BACKLOG" | "REVIEW" | "QUEUED" | "RUNNING" | "DONE";
+
+/** Map task statuses to Kanban columns. */
+export const STATUS_TO_COLUMN: Record<TaskStatus, KanbanColumn> = {
+  backlog: "BACKLOG",
+  review: "REVIEW",
+  review_auto_approved: "REVIEW",
+  review_needs_human: "REVIEW",
+  queued: "QUEUED",
+  running: "RUNNING",
+  done: "DONE",
+  failed: "DONE",
+  blocked: "DONE",
+};
+
+export const KANBAN_COLUMNS: KanbanColumn[] = [
+  "BACKLOG",
+  "REVIEW",
+  "QUEUED",
+  "RUNNING",
+  "DONE",
+];

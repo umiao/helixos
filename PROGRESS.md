@@ -90,3 +90,10 @@
 - **Sanity check result**: pytest tests/ -- 284/284 passed (21 SSE + 263 existing). ruff check -- clean. check_emoji.py -- no emoji found.
 - **Status**: [DONE]
 - **Request**: Cross off T-P0-9
+
+## 2026-03-01 06:00 -- [T-P0-8a] Dashboard Kanban -- static layout + TaskCard
+- **What I did**: Created the frontend dashboard with static Kanban layout. Built TypeScript interfaces (types.ts) matching all backend Pydantic models. Created API client stubs (api.ts) with mock data (5 tasks across 2 projects in all column states). Implemented TaskCard component with project ID, task ID, title, status badge (color-coded), and dependency indicator (link icon + count). Built KanbanBoard with 5 columns (BACKLOG, REVIEW, QUEUED, RUNNING, DONE) with color-coded top borders, count badges, and card list. Updated App.tsx with header (title, running count, Sync All button), filter bar (project dropdown, status dropdown, search input), and board. Updated index.css for full-height layout. Board renders mock data to verify layout.
+- **Deliverables**: frontend/src/types.ts (new), frontend/src/api.ts (new), frontend/src/components/TaskCard.tsx (new), frontend/src/components/KanbanBoard.tsx (new), frontend/src/App.tsx (mod), frontend/src/index.css (mod)
+- **Sanity check result**: npm run build -- success (no TS errors). pytest tests/ -- 284/284 passed. ruff check -- clean. check_emoji.py -- no emoji found.
+- **Status**: [DONE]
+- **Request**: Cross off T-P0-8a

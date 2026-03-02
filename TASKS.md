@@ -36,26 +36,6 @@
 
 ---
 
-#### T-P0-8a: Dashboard Kanban -- static layout + TaskCard
-- **Priority**: P0
-- **Complexity**: S (1 session)
-- **Depends on**: T-P0-1
-- **Acceptance Criteria**:
-  - [ ] `frontend/src/App.tsx`: Layout with header bar (title, "Sync All" placeholder, running count placeholder)
-  - [ ] `frontend/src/components/KanbanBoard.tsx`: 5 columns: BACKLOG, REVIEW, QUEUED, RUNNING, DONE
-  - [ ] `frontend/src/components/TaskCard.tsx`: project ID, task ID, title, status badge, dependency indicator
-  - [ ] `frontend/src/types.ts`: TypeScript interfaces matching backend Pydantic models
-  - [ ] `frontend/src/api.ts`: API client stub with typed functions (mock data for now)
-  - [ ] Board renders mock data (3-5 tasks) to verify layout
-  - [ ] Filter bar UI: project dropdown, status dropdown, search input (UI only, no logic)
-  - [ ] Tailwind CSS: clean cards, column headers with counts, responsive
-  - [ ] `npm run build` succeeds with no TypeScript errors
-  - [ ] No emoji in code or displayed text
-- **Files**: `frontend/src/App.tsx` (mod), `frontend/src/components/KanbanBoard.tsx` (new), `frontend/src/components/TaskCard.tsx` (new), `frontend/src/types.ts` (new), `frontend/src/api.ts` (new)
-- **Scope boundary**:
-  - IN: Static layout, component structure, TypeScript types, mock data, Tailwind styling
-  - OUT: No drag-drop (T-P0-8b). No real API calls (T-P0-8b). No ExecutionLog/ReviewPanel (T-P0-8c).
-
 ---
 
 #### T-P0-5: CodeExecutor (subprocess + timeout + streaming)
@@ -352,3 +332,6 @@ T-P0-13 [M] Integration tests (needs T-P0-10 + T-P0-12)
 
 #### [x] T-P0-9: SSE event stream endpoint -- 2026-03-01
 - format_sse (Event -> SSE data frame), sse_stream async generator (EventBus subscriber with keepalive on idle), sse_router (GET /api/events, StreamingResponse, text/event-stream). Disconnect cleanup via generator finally. Event JSON: {type, task_id, data, timestamp}. 21 tests passing.
+
+#### [x] T-P0-8a: Dashboard Kanban -- static layout + TaskCard -- 2026-03-01
+- TypeScript interfaces matching backend Pydantic models. API client stubs with mock data (5 tasks). KanbanBoard 5 columns (BACKLOG, REVIEW, QUEUED, RUNNING, DONE). TaskCard with project ID, task ID, title, status badge, dependency indicator. App layout with header (title, Sync All, running count), filter bar (project, status, search). npm run build succeeds.
