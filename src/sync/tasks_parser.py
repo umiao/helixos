@@ -247,8 +247,9 @@ async def sync_project_tasks(
 ) -> SyncResult:
     """Read TASKS.md for *project_id*, parse it, and upsert into the DB.
 
-    New tasks from the ``Active Tasks`` section enter the database as
-    ``QUEUED`` (not ``BACKLOG``) per PRD Section 12.3 review-skip rule.
+    New tasks enter the database with their parsed status preserved
+    (typically BACKLOG for ``Active Tasks``).  The review gate decides
+    whether a task may advance to QUEUED.
 
     Tasks marked done in TASKS.md are force-updated to ``DONE`` in the DB.
     Tasks removed from TASKS.md are left untouched in the DB.
@@ -312,19 +313,14 @@ async def sync_project_tasks(
             else:
                 result.unchanged += 1
         else:
-            # New task -- BACKLOG maps to QUEUED for DB entry
-            db_status = (
-                TaskStatus.QUEUED
-                if pt.status == TaskStatus.BACKLOG
-                else pt.status
-            )
+            # New task -- keep parsed status (no auto-promotion to QUEUED)
             task = Task(
                 id=global_id,
                 project_id=project_id,
                 local_task_id=pt.local_task_id,
                 title=pt.title,
                 description=pt.description,
-                status=db_status,
+                status=pt.status,
                 executor_type=project.executor_type,
             )
             await task_manager.create_task(task)

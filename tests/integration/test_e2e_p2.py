@@ -193,9 +193,9 @@ async def test_import_to_swimlane_flow(
     assert "T-P0-1" in task_ids
     assert "T-P0-2" in task_ids
 
-    # Sync transitions Active Tasks from BACKLOG to QUEUED
+    # Sync preserves BACKLOG status (no auto-promotion to QUEUED)
     for t in tasks:
-        assert t.status == TaskStatus.QUEUED
+        assert t.status == TaskStatus.BACKLOG
 
 
 @pytest.mark.integration
@@ -255,7 +255,7 @@ async def test_task_creation_flow(
 
     new_task = next(t for t in tasks if t.local_task_id == "T-P0-3")
     assert "integration task" in new_task.title.lower()
-    assert new_task.status == TaskStatus.QUEUED
+    assert new_task.status == TaskStatus.BACKLOG
 
 
 @pytest.mark.integration

@@ -469,7 +469,10 @@ class TestForceExecute:
     async def test_force_execute_from_backlog(
         self, client: AsyncClient, seeded_task: Task,
     ):
-        """Should transition BACKLOG -> QUEUED and return 202."""
+        """Should transition BACKLOG -> QUEUED and return 202 (gate off)."""
+        # Disable review gate so BACKLOG -> QUEUED is allowed
+        await client.patch("/api/projects/proj-a/review-gate?enabled=false")
+
         resp = await client.post("/api/tasks/proj-a:T-P0-1/execute")
         assert resp.status_code == 202
         data = resp.json()
@@ -511,14 +514,15 @@ class TestRetryTask:
         assert resp.status_code == 200
         assert resp.json()["status"] == "queued"
 
-    async def test_retry_invalid_state(
+    async def test_retry_backlog_blocked_by_gate(
         self, client: AsyncClient, seeded_task: Task,
     ):
-        """BACKLOG task cannot be retried (no BACKLOG -> QUEUED via retry context)."""
-        # BACKLOG -> QUEUED is valid, so retry will actually work
+        """BACKLOG task retry should return 428 when review gate is enabled."""
+        # Gate is enabled by default -- BACKLOG -> QUEUED is blocked
         resp = await client.post("/api/tasks/proj-a:T-P0-1/retry")
-        # BACKLOG can go to QUEUED, so this should succeed
-        assert resp.status_code == 200
+        assert resp.status_code == 428
+        data = resp.json()
+        assert data["gate_action"] == "review_required"
 
 
 class TestCancelTask:

@@ -18,6 +18,20 @@ from src.models import ExecutionState, Task, TaskStatus
 
 logger = logging.getLogger(__name__)
 
+
+class ReviewGateBlockedError(Exception):
+    """Raised when the review gate blocks a status transition.
+
+    Carries enough context for the API layer to return HTTP 428
+    (Precondition Required) with a ``gate_action`` hint.
+    """
+
+    def __init__(self, task_id: str, message: str) -> None:
+        """Initialize with *task_id* and a human-readable *message*."""
+        self.task_id = task_id
+        super().__init__(message)
+
+
 # ---------------------------------------------------------------------------
 # Valid state transitions per PRD Section 5.3
 # ---------------------------------------------------------------------------
@@ -113,6 +127,8 @@ class TaskManager:
         the task must go through REVIEW first (Layer 1 review gate).
 
         Raises ``ValueError`` on illegal transitions or missing tasks.
+        Raises ``ReviewGateBlockedError`` when the review gate blocks
+        the transition (callers should return HTTP 428).
         """
         async with get_session(self._sf) as session:
             row = await session.get(TaskRow, task_id)
@@ -132,9 +148,10 @@ class TaskManager:
                 and current == TaskStatus.BACKLOG
                 and new_status == TaskStatus.QUEUED
             ):
-                raise ValueError(
+                raise ReviewGateBlockedError(
+                    task_id,
                     f"Review gate is enabled: BACKLOG -> QUEUED is blocked "
-                    f"for task {task_id}. Move to REVIEW first."
+                    f"for task {task_id}. Submit for review first.",
                 )
 
             now = datetime.now(UTC).isoformat()

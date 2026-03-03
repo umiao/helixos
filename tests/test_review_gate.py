@@ -22,7 +22,7 @@ from src.history_writer import HistoryWriter
 from src.models import ExecutorType, LLMReview, Project, Task, TaskStatus
 from src.project_settings import ProjectSettingsStore
 from src.scheduler import Scheduler
-from src.task_manager import TaskManager
+from src.task_manager import ReviewGateBlockedError, TaskManager
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -142,7 +142,7 @@ class TestTaskManagerReviewGate:
         task = _make_task(status=TaskStatus.BACKLOG)
         await tm.create_task(task)
 
-        with pytest.raises(ValueError, match="Review gate is enabled"):
+        with pytest.raises(ReviewGateBlockedError, match="(?i)review gate"):
             await tm.update_status(
                 task.id, TaskStatus.QUEUED,
                 review_gate_enabled=True,

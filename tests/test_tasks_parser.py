@@ -435,18 +435,18 @@ class TestSyncProjectTasks:
         db_tasks = await task_manager.list_tasks(project_id="proj")
         assert len(db_tasks) == 7
 
-    async def test_backlog_maps_to_queued(
+    async def test_backlog_stays_backlog(
         self,
         task_manager: TaskManager,
         registry: ProjectRegistry,
     ) -> None:
-        """Tasks from Active Tasks section enter DB as QUEUED."""
+        """Tasks from Active Tasks section enter DB as BACKLOG (no auto-promotion)."""
         await sync_project_tasks("proj", task_manager, registry)
 
-        # T-P0-4 is in Active Tasks (BACKLOG) -> DB should be QUEUED
+        # T-P0-4 is in Active Tasks -> DB should stay BACKLOG
         task = await task_manager.get_task("proj:T-P0-4")
         assert task is not None
-        assert task.status == TaskStatus.QUEUED
+        assert task.status == TaskStatus.BACKLOG
 
     async def test_running_stays_running(
         self,
@@ -530,10 +530,10 @@ class TestSyncProjectTasks:
         registry = _make_registry("proj", project_dir)
         await sync_project_tasks("proj", task_manager, registry)
 
-        # Verify T-P0-4 is QUEUED initially
+        # Verify T-P0-4 is BACKLOG initially (no auto-promotion)
         task = await task_manager.get_task("proj:T-P0-4")
         assert task is not None
-        assert task.status == TaskStatus.QUEUED
+        assert task.status == TaskStatus.BACKLOG
 
         # Move T-P0-4 to Completed in TASKS.md
         md = (project_dir / "TASKS.md").read_text(encoding="utf-8")
@@ -647,8 +647,8 @@ class TestSyncProjectTasks:
         assert result.added == 1
         task = await task_manager.get_task("proj:T-P0-1")
         assert task is not None
-        # BACKLOG -> QUEUED mapping still applies
-        assert task.status == TaskStatus.QUEUED
+        # Tasks stay in their parsed status (BACKLOG, no auto-promotion)
+        assert task.status == TaskStatus.BACKLOG
 
     async def test_sync_executor_type_from_project(
         self,

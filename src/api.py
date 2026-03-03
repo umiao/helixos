@@ -16,6 +16,7 @@ from pathlib import Path
 
 from fastapi import APIRouter, FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from src.config import ProjectRegistry, load_config
@@ -63,7 +64,7 @@ from src.schemas import (
 )
 from src.subprocess_registry import SubprocessRegistry
 from src.sync.tasks_parser import sync_project_tasks
-from src.task_manager import TaskManager
+from src.task_manager import ReviewGateBlockedError, TaskManager
 from src.tasks_writer import NewTask, TasksWriter
 
 logger = logging.getLogger(__name__)
@@ -986,6 +987,15 @@ async def update_task_status(
             task_id, body.status,
             review_gate_enabled=gate_enabled,
         )
+    except ReviewGateBlockedError as exc:
+        return JSONResponse(
+            status_code=428,
+            content={
+                "detail": str(exc),
+                "gate_action": "review_required",
+                "task_id": task_id,
+            },
+        )
     except ValueError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from None
 
@@ -1077,6 +1087,7 @@ async def submit_review_decision(
 ) -> TaskResponse:
     """Submit a human review decision for a task."""
     task_manager: TaskManager = request.app.state.task_manager
+    scheduler: Scheduler = request.app.state.scheduler
     event_bus: EventBus = request.app.state.event_bus
 
     task = await task_manager.get_task(task_id)
@@ -1100,7 +1111,25 @@ async def submit_review_decision(
 
     new_status = TaskStatus.QUEUED if body.decision == "approve" else TaskStatus.BACKLOG
 
-    updated = await task_manager.update_status(task_id, new_status)
+    # Pass review gate for defense-in-depth (REVIEW_NEEDS_HUMAN -> QUEUED
+    # is allowed even with gate on, since the task already went through review)
+    gate_enabled = scheduler.is_review_gate_enabled(task.project_id)
+    try:
+        updated = await task_manager.update_status(
+            task_id, new_status, review_gate_enabled=gate_enabled,
+        )
+    except ReviewGateBlockedError as exc:
+        return JSONResponse(
+            status_code=428,
+            content={
+                "detail": str(exc),
+                "gate_action": "review_required",
+                "task_id": task_id,
+            },
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from None
+
     event_bus.emit("status_change", task_id, {"status": new_status.value})
 
     return _task_to_response(updated)
@@ -1117,14 +1146,27 @@ async def submit_review_decision(
 async def force_execute(task_id: str, request: Request) -> dict:
     """Force-execute a task (202 Accepted). Transitions to QUEUED if possible."""
     task_manager: TaskManager = request.app.state.task_manager
+    scheduler: Scheduler = request.app.state.scheduler
     event_bus: EventBus = request.app.state.event_bus
 
     task = await task_manager.get_task(task_id)
     if task is None:
         raise HTTPException(status_code=404, detail=f"Task not found: {task_id}")
 
+    gate_enabled = scheduler.is_review_gate_enabled(task.project_id)
     try:
-        await task_manager.update_status(task_id, TaskStatus.QUEUED)
+        await task_manager.update_status(
+            task_id, TaskStatus.QUEUED, review_gate_enabled=gate_enabled,
+        )
+    except ReviewGateBlockedError as exc:
+        return JSONResponse(
+            status_code=428,
+            content={
+                "detail": str(exc),
+                "gate_action": "review_required",
+                "task_id": task_id,
+            },
+        )
     except ValueError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from None
 
@@ -1143,6 +1185,7 @@ async def force_execute(task_id: str, request: Request) -> dict:
 async def retry_task(task_id: str, request: Request) -> TaskResponse:
     """Reset retry count and move task back to QUEUED."""
     task_manager: TaskManager = request.app.state.task_manager
+    scheduler: Scheduler = request.app.state.scheduler
     event_bus: EventBus = request.app.state.event_bus
 
     task = await task_manager.get_task(task_id)
@@ -1154,8 +1197,20 @@ async def retry_task(task_id: str, request: Request) -> TaskResponse:
         updated_task = task.model_copy(update={"execution": execution})
         await task_manager.update_task(updated_task)
 
+    gate_enabled = scheduler.is_review_gate_enabled(task.project_id)
     try:
-        updated = await task_manager.update_status(task_id, TaskStatus.QUEUED)
+        updated = await task_manager.update_status(
+            task_id, TaskStatus.QUEUED, review_gate_enabled=gate_enabled,
+        )
+    except ReviewGateBlockedError as exc:
+        return JSONResponse(
+            status_code=428,
+            content={
+                "detail": str(exc),
+                "gate_action": "review_required",
+                "task_id": task_id,
+            },
+        )
     except ValueError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from None
 

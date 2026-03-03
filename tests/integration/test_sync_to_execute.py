@@ -1,4 +1,4 @@
-"""Integration test: sync -> QUEUED -> RUNNING -> DONE -> git commit.
+"""Integration test: sync -> BACKLOG -> QUEUED -> RUNNING -> DONE -> git commit.
 
 Tests the full lifecycle from parsing TASKS.md through scheduler execution
 to git auto-commit, using a mock executor (no real claude CLI).
@@ -21,14 +21,23 @@ from src.task_manager import TaskManager
 from .conftest import MockExecutor
 
 
+async def _promote_to_queued(task_manager: TaskManager, project_id: str) -> None:
+    """Move all BACKLOG tasks for *project_id* to QUEUED (simulates gate-off)."""
+    tasks = await task_manager.list_tasks(
+        project_id=project_id, status=TaskStatus.BACKLOG,
+    )
+    for t in tasks:
+        await task_manager.update_status(t.id, TaskStatus.QUEUED)
+
+
 @pytest.mark.integration
-async def test_sync_creates_queued_tasks(
+async def test_sync_creates_backlog_tasks(
     task_manager: TaskManager,
     make_config,
     temp_project_repo,
     sample_tasks_md,
 ) -> None:
-    """Syncing TASKS.md should create tasks in QUEUED status."""
+    """Syncing TASKS.md should create tasks in BACKLOG status (not QUEUED)."""
     # Write TASKS.md to the project repo
     tasks_file = temp_project_repo / "TASKS.md"
     tasks_file.write_text(sample_tasks_md, encoding="utf-8")
@@ -43,7 +52,7 @@ async def test_sync_creates_queued_tasks(
 
     tasks = await task_manager.list_tasks(project_id="proj_a")
     assert len(tasks) == 2
-    assert all(t.status == TaskStatus.QUEUED for t in tasks)
+    assert all(t.status == TaskStatus.BACKLOG for t in tasks)
 
 
 @pytest.mark.integration
@@ -55,7 +64,7 @@ async def test_sync_to_execute_full_lifecycle(
     sample_tasks_md,
     env_loader,
 ) -> None:
-    """Full flow: sync -> tick -> RUNNING -> DONE -> git commit."""
+    """Full flow: sync -> promote to QUEUED -> tick -> RUNNING -> DONE."""
     # Write TASKS.md
     tasks_file = temp_project_repo / "TASKS.md"
     tasks_file.write_text(sample_tasks_md, encoding="utf-8")
@@ -63,8 +72,11 @@ async def test_sync_to_execute_full_lifecycle(
     config = make_config()
     registry = ProjectRegistry(config)
 
-    # Sync tasks
+    # Sync tasks (creates them as BACKLOG)
     await sync_project_tasks("proj_a", task_manager, registry)
+
+    # Manually promote to QUEUED (simulates gate-off or review approval)
+    await _promote_to_queued(task_manager, "proj_a")
 
     # Create scheduler with mock executor
     scheduler = Scheduler(
@@ -123,6 +135,7 @@ async def test_sync_to_execute_with_git_commit(
     registry = ProjectRegistry(config)
 
     await sync_project_tasks("proj_a", task_manager, registry)
+    await _promote_to_queued(task_manager, "proj_a")
 
     scheduler = Scheduler(
         config=config,
@@ -187,6 +200,7 @@ async def test_events_emitted_during_lifecycle(
     config = make_config()
     registry = ProjectRegistry(config)
     await sync_project_tasks("proj_a", task_manager, registry)
+    await _promote_to_queued(task_manager, "proj_a")
 
     scheduler = Scheduler(
         config=config,

@@ -11,33 +11,6 @@
 
 ### P0 -- Must Have (core functionality)
 
-#### T-P0-21: Fix review gate bypass -- tasks auto-jump BACKLOG -> QUEUED [BUG]
-- **Priority**: P0 (critical -- gate is completely non-functional)
-- **Problem**: Multiple code paths bypass the review gate:
-  1. `sync_project_tasks()` (tasks_parser.py) -- converts BACKLOG to QUEUED on creation
-  2. `POST /api/tasks/{id}/review/decide` (api.py) -- no `review_gate_enabled` check
-  3. `POST /api/tasks/{id}/execute` (api.py) -- force-execute bypasses gate
-  4. `POST /api/tasks/{id}/retry` (api.py) -- retry bypasses gate
-  5. `POST /api/tasks/{id}/review` auto-approve path (api.py) -- auto-approve bypasses gate
-- **Design**:
-  - **tasks_parser.py**: Remove BACKLOG->QUEUED conversion. New tasks stay in BACKLOG.
-    If `review_gate_enabled`, must go through REVIEW before QUEUED.
-  - **api.py**: All endpoints calling `update_status()` targeting QUEUED must check
-    `review_gate_enabled`. Apply to: review/decide, execute, retry, review auto-approve.
-  - **task_manager.py**: Enforce gate for ALL BACKLOG->QUEUED transitions.
-  - **428 response**: When gate blocks a transition, return HTTP 428 (Precondition Required)
-    with body `{"detail": "...", "gate_action": "review_required"}` instead of 409.
-    Lets frontend distinguish "invalid transition" (409) from "gate requires review" (428).
-- **Files**: `src/sync/tasks_parser.py`, `src/api.py`, `src/task_manager.py`
-- **Tests**: Regression tests for each of the 5 bypass paths + gate-on sync test
-- **Acceptance Criteria**:
-  - [ ] All 5 bypass paths fixed and regression-tested
-  - [ ] Gate-on: BACKLOG->QUEUED blocked with 428 at all entry points
-  - [ ] Gate-off: existing behavior unchanged
-  - [ ] Sync no longer auto-promotes tasks to QUEUED
-- **Complexity**: M
-- **Depends on**: None (fix first, everything else depends on this)
-
 #### T-P0-22: Soft-delete tasks via context menu + API
 - **Problem**: No delete capability exists at any level.
 - **Design**:
@@ -231,7 +204,7 @@ T-P0-19 [S] asyncio fix [DONE]
 
 --- P0 (new) ---
 
-T-P0-21 [M] Fix review gate bypass [DONE? -> NOT DONE]
+T-P0-21 [M] Fix review gate bypass [DONE]
   |
   +--> T-P0-23 [L] Bidirectional transitions + concurrency
          |
@@ -251,6 +224,9 @@ T-P3-12 [M] Resizable divider [DONE]
 
 ## Completed Tasks
 <!-- Move finished tasks here with [x] and completion date -->
+
+#### [x] T-P0-21: Fix review gate bypass -- 5 vulnerable paths -- 2026-03-02
+- Fixed all 5 bypass paths: sync auto-promotion, execute, retry, review/decide, status endpoint. ReviewGateBlockedError returns 428 (not 409). 15 new regression tests, 670 total passing.
 
 #### [x] T-P0-1: Project scaffold (FastAPI + React + SQLite) -- 2026-03-01
 - Scaffold complete: pyproject.toml, requirements.txt, frontend (Vite+React+TS+Tailwind v4), orchestrator_config.yaml, contracts/, scripts/start.ps1, src/executors/, src/sync/

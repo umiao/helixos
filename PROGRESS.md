@@ -423,3 +423,10 @@
 - **Sanity check result**: TASKS.md has sequential IDs (T-P0-21 through T-P0-24), dependency graph shows T-P0-21 -> T-P0-23 -> T-P0-24 chain and T-P0-22 independent. No code files modified.
 - **Status**: [DONE]
 - **Request**: No further changes needed
+
+## 2026-03-02 -- [T-P0-21] Fix review gate bypass -- 5 vulnerable paths
+- **What I did**: Fixed all 5 code paths that bypassed the review gate. (1) Removed BACKLOG->QUEUED auto-promotion in sync_project_tasks(). (2) PATCH /status now returns 428 with gate_action hint when gate blocks. (3) POST /execute passes review_gate_enabled. (4) POST /retry passes review_gate_enabled. (5) POST /review/decide passes review_gate_enabled for defense-in-depth. Added ReviewGateBlockedError custom exception to TaskManager so API can distinguish gate blocks (428) from invalid transitions (409).
+- **Deliverables**: src/sync/tasks_parser.py (mod), src/task_manager.py (mod -- ReviewGateBlockedError), src/api.py (mod -- 4 endpoints), tests/test_review_gate_bypass.py (new -- 15 tests), tests/test_review_gate.py (mod), tests/test_tasks_parser.py (mod), tests/test_api.py (mod), tests/integration/test_sync_to_execute.py (mod), tests/integration/test_e2e_p2.py (mod)
+- **Sanity check result**: 670 tests passing (up from 655). Ruff clean. All 5 bypass paths regression-tested.
+- **Status**: [DONE]
+- **Request**: Move T-P0-21 to Completed
