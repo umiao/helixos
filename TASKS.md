@@ -23,25 +23,7 @@
 
 #### ~~T-P0-28: Store full reviewer raw_response + surface in ReviewPanel~~ [DONE -- see Completed Tasks]
 
-#### T-P0-29: Upgrade primary reviewer to Opus + per-reviewer budget config + cost tracking
-- **Priority**: P0
-- **Complexity**: S
-- **Depends on**: None
-- **Changes**:
-  - `orchestrator_config.yaml`: Primary reviewer -> `claude-opus-4-6` with `max_budget_usd: 2.00`. Adversarial stays `claude-sonnet-4-5` at `0.50`
-  - `src/config.py`: Add `max_budget_usd: float = 0.50` to `ReviewerConfig`
-  - `src/review_pipeline.py`: Read `reviewer.max_budget_usd` instead of hardcoded `"0.50"`
-  - `src/db.py`: Add `cost_usd REAL` nullable column to `ReviewHistoryRow` (auto-migrated)
-  - `src/review_pipeline.py`: Parse `usage` from Claude CLI JSON output (if available), compute approximate cost, store in ReviewHistoryRow
-  - `src/history_writer.py`: Persist `cost_usd` in `write_review()`
-  - `src/schemas.py`: Add `cost_usd: float | None` to `ReviewHistoryEntry`
-  - `frontend/src/components/ReviewPanel.tsx`: Show `~$X.XX` cost badge per review entry (if available)
-- **Acceptance Criteria**:
-  - Config: primary uses `claude-opus-4-6` / `max_budget_usd: 2.00`. Adversarial uses `claude-sonnet-4-5` / `0.50`
-  - **Cost tracking**: Each review attempt records `cost_usd` in DB. If Claude CLI doesn't expose usage in JSON output, store NULL (no crash). ReviewPanel shows cost when available, hidden when NULL.
-  - Backward compat: configs without `max_budget_usd` default to 0.50
-  - Synthesis step stays `claude-sonnet-4-5` (cheap)
-  - **Manual smoke**: trigger review, verify logs show `claude-opus-4-6` invocation, check cost badge in ReviewPanel
+#### ~~T-P0-29: Upgrade primary reviewer to Opus + per-reviewer budget config + cost tracking~~ [DONE -- see Completed Tasks]
 
 #### T-P0-30: Subprocess inactivity timeout + process group cleanup for execution pipeline
 - **Priority**: P0
@@ -223,7 +205,7 @@ T-P0-27 [S] Planning quality rules [DONE] (no deps)
 --- P0 (new -- review context + monitoring + liveness) ---
 
 T-P0-28 [M] Full reviewer raw_response [DONE] (no deps)
-T-P0-29 [S] Opus upgrade + cost tracking (no deps)
+T-P0-29 [S] Opus upgrade + cost tracking [DONE] (no deps)
 
 T-P0-30 [M] Inactivity timeout + process groups (no deps)
   |
@@ -239,6 +221,9 @@ T-P0-30 [M] Inactivity timeout + process groups (no deps)
 
 ## Completed Tasks
 <!-- Move finished tasks here with [x] and completion date -->
+
+#### [x] T-P0-29: Upgrade primary reviewer to Opus + per-reviewer budget config + cost tracking -- 2026-03-03
+- Primary reviewer upgraded to claude-opus-4-6 with max_budget_usd:2.00. Adversarial stays claude-sonnet-4-5 at 0.50. Per-reviewer max_budget_usd config field (default 0.50, backward compatible). _extract_cost_usd() computes approximate cost from CLI usage data with model-specific pricing table. cost_usd nullable column on ReviewHistoryRow (auto-migrated), persisted in HistoryWriter, returned via API. Frontend shows ~$X.XX cost badge per review entry (hidden when NULL). Synthesis stays claude-sonnet-4-5. 15 new tests, 807 total passing.
 
 #### [x] T-P0-28: Store full reviewer raw_response + surface in ReviewPanel -- 2026-03-03
 - Added raw_response TEXT column to ReviewHistoryRow (auto-migrated, 200KB truncation limit). Capture raw CLI result text in review_pipeline.py, persist in HistoryWriter, return via API. Frontend: collapsible "Show Full Response (debug)" section in ReviewPanel with amber warning banner, collapsed by default, hidden for legacy/empty entries. 8 new tests, 792 total passing.

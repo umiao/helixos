@@ -62,6 +62,7 @@ class LLMReview(BaseModel):
     summary: str
     suggestions: list[str] = Field(default_factory=list)
     raw_response: str = ""
+    cost_usd: float | None = None
     timestamp: datetime
 
 

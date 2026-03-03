@@ -214,6 +214,7 @@ export interface ReviewHistoryEntry {
   consensus_score: number | null;
   human_decision: string | null;
   raw_response: string;
+  cost_usd: number | null;
   timestamp: string;
 }
 

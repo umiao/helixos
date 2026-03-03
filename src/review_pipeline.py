@@ -114,6 +114,58 @@ def _truncate_raw_response(text: str) -> str:
 
 
 # ------------------------------------------------------------------
+# Cost estimation from CLI usage data
+# ------------------------------------------------------------------
+
+# Approximate pricing per million tokens (USD).
+# Updated for current Claude model pricing.
+_MODEL_PRICING: dict[str, tuple[float, float]] = {
+    # (input_per_1m, output_per_1m)
+    "claude-opus-4-6": (15.0, 75.0),
+    "claude-sonnet-4-5": (3.0, 15.0),
+    "claude-sonnet-4-6": (3.0, 15.0),
+    "claude-haiku-4-5": (0.80, 4.0),
+}
+
+# Fallback pricing if model not recognized
+_DEFAULT_PRICING = (3.0, 15.0)
+
+
+def _extract_cost_usd(cli_output: dict, model: str) -> float | None:
+    """Extract approximate cost in USD from Claude CLI JSON output.
+
+    Looks for a ``usage`` field with ``input_tokens`` and ``output_tokens``.
+    Returns None if usage data is unavailable (no crash).
+
+    Args:
+        cli_output: Full parsed JSON from Claude CLI stdout.
+        model: The model identifier used for pricing lookup.
+
+    Returns:
+        Approximate cost in USD, or None if usage data not available.
+    """
+    usage = cli_output.get("usage")
+    if not isinstance(usage, dict):
+        return None
+
+    input_tokens = usage.get("input_tokens")
+    output_tokens = usage.get("output_tokens")
+
+    if input_tokens is None or output_tokens is None:
+        return None
+
+    try:
+        input_tokens = int(input_tokens)
+        output_tokens = int(output_tokens)
+    except (TypeError, ValueError):
+        return None
+
+    input_rate, output_rate = _MODEL_PRICING.get(model, _DEFAULT_PRICING)
+    cost = (input_tokens / 1_000_000) * input_rate + (output_tokens / 1_000_000) * output_rate
+    return round(cost, 6)
+
+
+# ------------------------------------------------------------------
 # ReviewPipeline
 # ------------------------------------------------------------------
 
@@ -207,6 +259,7 @@ class ReviewPipeline:
                     round_number=i + 1,
                     review=review,
                     consensus_score=score if i == len(reviews) - 1 else None,
+                    cost_usd=review.cost_usd,
                 )
 
         return ReviewState(
@@ -223,21 +276,23 @@ class ReviewPipeline:
         prompt: str,
         system_prompt: str,
         model: str,
+        max_budget_usd: float = 0.50,
         json_schema: str | None = None,
-    ) -> str:
-        """Call the Claude CLI subprocess and return the result text.
+    ) -> dict:
+        """Call the Claude CLI subprocess and return the parsed JSON output.
 
         Invokes ``claude -p`` with ``--output-format json`` and parses the
-        outer JSON wrapper to extract the ``result`` field.
+        outer JSON wrapper to extract the ``result`` and ``usage`` fields.
 
         Args:
             prompt: The user prompt to send.
             system_prompt: The system prompt.
             model: Model identifier (e.g., ``"claude-sonnet-4-5"``).
+            max_budget_usd: Maximum budget for this CLI call.
             json_schema: Optional JSON schema for structured output.
 
         Returns:
-            The ``result`` field from the Claude CLI JSON output.
+            Dict with ``result`` (str) and full CLI output for usage extraction.
 
         Raises:
             RuntimeError: If the subprocess exits with a non-zero code.
@@ -248,7 +303,7 @@ class ReviewPipeline:
             "--model", model,
             "--output-format", "json",
             "--no-session-persistence",
-            "--max-budget-usd", "0.50",
+            "--max-budget-usd", f"{max_budget_usd:.2f}",
         ]
         if json_schema is not None:
             args.extend(["--json-schema", json_schema])
@@ -267,7 +322,7 @@ class ReviewPipeline:
             )
 
         cli_output = json.loads(stdout_bytes.decode("utf-8"))
-        return cli_output.get("result", "")
+        return cli_output
 
     async def _call_reviewer(
         self,
@@ -283,7 +338,7 @@ class ReviewPipeline:
             plan_content: The plan to review.
 
         Returns:
-            LLMReview with parsed verdict, summary, and suggestions.
+            LLMReview with parsed verdict, summary, suggestions, and cost_usd.
         """
         system_prompt = self._build_review_prompt(reviewer.focus)
 
@@ -294,15 +349,18 @@ class ReviewPipeline:
             f"Plan:\n{plan_content}"
         )
 
-        result_text = await self._call_claude_cli(
+        cli_output = await self._call_claude_cli(
             prompt=user_content,
             system_prompt=system_prompt,
             model=reviewer.model,
+            max_budget_usd=reviewer.max_budget_usd,
             json_schema=_REVIEW_JSON_SCHEMA,
         )
 
+        result_text = cli_output.get("result", "")
         review = self._parse_review(result_text, reviewer)
         review.raw_response = _truncate_raw_response(result_text)
+        review.cost_usd = _extract_cost_usd(cli_output, reviewer.model)
         return review
 
     def _build_review_prompt(self, focus: str) -> str:
@@ -380,14 +438,14 @@ class ReviewPipeline:
             'Respond in JSON: {{"score": 0.85, "disagreements": ["..."]}}'
         )
 
-        result_text = await self._call_claude_cli(
+        cli_output = await self._call_claude_cli(
             prompt=synthesis_prompt,
             system_prompt="You are a review synthesis engine.",
             model="claude-sonnet-4-5",
             json_schema=_SYNTHESIS_JSON_SCHEMA,
         )
 
-        return self._parse_synthesis(result_text)
+        return self._parse_synthesis(cli_output.get("result", ""))
 
     def _parse_synthesis(self, text: str) -> SynthesisResult:
         """Parse synthesis result text into a SynthesisResult.

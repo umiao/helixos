@@ -394,6 +394,20 @@ class TestReviewerConfig:
         )
         assert rc.required is False
 
+    def test_max_budget_usd_default(self) -> None:
+        """max_budget_usd defaults to 0.50."""
+        rc = ReviewerConfig(model="claude-sonnet-4-5", focus="feasibility")
+        assert rc.max_budget_usd == 0.50
+
+    def test_max_budget_usd_custom(self) -> None:
+        """max_budget_usd can be set to a custom value."""
+        rc = ReviewerConfig(
+            model="claude-opus-4-6",
+            focus="feasibility",
+            max_budget_usd=2.00,
+        )
+        assert rc.max_budget_usd == 2.00
+
 
 # ------------------------------------------------------------------
 # DependencyConfig tests

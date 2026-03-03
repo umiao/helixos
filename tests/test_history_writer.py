@@ -331,3 +331,31 @@ class TestReviewHistory:
         assert reviews[0]["raw_response"] == raw
         assert reviews[0]["summary"] == "Good plan"
         assert reviews[0]["consensus_score"] == pytest.approx(0.95)
+
+    async def test_cost_usd_persisted(self, session_factory):
+        """cost_usd is persisted and returned by get_reviews."""
+        hw = HistoryWriter(session_factory)
+        review = _make_review()
+        await hw.write_review("task-1", 1, review, cost_usd=0.0525)
+
+        reviews = await hw.get_reviews("task-1")
+        assert reviews[0]["cost_usd"] == pytest.approx(0.0525)
+
+    async def test_cost_usd_none_default(self, session_factory):
+        """cost_usd defaults to None when not provided."""
+        hw = HistoryWriter(session_factory)
+        review = _make_review()
+        await hw.write_review("task-1", 1, review)
+
+        reviews = await hw.get_reviews("task-1")
+        assert reviews[0]["cost_usd"] is None
+
+    async def test_cost_usd_multiple_rounds(self, session_factory):
+        """Each review round can have different cost_usd values."""
+        hw = HistoryWriter(session_factory)
+        await hw.write_review("task-1", 1, _make_review(), cost_usd=0.05)
+        await hw.write_review("task-1", 2, _make_review(), cost_usd=0.01)
+
+        reviews = await hw.get_reviews("task-1")
+        assert reviews[0]["cost_usd"] == pytest.approx(0.05)
+        assert reviews[1]["cost_usd"] == pytest.approx(0.01)

@@ -34,13 +34,15 @@ git:
 
 review_pipeline:
   reviewers:
-  - model: "claude-sonnet-4-5"
+  - model: "claude-opus-4-6"
     focus: "feasibility_and_edge_cases"
     api: "claude_cli"
     required: true
+    max_budget_usd: 2.00
   - model: "claude-sonnet-4-5"
     focus: "adversarial_red_team"
     api: "claude_cli"
     required: false
+    max_budget_usd: 0.50
 
 dependencies: []

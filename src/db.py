@@ -124,6 +124,7 @@ class ReviewHistoryRow(Base):
     consensus_score: Mapped[float | None] = mapped_column(Float, nullable=True)
     human_decision: Mapped[str | None] = mapped_column(String(32), nullable=True)
     raw_response: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    cost_usd: Mapped[float | None] = mapped_column(Float, nullable=True)
     timestamp: Mapped[str] = mapped_column(String(64), nullable=False)
 
     __table_args__ = (

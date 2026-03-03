@@ -472,3 +472,10 @@
 - **Sanity check result**: 792 tests passing (8 new: 5 review_pipeline + 3 history_writer). Ruff clean. Frontend builds clean.
 - **Status**: [DONE]
 - **Request**: Move T-P0-28 to Completed
+
+## 2026-03-03 01:30 -- [T-P0-29] Upgrade primary reviewer to Opus + per-reviewer budget config + cost tracking
+- **What I did**: Upgraded primary reviewer from claude-sonnet-4-5 to claude-opus-4-6 with per-reviewer budget config. Backend: added max_budget_usd field to ReviewerConfig (default 0.50), _call_claude_cli now reads reviewer.max_budget_usd instead of hardcoded "0.50" and returns full CLI output dict (for usage extraction), _extract_cost_usd() computes approximate cost from CLI usage data (input/output tokens with model-specific pricing table), cost_usd nullable FLOAT column on ReviewHistoryRow (auto-migrated), cost_usd persisted in HistoryWriter.write_review() and returned by get_reviews(), cost_usd field on LLMReview model and ReviewHistoryEntry API schema. Frontend: cost_usd field on ReviewHistoryEntry type, ~$X.XX cost badge per review entry (hidden when NULL). orchestrator_config.yaml: primary uses claude-opus-4-6/max_budget_usd:2.00, adversarial stays claude-sonnet-4-5/max_budget_usd:0.50.
+- **Deliverables**: orchestrator_config.yaml (mod), src/config.py (mod -- max_budget_usd on ReviewerConfig), src/models.py (mod -- cost_usd on LLMReview), src/review_pipeline.py (mod -- _extract_cost_usd, _call_claude_cli returns dict, max_budget_usd param, _MODEL_PRICING), src/db.py (mod -- cost_usd column on ReviewHistoryRow), src/history_writer.py (mod -- cost_usd in write_review + get_reviews), src/schemas.py (mod -- cost_usd on ReviewHistoryEntry), frontend/src/types.ts (mod -- cost_usd on ReviewHistoryEntry), frontend/src/components/ReviewPanel.tsx (mod -- cost badge)
+- **Sanity check result**: 807 tests passing (15 new: 11 review_pipeline + 2 config + 3 history_writer). Ruff clean. Frontend builds clean.
+- **Status**: [DONE]
+- **Request**: Move T-P0-29 to Completed

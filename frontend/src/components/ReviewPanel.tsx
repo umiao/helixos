@@ -318,6 +318,11 @@ export default function ReviewPanel({
                   </div>
                   <div className="flex items-center gap-1.5">
                     {verdictBadge(entry.verdict)}
+                    {entry.cost_usd != null && (
+                      <span className="px-1.5 py-0.5 rounded text-[10px] font-semibold bg-gray-100 text-gray-600" title="Approximate LLM cost">
+                        ~${entry.cost_usd < 0.01 ? entry.cost_usd.toFixed(4) : entry.cost_usd.toFixed(2)}
+                      </span>
+                    )}
                     <span className="text-[10px] text-gray-400">
                       {formatTime(entry.timestamp)}
                     </span>

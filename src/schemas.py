@@ -367,6 +367,7 @@ class ReviewHistoryEntry(BaseModel):
     consensus_score: float | None = None
     human_decision: str | None = None
     raw_response: str = ""
+    cost_usd: float | None = None
     timestamp: str
 
 

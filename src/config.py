@@ -119,6 +119,7 @@ class ReviewerConfig(BaseModel):
     focus: str
     api: str = "claude_cli"
     required: bool = True
+    max_budget_usd: float = 0.50
 
 
 class ReviewPipelineConfig(BaseModel):

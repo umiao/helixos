@@ -164,6 +164,7 @@ class HistoryWriter:
         review: LLMReview,
         consensus_score: float | None = None,
         human_decision: str | None = None,
+        cost_usd: float | None = None,
     ) -> None:
         """Persist a single review history entry.
 
@@ -173,6 +174,7 @@ class HistoryWriter:
             review: The LLMReview with verdict, summary, suggestions.
             consensus_score: Overall consensus score (set on final round).
             human_decision: Human decision if applicable.
+            cost_usd: Approximate cost in USD for this reviewer call.
         """
         async with get_session(self._sf) as session:
             row = ReviewHistoryRow(
@@ -186,6 +188,7 @@ class HistoryWriter:
                 consensus_score=consensus_score,
                 human_decision=human_decision,
                 raw_response=getattr(review, "raw_response", ""),
+                cost_usd=cost_usd,
                 timestamp=review.timestamp.isoformat(),
             )
             session.add(row)
@@ -252,6 +255,7 @@ class HistoryWriter:
                     "consensus_score": r.consensus_score,
                     "human_decision": r.human_decision,
                     "raw_response": getattr(r, "raw_response", ""),
+                    "cost_usd": getattr(r, "cost_usd", None),
                     "timestamp": r.timestamp,
                 }
                 for r in rows

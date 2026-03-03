@@ -17,6 +17,7 @@ from src.models import ExecutorType, Task, TaskStatus
 from src.review_pipeline import (
     MAX_RAW_RESPONSE_BYTES,
     ReviewPipeline,
+    _extract_cost_usd,
     _truncate_raw_response,
 )
 
@@ -596,3 +597,184 @@ def test_truncate_raw_response_over_limit() -> None:
     result = _truncate_raw_response(text)
     assert len(result.encode("utf-8")) <= MAX_RAW_RESPONSE_BYTES
     assert result.endswith("[TRUNCATED at 200KB]")
+
+
+# ------------------------------------------------------------------
+# _extract_cost_usd
+# ------------------------------------------------------------------
+
+
+def test_extract_cost_usd_with_usage() -> None:
+    """Cost is computed from usage.input_tokens and usage.output_tokens."""
+    cli_output = {
+        "type": "result",
+        "result": "...",
+        "usage": {"input_tokens": 1000, "output_tokens": 500},
+    }
+    # claude-sonnet-4-5: input=$3/1M, output=$15/1M
+    # cost = (1000/1M)*3 + (500/1M)*15 = 0.003 + 0.0075 = 0.0105
+    cost = _extract_cost_usd(cli_output, "claude-sonnet-4-5")
+    assert cost is not None
+    assert abs(cost - 0.0105) < 0.0001
+
+
+def test_extract_cost_usd_opus() -> None:
+    """Opus model uses higher pricing."""
+    cli_output = {
+        "type": "result",
+        "result": "...",
+        "usage": {"input_tokens": 1000, "output_tokens": 500},
+    }
+    # claude-opus-4-6: input=$15/1M, output=$75/1M
+    # cost = (1000/1M)*15 + (500/1M)*75 = 0.015 + 0.0375 = 0.0525
+    cost = _extract_cost_usd(cli_output, "claude-opus-4-6")
+    assert cost is not None
+    assert abs(cost - 0.0525) < 0.0001
+
+
+def test_extract_cost_usd_no_usage() -> None:
+    """Returns None when usage field is missing."""
+    cli_output = {"type": "result", "result": "..."}
+    assert _extract_cost_usd(cli_output, "claude-sonnet-4-5") is None
+
+
+def test_extract_cost_usd_partial_usage() -> None:
+    """Returns None when usage is missing output_tokens."""
+    cli_output = {
+        "type": "result",
+        "result": "...",
+        "usage": {"input_tokens": 1000},
+    }
+    assert _extract_cost_usd(cli_output, "claude-sonnet-4-5") is None
+
+
+def test_extract_cost_usd_invalid_usage() -> None:
+    """Returns None when usage has non-numeric tokens."""
+    cli_output = {
+        "type": "result",
+        "result": "...",
+        "usage": {"input_tokens": "not_a_number", "output_tokens": 500},
+    }
+    assert _extract_cost_usd(cli_output, "claude-sonnet-4-5") is None
+
+
+def test_extract_cost_usd_unknown_model() -> None:
+    """Unknown model uses default pricing."""
+    cli_output = {
+        "type": "result",
+        "result": "...",
+        "usage": {"input_tokens": 1000, "output_tokens": 500},
+    }
+    # Default: input=$3/1M, output=$15/1M (same as sonnet)
+    cost = _extract_cost_usd(cli_output, "some-future-model")
+    assert cost is not None
+    assert abs(cost - 0.0105) < 0.0001
+
+
+# ------------------------------------------------------------------
+# max_budget_usd in CLI args
+# ------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+@patch("src.review_pipeline.asyncio.create_subprocess_exec")
+async def test_reviewer_uses_max_budget_usd(mock_exec: AsyncMock) -> None:
+    """CLI call uses reviewer's max_budget_usd instead of hardcoded 0.50."""
+    mock_exec.return_value = _mock_proc(
+        _make_review_output("approve", "OK")
+    )
+
+    config = ReviewPipelineConfig(
+        reviewers=[
+            ReviewerConfig(
+                model="claude-opus-4-6",
+                focus="feasibility_and_edge_cases",
+                api="claude_cli",
+                required=True,
+                max_budget_usd=2.00,
+            ),
+        ],
+    )
+    pipeline = ReviewPipeline(config)
+
+    await pipeline.review_task(
+        _sample_task(), "Plan", lambda c, t: None, complexity="S"
+    )
+
+    call_args = mock_exec.call_args.args
+    budget_idx = list(call_args).index("--max-budget-usd") + 1
+    assert call_args[budget_idx] == "2.00"
+
+
+@pytest.mark.asyncio
+@patch("src.review_pipeline.asyncio.create_subprocess_exec")
+async def test_reviewer_default_budget(mock_exec: AsyncMock) -> None:
+    """Reviewer without explicit max_budget_usd defaults to 0.50."""
+    mock_exec.return_value = _mock_proc(
+        _make_review_output("approve", "OK")
+    )
+
+    pipeline = ReviewPipeline(_default_config())
+
+    await pipeline.review_task(
+        _sample_task(), "Plan", lambda c, t: None, complexity="S"
+    )
+
+    call_args = mock_exec.call_args.args
+    budget_idx = list(call_args).index("--max-budget-usd") + 1
+    assert call_args[budget_idx] == "0.50"
+
+
+# ------------------------------------------------------------------
+# cost_usd on LLMReview
+# ------------------------------------------------------------------
+
+
+def _make_cli_output_with_usage(
+    inner_json: str,
+    input_tokens: int = 500,
+    output_tokens: int = 200,
+) -> bytes:
+    """Create mock Claude CLI stdout with usage data."""
+    cli_output = {
+        "type": "result",
+        "result": inner_json,
+        "usage": {"input_tokens": input_tokens, "output_tokens": output_tokens},
+    }
+    return json.dumps(cli_output).encode("utf-8")
+
+
+@pytest.mark.asyncio
+@patch("src.review_pipeline.asyncio.create_subprocess_exec")
+async def test_cost_usd_captured_on_review(mock_exec: AsyncMock) -> None:
+    """cost_usd is populated on LLMReview when usage data is in CLI output."""
+    inner = json.dumps({
+        "verdict": "approve", "summary": "OK", "suggestions": [],
+    })
+    mock_exec.return_value = _mock_proc(
+        _make_cli_output_with_usage(inner, input_tokens=1000, output_tokens=500)
+    )
+
+    pipeline = ReviewPipeline(_default_config(), threshold=0.8)
+    result = await pipeline.review_task(
+        _sample_task(), "Plan", lambda c, t: None, complexity="S"
+    )
+
+    assert result.reviews[0].cost_usd is not None
+    assert result.reviews[0].cost_usd > 0
+
+
+@pytest.mark.asyncio
+@patch("src.review_pipeline.asyncio.create_subprocess_exec")
+async def test_cost_usd_none_when_no_usage(mock_exec: AsyncMock) -> None:
+    """cost_usd is None when CLI output has no usage data."""
+    mock_exec.return_value = _mock_proc(
+        _make_review_output("approve", "OK")
+    )
+
+    pipeline = ReviewPipeline(_default_config(), threshold=0.8)
+    result = await pipeline.review_task(
+        _sample_task(), "Plan", lambda c, t: None, complexity="S"
+    )
+
+    assert result.reviews[0].cost_usd is None
