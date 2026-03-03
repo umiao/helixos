@@ -20,11 +20,12 @@
 
 ### P3 -- Phase 3: UX + Polish
 
-#### T-P3-8: Self-hosting guardrails -- design document [S]
-- **AC**: Design doc covering worker isolation, commit serialization, log isolation
-- **Depends on**: T-P3-6a
-
----
+### Tech Debt (tracked, not blocking current work)
+- [ ] Log retention/purge policy for execution_logs + review_history tables
+- [ ] Unified timeout policy for enrichment and review CLI subprocess calls
+- [ ] Review state machine diagram documentation
+- [ ] (from web UI) Done column: investigate random ordering, add sort/filter.
+      Self-editing workflow: test changes then restart (queued stage only?).
 
 ## Dependency Graph
 
@@ -215,5 +216,23 @@ T-P2-6 [M] Frontend Swim Lanes [DONE] ------------------+
 #### [x] T-P3-6b: Persistent execution log + review history -- frontend -- 2026-03-02
 - Task-focused bottom panel: ExecutionLog fetches persistent DB logs + merges live SSE entries with level badges and source tags. ReviewPanel shows conversation-style review history with verdict badges, suggestions, consensus bars. Task focus indicator in tab bar with clear button. 4 new TS interfaces, 2 new API client functions. npm run build succeeds, 542 tests passing.
 
+#### [x] T-P0-15: Surface detailed execution error diagnostics -- 2026-03-02
+- ErrorType enum (INFRA, CLI_NOT_FOUND, REPO_NOT_FOUND, NON_ZERO_EXIT, TIMEOUT, UNKNOWN) on ExecutorResult. Pre-flight checks (repo_path exists, claude CLI on PATH). Stderr capture with 4KB truncation and ANSI stripping. Exception details in SSE alerts and execution logs. MAX_CONCURRENT_EXECUTIONS=2 hard limit. 27 new tests, 569 total passing.
+
+#### [x] T-P0-16: Per-project execution pause/resume gate -- 2026-03-02
+- DB-backed execution_paused on ProjectSettingsRow (persists across restarts). Scheduler pause_project/resume_project methods; paused = skip new executions, in-flight continue. API endpoints for pause/resume. SwimLaneHeader amber Pause/Resume toggle + PAUSED badge. SSE execution_paused events for real-time UI. 27 new tests, 596 total passing.
+
 #### [x] T-P3-7: README overhaul -- 2026-03-02
 - Project-specific README with architecture diagram, features, backend/frontend module tables, API reference, task state machine, tech stack, quick start, configuration reference, and project structure tree.
+
+#### [x] T-P3-8: Self-hosting guardrails -- design document -- 2026-03-02
+- Design doc at docs/design/self-hosting-guardrails.md covering: worker isolation via git worktree branches, commit serialization with pytest validation gate, log isolation with [SELF-HOST] tags, human-triggered-only restart (no auto-restart), safety boundary classification (safe: code/tests/docs; unsafe: DB schema/config/scheduler/hooks), state diagram for self-modification lifecycle, recursive execution prevention, and 5-phase implementation plan.
+
+#### [x] T-P3-9: AI-assisted task enrichment via Claude CLI -- 2026-03-02
+- POST /api/tasks/enrich endpoint (Claude CLI, JSON schema, 503 if unavailable). NewTaskModal "Enrich with AI" button pre-fills description + priority. InlineTaskCreator Tab key expands to NewTaskModal with auto-enrich. Reuses review_pipeline JSON extraction and code_executor pre-flight patterns. 19 new tests, 615 total passing.
+
+#### [x] T-P3-10: Done column sorting and sub-status filtering -- 2026-03-02
+- Sort dropdown in DONE column header (Newest first/Oldest first/By task ID). Sub-status filter badges (DONE/FAILED/BLOCKED) with counts and click-to-toggle filtering. Both preferences persist in localStorage. Client-side only, no backend changes. npm run build succeeds, 615 tests passing.
+
+#### [x] T-P3-11: Enhanced review observation and human interaction UX -- 2026-03-02
+- Review status badges: pulsing for active review, orange for needs-human, green for auto-approved. REVIEW_NEEDS_HUMAN triggers toast + auto-switch to Review tab + auto-select task. ReviewPanel reason text area wired to ReviewDecisionRequest.reason. REVIEW column header shows pulsing needs-human count badge. Client-side only, no backend changes. npm run build succeeds, 615 tests passing.

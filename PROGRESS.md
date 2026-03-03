@@ -384,3 +384,10 @@
 - **Sanity check result**: pytest 641/641 passed. ruff check clean. npm run build succeeds.
 - **Status**: [DONE]
 - **Request**: Move T-P0-18 to Completed (REMOVE spec block from Active, ADD summary line to Completed Tasks)
+
+## 2026-03-02 23:00 -- [T-P3-12] Resizable bottom panel divider
+- **What I did**: Created ResizableDivider.tsx component with native pointer events and setPointerCapture for reliable drag handling. Divider is a 6px tall bar with grip dots that highlights on hover/drag. Dragging up increases bottom panel height, dragging down decreases it. Bounds enforced: min 80px, max 60% viewport. Double-click resets to default 224px. Height persists to localStorage (key: helixos_panel_height). Wired into App.tsx: replaced fixed h-56 class with dynamic inline style driven by bottomPanelHeight state. No conflict with @dnd-kit since divider uses native pointer capture outside DndContext.
+- **Deliverables**: frontend/src/components/ResizableDivider.tsx (new), frontend/src/App.tsx (mod)
+- **Sanity check result**: pytest 641/641 passed. ruff check clean. npm run build succeeds.
+- **Status**: [DONE]
+- **Request**: Move T-P3-12 to Completed (REMOVE spec block from Active, ADD summary line to Completed Tasks)

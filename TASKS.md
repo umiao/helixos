@@ -19,16 +19,7 @@
 <!-- All 8 P2 tasks completed. See Completed Tasks below. -->
 
 ### P3 -- Phase 3: UX + Polish
-
-#### T-P3-12: Resizable bottom panel divider
-- **Complexity**: M | **Depends on**: None
-- Draggable horizontal divider between kanban and bottom panel.
-  Pure React + pointer events with setPointerCapture. localStorage persistence
-  (project-namespaced key).
-- **AC**: drag to resize; min 80px / max 60% viewport; double-click reset;
-  localStorage persistence; grab handle visual; setPointerCapture for reliable
-  drag; no @dnd-kit conflict.
-- **Design doc**: docs/design/review-gate-asyncio-divider.md (Issue 3)
+<!-- All P3 tasks completed. See Completed Tasks below. -->
 
 ### Tech Debt (tracked, not blocking current work)
 - [ ] Log retention/purge policy for execution_logs + review_history tables
@@ -110,7 +101,7 @@ T-P0-19 [S] asyncio fix [DONE]
 
 --- P3 (new) ---
 
-T-P3-12 [M] Resizable divider (no deps)
+T-P3-12 [M] Resizable divider [DONE]
 ```
 
 ---
@@ -264,3 +255,6 @@ T-P3-12 [M] Resizable divider (no deps)
 
 #### [x] T-P0-19: Fix asyncio NotImplementedError on Windows with --reload -- 2026-03-02
 - Added --loop none to start.ps1 uvicorn command. Split error logging in api.py lifespan (NotImplementedError vs FileNotFoundError with distinct messages). Defense-in-depth comment on ProactorEventLoopPolicy. QUICKSTART.md updated with Windows dev instructions and troubleshooting. 4 tests, 619 total passing.
+
+#### [x] T-P3-12: Resizable bottom panel divider -- 2026-03-02
+- ResizableDivider.tsx with setPointerCapture, grip dots, hover/drag highlight. Min 80px, max 60% viewport, double-click reset to 224px. localStorage persistence. Wired into App.tsx replacing fixed h-56. npm run build succeeds, 641 tests passing.

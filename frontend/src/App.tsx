@@ -2,6 +2,9 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import SwimLane from "./components/SwimLane";
 import ExecutionLog, { type LogEntry } from "./components/ExecutionLog";
 import ReviewPanel from "./components/ReviewPanel";
+import ResizableDivider, {
+  loadPanelHeight,
+} from "./components/ResizableDivider";
 import Toast, { type ToastMessage } from "./components/Toast";
 import ProjectSelector, {
   loadSelectedProjects,
@@ -43,6 +46,7 @@ function App() {
   const [newTaskProject, setNewTaskProject] = useState<Project | null>(null);
   const [enrichTitle, setEnrichTitle] = useState("");
   const [autoEnrich, setAutoEnrich] = useState(false);
+  const [bottomPanelHeight, setBottomPanelHeight] = useState(loadPanelHeight);
 
   // Keep a ref to tasks for SSE handler (avoid stale closure)
   const tasksRef = useRef(tasks);
@@ -548,8 +552,14 @@ function App() {
         )}
       </main>
 
+      {/* Resizable divider */}
+      <ResizableDivider
+        panelHeight={bottomPanelHeight}
+        onHeightChange={setBottomPanelHeight}
+      />
+
       {/* Bottom panel: ExecutionLog / ReviewPanel */}
-      <div className="h-56 border-t border-gray-300 bg-white flex flex-col min-h-0">
+      <div className="border-t border-gray-300 bg-white flex flex-col min-h-0" style={{ height: bottomPanelHeight }}>
         {/* Panel tabs */}
         <div className="flex items-center border-b border-gray-200 px-4">
           <button
