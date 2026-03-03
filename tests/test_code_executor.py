@@ -16,6 +16,7 @@ from src.executors.base import BaseExecutor, ErrorType, ExecutorResult
 from src.executors.code_executor import (
     MAX_STDERR_BYTES,
     CodeExecutor,
+    _format_elapsed,
     _strip_ansi,
     _truncate_stderr,
 )
@@ -1510,3 +1511,132 @@ class TestInactivityConfig:
 
         with pytest.raises(ValidationError):
             OrchestratorSettings(inactivity_timeout_minutes=-1)
+
+
+# ------------------------------------------------------------------
+# _format_elapsed helper (T-P0-32)
+# ------------------------------------------------------------------
+
+
+def test_format_elapsed_zero() -> None:
+    """0 seconds -> '0:00'."""
+    assert _format_elapsed(0) == "0:00"
+
+
+def test_format_elapsed_seconds() -> None:
+    """30 seconds -> '0:30'."""
+    assert _format_elapsed(30) == "0:30"
+
+
+def test_format_elapsed_minutes() -> None:
+    """125 seconds -> '2:05'."""
+    assert _format_elapsed(125) == "2:05"
+
+
+def test_format_elapsed_large() -> None:
+    """3661 seconds -> '61:01'."""
+    assert _format_elapsed(3661) == "61:01"
+
+
+# ------------------------------------------------------------------
+# [PROGRESS] log emission (T-P0-32)
+# ------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+@patch("src.executors.code_executor.PROGRESS_LOG_INTERVAL_SECONDS", 0.1)
+@patch("src.executors.code_executor.asyncio.create_subprocess_exec")
+async def test_progress_log_emitted(
+    mock_exec: AsyncMock, project: Project, task: Task,
+) -> None:
+    """[PROGRESS] log entry is emitted periodically during execution."""
+    config = OrchestratorSettings(
+        session_timeout_minutes=1,
+        subprocess_terminate_grace_seconds=2,
+        inactivity_timeout_minutes=0,
+    )
+
+    # Simulate a process that outputs a line, waits, then finishes
+    mock_stdout = AsyncMock()
+    lines = [b"line1\n"]
+    call_count = 0
+
+    async def fake_readline() -> bytes:
+        nonlocal call_count
+        call_count += 1
+        if call_count <= len(lines):
+            return lines[call_count - 1]
+        # Wait to give progress reporter time to fire
+        await asyncio.sleep(0.25)
+        return b""
+
+    mock_stdout.readline = fake_readline
+
+    proc = AsyncMock()
+    proc.stdout = mock_stdout
+    proc.stderr = AsyncMock()
+    proc.stderr.read = AsyncMock(return_value=b"")
+    proc.wait = AsyncMock(return_value=0)
+    proc.returncode = 0
+    proc.pid = 9999
+    mock_exec.return_value = proc
+
+    executor = CodeExecutor(config)
+    log_lines_received: list[str] = []
+    result = await executor.execute(
+        task, project, {}, lambda msg: log_lines_received.append(msg),
+    )
+
+    assert result.success is True
+    progress_lines = [ln for ln in log_lines_received if "[PROGRESS]" in ln]
+    # At least one [PROGRESS] line should appear (interval is 0.1s, we wait 0.25s)
+    assert len(progress_lines) >= 1
+    # Check format: elapsed | lines | since last output
+    assert "elapsed" in progress_lines[0]
+    assert "lines" in progress_lines[0]
+    assert "since last output" in progress_lines[0]
+
+
+@pytest.mark.asyncio
+@patch("src.executors.code_executor.PROGRESS_LOG_INTERVAL_SECONDS", 10)
+@patch("src.executors.code_executor.asyncio.create_subprocess_exec")
+async def test_progress_task_cancelled_on_completion(
+    mock_exec: AsyncMock, project: Project, task: Task,
+) -> None:
+    """Progress reporter task is cancelled when execution completes quickly."""
+    config = OrchestratorSettings(
+        session_timeout_minutes=1,
+        subprocess_terminate_grace_seconds=2,
+        inactivity_timeout_minutes=0,
+    )
+
+    mock_stdout = AsyncMock()
+    mock_stdout.readline = AsyncMock(side_effect=[b"done\n", b""])
+
+    proc = AsyncMock()
+    proc.stdout = mock_stdout
+    proc.stderr = AsyncMock()
+    proc.stderr.read = AsyncMock(return_value=b"")
+    proc.wait = AsyncMock(return_value=0)
+    proc.returncode = 0
+    proc.pid = 9999
+    mock_exec.return_value = proc
+
+    executor = CodeExecutor(config)
+    log_lines_received: list[str] = []
+    result = await executor.execute(
+        task, project, {}, lambda msg: log_lines_received.append(msg),
+    )
+
+    assert result.success is True
+    # Interval is 10s, execution is instant -> no PROGRESS lines
+    progress_lines = [ln for ln in log_lines_received if "[PROGRESS]" in ln]
+    assert len(progress_lines) == 0
+
+
+def test_progress_log_interval_constant() -> None:
+    """PROGRESS_LOG_INTERVAL_SECONDS is 60 by default."""
+    # Import the real module to check default
+    from src.executors import code_executor
+    # The actual default (not patched)
+    assert code_executor.PROGRESS_LOG_INTERVAL_SECONDS == 60

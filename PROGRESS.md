@@ -493,3 +493,10 @@
 - **Sanity check result**: 843 tests passing (23 new). Ruff clean.
 - **Status**: [DONE]
 - **Request**: Move T-P0-31 to Completed
+
+## 2026-03-03 04:00 -- [T-P0-32] Review + execution progress phase reporting via SSE
+- **What I did**: Extended review pipeline on_progress callback to `(completed, total, phase)` with phase strings "Starting {focus} review...", "Completed {focus} review", "Synthesizing...". API forwards phase in SSE review_progress events. CodeExecutor spawns a background _progress_reporter task that emits `[PROGRESS]` log entries every 60s with elapsed time, line count, and seconds since last output. Frontend: ReviewPanel shows live phase label when review_status=running (replaces generic "Review in progress..."). ExecutionLog shows live elapsed counter (M:SS) in header when selected task is RUNNING. SSE task_id guard: review_progress and review_started events only update reviewPhase state if event.task_id matches selected task. Phase cleared on task switch/deselect.
+- **Deliverables**: src/review_pipeline.py (mod -- on_progress phase param, phase strings before/after each reviewer + synthesis), src/api.py (mod -- phase in on_progress + SSE review_progress), src/executors/code_executor.py (mod -- PROGRESS_LOG_INTERVAL_SECONDS, _format_elapsed, _progress_reporter background task), frontend/src/components/ReviewPanel.tsx (mod -- reviewPhase prop, phase label display), frontend/src/components/ExecutionLog.tsx (mod -- elapsed counter state/effect/display), frontend/src/App.tsx (mod -- reviewPhase state, selectedTaskRef, task_id guard in SSE handlers, props wiring), tests/test_review_pipeline.py (mod -- 4 new phase tests + updated all callbacks to 3-arg), tests/test_code_executor.py (mod -- 7 new tests: _format_elapsed + progress log), tests/integration/test_review_flow.py (mod -- updated callbacks)
+- **Sanity check result**: 854 tests passing (11 new). Ruff clean. Frontend builds clean.
+- **Status**: [DONE]
+- **Request**: Move T-P0-32 to Completed

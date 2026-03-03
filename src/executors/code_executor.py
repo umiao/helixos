@@ -42,10 +42,20 @@ _ANSI_RE = re.compile(r"\x1b\[[0-9;]*[a-zA-Z]")
 
 _IS_WINDOWS = sys.platform == "win32"
 
+# Interval in seconds between [PROGRESS] log emissions during execution.
+PROGRESS_LOG_INTERVAL_SECONDS = 60
+
 
 def _strip_ansi(text: str) -> str:
     """Remove ANSI escape sequences from text."""
     return _ANSI_RE.sub("", text)
+
+
+def _format_elapsed(seconds: float) -> str:
+    """Format elapsed seconds as ``M:SS`` (e.g. ``2:05``)."""
+    total = int(seconds)
+    mins, secs = divmod(total, 60)
+    return f"{mins}:{secs:02d}"
 
 
 def _truncate_stderr(raw: bytes) -> str:
@@ -174,6 +184,27 @@ class CodeExecutor(BaseExecutor):
         log_lines: list[str] = []
         timed_out = False
         inactivity_detected = False
+        line_count = 0
+        last_output_time = start
+
+        # Background task that emits [PROGRESS] log entries periodically
+        async def _progress_reporter() -> None:
+            nonlocal line_count, last_output_time
+            try:
+                while True:
+                    await asyncio.sleep(PROGRESS_LOG_INTERVAL_SECONDS)
+                    now = time.monotonic()
+                    elapsed_str = _format_elapsed(now - start)
+                    since_last = int(now - last_output_time)
+                    on_log(
+                        f"[PROGRESS] {elapsed_str} elapsed | "
+                        f"{line_count} lines | "
+                        f"{since_last}s since last output"
+                    )
+            except asyncio.CancelledError:
+                pass
+
+        progress_task = asyncio.create_task(_progress_reporter())
 
         try:
             async with asyncio.timeout(session_timeout):
@@ -205,6 +236,8 @@ class CodeExecutor(BaseExecutor):
                     if decoded:
                         log_lines.append(decoded)
                         on_log(decoded)
+                        line_count += 1
+                        last_output_time = time.monotonic()
 
                 if not inactivity_detected:
                     await self._proc.wait()
@@ -214,6 +247,10 @@ class CodeExecutor(BaseExecutor):
                 f"[TIMEOUT] Session exceeded "
                 f"{self._config.session_timeout_minutes}min, terminating..."
             )
+        finally:
+            progress_task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await progress_task
 
         # -- Terminate process group if needed --
         if timed_out or inactivity_detected:

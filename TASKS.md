@@ -29,24 +29,7 @@
 
 #### ~~T-P0-31: Apply timeout to review pipeline subprocess calls~~ [DONE -- see Completed Tasks]
 
-#### T-P0-32: Review + execution progress phase reporting via SSE
-- **Priority**: P0
-- **Complexity**: M
-- **Depends on**: T-P0-28 (on_progress callback changes), T-P0-30 (elapsed time tracking)
-- **Changes**:
-  - `src/review_pipeline.py`: Extend `on_progress` to `on_progress(completed, total, phase)`. Phase strings: "Starting {focus} review...", "Completed {focus} review", "Synthesizing..."
-  - `src/api.py`: Forward `phase` in SSE `review_progress` events. All SSE events MUST include `task_id` (verify all paths)
-  - `src/executors/code_executor.py`: Emit `[PROGRESS]` log entry every 60s with elapsed time + line count + seconds since last output
-  - `frontend/src/components/ReviewPanel.tsx`: Show phase label when `review_status == "running"`
-  - `frontend/src/components/ExecutionLog.tsx`: Running elapsed counter in header when RUNNING
-  - **Frontend SSE guard**: All SSE event handlers MUST check `event.task_id === selectedTaskId` before updating UI. Stale events from previously selected tasks are discarded.
-- **Acceptance Criteria**:
-  - **SSE task_id guard**: Every SSE handler in ReviewPanel and ExecutionLog validates task_id matches currently selected task. Switching tasks mid-review doesn't show stale phase labels.
-  - **Journey (review)**: drag to REVIEW -> "Starting feasibility_and_edge_cases review..." -> "Starting adversarial_red_team review..." -> "Synthesizing..." -> verdict
-  - **Journey (execution)**: task RUNNING -> "0:30 elapsed" counter -> every 60s `[PROGRESS]` log line
-  - **Scenario**: no task selected -> phase events ignored, no crash
-  - **Scenario**: switch task during review -> old phases cleared, new task state shown
-  - **Manual smoke**: observe phase transitions in ReviewPanel as reviewers run
+#### ~~T-P0-32: Review + execution progress phase reporting via SSE~~ [DONE -- see Completed Tasks]
 
 ### P1 -- Should Have (important features)
 <!-- All 7 P1 tasks completed. See Completed Tasks below. -->
@@ -183,6 +166,9 @@ T-P0-30 [M] Inactivity timeout + process groups [DONE] (no deps)
 
 ## Completed Tasks
 <!-- Move finished tasks here with [x] and completion date -->
+
+#### [x] T-P0-32: Review + execution progress phase reporting via SSE -- 2026-03-03
+- Extended on_progress to (completed, total, phase) with "Starting {focus} review...", "Completed {focus} review", "Synthesizing..." phase strings. API forwards phase in SSE review_progress events. CodeExecutor emits [PROGRESS] log entries every 60s (elapsed, line count, since last output) via background task. Frontend: ReviewPanel shows live phase label, ExecutionLog shows live M:SS elapsed counter. SSE task_id guard: reviewPhase only updates for selected task, cleared on task switch. 11 new tests, 854 total passing.
 
 #### [x] T-P0-31: Apply timeout to review pipeline subprocess calls -- 2026-03-03
 - Process group isolation in _call_claude_cli (start_new_session / CREATE_NEW_PROCESS_GROUP). Timeout via asyncio.wait_for on proc.communicate() (review_timeout_minutes, default 10, 0=disabled). On timeout: SIGTERM -> 5s grace -> SIGKILL -> RuntimeError -> review_status=failed + SSE alert + Retry. Retry semantics: review_attempt column on ReviewHistoryRow (auto-migrated, default 1), get_max_review_attempt() query, next attempt = max+1. Synthesis step covered by same timeout. 23 new tests, 843 total passing.

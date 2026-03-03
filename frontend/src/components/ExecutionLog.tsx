@@ -32,6 +32,10 @@ interface ExecutionLogProps {
   entries: LogEntry[];
   taskIds: string[];
   selectedTaskId?: string;
+  /** Status of the selected task (used to show elapsed timer when "running"). */
+  selectedTaskStatus?: string;
+  /** ISO timestamp when the selected task's execution started (for elapsed calc). */
+  executionStartedAt?: string | null;
 }
 
 const MAX_VISIBLE_LINES = 500;
@@ -42,12 +46,37 @@ export default function ExecutionLog({
   entries,
   taskIds,
   selectedTaskId,
+  selectedTaskStatus,
+  executionStartedAt,
 }: ExecutionLogProps) {
   const [filterTaskId, setFilterTaskId] = useState("");
   const [filterLevel, setFilterLevel] = useState("");
   const [autoScroll, setAutoScroll] = useState(true);
   const containerRef = useRef<HTMLDivElement>(null);
   const prevScrollTop = useRef(0);
+
+  // Live elapsed counter for RUNNING tasks
+  const [elapsedSeconds, setElapsedSeconds] = useState(0);
+  useEffect(() => {
+    if (selectedTaskStatus !== "running" || !executionStartedAt) {
+      setElapsedSeconds(0);
+      return;
+    }
+    const startMs = new Date(executionStartedAt).getTime();
+    const tick = () => {
+      const now = Date.now();
+      setElapsedSeconds(Math.max(0, Math.floor((now - startMs) / 1000)));
+    };
+    tick();
+    const interval = setInterval(tick, 1000);
+    return () => clearInterval(interval);
+  }, [selectedTaskStatus, executionStartedAt]);
+
+  const formatElapsed = (totalSec: number) => {
+    const mins = Math.floor(totalSec / 60);
+    const secs = totalSec % 60;
+    return `${mins}:${secs.toString().padStart(2, "0")}`;
+  };
 
   // DB log state for task-focused mode
   const [dbEntries, setDbEntries] = useState<ExecutionLogEntry[]>([]);
@@ -226,6 +255,11 @@ export default function ExecutionLog({
           {selectedTaskId && (
             <span className="text-xs text-indigo-400 font-mono">
               {selectedTaskId}
+            </span>
+          )}
+          {selectedTaskStatus === "running" && elapsedSeconds > 0 && (
+            <span className="text-xs font-mono text-yellow-400 bg-yellow-900 px-1.5 py-0.5 rounded">
+              {formatElapsed(elapsedSeconds)} elapsed
             </span>
           )}
           {dbLoading && (

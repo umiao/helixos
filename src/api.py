@@ -1024,11 +1024,11 @@ def _enqueue_review_pipeline(
     async def _run_review_bg() -> None:
         """Background task to run the review pipeline."""
         try:
-            def on_progress(completed: int, total: int) -> None:
+            def on_progress(completed: int, total: int, phase: str) -> None:
                 event_bus.emit(
                     "review_progress",
                     task_id,
-                    {"completed": completed, "total": total},
+                    {"completed": completed, "total": total, "phase": phase},
                 )
 
             review_state = await review_pipeline.review_task(

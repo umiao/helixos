@@ -122,11 +122,11 @@ async def test_single_reviewer_approve(mock_exec: AsyncMock) -> None:
 
     pipeline = ReviewPipeline(_default_config(), threshold=0.8)
 
-    progress_calls: list[tuple[int, int]] = []
+    progress_calls: list[tuple[int, int, str]] = []
     result = await pipeline.review_task(
         _sample_task(),
         "Build the thing",
-        lambda c, t: progress_calls.append((c, t)),
+        lambda c, t, p: progress_calls.append((c, t, p)),
         complexity="S",
     )
 
@@ -151,7 +151,7 @@ async def test_single_reviewer_reject(mock_exec: AsyncMock) -> None:
     pipeline = ReviewPipeline(_default_config(), threshold=0.8)
 
     result = await pipeline.review_task(
-        _sample_task(), "Build the thing", lambda c, t: None, complexity="S"
+        _sample_task(), "Build the thing", lambda c, t, p: None, complexity="S"
     )
 
     assert result.consensus_score == 0.3
@@ -179,7 +179,7 @@ async def test_multi_reviewer_disagree(mock_exec: AsyncMock) -> None:
     pipeline = ReviewPipeline(_default_config(), threshold=0.8)
 
     result = await pipeline.review_task(
-        _sample_task(), "Build the thing", lambda c, t: None, complexity="M"
+        _sample_task(), "Build the thing", lambda c, t, p: None, complexity="M"
     )
 
     assert result.consensus_score == 0.65
@@ -203,7 +203,7 @@ async def test_multi_reviewer_agree(mock_exec: AsyncMock) -> None:
     pipeline = ReviewPipeline(_default_config(), threshold=0.8)
 
     result = await pipeline.review_task(
-        _sample_task(), "Build the thing", lambda c, t: None, complexity="L"
+        _sample_task(), "Build the thing", lambda c, t, p: None, complexity="L"
     )
 
     assert result.consensus_score == 0.95
@@ -220,7 +220,7 @@ async def test_multi_reviewer_agree(mock_exec: AsyncMock) -> None:
 @pytest.mark.asyncio
 @patch("src.review_pipeline.asyncio.create_subprocess_exec")
 async def test_progress_callback(mock_exec: AsyncMock) -> None:
-    """on_progress is called with (completed, total) after each reviewer."""
+    """on_progress is called with (completed, total, phase) around each reviewer."""
     mock_exec.side_effect = [
         _mock_proc(_make_review_output("approve", "OK")),
         _mock_proc(_make_review_output("approve", "OK")),
@@ -229,36 +229,45 @@ async def test_progress_callback(mock_exec: AsyncMock) -> None:
 
     pipeline = ReviewPipeline(_default_config(), threshold=0.8)
 
-    progress_calls: list[tuple[int, int]] = []
+    progress_calls: list[tuple[int, int, str]] = []
     await pipeline.review_task(
         _sample_task(),
         "Build the thing",
-        lambda c, t: progress_calls.append((c, t)),
+        lambda c, t, p: progress_calls.append((c, t, p)),
         complexity="M",
     )
 
-    assert progress_calls == [(1, 2), (2, 2)]
+    assert progress_calls == [
+        (0, 2, "Starting feasibility_and_edge_cases review..."),
+        (1, 2, "Completed feasibility_and_edge_cases review"),
+        (1, 2, "Starting adversarial_red_team review..."),
+        (2, 2, "Completed adversarial_red_team review"),
+        (2, 2, "Synthesizing..."),
+    ]
 
 
 @pytest.mark.asyncio
 @patch("src.review_pipeline.asyncio.create_subprocess_exec")
 async def test_progress_callback_single_reviewer(mock_exec: AsyncMock) -> None:
-    """Progress callback for single reviewer shows (1, 1)."""
+    """Progress callback for single reviewer: start + complete phases."""
     mock_exec.return_value = _mock_proc(
         _make_review_output("approve", "OK")
     )
 
     pipeline = ReviewPipeline(_default_config())
 
-    progress_calls: list[tuple[int, int]] = []
+    progress_calls: list[tuple[int, int, str]] = []
     await pipeline.review_task(
         _sample_task(),
         "Plan",
-        lambda c, t: progress_calls.append((c, t)),
+        lambda c, t, p: progress_calls.append((c, t, p)),
         complexity="S",
     )
 
-    assert progress_calls == [(1, 1)]
+    assert progress_calls == [
+        (0, 1, "Starting feasibility_and_edge_cases review..."),
+        (1, 1, "Completed feasibility_and_edge_cases review"),
+    ]
 
 
 # ------------------------------------------------------------------
@@ -277,7 +286,7 @@ async def test_s_complexity_skips_optional(mock_exec: AsyncMock) -> None:
     pipeline = ReviewPipeline(_default_config())
 
     result = await pipeline.review_task(
-        _sample_task(), "Plan", lambda c, t: None, complexity="S"
+        _sample_task(), "Plan", lambda c, t, p: None, complexity="S"
     )
 
     assert len(result.reviews) == 1
@@ -297,7 +306,7 @@ async def test_m_complexity_includes_optional(mock_exec: AsyncMock) -> None:
     pipeline = ReviewPipeline(_default_config())
 
     result = await pipeline.review_task(
-        _sample_task(), "Plan", lambda c, t: None, complexity="M"
+        _sample_task(), "Plan", lambda c, t, p: None, complexity="M"
     )
 
     assert len(result.reviews) == 2
@@ -318,7 +327,7 @@ async def test_l_complexity_includes_optional(mock_exec: AsyncMock) -> None:
     pipeline = ReviewPipeline(_default_config())
 
     result = await pipeline.review_task(
-        _sample_task(), "Plan", lambda c, t: None, complexity="L"
+        _sample_task(), "Plan", lambda c, t, p: None, complexity="L"
     )
 
     assert len(result.reviews) == 2
@@ -340,7 +349,7 @@ async def test_parse_failure_treated_as_reject(mock_exec: AsyncMock) -> None:
     pipeline = ReviewPipeline(_default_config(), threshold=0.8)
 
     result = await pipeline.review_task(
-        _sample_task(), "Plan", lambda c, t: None, complexity="S"
+        _sample_task(), "Plan", lambda c, t, p: None, complexity="S"
     )
 
     assert result.consensus_score == 0.3
@@ -362,7 +371,7 @@ async def test_synthesis_parse_failure(mock_exec: AsyncMock) -> None:
     pipeline = ReviewPipeline(_default_config(), threshold=0.8)
 
     result = await pipeline.review_task(
-        _sample_task(), "Plan", lambda c, t: None, complexity="M"
+        _sample_task(), "Plan", lambda c, t, p: None, complexity="M"
     )
 
     assert result.consensus_score == 0.5
@@ -422,7 +431,7 @@ async def test_reviewer_receives_task_context(mock_exec: AsyncMock) -> None:
     task = _sample_task()
 
     await pipeline.review_task(
-        task, "My detailed plan", lambda c, t: None, complexity="S"
+        task, "My detailed plan", lambda c, t, p: None, complexity="S"
     )
 
     call_args = mock_exec.call_args.args
@@ -445,7 +454,7 @@ async def test_reviewer_uses_correct_model(mock_exec: AsyncMock) -> None:
     pipeline = ReviewPipeline(_default_config())
 
     await pipeline.review_task(
-        _sample_task(), "Plan", lambda c, t: None, complexity="S"
+        _sample_task(), "Plan", lambda c, t, p: None, complexity="S"
     )
 
     call_args = mock_exec.call_args.args
@@ -475,7 +484,7 @@ async def test_no_active_reviewers_auto_approve() -> None:
     pipeline = ReviewPipeline(config)
 
     result = await pipeline.review_task(
-        _sample_task(), "Plan", lambda c, t: None, complexity="S"
+        _sample_task(), "Plan", lambda c, t, p: None, complexity="S"
     )
 
     assert result.consensus_score == 1.0
@@ -491,7 +500,7 @@ async def test_empty_reviewers_config() -> None:
     pipeline = ReviewPipeline(config)
 
     result = await pipeline.review_task(
-        _sample_task(), "Plan", lambda c, t: None, complexity="M"
+        _sample_task(), "Plan", lambda c, t, p: None, complexity="M"
     )
 
     assert result.consensus_score == 1.0
@@ -511,7 +520,7 @@ async def test_threshold_boundary(mock_exec: AsyncMock) -> None:
     pipeline = ReviewPipeline(_default_config(), threshold=0.8)
 
     result = await pipeline.review_task(
-        _sample_task(), "Plan", lambda c, t: None, complexity="M"
+        _sample_task(), "Plan", lambda c, t, p: None, complexity="M"
     )
 
     # Score 0.8 is NOT < 0.8, so no human decision needed
@@ -532,7 +541,7 @@ async def test_synthesis_score_clamped(mock_exec: AsyncMock) -> None:
     pipeline = ReviewPipeline(_default_config(), threshold=0.8)
 
     result = await pipeline.review_task(
-        _sample_task(), "Plan", lambda c, t: None, complexity="M"
+        _sample_task(), "Plan", lambda c, t, p: None, complexity="M"
     )
 
     assert result.consensus_score == 1.0
@@ -557,7 +566,7 @@ async def test_raw_response_captured(mock_exec: AsyncMock) -> None:
 
     pipeline = ReviewPipeline(_default_config(), threshold=0.8)
     result = await pipeline.review_task(
-        _sample_task(), "Build the thing", lambda c, t: None, complexity="S"
+        _sample_task(), "Build the thing", lambda c, t, p: None, complexity="S"
     )
 
     assert result.reviews[0].raw_response == inner_json
@@ -572,7 +581,7 @@ async def test_raw_response_captured_on_parse_failure(mock_exec: AsyncMock) -> N
 
     pipeline = ReviewPipeline(_default_config(), threshold=0.8)
     result = await pipeline.review_task(
-        _sample_task(), "Plan", lambda c, t: None, complexity="S"
+        _sample_task(), "Plan", lambda c, t, p: None, complexity="S"
     )
 
     assert result.reviews[0].raw_response == raw_text
@@ -702,7 +711,7 @@ async def test_reviewer_uses_max_budget_usd(mock_exec: AsyncMock) -> None:
     pipeline = ReviewPipeline(config)
 
     await pipeline.review_task(
-        _sample_task(), "Plan", lambda c, t: None, complexity="S"
+        _sample_task(), "Plan", lambda c, t, p: None, complexity="S"
     )
 
     call_args = mock_exec.call_args.args
@@ -721,7 +730,7 @@ async def test_reviewer_default_budget(mock_exec: AsyncMock) -> None:
     pipeline = ReviewPipeline(_default_config())
 
     await pipeline.review_task(
-        _sample_task(), "Plan", lambda c, t: None, complexity="S"
+        _sample_task(), "Plan", lambda c, t, p: None, complexity="S"
     )
 
     call_args = mock_exec.call_args.args
@@ -761,7 +770,7 @@ async def test_cost_usd_captured_on_review(mock_exec: AsyncMock) -> None:
 
     pipeline = ReviewPipeline(_default_config(), threshold=0.8)
     result = await pipeline.review_task(
-        _sample_task(), "Plan", lambda c, t: None, complexity="S"
+        _sample_task(), "Plan", lambda c, t, p: None, complexity="S"
     )
 
     assert result.reviews[0].cost_usd is not None
@@ -778,7 +787,7 @@ async def test_cost_usd_none_when_no_usage(mock_exec: AsyncMock) -> None:
 
     pipeline = ReviewPipeline(_default_config(), threshold=0.8)
     result = await pipeline.review_task(
-        _sample_task(), "Plan", lambda c, t: None, complexity="S"
+        _sample_task(), "Plan", lambda c, t, p: None, complexity="S"
     )
 
     assert result.reviews[0].cost_usd is None
@@ -799,7 +808,7 @@ async def test_subprocess_created_with_process_group_flags(mock_exec: AsyncMock)
 
     pipeline = ReviewPipeline(_default_config(), threshold=0.8)
     await pipeline.review_task(
-        _sample_task(), "Plan", lambda c, t: None, complexity="S"
+        _sample_task(), "Plan", lambda c, t, p: None, complexity="S"
     )
 
     kwargs = mock_exec.call_args.kwargs
@@ -819,7 +828,7 @@ async def test_subprocess_stdout_stderr_pipes(mock_exec: AsyncMock) -> None:
 
     pipeline = ReviewPipeline(_default_config(), threshold=0.8)
     await pipeline.review_task(
-        _sample_task(), "Plan", lambda c, t: None, complexity="S"
+        _sample_task(), "Plan", lambda c, t, p: None, complexity="S"
     )
 
     kwargs = mock_exec.call_args.kwargs
@@ -863,7 +872,7 @@ async def test_timeout_kills_process_group(
 
     with pytest.raises(RuntimeError, match="timed out"):
         await pipeline.review_task(
-            _sample_task(), "Plan", lambda c, t: None, complexity="S"
+            _sample_task(), "Plan", lambda c, t, p: None, complexity="S"
         )
 
     mock_terminate.assert_called_once_with(proc)
@@ -901,7 +910,7 @@ async def test_timeout_force_kill_on_stubborn_process(
 
     with pytest.raises(RuntimeError, match="timed out"):
         await pipeline.review_task(
-            _sample_task(), "Plan", lambda c, t: None, complexity="S"
+            _sample_task(), "Plan", lambda c, t, p: None, complexity="S"
         )
 
     mock_terminate.assert_called_once_with(proc)
@@ -930,7 +939,7 @@ async def test_no_timeout_when_zero(mock_exec: AsyncMock) -> None:
     pipeline = ReviewPipeline(config, threshold=0.8)
 
     result = await pipeline.review_task(
-        _sample_task(), "Plan", lambda c, t: None, complexity="S"
+        _sample_task(), "Plan", lambda c, t, p: None, complexity="S"
     )
 
     assert result.consensus_score == 1.0
@@ -959,7 +968,7 @@ async def test_normal_completion_within_timeout(mock_exec: AsyncMock) -> None:
     pipeline = ReviewPipeline(config, threshold=0.8)
 
     result = await pipeline.review_task(
-        _sample_task(), "Plan", lambda c, t: None, complexity="S"
+        _sample_task(), "Plan", lambda c, t, p: None, complexity="S"
     )
 
     assert result.consensus_score == 1.0
@@ -1005,7 +1014,7 @@ async def test_synthesis_timeout_also_covered(
 
     with pytest.raises(RuntimeError, match="timed out"):
         await pipeline.review_task(
-            _sample_task(), "Plan", lambda c, t: None, complexity="M"
+            _sample_task(), "Plan", lambda c, t, p: None, complexity="M"
         )
 
     mock_terminate.assert_called_once_with(synthesis_proc)
@@ -1032,7 +1041,7 @@ async def test_review_attempt_passed_to_history_writer(mock_exec: AsyncMock) -> 
     )
 
     await pipeline.review_task(
-        _sample_task(), "Plan", lambda c, t: None,
+        _sample_task(), "Plan", lambda c, t, p: None,
         complexity="S", review_attempt=3,
     )
 
@@ -1057,7 +1066,7 @@ async def test_review_attempt_defaults_to_1(mock_exec: AsyncMock) -> None:
     )
 
     await pipeline.review_task(
-        _sample_task(), "Plan", lambda c, t: None, complexity="S",
+        _sample_task(), "Plan", lambda c, t, p: None, complexity="S",
     )
 
     kw = mock_writer.write_review.call_args.kwargs
@@ -1082,7 +1091,7 @@ async def test_review_attempt_on_multi_reviewer(mock_exec: AsyncMock) -> None:
     )
 
     await pipeline.review_task(
-        _sample_task(), "Plan", lambda c, t: None,
+        _sample_task(), "Plan", lambda c, t, p: None,
         complexity="M", review_attempt=2,
     )
 
@@ -1140,3 +1149,90 @@ def test_kill_review_process_none_pid() -> None:
     proc.pid = None
     # Should not raise
     _kill_review_process(proc)
+
+
+# ------------------------------------------------------------------
+# Phase strings in on_progress (T-P0-32)
+# ------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+@patch("src.review_pipeline.asyncio.create_subprocess_exec")
+async def test_phase_string_starting(mock_exec: AsyncMock) -> None:
+    """First phase call is 'Starting {focus} review...'."""
+    mock_exec.return_value = _mock_proc(
+        _make_review_output("approve", "OK")
+    )
+
+    pipeline = ReviewPipeline(_default_config(), threshold=0.8)
+
+    phases: list[str] = []
+    await pipeline.review_task(
+        _sample_task(), "Plan",
+        lambda _c, _t, p: phases.append(p),
+        complexity="S",
+    )
+
+    assert phases[0] == "Starting feasibility_and_edge_cases review..."
+
+
+@pytest.mark.asyncio
+@patch("src.review_pipeline.asyncio.create_subprocess_exec")
+async def test_phase_string_completed(mock_exec: AsyncMock) -> None:
+    """Second phase call is 'Completed {focus} review'."""
+    mock_exec.return_value = _mock_proc(
+        _make_review_output("approve", "OK")
+    )
+
+    pipeline = ReviewPipeline(_default_config(), threshold=0.8)
+
+    phases: list[str] = []
+    await pipeline.review_task(
+        _sample_task(), "Plan",
+        lambda _c, _t, p: phases.append(p),
+        complexity="S",
+    )
+
+    assert phases[1] == "Completed feasibility_and_edge_cases review"
+
+
+@pytest.mark.asyncio
+@patch("src.review_pipeline.asyncio.create_subprocess_exec")
+async def test_phase_synthesizing_emitted(mock_exec: AsyncMock) -> None:
+    """'Synthesizing...' phase is emitted before multi-review synthesis."""
+    mock_exec.side_effect = [
+        _mock_proc(_make_review_output("approve", "OK")),
+        _mock_proc(_make_review_output("reject", "Bad")),
+        _mock_proc(_make_synthesis_output(0.7, [])),
+    ]
+
+    pipeline = ReviewPipeline(_default_config(), threshold=0.8)
+
+    phases: list[str] = []
+    await pipeline.review_task(
+        _sample_task(), "Plan",
+        lambda _c, _t, p: phases.append(p),
+        complexity="M",
+    )
+
+    assert "Synthesizing..." in phases
+
+
+@pytest.mark.asyncio
+@patch("src.review_pipeline.asyncio.create_subprocess_exec")
+async def test_no_synthesizing_for_single_reviewer(mock_exec: AsyncMock) -> None:
+    """'Synthesizing...' phase is NOT emitted for single-reviewer runs."""
+    mock_exec.return_value = _mock_proc(
+        _make_review_output("approve", "OK")
+    )
+
+    pipeline = ReviewPipeline(_default_config(), threshold=0.8)
+
+    phases: list[str] = []
+    await pipeline.review_task(
+        _sample_task(), "Plan",
+        lambda _c, _t, p: phases.append(p),
+        complexity="S",
+    )
+
+    assert "Synthesizing..." not in phases

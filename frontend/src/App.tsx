@@ -49,10 +49,15 @@ function App() {
   const [autoEnrich, setAutoEnrich] = useState(false);
   const [bottomPanelHeight, setBottomPanelHeight] = useState(loadPanelHeight);
   const [reviewSubmitTask, setReviewSubmitTask] = useState<Task | null>(null);
+  const [reviewPhase, setReviewPhase] = useState("");
 
   // Keep a ref to tasks for SSE handler (avoid stale closure)
   const tasksRef = useRef(tasks);
   tasksRef.current = tasks;
+
+  // Keep a ref to selectedTask for SSE handler (task_id guard)
+  const selectedTaskRef = useRef(selectedTask);
+  selectedTaskRef.current = selectedTask;
 
   const addToast = useCallback(
     (text: string, type: "success" | "error") => {
@@ -161,11 +166,16 @@ function App() {
         case "review_progress": {
           const completed = event.data.completed as number;
           const total = event.data.total as number;
+          const phase = (event.data.phase as string) ?? "";
           addLogEntry(
             event.task_id,
-            `Review progress: ${completed}/${total}`,
+            `Review progress: ${completed}/${total} -- ${phase}`,
             event.timestamp,
           );
+          // SSE task_id guard: only update phase if this event is for the selected task
+          if (event.task_id === selectedTaskRef.current?.id) {
+            setReviewPhase(phase);
+          }
           break;
         }
         case "execution_paused": {
@@ -207,6 +217,10 @@ function App() {
                 : t,
             ),
           );
+          // Clear stale phase when a new review starts for the selected task
+          if (event.task_id === selectedTaskRef.current?.id) {
+            setReviewPhase("");
+          }
           addLogEntry(
             event.task_id,
             "Review pipeline started",
@@ -435,6 +449,8 @@ function App() {
 
   const handleSelectTask = useCallback((task: Task) => {
     setSelectedTask(task);
+    // Clear stale review phase from previously selected task
+    setReviewPhase("");
     // Switch to review panel if the task is in a review state
     if (
       task.status === "review" ||
@@ -716,7 +732,7 @@ function App() {
                 {selectedTask.local_task_id}
               </span>
               <button
-                onClick={() => setSelectedTask(null)}
+                onClick={() => { setSelectedTask(null); setReviewPhase(""); }}
                 className="ml-0.5 px-1 text-gray-400 hover:text-gray-600 text-xs rounded hover:bg-gray-100"
                 title="Clear task focus"
               >
@@ -733,10 +749,13 @@ function App() {
               entries={logEntries}
               taskIds={taskIds}
               selectedTaskId={selectedTask?.id}
+              selectedTaskStatus={selectedTask?.status}
+              executionStartedAt={selectedTask?.execution?.started_at}
             />
           ) : (
             <ReviewPanel
               task={selectedTask}
+              reviewPhase={reviewPhase}
               onDecisionSubmitted={handleReviewDecision}
               onError={(msg) => addToast(msg, "error")}
             />

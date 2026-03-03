@@ -76,11 +76,11 @@ async def test_review_approve_auto(
         threshold=0.8,
     )
 
-    progress_calls: list[tuple[int, int]] = []
+    progress_calls: list[tuple[int, int, str]] = []
 
-    def on_progress(completed: int, total: int) -> None:
+    def on_progress(completed: int, total: int, phase: str) -> None:
         """Track progress callbacks."""
-        progress_calls.append((completed, total))
+        progress_calls.append((completed, total, phase))
 
     review_state = await pipeline.review_task(
         task=task,
@@ -90,7 +90,8 @@ async def test_review_approve_auto(
 
     assert review_state.consensus_score == 1.0
     assert review_state.human_decision_needed is False
-    assert len(progress_calls) == 1
+    # 2 calls: "Starting..." + "Completed..." for single reviewer
+    assert len(progress_calls) == 2
 
     # Transition to REVIEW_AUTO_APPROVED -> QUEUED
     await task_manager.update_status(task.id, TaskStatus.REVIEW_AUTO_APPROVED)
@@ -146,7 +147,7 @@ async def test_review_reject_needs_human(
     review_state = await pipeline.review_task(
         task=task,
         plan_content=task.description,
-        on_progress=lambda c, t: None,
+        on_progress=lambda c, t, p: None,
     )
 
     assert review_state.consensus_score == 0.3
@@ -221,7 +222,7 @@ async def test_review_reject_then_human_rejects(
     await pipeline.review_task(
         task=task,
         plan_content=task.description,
-        on_progress=lambda c, t: None,
+        on_progress=lambda c, t, p: None,
     )
 
     await task_manager.update_status(task.id, TaskStatus.REVIEW_NEEDS_HUMAN)
@@ -292,7 +293,7 @@ async def test_multi_reviewer_synthesis(
     review_state = await pipeline.review_task(
         task=task,
         plan_content=task.description,
-        on_progress=lambda c, t: None,
+        on_progress=lambda c, t, p: None,
         complexity="M",  # M triggers adversarial reviewer
     )
 

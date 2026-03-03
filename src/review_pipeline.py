@@ -238,7 +238,7 @@ class ReviewPipeline:
         self,
         task: Task,
         plan_content: str,
-        on_progress: Callable[[int, int], None],
+        on_progress: Callable[[int, int, str], None],
         complexity: str = "S",
         review_attempt: int = 1,
     ) -> ReviewState:
@@ -247,7 +247,9 @@ class ReviewPipeline:
         Args:
             task: The task to review.
             plan_content: The plan text to review.
-            on_progress: Callback ``(completed, total)`` for progress reporting.
+            on_progress: Callback ``(completed, total, phase)`` for progress
+                reporting.  *phase* is a human-readable label such as
+                ``"Starting feasibility_and_edge_cases review..."``.
             complexity: Task complexity (``"S"``, ``"M"``, ``"L"``). Adversarial
                 reviewer added for M and L tasks.
             review_attempt: Attempt number (1-based). Retries increment this.
@@ -275,12 +277,16 @@ class ReviewPipeline:
         reviews: list[LLMReview] = []
 
         for i, reviewer in enumerate(active_reviewers):
+            on_progress(i, len(active_reviewers),
+                        f"Starting {reviewer.focus} review...")
             review = await self._call_reviewer(reviewer, task, plan_content)
             reviews.append(review)
-            on_progress(i + 1, len(active_reviewers))
+            on_progress(i + 1, len(active_reviewers),
+                        f"Completed {reviewer.focus} review")
 
         # Synthesize (only if multiple reviews)
         if len(reviews) > 1:
+            on_progress(len(reviews), len(active_reviewers), "Synthesizing...")
             synthesis = await self._synthesize(reviews, plan_content)
             score = synthesis.score
             disagreements = synthesis.disagreements

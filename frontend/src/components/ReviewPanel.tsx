@@ -20,6 +20,8 @@ import {
 
 interface ReviewPanelProps {
   task: Task | null;
+  /** Current review phase label from SSE (e.g. "Starting feasibility... review..."). */
+  reviewPhase?: string;
   onDecisionSubmitted: (taskId: string, decision: string) => void;
   onError: (message: string) => void;
 }
@@ -28,6 +30,7 @@ const POLL_INTERVAL_MS = 5000;
 
 export default function ReviewPanel({
   task,
+  reviewPhase,
   onDecisionSubmitted,
   onError,
 }: ReviewPanelProps) {
@@ -239,13 +242,13 @@ export default function ReviewPanel({
           </div>
         )}
 
-        {/* review_status == running: spinner */}
+        {/* review_status == running: spinner + phase label */}
         {reviewStatus === "running" && (
           <div className="flex items-center gap-3 py-4 px-3 rounded-lg bg-blue-50 border border-blue-200">
             <div className="w-5 h-5 border-2 border-blue-400 border-t-transparent rounded-full animate-spin" />
             <div>
               <p className="text-sm font-medium text-blue-700">
-                Review in progress...
+                {reviewPhase || "Review in progress..."}
               </p>
               <p className="text-xs text-blue-500 mt-0.5">
                 The review pipeline is analyzing this task
