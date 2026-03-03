@@ -100,6 +100,7 @@ class ProjectSettingsRow(Base):
 
     project_id: Mapped[str] = mapped_column(String(32), primary_key=True)
     execution_paused: Mapped[bool] = mapped_column(default=False)
+    review_gate_enabled: Mapped[bool] = mapped_column(default=True)
 
 
 class ReviewHistoryRow(Base):

@@ -100,8 +100,17 @@ class TaskManager:
     # Update
     # ------------------------------------------------------------------
 
-    async def update_status(self, task_id: str, new_status: TaskStatus) -> Task:
+    async def update_status(
+        self,
+        task_id: str,
+        new_status: TaskStatus,
+        *,
+        review_gate_enabled: bool = False,
+    ) -> Task:
         """Transition a task to *new_status*, enforcing the state machine.
+
+        When *review_gate_enabled* is True, BACKLOG -> QUEUED is blocked;
+        the task must go through REVIEW first (Layer 1 review gate).
 
         Raises ``ValueError`` on illegal transitions or missing tasks.
         """
@@ -115,6 +124,17 @@ class TaskManager:
                 raise ValueError(
                     f"Invalid transition: {current.value} -> {new_status.value} "
                     f"for task {task_id}"
+                )
+
+            # Layer 1: review gate blocks BACKLOG -> QUEUED
+            if (
+                review_gate_enabled
+                and current == TaskStatus.BACKLOG
+                and new_status == TaskStatus.QUEUED
+            ):
+                raise ValueError(
+                    f"Review gate is enabled: BACKLOG -> QUEUED is blocked "
+                    f"for task {task_id}. Move to REVIEW first."
                 )
 
             now = datetime.now(UTC).isoformat()

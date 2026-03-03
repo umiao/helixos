@@ -377,3 +377,10 @@
 - **Sanity check result**: pytest 619/619 passed. ruff check clean.
 - **Status**: [DONE]
 - **Request**: Move T-P0-19 to Completed (REMOVE spec block from Active, ADD summary line to Completed Tasks)
+
+## 2026-03-02 22:30 -- [T-P0-18] Configurable review gate before execution (two-layer defense)
+- **What I did**: Implemented two-layer review gate per design doc. Layer 1: added `review_gate_enabled` column to ProjectSettingsRow, get/set methods in ProjectSettingsStore, and a `review_gate_enabled` parameter to TaskManager.update_status() that blocks BACKLOG->QUEUED when enabled. Layer 2: added `_can_execute()` method in Scheduler that queries ReviewHistoryRow for an approved verdict before allowing execution. Added `has_approved_review()` to HistoryWriter. Added Scheduler review gate toggle methods with SSE events and DB persistence. Added PATCH /api/projects/{id}/review-gate API endpoint. Updated ProjectResponse/ProjectDetailResponse schemas. Frontend: added `review_gate_enabled` to Project type, `setReviewGate()` API function, "Gate ON/OFF" toggle in SwimLaneHeader, and SSE handler for `review_gate_changed` events in App.tsx.
+- **Deliverables**: src/db.py (mod), src/project_settings.py (mod), src/task_manager.py (mod), src/scheduler.py (mod), src/history_writer.py (mod), src/api.py (mod), src/schemas.py (mod), frontend/src/types.ts (mod), frontend/src/api.ts (mod), frontend/src/components/SwimLaneHeader.tsx (mod), frontend/src/App.tsx (mod), tests/test_review_gate.py (new -- 22 tests), tests/test_api.py (mod -- updated mock scheduler for review gate)
+- **Sanity check result**: pytest 641/641 passed. ruff check clean. npm run build succeeds.
+- **Status**: [DONE]
+- **Request**: Move T-P0-18 to Completed (REMOVE spec block from Active, ADD summary line to Completed Tasks)

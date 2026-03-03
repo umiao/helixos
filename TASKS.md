@@ -10,19 +10,7 @@
 ## Active Tasks
 
 ### P0 -- Must Have (core functionality)
-
-#### T-P0-18: Configurable review gate before execution (two-layer defense)
-- **Complexity**: M | **Depends on**: None
-- Layer 1: Per-project `review_gate_enabled` flag (default: true) that prevents
-  BACKLOG -> QUEUED in TaskManager, forcing tasks through REVIEW first.
-  DB persistence (follows execution_paused pattern), API toggle, SSE event,
-  frontend shield toggle + drag rejection toast.
-- Layer 2: `_can_execute(task)` check at scheduler execution entry validating
-  has_been_reviewed (review_history exists OR gate disabled). Last line of defense.
-- **AC**: gate-on rejects BACKLOG->QUEUED; gate-off allows it; scheduler refuses
-  to execute unreviewed tasks when gate is on; toggle endpoint;
-  SwimLaneHeader toggle; 10+ tests.
-- **Design doc**: docs/design/review-gate-asyncio-divider.md (Issue 1)
+<!-- All P0 tasks completed. See Completed Tasks below. -->
 
 ### P1 -- Should Have (important features)
 <!-- All 7 P1 tasks completed. See Completed Tasks below. -->
@@ -117,7 +105,7 @@ T-P2-6 [M] Frontend Swim Lanes [DONE] ------------------+
 
 --- P0 (new) ---
 
-T-P0-18 [M] Review gate (no deps)
+T-P0-18 [M] Review gate [DONE]
 T-P0-19 [S] asyncio fix [DONE]
 
 --- P3 (new) ---
@@ -270,6 +258,9 @@ T-P3-12 [M] Resizable divider (no deps)
 
 #### [x] T-P0-17: Design analysis -- evaluate achievements and future directions -- 2026-03-02
 - Root cause analysis of three issues (missing review gate, asyncio Windows crash, fixed bottom panel). Design document at docs/design/review-gate-asyncio-divider.md. Added T-P0-18 (review gate), T-P0-19 (asyncio fix), T-P3-12 (resizable divider) to TASKS.md.
+
+#### [x] T-P0-18: Configurable review gate before execution (two-layer defense) -- 2026-03-02
+- Two-layer review gate. Layer 1: review_gate_enabled column in DB, blocks BACKLOG->QUEUED in TaskManager when enabled. Layer 2: Scheduler._can_execute() checks ReviewHistoryRow for approved verdict before execution. PATCH /api/projects/{id}/review-gate endpoint. SwimLaneHeader Gate ON/OFF toggle. SSE review_gate_changed events. 22 new tests, 641 total passing.
 
 #### [x] T-P0-19: Fix asyncio NotImplementedError on Windows with --reload -- 2026-03-02
 - Added --loop none to start.ps1 uvicorn command. Split error logging in api.py lifespan (NotImplementedError vs FileNotFoundError with distinct messages). Defense-in-depth comment on ProactorEventLoopPolicy. QUICKSTART.md updated with Windows dev instructions and troubleshooting. 4 tests, 619 total passing.

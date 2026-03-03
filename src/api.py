@@ -85,7 +85,10 @@ CONFIG_PATH = Path("orchestrator_config.yaml")
 
 
 def _project_to_response(
-    project: Project, *, execution_paused: bool = False,
+    project: Project,
+    *,
+    execution_paused: bool = False,
+    review_gate_enabled: bool = True,
 ) -> ProjectResponse:
     """Convert a domain Project to an API response."""
     return ProjectResponse(
@@ -97,6 +100,7 @@ def _project_to_response(
         max_concurrency=project.max_concurrency,
         claude_md_path=str(project.claude_md_path) if project.claude_md_path else None,
         execution_paused=execution_paused,
+        review_gate_enabled=review_gate_enabled,
     )
 
 
@@ -313,7 +317,9 @@ async def list_projects(request: Request) -> list[ProjectResponse]:
     projects = registry.list_projects()
     return [
         _project_to_response(
-            p, execution_paused=scheduler.is_project_paused(p.id),
+            p,
+            execution_paused=scheduler.is_project_paused(p.id),
+            review_gate_enabled=scheduler.is_review_gate_enabled(p.id),
         )
         for p in projects
     ]
@@ -348,6 +354,7 @@ async def get_project(project_id: str, request: Request) -> ProjectDetailRespons
         max_concurrency=project.max_concurrency,
         claude_md_path=str(project.claude_md_path) if project.claude_md_path else None,
         execution_paused=scheduler.is_project_paused(project_id),
+        review_gate_enabled=scheduler.is_review_gate_enabled(project_id),
         tasks=[_task_to_response(t) for t in tasks],
     )
 
@@ -881,6 +888,47 @@ async def resume_execution(
 
 
 # ------------------------------------------------------------------
+# Review gate endpoint
+# ------------------------------------------------------------------
+
+
+@api_router.patch(
+    "/api/projects/{project_id}/review-gate",
+    responses={404: {"model": ErrorResponse}},
+)
+async def set_review_gate(
+    project_id: str,
+    request: Request,
+    enabled: bool = True,
+) -> dict:
+    """Toggle the review gate for a project.
+
+    When enabled (default), tasks must pass through REVIEW before QUEUED
+    and the scheduler verifies an approved review record before executing.
+    """
+    registry: ProjectRegistry = request.app.state.registry
+    scheduler: Scheduler = request.app.state.scheduler
+
+    try:
+        registry.get_project(project_id)
+    except KeyError:
+        raise HTTPException(
+            status_code=404, detail=f"Project not found: {project_id}",
+        ) from None
+
+    if enabled:
+        await scheduler.enable_review_gate(project_id)
+    else:
+        await scheduler.disable_review_gate(project_id)
+
+    return {
+        "detail": f"Review gate {'enabled' if enabled else 'disabled'}",
+        "project_id": project_id,
+        "review_gate_enabled": enabled,
+    }
+
+
+# ------------------------------------------------------------------
 # Task endpoints
 # ------------------------------------------------------------------
 
@@ -924,13 +972,20 @@ async def update_task_status(
 ) -> TaskResponse:
     """Transition a task to a new status (validates state machine)."""
     task_manager: TaskManager = request.app.state.task_manager
+    scheduler: Scheduler = request.app.state.scheduler
 
     existing = await task_manager.get_task(task_id)
     if existing is None:
         raise HTTPException(status_code=404, detail=f"Task not found: {task_id}")
 
+    # Pass review gate state so TaskManager can enforce Layer 1
+    gate_enabled = scheduler.is_review_gate_enabled(existing.project_id)
+
     try:
-        updated = await task_manager.update_status(task_id, body.status)
+        updated = await task_manager.update_status(
+            task_id, body.status,
+            review_gate_enabled=gate_enabled,
+        )
     except ValueError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from None
 

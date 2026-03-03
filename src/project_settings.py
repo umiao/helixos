@@ -1,7 +1,8 @@
 """Per-project runtime settings backed by SQLite.
 
-Provides async helpers to get and set the ``execution_paused`` flag
-for each project.  The flag persists across server restarts.
+Provides async helpers to get and set the ``execution_paused`` and
+``review_gate_enabled`` flags for each project.  Both flags persist
+across server restarts.
 """
 
 from __future__ import annotations
@@ -73,6 +74,62 @@ class ProjectSettingsStore:
         async with get_session(self._session_factory) as session:
             stmt = select(ProjectSettingsRow.project_id).where(
                 ProjectSettingsRow.execution_paused.is_(True),
+            )
+            result = await session.execute(stmt)
+            return {row[0] for row in result.all()}
+
+    # ------------------------------------------------------------------
+    # Review gate
+    # ------------------------------------------------------------------
+
+    async def is_review_gate_enabled(self, project_id: str) -> bool:
+        """Return True if the review gate is enabled for *project_id*.
+
+        Returns True if no row exists (default: gate enabled).
+
+        Args:
+            project_id: The project to check.
+
+        Returns:
+            Whether the review gate is enabled.
+        """
+        async with get_session(self._session_factory) as session:
+            row = await session.get(ProjectSettingsRow, project_id)
+            if row is None:
+                return True
+            return row.review_gate_enabled
+
+    async def set_review_gate(
+        self, project_id: str, *, enabled: bool,
+    ) -> None:
+        """Set the review_gate_enabled flag for *project_id*.
+
+        Creates the row if it does not already exist (upsert).
+
+        Args:
+            project_id: The project to update.
+            enabled: The desired review gate state.
+        """
+        async with get_session(self._session_factory) as session:
+            row = await session.get(ProjectSettingsRow, project_id)
+            if row is None:
+                row = ProjectSettingsRow(
+                    project_id=project_id,
+                    review_gate_enabled=enabled,
+                )
+                session.add(row)
+            else:
+                row.review_gate_enabled = enabled
+
+    async def get_all_review_gate_disabled(self) -> set[str]:
+        """Return project IDs where the review gate is disabled.
+
+        Returns:
+            Set of project IDs with review gate disabled.
+        """
+        async with get_session(self._session_factory) as session:
+            stmt = select(ProjectSettingsRow.project_id).where(
+                ProjectSettingsRow.review_gate_enabled.is_(False),
             )
             result = await session.execute(stmt)
             return {row[0] for row in result.all()}

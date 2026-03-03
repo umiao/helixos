@@ -26,6 +26,7 @@ export interface Project {
   env_keys: string[];
   claude_md_path: string | null;
   execution_paused: boolean;
+  review_gate_enabled: boolean;
 }
 
 export interface ReviewState {

@@ -29,6 +29,7 @@ class ProjectResponse(BaseModel):
     max_concurrency: int = 1
     claude_md_path: str | None = None
     execution_paused: bool = False
+    review_gate_enabled: bool = True
 
 
 class ProjectDetailResponse(BaseModel):
@@ -42,6 +43,7 @@ class ProjectDetailResponse(BaseModel):
     max_concurrency: int = 1
     claude_md_path: str | None = None
     execution_paused: bool = False
+    review_gate_enabled: bool = True
     tasks: list[TaskResponse] = Field(default_factory=list)
 
 

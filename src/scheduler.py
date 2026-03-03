@@ -73,6 +73,8 @@ class Scheduler:
         self._cancelled: set[str] = set()
         self._tick_task: asyncio.Task[None] | None = None
         self._paused_projects: set[str] = set()
+        # Projects where review gate is disabled (default: enabled for all)
+        self._review_gate_disabled: set[str] = set()
 
     # ------------------------------------------------------------------
     # Tick loop lifecycle
@@ -90,6 +92,15 @@ class Scheduler:
                     "Loaded %d paused projects: %s",
                     len(self._paused_projects),
                     ", ".join(sorted(self._paused_projects)),
+                )
+            self._review_gate_disabled = (
+                await self._settings_store.get_all_review_gate_disabled()
+            )
+            if self._review_gate_disabled:
+                logger.info(
+                    "Review gate disabled for %d projects: %s",
+                    len(self._review_gate_disabled),
+                    ", ".join(sorted(self._review_gate_disabled)),
                 )
         self._tick_task = asyncio.create_task(self._tick_loop())
         logger.info("Scheduler started (interval=%ds)", TICK_INTERVAL_SECONDS)
@@ -194,6 +205,62 @@ class Scheduler:
         return project_id in self._paused_projects
 
     # ------------------------------------------------------------------
+    # Review gate
+    # ------------------------------------------------------------------
+
+    async def enable_review_gate(self, project_id: str) -> None:
+        """Enable the review gate for a project.
+
+        When enabled, BACKLOG -> QUEUED is blocked (Layer 1) and the
+        scheduler refuses to execute tasks without an approved review
+        record (Layer 2).
+
+        Args:
+            project_id: The project to enable the gate for.
+        """
+        self._review_gate_disabled.discard(project_id)
+        if self._settings_store is not None:
+            await self._settings_store.set_review_gate(
+                project_id, enabled=True,
+            )
+        self._event_bus.emit(
+            "review_gate_changed", project_id,
+            {"review_gate_enabled": True},
+        )
+        logger.info("Review gate enabled for project %s", project_id)
+
+    async def disable_review_gate(self, project_id: str) -> None:
+        """Disable the review gate for a project.
+
+        When disabled, tasks can skip review and go directly from
+        BACKLOG to QUEUED.
+
+        Args:
+            project_id: The project to disable the gate for.
+        """
+        self._review_gate_disabled.add(project_id)
+        if self._settings_store is not None:
+            await self._settings_store.set_review_gate(
+                project_id, enabled=False,
+            )
+        self._event_bus.emit(
+            "review_gate_changed", project_id,
+            {"review_gate_enabled": False},
+        )
+        logger.info("Review gate disabled for project %s", project_id)
+
+    def is_review_gate_enabled(self, project_id: str) -> bool:
+        """Check whether the review gate is enabled for *project_id*.
+
+        Args:
+            project_id: The project to check.
+
+        Returns:
+            True if the review gate is enabled (default).
+        """
+        return project_id not in self._review_gate_disabled
+
+    # ------------------------------------------------------------------
     # Cancel
     # ------------------------------------------------------------------
 
@@ -271,6 +338,10 @@ class Scheduler:
                 continue
 
             if not await self._deps_fulfilled(task):
+                continue
+
+            # Layer 2: review gate -- refuse to execute unreviewed tasks
+            if not await self._can_execute(task):
                 continue
 
             try:
@@ -352,6 +423,43 @@ class Scheduler:
             if dep is None or dep.status != TaskStatus.DONE:
                 return False
         return True
+
+    # ------------------------------------------------------------------
+    # Layer 2: review gate execution check
+    # ------------------------------------------------------------------
+
+    async def _can_execute(self, task: Task) -> bool:
+        """Layer 2 review gate: verify the task has been reviewed.
+
+        When the review gate is enabled for the task's project, this
+        checks that at least one approved review record exists in
+        review_history.  This is the last line of defense -- even if
+        some code path bypasses the transition gate, the scheduler will
+        not execute an unreviewed task.
+
+        When the review gate is disabled, always returns True.
+
+        Args:
+            task: The QUEUED task about to be executed.
+
+        Returns:
+            True if the task may proceed to execution.
+        """
+        if task.project_id in self._review_gate_disabled:
+            return True
+
+        if self._history_writer is None:
+            # No history writer means we cannot verify review status;
+            # allow execution to avoid deadlocking the pipeline.
+            return True
+
+        approved = await self._history_writer.has_approved_review(task.id)
+        if not approved:
+            logger.info(
+                "Review gate: task %s has no approved review -- skipping",
+                task.id,
+            )
+        return approved
 
     # ------------------------------------------------------------------
     # Executor factory

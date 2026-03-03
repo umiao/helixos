@@ -1,10 +1,10 @@
 /**
- * SwimLaneHeader -- per-project action bar with Pause/Resume, Launch, New Task, Sync.
+ * SwimLaneHeader -- per-project action bar with Review Gate, Pause/Resume, Launch, New Task, Sync.
  * Also shows warning badges for limited-mode projects (missing TASKS.md or CLAUDE.md).
  */
 
 import { useState } from "react";
-import { pauseExecution, resumeExecution } from "../api";
+import { pauseExecution, resumeExecution, setReviewGate } from "../api";
 import type { Project } from "../types";
 import LaunchControl from "./LaunchControl";
 
@@ -16,6 +16,7 @@ interface SwimLaneHeaderProps {
   onNewTask: () => void;
   onError: (msg: string) => void;
   onPauseToggle?: (paused: boolean) => void;
+  onReviewGateToggle?: (enabled: boolean) => void;
 }
 
 export default function SwimLaneHeader({
@@ -26,8 +27,10 @@ export default function SwimLaneHeader({
   onNewTask,
   onError,
   onPauseToggle,
+  onReviewGateToggle,
 }: SwimLaneHeaderProps) {
   const [toggling, setToggling] = useState(false);
+  const [togglingGate, setTogglingGate] = useState(false);
 
   // Detect limited-mode warnings (missing repo path or CLAUDE.md)
   const warnings: { label: string; tooltip: string }[] = [];
@@ -66,7 +69,25 @@ export default function SwimLaneHeader({
     }
   };
 
+  const handleGateToggle = async () => {
+    setTogglingGate(true);
+    try {
+      const newEnabled = !project.review_gate_enabled;
+      await setReviewGate(project.id, newEnabled);
+      onReviewGateToggle?.(newEnabled);
+    } catch (err) {
+      onError(
+        `Failed to toggle review gate: ${
+          err instanceof Error ? err.message : String(err)
+        }`,
+      );
+    } finally {
+      setTogglingGate(false);
+    }
+  };
+
   const paused = project.execution_paused;
+  const gateOn = project.review_gate_enabled;
 
   return (
     <div className="flex items-center gap-3 px-4 py-1.5 bg-gray-200 border-b border-gray-300 rounded-t-md flex-shrink-0">
@@ -108,6 +129,24 @@ export default function SwimLaneHeader({
       <span className="text-xs text-gray-500">
         {taskCount} {taskCount === 1 ? "task" : "tasks"}
       </span>
+
+      {/* Review gate toggle */}
+      <button
+        onClick={handleGateToggle}
+        disabled={togglingGate}
+        className={`rounded px-2 py-0.5 text-xs font-medium transition-colors disabled:opacity-50 ${
+          gateOn
+            ? "text-blue-800 bg-blue-200 hover:bg-blue-300"
+            : "text-gray-700 bg-gray-100 hover:bg-gray-300"
+        }`}
+        title={
+          gateOn
+            ? "Review gate ON -- tasks must be reviewed before execution. Click to disable."
+            : "Review gate OFF -- tasks can skip review. Click to enable."
+        }
+      >
+        {togglingGate ? "..." : gateOn ? "Gate ON" : "Gate OFF"}
+      </button>
 
       {/* Pause/Resume toggle */}
       <button

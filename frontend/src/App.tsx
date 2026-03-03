@@ -176,6 +176,22 @@ function App() {
           );
           break;
         }
+        case "review_gate_changed": {
+          const gateEnabled = event.data.review_gate_enabled as boolean;
+          const gateProjectId = event.task_id;
+          setProjects((prev) =>
+            prev.map((p) =>
+              p.id === gateProjectId
+                ? { ...p, review_gate_enabled: gateEnabled }
+                : p,
+            ),
+          );
+          addToast(
+            `[${gateProjectId}] Review gate ${gateEnabled ? "enabled" : "disabled"}`,
+            gateEnabled ? "success" : "error",
+          );
+          break;
+        }
       }
     },
     [addToast, addLogEntry],

@@ -213,6 +213,22 @@ export async function resumeExecution(
   return handleResponse(res);
 }
 
+/** Toggle the review gate for a project. */
+export async function setReviewGate(
+  projectId: string,
+  enabled: boolean,
+): Promise<{
+  detail: string;
+  project_id: string;
+  review_gate_enabled: boolean;
+}> {
+  const res = await fetch(
+    `/api/projects/${encodeURIComponent(projectId)}/review-gate?enabled=${enabled}`,
+    { method: "PATCH" },
+  );
+  return handleResponse(res);
+}
+
 /** Launch the dev server for a project. */
 export async function launchProject(
   projectId: string,

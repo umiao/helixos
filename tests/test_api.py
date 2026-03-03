@@ -146,6 +146,22 @@ async def test_app(tmp_path: Path, test_session_factory):
     scheduler.pause_project = AsyncMock()
     scheduler.resume_project = AsyncMock()
 
+    # Review gate: track state in a mutable container
+    _review_gate_state: dict[str, bool] = {}  # default: enabled (True)
+
+    def _is_gate_enabled(project_id: str) -> bool:
+        return _review_gate_state.get(project_id, True)
+
+    async def _enable_gate(project_id: str) -> None:
+        _review_gate_state[project_id] = True
+
+    async def _disable_gate(project_id: str) -> None:
+        _review_gate_state[project_id] = False
+
+    scheduler.is_review_gate_enabled = MagicMock(side_effect=_is_gate_enabled)
+    scheduler.enable_review_gate = AsyncMock(side_effect=_enable_gate)
+    scheduler.disable_review_gate = AsyncMock(side_effect=_disable_gate)
+
     app = FastAPI(title="HelixOS Test", version="0.1.0")
     app.include_router(sse_router)
     app.include_router(api_router)
@@ -307,7 +323,13 @@ class TestUpdateTaskStatus:
     async def test_valid_transition(
         self, client: AsyncClient, seeded_task: Task,
     ):
-        """BACKLOG -> QUEUED should succeed."""
+        """BACKLOG -> QUEUED should succeed when review gate is disabled."""
+        # Disable review gate so BACKLOG -> QUEUED is allowed
+        gate_resp = await client.patch(
+            "/api/projects/proj-a/review-gate?enabled=false",
+        )
+        assert gate_resp.status_code == 200
+
         resp = await client.patch(
             "/api/tasks/proj-a:T-P0-1/status",
             json={"status": "queued"},

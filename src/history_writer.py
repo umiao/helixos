@@ -263,3 +263,29 @@ class HistoryWriter:
             )
             result = await session.execute(stmt)
             return len(result.scalars().all())
+
+    async def has_approved_review(self, task_id: str) -> bool:
+        """Check if any review entry for *task_id* has an approved verdict.
+
+        An "approved" review is one where verdict == "approve" OR
+        human_decision == "approve".  This is used by the scheduler's
+        Layer 2 review gate to ensure only reviewed tasks execute.
+
+        Args:
+            task_id: The task to check.
+
+        Returns:
+            True if at least one approved review record exists.
+        """
+        async with get_session(self._sf) as session:
+            stmt = (
+                select(ReviewHistoryRow)
+                .where(ReviewHistoryRow.task_id == task_id)
+                .where(
+                    (ReviewHistoryRow.verdict == "approve")
+                    | (ReviewHistoryRow.human_decision == "approve")
+                )
+                .limit(1)
+            )
+            result = await session.execute(stmt)
+            return result.scalar_one_or_none() is not None
