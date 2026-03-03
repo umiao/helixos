@@ -32,6 +32,7 @@ def config() -> OrchestratorSettings:
     return OrchestratorSettings(
         session_timeout_minutes=1,
         subprocess_terminate_grace_seconds=2,
+        inactivity_timeout_minutes=0,  # disabled by default in tests
     )
 
 
@@ -59,46 +60,44 @@ def task() -> Task:
     )
 
 
-class _AsyncLineIterator:
-    """Async iterator over a list of byte lines -- used as mock stdout."""
+# ------------------------------------------------------------------
+# Stdout mock helpers (readline-based)
+# ------------------------------------------------------------------
+
+
+class _MockStdout:
+    """Mock stdout that returns lines via readline(), then b'' for EOF."""
 
     def __init__(self, lines: list[bytes]) -> None:
-        self._lines = lines
+        self._lines = list(lines)
         self._index = 0
 
-    def __aiter__(self) -> _AsyncLineIterator:
-        return self
-
-    async def __anext__(self) -> bytes:
-        if self._index >= len(self._lines):
-            raise StopAsyncIteration
-        line = self._lines[self._index]
-        self._index += 1
-        return line
-
-
-class _HangingIterator:
-    """Async iterator that yields initial lines then hangs until an event is set."""
-
-    def __init__(self, initial_lines: list[bytes], hang_event: asyncio.Event) -> None:
-        self._lines = initial_lines
-        self._hang_event = hang_event
-        self._index = 0
-        self._hanging = False
-
-    def __aiter__(self) -> _HangingIterator:
-        return self
-
-    async def __anext__(self) -> bytes:
+    async def readline(self) -> bytes:
+        """Return next line, or b'' when exhausted."""
         if self._index < len(self._lines):
             line = self._lines[self._index]
             self._index += 1
             return line
-        if not self._hanging:
-            self._hanging = True
-            await self._hang_event.wait()
-            raise StopAsyncIteration
-        raise StopAsyncIteration
+        return b""
+
+
+class _HangingStdout:
+    """Mock stdout that yields initial lines then hangs on readline()."""
+
+    def __init__(self, initial_lines: list[bytes], hang_event: asyncio.Event) -> None:
+        self._lines = list(initial_lines)
+        self._index = 0
+        self._hang_event = hang_event
+
+    async def readline(self) -> bytes:
+        """Return lines, then hang until event is set, then return EOF."""
+        if self._index < len(self._lines):
+            line = self._lines[self._index]
+            self._index += 1
+            return line
+        # Hang until event is set
+        await self._hang_event.wait()
+        return b""
 
 
 def _make_mock_proc(
@@ -119,8 +118,8 @@ def _make_mock_proc(
     proc.pid = 12345
     proc.returncode = None
 
-    # Use a proper async iterable for stdout
-    proc.stdout = _AsyncLineIterator(stdout_lines)
+    # Use readline-based mock for stdout
+    proc.stdout = _MockStdout(stdout_lines)
 
     # Mock stderr as an async reader
     stderr_mock = AsyncMock()
@@ -383,25 +382,29 @@ class TestExecuteFailure:
 
 
 # ------------------------------------------------------------------
-# Tests: CodeExecutor.execute -- timeout
+# Tests: CodeExecutor.execute -- session timeout
 # ------------------------------------------------------------------
 
 
 class TestExecuteTimeout:
-    """Test timeout handling (terminate -> grace -> kill)."""
+    """Test session timeout handling (terminate -> grace -> kill)."""
 
+    @patch("src.executors.code_executor._kill_process_group")
+    @patch("src.executors.code_executor._terminate_process_group")
     @patch("src.executors.code_executor.asyncio.create_subprocess_exec")
     async def test_timeout_terminates(
         self,
         mock_exec: AsyncMock,
+        mock_term_group: MagicMock,
+        mock_kill_group: MagicMock,
         project: Project,
         task: Task,
     ) -> None:
-        """When execution exceeds timeout, process is terminated."""
-        # Very short timeout for testing
+        """When execution exceeds timeout, process group is terminated."""
         config = OrchestratorSettings(
-            session_timeout_minutes=0,  # 0 minutes = immediate timeout
+            session_timeout_minutes=0,
             subprocess_terminate_grace_seconds=5,
+            inactivity_timeout_minutes=0,
         )
 
         proc = MagicMock()
@@ -409,23 +412,19 @@ class TestExecuteTimeout:
         proc.returncode = None
         proc.stderr = AsyncMock(read=AsyncMock(return_value=b""))
 
-        # stdout that hangs after first line
         hang_event = asyncio.Event()
-        proc.stdout = _HangingIterator([b"start\n"], hang_event)
+        proc.stdout = _HangingStdout([b"start\n"], hang_event)
 
-        # terminate sets returncode immediately
-        def _terminate() -> None:
+        def _term_side_effect(p: object) -> None:
             proc.returncode = -15
             hang_event.set()
 
-        proc.terminate = MagicMock(side_effect=_terminate)
-        proc.kill = MagicMock()
+        mock_term_group.side_effect = _term_side_effect
 
         async def _wait() -> int:
             return proc.returncode
 
         proc.wait = _wait
-
         mock_exec.return_value = proc
 
         executor = CodeExecutor(config)
@@ -434,21 +433,25 @@ class TestExecuteTimeout:
 
         assert result.success is False
         assert result.error_summary == "Session timeout - process killed"
-        proc.terminate.assert_called_once()
-        # Grace wait succeeded, so kill should not be called
-        proc.kill.assert_not_called()
+        mock_term_group.assert_called_once_with(proc)
+        mock_kill_group.assert_not_called()
 
+    @patch("src.executors.code_executor._kill_process_group")
+    @patch("src.executors.code_executor._terminate_process_group")
     @patch("src.executors.code_executor.asyncio.create_subprocess_exec")
     async def test_timeout_kill_after_grace(
         self,
         mock_exec: AsyncMock,
+        mock_term_group: MagicMock,
+        mock_kill_group: MagicMock,
         project: Project,
         task: Task,
     ) -> None:
-        """When process doesn't exit after grace period, it gets killed."""
+        """When process doesn't exit after grace period, it gets force-killed."""
         config = OrchestratorSettings(
             session_timeout_minutes=0,
-            subprocess_terminate_grace_seconds=0,  # immediate grace timeout
+            subprocess_terminate_grace_seconds=0,
+            inactivity_timeout_minutes=0,
         )
 
         proc = MagicMock()
@@ -456,9 +459,8 @@ class TestExecuteTimeout:
         proc.returncode = None
         proc.stderr = AsyncMock(read=AsyncMock(return_value=b""))
 
-        # stdout that hangs after first line
         hang_event = asyncio.Event()
-        proc.stdout = _HangingIterator([b"data\n"], hang_event)
+        proc.stdout = _HangingStdout([b"data\n"], hang_event)
 
         wait_calls = 0
 
@@ -466,22 +468,21 @@ class TestExecuteTimeout:
             nonlocal wait_calls
             wait_calls += 1
             if wait_calls <= 1:
-                # First wait (grace) -- hang to trigger grace timeout
                 await asyncio.sleep(100)
             proc.returncode = -9
             return -9
 
         proc.wait = _wait
 
-        def _terminate_no_exit() -> None:
-            hang_event.set()  # unblock stdout but don't set returncode
+        def _term_side_effect(p: object) -> None:
+            hang_event.set()
 
-        proc.terminate = MagicMock(side_effect=_terminate_no_exit)
+        mock_term_group.side_effect = _term_side_effect
 
-        def _kill() -> None:
+        def _kill_side_effect(p: object) -> None:
             proc.returncode = -9
 
-        proc.kill = MagicMock(side_effect=_kill)
+        mock_kill_group.side_effect = _kill_side_effect
 
         mock_exec.return_value = proc
 
@@ -491,13 +492,15 @@ class TestExecuteTimeout:
 
         assert result.success is False
         assert result.exit_code == -9
-        proc.terminate.assert_called_once()
-        proc.kill.assert_called_once()
+        mock_term_group.assert_called_once_with(proc)
+        mock_kill_group.assert_called_once_with(proc)
 
+    @patch("src.executors.code_executor._terminate_process_group")
     @patch("src.executors.code_executor.asyncio.create_subprocess_exec")
     async def test_timeout_log_messages(
         self,
         mock_exec: AsyncMock,
+        mock_term_group: MagicMock,
         project: Project,
         task: Task,
     ) -> None:
@@ -505,6 +508,7 @@ class TestExecuteTimeout:
         config = OrchestratorSettings(
             session_timeout_minutes=0,
             subprocess_terminate_grace_seconds=5,
+            inactivity_timeout_minutes=0,
         )
 
         proc = MagicMock()
@@ -513,20 +517,18 @@ class TestExecuteTimeout:
         proc.stderr = AsyncMock(read=AsyncMock(return_value=b""))
 
         hang_event = asyncio.Event()
-        proc.stdout = _HangingIterator([b"line\n"], hang_event)
+        proc.stdout = _HangingStdout([b"line\n"], hang_event)
 
-        def _terminate() -> None:
+        def _term_side_effect(p: object) -> None:
             proc.returncode = -15
             hang_event.set()
 
-        proc.terminate = MagicMock(side_effect=_terminate)
-        proc.kill = MagicMock()
+        mock_term_group.side_effect = _term_side_effect
 
         async def _wait() -> int:
             return proc.returncode
 
         proc.wait = _wait
-
         mock_exec.return_value = proc
 
         executor = CodeExecutor(config)
@@ -544,17 +546,19 @@ class TestExecuteTimeout:
 
 
 class TestCancel:
-    """Test cancel() terminates a running subprocess."""
+    """Test cancel() terminates the process group."""
 
+    @patch("src.executors.code_executor._terminate_process_group")
     @patch("src.executors.code_executor.asyncio.create_subprocess_exec")
     async def test_cancel_running(
         self,
         mock_exec: AsyncMock,
+        mock_term_group: MagicMock,
         config: OrchestratorSettings,
         project: Project,
         task: Task,
     ) -> None:
-        """cancel() terminates a running subprocess."""
+        """cancel() terminates the process group of a running subprocess."""
         cancel_event = asyncio.Event()
 
         proc = MagicMock()
@@ -562,50 +566,44 @@ class TestCancel:
         proc.returncode = None
         proc.stderr = AsyncMock(read=AsyncMock(return_value=b""))
 
-        proc.stdout = _HangingIterator([b"running...\n"], cancel_event)
+        proc.stdout = _HangingStdout([b"running...\n"], cancel_event)
 
-        def _terminate() -> None:
+        def _term_side_effect(p: object) -> None:
             proc.returncode = -15
             cancel_event.set()
 
-        proc.terminate = MagicMock(side_effect=_terminate)
+        mock_term_group.side_effect = _term_side_effect
 
         async def _wait() -> int:
             return proc.returncode
 
         proc.wait = _wait
-
         mock_exec.return_value = proc
 
         executor = CodeExecutor(config)
 
-        # Start execution in background
         exec_task = asyncio.create_task(
             executor.execute(task, project, {}, lambda _: None)
         )
 
-        # Wait for process to start
         await asyncio.sleep(0.05)
-
-        # Cancel
         await executor.cancel()
+        mock_term_group.assert_called_once_with(proc)
 
-        proc.terminate.assert_called_once()
-
-        # Let the execution complete
         result = await exec_task
         assert result.success is False
 
     async def test_cancel_no_proc(self, config: OrchestratorSettings) -> None:
         """cancel() with no process does nothing."""
         executor = CodeExecutor(config)
-        # Should not raise
         await executor.cancel()
 
+    @patch("src.executors.code_executor._terminate_process_group")
     @patch("src.executors.code_executor.asyncio.create_subprocess_exec")
     async def test_cancel_already_finished(
         self,
         mock_exec: AsyncMock,
+        mock_term_group: MagicMock,
         config: OrchestratorSettings,
         project: Project,
         task: Task,
@@ -617,9 +615,8 @@ class TestCancel:
         executor = CodeExecutor(config)
         await executor.execute(task, project, {}, lambda _: None)
 
-        # Process is finished (returncode is set)
         await executor.cancel()
-        proc.terminate.assert_not_called()
+        mock_term_group.assert_not_called()
 
 
 # ------------------------------------------------------------------
@@ -647,9 +644,7 @@ class TestLogTailLimit:
         all_logs: list[str] = []
         result = await executor.execute(task, project, {}, all_logs.append)
 
-        # Callback receives all 150 lines
         assert len(all_logs) == 150
-        # Result keeps only last 100
         assert len(result.log_lines) == 100
         assert result.log_lines[0] == "line 50"
         assert result.log_lines[-1] == "line 149"
@@ -724,7 +719,6 @@ class TestSubprocessArgs:
         env = call_kwargs["env"]
         assert env["MY_KEY"] == "my_value"
         assert env["ANOTHER"] == "val2"
-        # os.environ vars should also be present
         assert "PATH" in env
 
     @patch("src.executors.code_executor.asyncio.create_subprocess_exec")
@@ -739,7 +733,6 @@ class TestSubprocessArgs:
         proc = _make_mock_proc(stdout_lines=[], returncode=0)
         mock_exec.return_value = proc
 
-        # Override PATH to verify injection takes precedence
         executor = CodeExecutor(config)
         await executor.execute(task, project, {"PATH": "/custom"}, lambda _: None)
 
@@ -765,6 +758,32 @@ class TestSubprocessArgs:
         assert call_kwargs["stdout"] == asyncio.subprocess.PIPE
         assert call_kwargs["stderr"] == asyncio.subprocess.PIPE
 
+    @patch("src.executors.code_executor.asyncio.create_subprocess_exec")
+    async def test_process_group_flags(
+        self,
+        mock_exec: AsyncMock,
+        config: OrchestratorSettings,
+        project: Project,
+        task: Task,
+    ) -> None:
+        """Subprocess is spawned with process group isolation flags."""
+        import sys
+
+        proc = _make_mock_proc(stdout_lines=[], returncode=0)
+        mock_exec.return_value = proc
+
+        executor = CodeExecutor(config)
+        await executor.execute(task, project, {}, lambda _: None)
+
+        call_kwargs = mock_exec.call_args[1]
+        if sys.platform == "win32":
+            import subprocess as _subprocess
+            assert call_kwargs["creationflags"] == (
+                _subprocess.CREATE_NEW_PROCESS_GROUP
+            )
+        else:
+            assert call_kwargs["start_new_session"] is True
+
 
 # ------------------------------------------------------------------
 # Tests: UTF-8 decoding
@@ -783,7 +802,6 @@ class TestUtf8Decoding:
         task: Task,
     ) -> None:
         """UTF-8 encoded output is correctly decoded."""
-        # Chinese characters encoded as UTF-8
         proc = _make_mock_proc(
             stdout_lines=["Hello UTF-8 \u4e16\u754c\n".encode()],
             returncode=0,
@@ -813,6 +831,7 @@ class TestErrorType:
         assert ErrorType.REPO_NOT_FOUND == "repo_not_found"
         assert ErrorType.NON_ZERO_EXIT == "non_zero_exit"
         assert ErrorType.TIMEOUT == "timeout"
+        assert ErrorType.INACTIVITY_TIMEOUT == "inactivity_timeout"
         assert ErrorType.UNKNOWN == "unknown"
 
     def test_executor_result_with_error_type(self) -> None:
@@ -1080,10 +1099,12 @@ class TestStripAnsi:
 class TestTimeoutErrorType:
     """Verify timeout sets ErrorType.TIMEOUT."""
 
+    @patch("src.executors.code_executor._terminate_process_group")
     @patch("src.executors.code_executor.asyncio.create_subprocess_exec")
     async def test_timeout_error_type(
         self,
         mock_exec: AsyncMock,
+        mock_term_group: MagicMock,
         project: Project,
         task: Task,
     ) -> None:
@@ -1091,6 +1112,7 @@ class TestTimeoutErrorType:
         config = OrchestratorSettings(
             session_timeout_minutes=0,
             subprocess_terminate_grace_seconds=5,
+            inactivity_timeout_minutes=0,
         )
 
         proc = MagicMock()
@@ -1098,25 +1120,22 @@ class TestTimeoutErrorType:
         proc.returncode = None
 
         hang_event = asyncio.Event()
-        proc.stdout = _HangingIterator([b"line\n"], hang_event)
+        proc.stdout = _HangingStdout([b"line\n"], hang_event)
 
-        # Mock stderr
         stderr_mock = AsyncMock()
         stderr_mock.read = AsyncMock(return_value=b"")
         proc.stderr = stderr_mock
 
-        def _terminate() -> None:
+        def _term_side_effect(p: object) -> None:
             proc.returncode = -15
             hang_event.set()
 
-        proc.terminate = MagicMock(side_effect=_terminate)
-        proc.kill = MagicMock()
+        mock_term_group.side_effect = _term_side_effect
 
         async def _wait() -> int:
             return proc.returncode
 
         proc.wait = _wait
-
         mock_exec.return_value = proc
 
         executor = CodeExecutor(config)
@@ -1159,3 +1178,335 @@ class TestTruncateStderr:
         raw = b"valid \xff invalid"
         result = _truncate_stderr(raw)
         assert "valid" in result
+
+
+# ------------------------------------------------------------------
+# Tests: Inactivity timeout
+# ------------------------------------------------------------------
+
+
+class TestInactivityTimeout:
+    """Verify inactivity timeout detection and process group cleanup."""
+
+    @patch("src.executors.code_executor._kill_process_group")
+    @patch("src.executors.code_executor._terminate_process_group")
+    @patch("src.executors.code_executor.asyncio.create_subprocess_exec")
+    async def test_inactivity_detected(
+        self,
+        mock_exec: AsyncMock,
+        mock_term_group: MagicMock,
+        mock_kill_group: MagicMock,
+        project: Project,
+        task: Task,
+    ) -> None:
+        """No stdout for inactivity_timeout triggers INACTIVITY_TIMEOUT."""
+        proc = MagicMock()
+        proc.pid = 300
+        proc.returncode = None
+        proc.stderr = AsyncMock(read=AsyncMock(return_value=b""))
+
+        # Stdout that yields one line then hangs forever
+        never_event = asyncio.Event()
+        proc.stdout = _HangingStdout([b"initial\n"], never_event)
+
+        def _term_side_effect(p: object) -> None:
+            proc.returncode = -15
+            never_event.set()
+
+        mock_term_group.side_effect = _term_side_effect
+
+        async def _wait() -> int:
+            return proc.returncode
+
+        proc.wait = _wait
+        mock_exec.return_value = proc
+
+        # Patch asyncio.wait_for to immediately raise TimeoutError for
+        # the inactivity readline (second call), but let the first succeed
+        # and also let the grace period wait succeed.
+        original_wait_for = asyncio.wait_for
+        readline_call_count = 0
+        inactivity_fired = False
+
+        async def patched_wait_for(coro, timeout=None):  # noqa: ANN001, ANN201
+            nonlocal readline_call_count, inactivity_fired
+            if not inactivity_fired:
+                readline_call_count += 1
+                if readline_call_count <= 1:
+                    # First readline: return normally
+                    return await original_wait_for(coro, timeout=5.0)
+                # Second readline: simulate inactivity timeout
+                coro.close()
+                inactivity_fired = True
+                raise TimeoutError
+            # After inactivity fired, let grace period wait_for succeed
+            return await original_wait_for(coro, timeout=timeout)
+
+        with patch("src.executors.code_executor.asyncio.wait_for", patched_wait_for):
+            cfg = OrchestratorSettings(
+                session_timeout_minutes=60,
+                subprocess_terminate_grace_seconds=5,
+                inactivity_timeout_minutes=20,
+            )
+            executor = CodeExecutor(cfg)
+            logs: list[str] = []
+            result = await executor.execute(task, project, {}, logs.append)
+
+        assert result.success is False
+        assert result.error_type == ErrorType.INACTIVITY_TIMEOUT
+        assert "20 minutes" in result.error_summary
+        assert "inactivity" in result.error_summary.lower()
+        mock_term_group.assert_called_once_with(proc)
+        mock_kill_group.assert_not_called()
+
+        # Check log messages
+        inactivity_logs = [line for line in logs if "[INACTIVITY]" in line]
+        assert len(inactivity_logs) >= 1
+        assert "stdout-based detection" in inactivity_logs[0]
+
+    @patch("src.executors.code_executor._kill_process_group")
+    @patch("src.executors.code_executor._terminate_process_group")
+    @patch("src.executors.code_executor.asyncio.create_subprocess_exec")
+    async def test_inactivity_force_kill_after_grace(
+        self,
+        mock_exec: AsyncMock,
+        mock_term_group: MagicMock,
+        mock_kill_group: MagicMock,
+        project: Project,
+        task: Task,
+    ) -> None:
+        """Inactivity termination falls through to force-kill after grace."""
+        proc = MagicMock()
+        proc.pid = 301
+        proc.returncode = None
+        proc.stderr = AsyncMock(read=AsyncMock(return_value=b""))
+
+        never_event = asyncio.Event()
+        proc.stdout = _HangingStdout([], never_event)
+
+        # terminate doesn't exit the process
+        def _term_side_effect(p: object) -> None:
+            never_event.set()
+
+        mock_term_group.side_effect = _term_side_effect
+
+        wait_calls = 0
+
+        async def _wait() -> int:
+            nonlocal wait_calls
+            wait_calls += 1
+            if wait_calls <= 1:
+                await asyncio.sleep(100)  # hang during grace
+            proc.returncode = -9
+            return -9
+
+        proc.wait = _wait
+
+        def _kill_side_effect(p: object) -> None:
+            proc.returncode = -9
+
+        mock_kill_group.side_effect = _kill_side_effect
+        mock_exec.return_value = proc
+
+        async def patched_wait_for(coro, timeout=None):  # noqa: ANN001, ANN201
+            coro.close()
+            raise TimeoutError
+
+        with patch("src.executors.code_executor.asyncio.wait_for", patched_wait_for):
+            cfg = OrchestratorSettings(
+                session_timeout_minutes=60,
+                subprocess_terminate_grace_seconds=0,
+                inactivity_timeout_minutes=20,
+            )
+            executor = CodeExecutor(cfg)
+            logs: list[str] = []
+            result = await executor.execute(task, project, {}, logs.append)
+
+        assert result.success is False
+        assert result.error_type == ErrorType.INACTIVITY_TIMEOUT
+        mock_term_group.assert_called_once()
+        mock_kill_group.assert_called_once()
+
+        # Check force-kill log message
+        kill_logs = [line for line in logs if "killing" in line.lower()]
+        assert len(kill_logs) >= 1
+
+    @patch("src.executors.code_executor.asyncio.create_subprocess_exec")
+    async def test_inactivity_disabled_when_zero(
+        self,
+        mock_exec: AsyncMock,
+        project: Project,
+        task: Task,
+    ) -> None:
+        """inactivity_timeout_minutes=0 disables inactivity detection."""
+        config = OrchestratorSettings(
+            session_timeout_minutes=1,
+            subprocess_terminate_grace_seconds=2,
+            inactivity_timeout_minutes=0,
+        )
+
+        proc = _make_mock_proc(
+            stdout_lines=[b"line1\n", b"line2\n"],
+            returncode=0,
+        )
+        mock_exec.return_value = proc
+
+        executor = CodeExecutor(config)
+        result = await executor.execute(task, project, {}, lambda _: None)
+
+        assert result.success is True
+        assert result.error_type is None
+
+    @patch("src.executors.code_executor.asyncio.create_subprocess_exec")
+    async def test_active_output_no_inactivity(
+        self,
+        mock_exec: AsyncMock,
+        project: Project,
+        task: Task,
+    ) -> None:
+        """Continuous output resets inactivity timer -- never fires."""
+        config = OrchestratorSettings(
+            session_timeout_minutes=60,
+            subprocess_terminate_grace_seconds=5,
+            inactivity_timeout_minutes=20,
+        )
+
+        # Many lines of output
+        lines = [f"line {i}\n".encode() for i in range(50)]
+        proc = _make_mock_proc(stdout_lines=lines, returncode=0)
+        mock_exec.return_value = proc
+
+        executor = CodeExecutor(config)
+        logs: list[str] = []
+        result = await executor.execute(task, project, {}, logs.append)
+
+        assert result.success is True
+        assert result.error_type is None
+        assert len(logs) == 50
+
+    @patch("src.executors.code_executor._terminate_process_group")
+    @patch("src.executors.code_executor.asyncio.create_subprocess_exec")
+    async def test_inactivity_log_message_format(
+        self,
+        mock_exec: AsyncMock,
+        mock_term_group: MagicMock,
+        project: Project,
+        task: Task,
+    ) -> None:
+        """Inactivity log matches expected format from AC."""
+        proc = MagicMock()
+        proc.pid = 302
+        proc.returncode = None
+        proc.stderr = AsyncMock(read=AsyncMock(return_value=b""))
+
+        never_event = asyncio.Event()
+        proc.stdout = _HangingStdout([], never_event)
+
+        def _term_side_effect(p: object) -> None:
+            proc.returncode = -15
+            never_event.set()
+
+        mock_term_group.side_effect = _term_side_effect
+
+        async def _wait() -> int:
+            return proc.returncode
+
+        proc.wait = _wait
+        mock_exec.return_value = proc
+
+        async def patched_wait_for(coro, timeout=None):  # noqa: ANN001, ANN201
+            coro.close()
+            raise TimeoutError
+
+        with patch("src.executors.code_executor.asyncio.wait_for", patched_wait_for):
+            cfg = OrchestratorSettings(
+                session_timeout_minutes=60,
+                subprocess_terminate_grace_seconds=5,
+                inactivity_timeout_minutes=20,
+            )
+            executor = CodeExecutor(cfg)
+            logs: list[str] = []
+            await executor.execute(task, project, {}, logs.append)
+
+        # Verify exact format from AC
+        assert any(
+            "[INACTIVITY] No output for 20 minutes "
+            "-- stdout-based detection, terminating process group" in line
+            for line in logs
+        )
+
+
+# ------------------------------------------------------------------
+# Tests: Process group helpers
+# ------------------------------------------------------------------
+
+
+class TestProcessGroupHelpers:
+    """Verify _terminate_process_group and _kill_process_group."""
+
+    def test_terminate_process_group_no_pid(self) -> None:
+        """_terminate_process_group handles None pid gracefully."""
+        from src.executors.code_executor import _terminate_process_group
+
+        proc = MagicMock()
+        proc.pid = None
+        _terminate_process_group(proc)  # should not raise
+
+    def test_kill_process_group_no_pid(self) -> None:
+        """_kill_process_group handles None pid gracefully."""
+        from src.executors.code_executor import _kill_process_group
+
+        proc = MagicMock()
+        proc.pid = None
+        _kill_process_group(proc)  # should not raise
+
+    @patch("src.executors.code_executor.os.kill")
+    def test_terminate_suppresses_os_error(self, mock_kill: MagicMock) -> None:
+        """_terminate_process_group suppresses OSError (process already gone)."""
+        import sys
+
+        from src.executors.code_executor import _terminate_process_group
+
+        mock_kill.side_effect = OSError("No such process")
+        proc = MagicMock()
+        proc.pid = 999
+
+        if sys.platform == "win32":
+            _terminate_process_group(proc)  # should not raise
+            mock_kill.assert_called_once()
+        else:
+            with patch("src.executors.code_executor.os.killpg") as mock_killpg:
+                mock_killpg.side_effect = ProcessLookupError("No such process")
+                _terminate_process_group(proc)
+                mock_killpg.assert_called_once()
+
+
+# ------------------------------------------------------------------
+# Tests: Config -- inactivity_timeout_minutes
+# ------------------------------------------------------------------
+
+
+class TestInactivityConfig:
+    """Verify inactivity_timeout_minutes config field."""
+
+    def test_default_value(self) -> None:
+        """Default inactivity_timeout_minutes is 20."""
+        config = OrchestratorSettings()
+        assert config.inactivity_timeout_minutes == 20
+
+    def test_custom_value(self) -> None:
+        """Custom inactivity_timeout_minutes is accepted."""
+        config = OrchestratorSettings(inactivity_timeout_minutes=30)
+        assert config.inactivity_timeout_minutes == 30
+
+    def test_zero_disables(self) -> None:
+        """inactivity_timeout_minutes=0 is valid (disables feature)."""
+        config = OrchestratorSettings(inactivity_timeout_minutes=0)
+        assert config.inactivity_timeout_minutes == 0
+
+    def test_negative_rejected(self) -> None:
+        """Negative inactivity_timeout_minutes raises ValidationError."""
+        from pydantic import ValidationError
+
+        with pytest.raises(ValidationError):
+            OrchestratorSettings(inactivity_timeout_minutes=-1)

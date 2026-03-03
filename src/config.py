@@ -58,6 +58,7 @@ class OrchestratorSettings(BaseModel):
         },
     )
     max_total_subprocesses: int = Field(default=5, ge=1)
+    inactivity_timeout_minutes: int = Field(default=20, ge=0)
 
     @model_validator(mode="after")
     def _expand_paths(self) -> OrchestratorSettings:

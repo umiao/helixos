@@ -25,27 +25,7 @@
 
 #### ~~T-P0-29: Upgrade primary reviewer to Opus + per-reviewer budget config + cost tracking~~ [DONE -- see Completed Tasks]
 
-#### T-P0-30: Subprocess inactivity timeout + process group cleanup for execution pipeline
-- **Priority**: P0
-- **Complexity**: M
-- **Depends on**: None
-- **Problem**: (a) Hanging process not detected until 60-min total timeout. (b) `CodeExecutor` spawns subprocess WITHOUT `start_new_session=True` / `CREATE_NEW_PROCESS_GROUP` -- killing parent leaves orphan child processes. ProcessManager already does this correctly; CodeExecutor does not.
-- **Changes**:
-  - `src/config.py`: Add `inactivity_timeout_minutes: int = 20` to `OrchestratorSettings`
-  - `src/executors/base.py`: Add `INACTIVITY_TIMEOUT` to `ErrorType` enum
-  - `src/executors/code_executor.py`:
-    - Add `start_new_session=True` (Unix) / `CREATE_NEW_PROCESS_GROUP` (Windows) to subprocess creation, matching ProcessManager pattern
-    - On kill: use `os.killpg(pgid, SIGTERM)` (Unix) / `CTRL_BREAK_EVENT` (Windows) to kill entire process tree
-    - Replace `async for raw_line in self._proc.stdout` with per-line `asyncio.wait_for(stdout.readline(), timeout=inactivity_seconds)`. On per-line TimeoutError -> inactivity detected -> terminate process group
-  - `orchestrator_config.yaml`: Add `inactivity_timeout_minutes: 20`
-- **Acceptance Criteria**:
-  - **Process group**: Subprocess created with `start_new_session=True` (Unix) / `CREATE_NEW_PROCESS_GROUP` (Windows). On timeout/cancel, entire process group killed (not just parent PID). Verified: no zombie/orphan processes remain after kill.
-  - **Scenario active**: output every few seconds -> inactivity never fires, total timeout still applies
-  - **Scenario hung**: no stdout for 20 min -> `[INACTIVITY] No output for 20 minutes -- stdout-based detection, terminating process group` -> SIGTERM group -> grace -> SIGKILL group -> FAILED with `ErrorType.INACTIVITY_TIMEOUT`
-  - **Scenario slow-but-alive**: one line every 19 min -> timer resets, not killed
-  - **Scenario disabled**: `inactivity_timeout_minutes: 0` -> feature off
-  - **Known limitation (documented)**: Detection is stdout-based. Programs that buffer stdout or write partial lines without `\n` may trigger false positives. Default 20 min is conservative to minimize this.
-  - **Journey**: task QUEUED -> executor starts -> subprocess hangs -> 20 min silence -> process group terminated -> task FAILED -> SSE alert
+#### ~~T-P0-30: Subprocess inactivity timeout + process group cleanup for execution pipeline~~ [DONE -- see Completed Tasks]
 
 #### T-P0-31: Apply timeout to review pipeline subprocess calls
 - **Priority**: P0
@@ -207,7 +187,7 @@ T-P0-27 [S] Planning quality rules [DONE] (no deps)
 T-P0-28 [M] Full reviewer raw_response [DONE] (no deps)
 T-P0-29 [S] Opus upgrade + cost tracking [DONE] (no deps)
 
-T-P0-30 [M] Inactivity timeout + process groups (no deps)
+T-P0-30 [M] Inactivity timeout + process groups [DONE] (no deps)
   |
   +--> T-P0-31 [S] Review pipeline timeout + retry semantics (needs T-P0-30)
   |
@@ -221,6 +201,9 @@ T-P0-30 [M] Inactivity timeout + process groups (no deps)
 
 ## Completed Tasks
 <!-- Move finished tasks here with [x] and completion date -->
+
+#### [x] T-P0-30: Subprocess inactivity timeout + process group cleanup for execution pipeline -- 2026-03-03
+- Process group isolation: start_new_session=True (Unix) / CREATE_NEW_PROCESS_GROUP (Windows) matching ProcessManager pattern. On timeout/cancel, entire process group killed via os.killpg/CTRL_BREAK_EVENT with SIGKILL fallback. Inactivity detection: per-line asyncio.wait_for(readline(), timeout) replaces async-for iteration. No output for inactivity_timeout_minutes (default 20, 0=disabled) -> INACTIVITY_TIMEOUT error type, process group terminated. Config: inactivity_timeout_minutes on OrchestratorSettings. 13 new tests, 820 total passing.
 
 #### [x] T-P0-29: Upgrade primary reviewer to Opus + per-reviewer budget config + cost tracking -- 2026-03-03
 - Primary reviewer upgraded to claude-opus-4-6 with max_budget_usd:2.00. Adversarial stays claude-sonnet-4-5 at 0.50. Per-reviewer max_budget_usd config field (default 0.50, backward compatible). _extract_cost_usd() computes approximate cost from CLI usage data with model-specific pricing table. cost_usd nullable column on ReviewHistoryRow (auto-migrated), persisted in HistoryWriter, returned via API. Frontend shows ~$X.XX cost badge per review entry (hidden when NULL). Synthesis stays claude-sonnet-4-5. 15 new tests, 807 total passing.

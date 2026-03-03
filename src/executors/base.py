@@ -24,6 +24,7 @@ class ErrorType(StrEnum):
     REPO_NOT_FOUND = "repo_not_found"
     NON_ZERO_EXIT = "non_zero_exit"
     TIMEOUT = "timeout"
+    INACTIVITY_TIMEOUT = "inactivity_timeout"
     UNKNOWN = "unknown"
 
 

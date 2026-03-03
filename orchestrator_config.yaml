@@ -7,6 +7,7 @@ orchestrator:
   review_consensus_threshold: 0.8
   session_timeout_minutes: 60
   subprocess_terminate_grace_seconds: 5
+  inactivity_timeout_minutes: 20
   unified_env_path: "~/.helixos/.env"
   state_db_path: "~/.helixos/state.db"
 

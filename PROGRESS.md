@@ -479,3 +479,10 @@
 - **Sanity check result**: 807 tests passing (15 new: 11 review_pipeline + 2 config + 3 history_writer). Ruff clean. Frontend builds clean.
 - **Status**: [DONE]
 - **Request**: Move T-P0-29 to Completed
+
+## 2026-03-03 02:00 -- [T-P0-30] Subprocess inactivity timeout + process group cleanup for execution pipeline
+- **What I did**: Added process group isolation and inactivity timeout detection to CodeExecutor. Process group: subprocess created with start_new_session=True (Unix) / CREATE_NEW_PROCESS_GROUP (Windows), matching ProcessManager pattern. On timeout/cancel, entire process group killed via os.killpg(SIGTERM) (Unix) / CTRL_BREAK_EVENT (Windows), with SIGKILL fallback after grace period. Inactivity timeout: replaced async-for stdout iteration with per-line asyncio.wait_for(readline(), timeout=inactivity_seconds). No output for inactivity_timeout_minutes (default 20, 0=disabled) -> process group terminated with ErrorType.INACTIVITY_TIMEOUT. Config: added inactivity_timeout_minutes to OrchestratorSettings (ge=0, default 20). ErrorType: added INACTIVITY_TIMEOUT enum value.
+- **Deliverables**: src/executors/base.py (mod -- INACTIVITY_TIMEOUT enum), src/config.py (mod -- inactivity_timeout_minutes field), src/executors/code_executor.py (rewrite -- process group flags, _terminate_process_group, _kill_process_group, readline-based inactivity detection), orchestrator_config.yaml (mod -- inactivity_timeout_minutes: 20), tests/test_code_executor.py (rewrite -- readline-based mocks, process group tests, inactivity scenarios)
+- **Sanity check result**: 820 tests passing (13 new: 6 inactivity timeout + 3 process group helpers + 4 config). Ruff clean.
+- **Status**: [DONE]
+- **Request**: Move T-P0-30 to Completed
