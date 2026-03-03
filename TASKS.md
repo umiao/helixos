@@ -19,24 +19,7 @@
 
 #### ~~T-P0-26: Fix drag-to-REVIEW workflow~~ [DONE -- see Completed Tasks]
 
-#### T-P0-27: Add planning quality rules to CLAUDE.md + LESSONS.md postmortem
-- **Priority**: P0 (process fix -- prevents T-P0-26 class bugs)
-- **Complexity**: S
-- **Depends on**: None
-- **Deliverables**:
-  1. CLAUDE.md "## Task Planning Rules" section (5 rules):
-     - Scenario matrix: conditional UX tasks must list ALL branches with expected outcome
-     - Journey-first ACs: at least one AC per task as "User does X -> observes Y"
-     - Cross-boundary integration: UX + backend = must verify wiring, not just existence
-     - "Other case" gate: every conditional AC must specify behavior for the inverse
-     - Manual smoke test: every UX task must have a manual verification AC
-  2. CLAUDE.md "## State Machine Rules" section (1 rule):
-     - Any workflow with status transitions must document: states, triggers, side-effects
-     - Side-effects attached to transitions are backend responsibility (not frontend)
-  3. LESSONS.md entry #12: T-P0-24 postmortem (context, failure modes, rules)
-- **Acceptance Criteria**:
-  - [ ] CLAUDE.md has 6 new actionable rules (checkable, not aspirational)
-  - [ ] LESSONS.md has entry #12 with T-P0-24 root cause analysis
+#### ~~T-P0-27: Add planning quality rules to CLAUDE.md + LESSONS.md postmortem~~ [DONE -- see Completed Tasks]
 
 ### P1 -- Should Have (important features)
 <!-- All 7 P1 tasks completed. See Completed Tasks below. -->
@@ -151,7 +134,7 @@ T-P0-24 [M] Review gate UX modal [DONE]
 
 T-P0-25 [M] Token usage limit bar [NEEDS-INPUT]
 
-T-P0-27 [S] Planning quality rules (no deps)
+T-P0-27 [S] Planning quality rules [DONE] (no deps)
 ```
 
 ---
@@ -161,6 +144,9 @@ T-P0-27 [S] Planning quality rules (no deps)
 
 ## Completed Tasks
 <!-- Move finished tasks here with [x] and completion date -->
+
+#### [x] T-P0-27: Add planning quality rules to CLAUDE.md + LESSONS.md postmortem -- 2026-03-03
+- Added 6 actionable rules to CLAUDE.md: Task Planning Rules (5 rules: scenario matrix, journey-first ACs, cross-boundary integration, "other case" gate, manual smoke test AC) and State Machine Rules (1 rule: document states/triggers/side-effects, backend owns side-effects). Added LESSONS.md entry #12 with T-P0-24 root cause analysis (missing scenario matrix, no journey-first AC, cross-boundary gap, no manual smoke test).
 
 #### [x] T-P0-26: Fix drag-to-REVIEW workflow -- transition-driven pipeline + review_status -- 2026-03-03
 - Transition-driven review pipeline: status transition to REVIEW auto-enqueues pipeline (sets review_status=running). Pipeline success -> review_status=done + transition to REVIEW_AUTO_APPROVED/REVIEW_NEEDS_HUMAN. Pipeline failure -> review_status=failed + SSE alert. Backward transitions reset to idle. POST /api/tasks/{id}/review repurposed as retry-only (409 if running). Frontend: auto-focus ReviewPanel on drag-to-REVIEW, review_status-based rendering (idle/running/done/failed), retry button. 25 new tests, 784 total passing.

@@ -77,3 +77,15 @@
   - Rule: if the dry run shows ANY crash, it is a bug -- not "unrelated." Fix it or explicitly document it as a known issue requiring user action.
   - Rule: for scripts/services, always run the actual code once and confirm it reaches its expected ready state (e.g. "Application startup complete"). Mock tests verify implementation; real tests verify environment.
   - Rule: SQLAlchemy create_all() only creates missing TABLES, not missing COLUMNS. Any column added to an existing model needs a migration path (see _migrate_missing_columns in db.py).
+
+  12. T-P0-24 postmortem: task marked DONE but core workflow was broken
+  - Context: T-P0-24 (review gate UX) added a modal for editing tasks before review submission. The task's ACs covered the modal UI, the PATCH endpoint, and the 428 detection flow. All 15 tests passed, frontend built clean, task was marked DONE.
+  - What went wrong: Dragging a task to the REVIEW column did nothing visible -- the review pipeline never started. The task only covered the "gate ON" branch (modal appears) but never specified what happens on "gate OFF" (direct transition). More critically, no AC required the review pipeline to auto-start when a task enters REVIEW status. The pipeline trigger was a manual POST /api/tasks/{id}/review call, but nothing in the drag-drop flow called it. This required T-P0-26 (L complexity, 25 new tests) to fix by making the pipeline transition-driven.
+  - Root causes:
+    (a) Missing scenario matrix: the task spec listed what happens with gate ON but not gate OFF. The "other case" was invisible.
+    (b) No journey-first AC: ACs verified components in isolation (modal renders, endpoint returns 200) but never specified "user drags to REVIEW -> sees spinner -> sees results."
+    (c) Cross-boundary gap: frontend ReviewSubmitModal existed, backend PATCH endpoint existed, but the wiring between "status becomes REVIEW" and "pipeline starts" was never tested as an integrated flow.
+    (d) No manual smoke test: the task was verified via unit tests and build checks. Actually dragging a card in the browser would have caught the issue immediately.
+  - Fix: Added 6 rules to CLAUDE.md (Task Planning Rules + State Machine Rules) requiring scenario matrices, journey-first ACs, cross-boundary integration checks, inverse-case specification, manual smoke test ACs, and complete transition documentation.
+  - Related tasks: T-P0-24, T-P0-26, T-P0-27
+  - Tags: #planning #ux #state-machine #scenario-matrix #integration

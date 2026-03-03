@@ -458,3 +458,10 @@
 - **Sanity check result**: 784 tests passing (up from 759). Ruff clean. Frontend builds clean. TypeScript type check passes.
 - **Status**: [DONE]
 - **Request**: Move T-P0-26 to Completed
+
+## 2026-03-03 -- [T-P0-27] Add planning quality rules to CLAUDE.md + LESSONS.md postmortem
+- **What I did**: Added 6 actionable rules to CLAUDE.md to prevent T-P0-24-class planning bugs. Task Planning Rules section (5 rules): scenario matrix for conditional UX tasks, journey-first ACs, cross-boundary integration checks, "other case" gate, manual smoke test AC. State Machine Rules section (1 rule): document states/triggers/side-effects, backend owns transition side-effects. Added LESSONS.md entry #12 with T-P0-24 root cause analysis covering 4 failure modes (missing scenario matrix, no journey-first AC, cross-boundary gap, no manual smoke test).
+- **Deliverables**: CLAUDE.md (mod -- Task Planning Rules section, State Machine Rules section), LESSONS.md (mod -- entry #12 T-P0-24 postmortem)
+- **Sanity check result**: 784 tests passing (no code changes, doc-only task). Rules are checkable and specific, not aspirational.
+- **Status**: [DONE]
+- **Request**: Move T-P0-27 to Completed

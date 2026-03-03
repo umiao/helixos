@@ -81,6 +81,45 @@ When the user says "plan tasks" / "edit TASKS.md only" / contains keyword "TASKS
 - Write clear task specs with acceptance criteria, complexity, and dependencies
 - End by summarizing what changed in TASKS.md
 
+## Task Planning Rules
+
+These rules prevent the class of bugs found in T-P0-24 (review gate UX), where
+the task was marked DONE but the drag-to-REVIEW workflow was broken because
+planning missed entire branches of behavior.
+
+1. **Scenario matrix**: Before writing code for any conditional UX task, list
+   ALL condition branches with their expected outcome in the task spec.
+   Check: every `if` in the AC has a corresponding `else`.
+   Example: "Gate ON: modal appears. Gate OFF: direct transition + pipeline
+   starts automatically."
+
+2. **Journey-first ACs**: At least one AC per task must be a full user journey:
+   "User does X -> system does Y -> user observes Z." Unit-level ACs
+   ("endpoint returns 200") are necessary but not sufficient.
+
+3. **Cross-boundary integration**: When a task spans backend + frontend, at
+   least one AC must verify end-to-end wiring: API call triggers expected
+   backend behavior AND result appears in UI. Verifying each piece exists
+   in isolation is not enough.
+
+4. **"Other case" gate**: Every conditional AC ("when X is enabled...") must
+   explicitly specify what happens when the condition is false. If the inverse
+   case is not specified, add it before starting work. Missing inverse =
+   missing requirement.
+
+5. **Manual smoke test AC**: Every UX task must include an AC of the form
+   "Manually verify: [exact browser action] -> [expected visual result]."
+   "Build succeeds" and "tests pass" do not catch wiring failures.
+
+## State Machine Rules
+
+1. **Document transitions completely**: Any workflow with status transitions
+   must document in the task spec: (a) all valid states, (b) the trigger for
+   each transition, (c) side-effects attached to each transition.
+   Side-effects on transitions (e.g., "entering REVIEW starts the review
+   pipeline") are the backend's responsibility -- the frontend only initiates
+   the status change, never the side-effect directly.
+
 ## Hook Development Rules
 - **Never use bare `json.load(sys.stdin)`** -- always use `hook_utils.safe_read_stdin()`
 - **Hooks must never crash** -- infrastructure errors must exit 0, never a raw traceback
