@@ -203,9 +203,18 @@ Build the frontend and serve everything from the backend:
 cd frontend
 npm run build
 cd ..
+```
 
-# Start server (serves both API and dashboard)
+Start the server:
+
+**Linux / macOS (bash):**
+```bash
 uvicorn src.api:app --host 127.0.0.1 --port 8000
+```
+
+**Windows (PowerShell):**
+```powershell
+python scripts/run_server.py --no-reload
 ```
 
 - Dashboard + API: http://localhost:8000
@@ -216,7 +225,7 @@ uvicorn src.api:app --host 127.0.0.1 --port 8000
 powershell -ExecutionPolicy Bypass -File scripts/start.ps1
 ```
 
-This builds the frontend and starts uvicorn in one step.
+This builds the frontend and starts the server via `run_server.py` in one step.
 
 ---
 
@@ -383,8 +392,14 @@ HelixOS can run tasks autonomously using the Claude Code CLI.
 
 Start the server normally. The scheduler runs as part of the API server:
 
+**Linux / macOS (bash):**
 ```bash
 uvicorn src.api:app --host 127.0.0.1 --port 8000
+```
+
+**Windows (PowerShell):**
+```powershell
+python scripts/run_server.py --no-reload
 ```
 
 Then sync tasks and watch them execute:
@@ -412,9 +427,16 @@ pip install -r requirements.txt
 ```
 
 **Port already in use**:
+
+**Linux / macOS (bash):**
 ```bash
 # Use a different port
 uvicorn src.api:app --port 8001
+```
+
+**Windows (PowerShell):**
+```powershell
+python scripts/run_server.py --port 8001
 ```
 
 ### NotImplementedError on Windows with --reload
@@ -499,7 +521,9 @@ Requires Node.js 18+ and npm 9+.
 - Check the Claude CLI is available: `claude --version`
 - Check concurrency limits in config (tasks wait if all slots are occupied).
 - Check task dependencies -- a task with unmet `depends_on` will not execute.
-- Review server logs for errors: run uvicorn with `--log-level debug`.
+- Review server logs for errors: on Linux/macOS run
+  `uvicorn src.api:app --log-level debug`, on Windows run
+  `python scripts/run_server.py --log-level debug`.
 
 ### SSE connection drops
 
@@ -544,7 +568,8 @@ helixos/
   tests/                     # pytest test suite
     integration/             # End-to-end integration tests
   scripts/
-    start.ps1                # Windows quick-start script
+    start.ps1                # Windows quick-start (build + serve)
+    run_server.py            # Server launcher (Windows event loop fix)
   config/                    # Additional config files
   contracts/                 # Cross-project contract specs
 ```

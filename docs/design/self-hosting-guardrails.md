@@ -284,13 +284,13 @@ HelixOS never restarts itself. This is a hard constraint to prevent:
 After a self-modification merge to main, the user must manually restart:
 
 ```powershell
-# PowerShell
-python -m uvicorn src.api:app --reload
+# PowerShell (use run_server.py for correct Windows event loop)
+python scripts/run_server.py
 ```
 
 ```bash
 # bash
-python -m uvicorn src.api:app --reload
+uvicorn src.api:app --reload
 ```
 
 The `--reload` flag (development mode) will auto-detect file changes, but this

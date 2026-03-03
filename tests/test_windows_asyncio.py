@@ -6,13 +6,16 @@ Verifies that:
 - Error messages reference scripts/run_server.py (not --loop none CLI)
 - scripts/start.ps1 uses run_server.py (not --loop none CLI)
 - scripts/run_server.py passes loop="none" to uvicorn.run on Windows
+- scripts/run_server.py supports --log-level argument
 - uvicorn accepts loop="none" via Python API but rejects it via CLI
+- No .md file shows bare uvicorn in a PowerShell code block
 """
 
 from __future__ import annotations
 
 import asyncio
 import importlib.util
+import re
 import sys
 from pathlib import Path
 from unittest.mock import MagicMock, patch
@@ -203,4 +206,85 @@ def test_uvicorn_cli_rejects_loop_none():
     assert "none" not in LOOP_CHOICES.choices, (
         "uvicorn CLI now accepts 'none' for --loop. "
         "Consider simplifying run_server.py back to CLI invocation."
+    )
+
+
+# ------------------------------------------------------------------
+# --log-level support
+# ------------------------------------------------------------------
+
+def test_run_server_passes_log_level():
+    """run_server.py must pass --log-level to uvicorn.run as log_level kwarg."""
+    run_server = _load_run_server_module()
+
+    mock_uvicorn = MagicMock()
+    with (
+        patch.dict("sys.modules", {"uvicorn": mock_uvicorn}),
+        patch.object(sys, "platform", "linux"),
+    ):
+        run_server.main(["--no-reload", "--log-level", "debug"])
+
+    mock_uvicorn.run.assert_called_once()
+    call_kwargs = mock_uvicorn.run.call_args
+    assert call_kwargs.kwargs.get("log_level") == "debug", (
+        "run_server.py must pass --log-level value to uvicorn.run(log_level=...)"
+    )
+
+
+def test_run_server_log_level_default_is_info():
+    """run_server.py default log level must be 'info'."""
+    run_server = _load_run_server_module()
+
+    mock_uvicorn = MagicMock()
+    with (
+        patch.dict("sys.modules", {"uvicorn": mock_uvicorn}),
+        patch.object(sys, "platform", "linux"),
+    ):
+        run_server.main(["--no-reload"])
+
+    call_kwargs = mock_uvicorn.run.call_args
+    assert call_kwargs.kwargs.get("log_level") == "info", (
+        "run_server.py default log_level must be 'info'"
+    )
+
+
+# ------------------------------------------------------------------
+# Doc consistency guard tests
+# ------------------------------------------------------------------
+
+def _extract_powershell_blocks(text: str) -> list[str]:
+    """Extract all ```powershell code blocks from markdown text."""
+    pattern = r"```powershell\s*\n(.*?)```"
+    return re.findall(pattern, text, re.DOTALL)
+
+
+def test_no_bare_uvicorn_in_powershell_docs():
+    """No .md file should show bare uvicorn CLI in a PowerShell code block.
+
+    Windows users copy-paste PowerShell blocks. Bare uvicorn commands
+    will fail because the CLI rejects --loop none. All Windows commands
+    should use scripts/run_server.py instead.
+    """
+    repo_root = Path(__file__).parent.parent
+    md_files = list(repo_root.glob("*.md")) + list(repo_root.glob("docs/**/*.md"))
+
+    violations: list[str] = []
+    for md_file in md_files:
+        content = md_file.read_text(encoding="utf-8")
+        blocks = _extract_powershell_blocks(content)
+        for i, block in enumerate(blocks):
+            # Match lines that invoke uvicorn directly (not as part of a comment
+            # or a reference to run_server.py)
+            for line in block.splitlines():
+                stripped = line.strip()
+                if stripped.startswith("#"):
+                    continue  # skip comments
+                if "uvicorn" in stripped and "run_server" not in stripped:
+                    rel = md_file.relative_to(repo_root)
+                    violations.append(f"{rel} block {i + 1}: {stripped}")
+
+    assert not violations, (
+        "Found bare uvicorn commands in PowerShell code blocks. "
+        "Windows users should use scripts/run_server.py instead.\n"
+        + "\n".join(f"  - {v}" for v in violations)
     )

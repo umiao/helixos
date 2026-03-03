@@ -6,6 +6,7 @@ Uses uvicorn.run() instead of CLI because uvicorn 0.27.0 CLI excludes
 Usage:
     python scripts/run_server.py
     python scripts/run_server.py --host 0.0.0.0 --port 9000 --no-reload
+    python scripts/run_server.py --log-level debug
 """
 
 from __future__ import annotations
@@ -35,6 +36,12 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         action="store_true",
         help="Disable auto-reload (default: reload enabled)",
     )
+    parser.add_argument(
+        "--log-level",
+        default="info",
+        choices=["critical", "error", "warning", "info", "debug", "trace"],
+        help="Log level (default: info)",
+    )
     return parser.parse_args(argv)
 
 
@@ -55,6 +62,7 @@ def main(argv: list[str] | None = None) -> None:
         port=args.port,
         reload=not args.no_reload,
         loop="none" if sys.platform == "win32" else "auto",
+        log_level=args.log_level,
     )
 
 

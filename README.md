@@ -144,8 +144,14 @@ cd ..
 
 Start the server:
 
+**Linux / macOS (bash):**
 ```bash
 uvicorn src.api:app --host 127.0.0.1 --port 8000
+```
+
+**Windows (PowerShell):**
+```powershell
+python scripts/run_server.py --no-reload
 ```
 
 Open http://localhost:8000 to see the dashboard. Sync tasks with:
@@ -365,6 +371,7 @@ helixos/
     integration/              # End-to-end integration tests
   scripts/
     start.ps1                 # Windows quick-start script
+    run_server.py             # Server launcher (Windows event loop fix)
     autonomous_run.sh         # Autonomous multi-session runner
   docs/                       # Extended documentation
   .claude/

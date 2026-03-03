@@ -58,3 +58,10 @@
   - String-match tests (`assert "--loop none" in content`) verified the bug was PRESENT, not absent. They proved the broken command was in the file.
   - Fix: Use `scripts/run_server.py` with `uvicorn.run(loop="none")` instead of CLI invocation. Add behavioral tests that mock `uvicorn.run` and assert kwargs.
   - Rule: When testing CLI flags, write a behavioral test (mock the target function, assert it receives correct args) rather than just grepping for the flag in a script. String-match tests catch presence, not correctness.
+
+  9b. Entry point change = concept-level reverse-reference scan
+  - When replacing HOW users invoke something (CLI command, script, flag), grep for the ENTIRE old invocation pattern, not just the broken part.
+  - Example: changing "uvicorn --loop none" to "run_server.py" requires scanning ALL "uvicorn" references, not just "--loop none".
+  - Check: all .md files, project structure trees, design docs, test fixtures.
+  - Rule: after making changes, run `grep -ri "old_entry_point" **/*.md` and verify zero unexpected hits.
+  - Add an automated guard test (e.g. scan powershell code blocks for bare uvicorn) to catch future regressions.

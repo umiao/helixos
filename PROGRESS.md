@@ -398,3 +398,9 @@
 - **Sanity check result**: pytest 645/645 passed. ruff check clean.
 - **Status**: [DONE]
 - **Request**: Move T-P0-20 to Completed (ADD summary line to Completed Tasks)
+## 2026-03-02 23:55 -- [T-P0-20-followup] Fix all stale uvicorn references post T-P0-20
+- **What I did**: T-P0-20 only updated 2 of ~8 uvicorn command references. Audited ALL .md files for bare uvicorn commands missing Windows alternatives. Added --log-level arg to run_server.py for feature parity. Fixed 6 spots in QUICKSTART.md (production mode, Windows quick start description, autonomous mode, port-in-use troubleshooting, QUEUED troubleshooting, project structure tree). Fixed 2 spots in README.md (quick start, project structure tree). Fixed 1 spot in self-hosting-guardrails.md (PowerShell restart block). Added 3 new tests: --log-level behavioral test, default log level test, and doc regression guard that scans all PowerShell code blocks for bare uvicorn commands.
+- **Deliverables**: scripts/run_server.py (mod), QUICKSTART.md (mod), README.md (mod), docs/design/self-hosting-guardrails.md (mod), tests/test_windows_asyncio.py (mod -- 11 tests), LESSONS.md (append 9b)
+- **Sanity check result**: pytest 648/648 passed. ruff check clean.
+- **Status**: [DONE]
+- **Request**: No TASKS.md change needed (followup fix, not a separate task)
