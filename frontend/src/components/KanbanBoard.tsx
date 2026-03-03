@@ -101,6 +101,8 @@ interface KanbanBoardProps {
   onEnrichExpand?: (title: string) => void;
   /** Called after a task is successfully deleted. */
   onTaskDeleted?: () => void;
+  /** Called to open the review submit modal for a task. */
+  onSendToReview?: (task: Task) => void;
 }
 
 /** Column index for detecting backward drags. */
@@ -263,6 +265,7 @@ export default function KanbanBoard({
   onError,
   onEnrichExpand,
   onTaskDeleted,
+  onSendToReview,
 }: KanbanBoardProps) {
   const columns = groupByColumn(tasks);
   const [activeTask, setActiveTask] = useState<Task | null>(null);
@@ -458,6 +461,7 @@ export default function KanbanBoard({
           onSelectTask={onSelectTask}
           onTaskDeleted={onTaskDeleted}
           onError={onError}
+          onSendToReview={onSendToReview}
         />
       )}
     </DndContext>

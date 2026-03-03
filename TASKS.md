@@ -10,35 +10,7 @@
 ## Active Tasks
 
 ### P0 -- Must Have (core functionality)
-
-#### T-P0-24: Review gate UX -- edit modal + preview before review submission
-- **Problem**: Gate ON provides zero user guidance. No edit form, no preview.
-- **Design**:
-  - **Backend 428 response** (from T-P0-21): When gate blocks a transition, API returns
-    `{"detail": "...", "gate_action": "review_required", "task_id": "..."}`.
-  - **Frontend unified handler**: In `App.tsx` `handleMoveTask()`, detect 428 response.
-    If `gate_action === "review_required"`, open ReviewSubmitModal for that task.
-  - **ReviewSubmitModal** (component): Modal with editable title/description fields,
-    preview section showing reviewer context, "Submit for Review" button (saves edits
-    via PATCH, transitions BACKLOG -> REVIEW), "Cancel" button (no changes).
-    On confirm: PATCH task if fields changed, transition to REVIEW, auto-focus
-    task in ReviewPanel, toast "Task [ID] submitted for review".
-  - **"Send to Review" in context menu**: For BACKLOG/QUEUED tasks. Opens
-    ReviewSubmitModal directly (attempts transition, gets 428 if gate on, modal opens).
-- **Files**: `frontend/src/components/ReviewSubmitModal.tsx` (exists as partial),
-  `frontend/src/components/TaskContextMenu.tsx`, `frontend/src/App.tsx`,
-  `frontend/src/api.ts`
-- **Note**: `ReviewSubmitModal.tsx` already exists as untracked file with TODOs.
-  Backend 428 support and App.tsx integration not yet done.
-- **Acceptance Criteria**:
-  - [ ] Gate ON + any attempt to skip review = 428 -> modal opens with edit + preview
-  - [ ] Edit fields, confirm -> task moves to REVIEW, ReviewPanel auto-opens
-  - [ ] Cancel -> no state change
-  - [ ] Context menu "Send to Review" triggers same flow
-  - [ ] Gate OFF -> direct transition, no modal
-  - [ ] Works for all entry points (drag, context menu, future API/automation)
-- **Complexity**: M
-- **Depends on**: T-P0-21 (428 response), T-P0-23 (QUEUED -> REVIEW transition)
+<!-- All P0 tasks completed. See Completed Tasks below. -->
 
 ### P1 -- Should Have (important features)
 <!-- All 7 P1 tasks completed. See Completed Tasks below. -->
@@ -135,7 +107,7 @@ T-P0-21 [M] Fix review gate bypass [DONE]
   |
   +--> T-P0-23 [L] Bidirectional transitions + concurrency
          |
-         +--> T-P0-24 [M] Review gate UX modal
+         +--> T-P0-24 [M] Review gate UX modal [DONE]
 
 T-P0-22 [M] Soft-delete tasks [DONE]
 
@@ -151,6 +123,9 @@ T-P3-12 [M] Resizable divider [DONE]
 
 ## Completed Tasks
 <!-- Move finished tasks here with [x] and completion date -->
+
+#### [x] T-P0-24: Review gate UX -- edit modal + preview before review submission -- 2026-03-03
+- PATCH /api/tasks/{id} endpoint for title/description updates. Frontend 428 detection opens ReviewSubmitModal with edit fields + live preview. PATCH-if-changed then BACKLOG->REVIEW transition. "Send to Review" context menu for BACKLOG/QUEUED tasks. Auto-focus in ReviewPanel on submit. Gate OFF = direct transition, no modal. 15 new tests, 759 total passing.
 
 #### [x] T-P0-23: Bidirectional state transitions + concurrency control -- 2026-03-03
 - Bidirectional VALID_TRANSITIONS (backward drags: REVIEW->BACKLOG, QUEUED->BACKLOG/REVIEW, DONE->BACKLOG/QUEUED, FAILED->BACKLOG). RUNNING stays strict (DONE/FAILED only). Timestamp cleanup matrix clears completed_at/execution_state on backward moves. OptimisticLockError with updated_at comparison (Z/+00:00 normalized). StatusTransitionRequest gains reason + expected_updated_at. API returns 409 with conflict=true on lock mismatch. Frontend: KanbanBoard backward-drag prompt, App.tsx sends expected_updated_at, auto-refresh on conflict. 52 new tests, 744 total passing.

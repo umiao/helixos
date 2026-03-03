@@ -59,6 +59,7 @@ from src.schemas import (
     SyncAllResponse,
     SyncResponse,
     TaskResponse,
+    UpdateTaskRequest,
     ValidateProjectRequest,
     ValidateProjectResponse,
 )
@@ -956,6 +957,35 @@ async def get_task(task_id: str, request: Request) -> TaskResponse:
     task = await task_manager.get_task(task_id)
     if task is None:
         raise HTTPException(status_code=404, detail=f"Task not found: {task_id}")
+    return _task_to_response(task)
+
+
+@api_router.patch(
+    "/api/tasks/{task_id}",
+    responses={404: {"model": ErrorResponse}},
+)
+async def update_task_fields(
+    task_id: str,
+    body: UpdateTaskRequest,
+    request: Request,
+) -> TaskResponse:
+    """Update a task's title and/or description."""
+    task_manager: TaskManager = request.app.state.task_manager
+    task = await task_manager.get_task(task_id)
+    if task is None:
+        raise HTTPException(status_code=404, detail=f"Task not found: {task_id}")
+
+    changed = False
+    if body.title is not None and body.title != task.title:
+        task.title = body.title
+        changed = True
+    if body.description is not None and body.description != task.description:
+        task.description = body.description
+        changed = True
+
+    if changed:
+        task = await task_manager.update_task(task)
+
     return _task_to_response(task)
 
 

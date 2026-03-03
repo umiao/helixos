@@ -115,6 +115,15 @@ class StatusTransitionRequest(BaseModel):
     expected_updated_at: str | None = None
 
 
+class UpdateTaskRequest(BaseModel):
+    """Request to update task fields (title, description)."""
+
+    title: str | None = Field(default=None, description="Updated task title")
+    description: str | None = Field(
+        default=None, description="Updated task description",
+    )
+
+
 class ReviewDecisionRequest(BaseModel):
     """Request to submit a human review decision."""
 

@@ -74,6 +74,22 @@ export async function fetchTask(taskId: string): Promise<Task> {
   return handleResponse<Task>(res);
 }
 
+/** Update a task's title and/or description via PATCH. Returns the updated task. */
+export async function updateTask(
+  taskId: string,
+  fields: { title?: string; description?: string },
+): Promise<Task> {
+  const res = await fetch(
+    `/api/tasks/${encodeURIComponent(taskId)}`,
+    {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(fields),
+    },
+  );
+  return handleResponse<Task>(res);
+}
+
 /** Update a task's status via PATCH. Returns the updated task.
  *  Supports optional reason (for backward transitions) and
  *  expected_updated_at (optimistic locking). */
@@ -94,6 +110,23 @@ export async function updateTaskStatus(
       body: JSON.stringify(payload),
     },
   );
+
+  // Handle review gate blocked (428)
+  if (res.status === 428) {
+    let detail = "Review gate blocked";
+    let gateAction = "";
+    let blockedTaskId = "";
+    try {
+      const body = await res.json();
+      if (body.detail) detail = body.detail;
+      if (body.gate_action) gateAction = body.gate_action;
+      if (body.task_id) blockedTaskId = body.task_id;
+    } catch { /* ignore */ }
+    const err = new ApiError(428, detail);
+    (err as ApiError & { gate_action?: string; task_id?: string }).gate_action = gateAction;
+    (err as ApiError & { gate_action?: string; task_id?: string }).task_id = blockedTaskId;
+    throw err;
+  }
 
   // Handle conflict response (optimistic lock failure)
   if (res.status === 409) {

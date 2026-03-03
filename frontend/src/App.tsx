@@ -13,6 +13,7 @@ import ProjectSelector, {
 import ImportProjectModal from "./components/ImportProjectModal";
 import NewTaskModal from "./components/NewTaskModal";
 import useSSE, { type SSEEvent } from "./hooks/useSSE";
+import ReviewSubmitModal from "./components/ReviewSubmitModal";
 import {
   fetchProjects,
   fetchTasks,
@@ -47,6 +48,7 @@ function App() {
   const [enrichTitle, setEnrichTitle] = useState("");
   const [autoEnrich, setAutoEnrich] = useState(false);
   const [bottomPanelHeight, setBottomPanelHeight] = useState(loadPanelHeight);
+  const [reviewSubmitTask, setReviewSubmitTask] = useState<Task | null>(null);
 
   // Keep a ref to tasks for SSE handler (avoid stale closure)
   const tasksRef = useRef(tasks);
@@ -355,8 +357,17 @@ function App() {
       }
 
       if (err instanceof ApiError) {
+        const gateAction = (err as ApiError & { gate_action?: string }).gate_action;
         const conflict = (err as ApiError & { conflict?: boolean }).conflict;
-        if (conflict) {
+        if (gateAction === "review_required") {
+          // Review gate blocked: open the review submit modal
+          const blockedTask = tasksRef.current.find((t) => t.id === taskId);
+          if (blockedTask) {
+            setReviewSubmitTask(blockedTask);
+          } else {
+            addToast(err.detail, "error");
+          }
+        } else if (conflict) {
           // Optimistic lock conflict: auto-refresh the task
           addToast("Task was just updated. Refreshing...", "error");
           try {
@@ -433,6 +444,33 @@ function App() {
       // Data will be stale but not broken
     }
   }, [addToast]);
+
+  const handleReviewSubmitted = useCallback(
+    async (taskId: string) => {
+      setReviewSubmitTask(null);
+      addToast(`Task ${taskId} submitted for review`, "success");
+      // Refresh the task to get updated status
+      try {
+        const refreshed = await fetchTask(taskId);
+        setTasks((prev) => prev.map((t) => (t.id === taskId ? refreshed : t)));
+        // Auto-focus in ReviewPanel
+        setSelectedTask(refreshed);
+        setBottomPanel("review");
+      } catch {
+        // Fallback: full refresh
+        const updatedTasks = await fetchTasks();
+        setTasks(updatedTasks);
+      }
+    },
+    [addToast],
+  );
+
+  const handleSendToReview = useCallback(
+    (task: Task) => {
+      setReviewSubmitTask(task);
+    },
+    [],
+  );
 
   const handleTaskDeleted = useCallback(async () => {
     // Refresh tasks after deletion
@@ -584,6 +622,7 @@ function App() {
                       setNewTaskProject(project);
                     }}
                     onTaskDeleted={handleTaskDeleted}
+                    onSendToReview={handleSendToReview}
                   />
                 </div>
               );
@@ -682,6 +721,14 @@ function App() {
           onError={(msg) => addToast(msg, "error")}
           initialTitle={enrichTitle}
           autoEnrich={autoEnrich}
+        />
+      )}
+      {reviewSubmitTask && (
+        <ReviewSubmitModal
+          task={reviewSubmitTask}
+          onClose={() => setReviewSubmitTask(null)}
+          onSubmitted={handleReviewSubmitted}
+          onError={(msg) => addToast(msg, "error")}
         />
       )}
     </div>

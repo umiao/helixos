@@ -444,3 +444,10 @@
 - **Sanity check result**: 744 tests passing (up from 692). Ruff clean. Frontend builds clean.
 - **Status**: [DONE]
 - **Request**: Move T-P0-23 to Completed
+
+## 2026-03-03 -- [T-P0-24] Review gate UX -- edit modal + preview before review submission
+- **What I did**: Implemented the review gate UX flow. Added PATCH /api/tasks/{id} endpoint for updating title/description (with UpdateTaskRequest schema). Updated frontend api.ts: added updateTask() for PATCH fields, updated updateTaskStatus() to detect 428 responses with gate_action/task_id. Completed ReviewSubmitModal component with edit fields (title/description), live preview, edit indicator, PATCH-if-changed then BACKLOG->REVIEW transition. Updated App.tsx: detects 428 gate_action="review_required" and opens ReviewSubmitModal, handleReviewSubmitted auto-focuses task in ReviewPanel. Added "Send to Review" option in TaskContextMenu for BACKLOG/QUEUED tasks (opens modal directly). Threaded onSendToReview through SwimLane -> KanbanBoard -> TaskContextMenu.
+- **Deliverables**: src/api.py (mod -- PATCH /api/tasks/{id} endpoint, UpdateTaskRequest import), src/schemas.py (mod -- UpdateTaskRequest), frontend/src/api.ts (mod -- updateTask, 428 handling in updateTaskStatus), frontend/src/components/ReviewSubmitModal.tsx (mod -- complete with edit+preview+PATCH), frontend/src/App.tsx (mod -- reviewSubmitTask state, 428 detection, handleReviewSubmitted, handleSendToReview, modal rendering), frontend/src/components/TaskContextMenu.tsx (mod -- onSendToReview prop, Send to Review button), frontend/src/components/KanbanBoard.tsx (mod -- onSendToReview prop passthrough), frontend/src/components/SwimLane.tsx (mod -- onSendToReview prop passthrough), tests/test_review_gate_ux.py (new -- 15 tests)
+- **Sanity check result**: 759 tests passing (up from 744). Ruff clean. Frontend builds clean. TypeScript type check passes.
+- **Status**: [DONE]
+- **Request**: Move T-P0-24 to Completed

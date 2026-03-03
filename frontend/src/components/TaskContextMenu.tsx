@@ -17,6 +17,8 @@ interface TaskContextMenuProps {
   onSelectTask?: (task: Task) => void;
   onTaskDeleted?: () => void;
   onError?: (msg: string) => void;
+  /** Open the review submit modal for this task. */
+  onSendToReview?: (task: Task) => void;
 }
 
 const COLUMN_LABELS: Record<KanbanColumn, string> = {
@@ -35,6 +37,7 @@ export default function TaskContextMenu({
   onSelectTask,
   onTaskDeleted,
   onError,
+  onSendToReview,
 }: TaskContextMenuProps) {
   const menuRef = useRef<HTMLDivElement>(null);
   const [confirmingDelete, setConfirmingDelete] = useState(false);
@@ -90,6 +93,15 @@ export default function TaskContextMenu({
     onSelectTask?.(task);
     onClose();
   }, [task, onSelectTask, onClose]);
+
+  const handleSendToReview = useCallback(() => {
+    onSendToReview?.(task);
+    onClose();
+  }, [task, onSendToReview, onClose]);
+
+  // Show "Send to Review" for BACKLOG and QUEUED tasks
+  const canSendToReview =
+    onSendToReview && (task.status === "backlog" || task.status === "queued");
 
   const handleDeleteClick = useCallback(() => {
     setConfirmingDelete(true);
@@ -154,6 +166,19 @@ export default function TaskContextMenu({
             >
               View details
             </button>
+          )}
+
+          {/* Send to Review */}
+          {canSendToReview && (
+            <>
+              <div className="h-px bg-gray-100 my-0.5" />
+              <button
+                onClick={handleSendToReview}
+                className="w-full text-left px-3 py-1.5 text-sm text-yellow-700 hover:bg-yellow-50 transition-colors"
+              >
+                Send to Review
+              </button>
+            </>
           )}
 
           {/* Separator */}
