@@ -10,7 +10,7 @@
 ## Active Tasks
 
 ### P0 -- Must Have (core functionality)
-<!-- All 13 P0 tasks completed. See Completed Tasks below. -->
+<!-- All P0 tasks completed. See Completed Tasks below. -->
 
 ### P1 -- Should Have (important features)
 <!-- All 7 P1 tasks completed. See Completed Tasks below. -->
@@ -19,6 +19,7 @@
 <!-- All 8 P2 tasks completed. See Completed Tasks below. -->
 
 ### P3 -- Phase 3: UX + Polish
+<!-- All P3 tasks completed. See Completed Tasks below. -->
 
 ### Tech Debt (tracked, not blocking current work)
 - [ ] Log retention/purge policy for execution_logs + review_history tables
@@ -92,6 +93,27 @@ T-P2-6 [M] Frontend Swim Lanes [DONE] ------------------+
                                                     T-P2-7 [M] Frontend Operations UI [DONE]
                                                            |
                                                     T-P2-8 [S] E2E Integration
+
+--- P0 (new, completed) ---
+
+T-P0-18 [M] Review gate [DONE]
+T-P0-19 [S] asyncio fix [DONE]
+  |
+  +---> T-P0-20 [S] Fix --loop none CLI crash [DONE]
+
+--- P0 (new) ---
+
+T-P0-21 [M] Fix review gate bypass [DONE]
+  |
+  +--> T-P0-23 [L] Bidirectional transitions + concurrency
+         |
+         +--> T-P0-24 [M] Review gate UX modal [DONE]
+
+T-P0-22 [M] Soft-delete tasks [DONE]
+
+--- P3 (new) ---
+
+T-P3-12 [M] Resizable divider [DONE]
 ```
 
 ---
@@ -101,6 +123,18 @@ T-P2-6 [M] Frontend Swim Lanes [DONE] ------------------+
 
 ## Completed Tasks
 <!-- Move finished tasks here with [x] and completion date -->
+
+#### [x] T-P0-24: Review gate UX -- edit modal + preview before review submission -- 2026-03-03
+- PATCH /api/tasks/{id} endpoint for title/description updates. Frontend 428 detection opens ReviewSubmitModal with edit fields + live preview. PATCH-if-changed then BACKLOG->REVIEW transition. "Send to Review" context menu for BACKLOG/QUEUED tasks. Auto-focus in ReviewPanel on submit. Gate OFF = direct transition, no modal. 15 new tests, 759 total passing.
+
+#### [x] T-P0-23: Bidirectional state transitions + concurrency control -- 2026-03-03
+- Bidirectional VALID_TRANSITIONS (backward drags: REVIEW->BACKLOG, QUEUED->BACKLOG/REVIEW, DONE->BACKLOG/QUEUED, FAILED->BACKLOG). RUNNING stays strict (DONE/FAILED only). Timestamp cleanup matrix clears completed_at/execution_state on backward moves. OptimisticLockError with updated_at comparison (Z/+00:00 normalized). StatusTransitionRequest gains reason + expected_updated_at. API returns 409 with conflict=true on lock mismatch. Frontend: KanbanBoard backward-drag prompt, App.tsx sends expected_updated_at, auto-refresh on conflict. 52 new tests, 744 total passing.
+
+#### [x] T-P0-22: Soft-delete tasks via context menu + API -- 2026-03-02
+- is_deleted column + auto-migration, TaskManager.delete_task() with RUNNING/dependents guards, DELETE endpoint (204/404/409 with dependents list), frontend deleteTask + context menu Delete with confirmation and force-delete flow. 22 new tests, 692 total passing.
+
+#### [x] T-P0-21: Fix review gate bypass -- 5 vulnerable paths -- 2026-03-02
+- Fixed all 5 bypass paths: sync auto-promotion, execute, retry, review/decide, status endpoint. ReviewGateBlockedError returns 428 (not 409). 15 new regression tests, 670 total passing.
 
 #### [x] T-P0-1: Project scaffold (FastAPI + React + SQLite) -- 2026-03-01
 - Scaffold complete: pyproject.toml, requirements.txt, frontend (Vite+React+TS+Tailwind v4), orchestrator_config.yaml, contracts/, scripts/start.ps1, src/executors/, src/sync/
@@ -236,3 +270,20 @@ T-P2-6 [M] Frontend Swim Lanes [DONE] ------------------+
 
 #### [x] T-P3-11: Enhanced review observation and human interaction UX -- 2026-03-02
 - Review status badges: pulsing for active review, orange for needs-human, green for auto-approved. REVIEW_NEEDS_HUMAN triggers toast + auto-switch to Review tab + auto-select task. ReviewPanel reason text area wired to ReviewDecisionRequest.reason. REVIEW column header shows pulsing needs-human count badge. Client-side only, no backend changes. npm run build succeeds, 615 tests passing.
+
+#### [x] T-P0-17: Design analysis -- evaluate achievements and future directions -- 2026-03-02
+- Root cause analysis of three issues (missing review gate, asyncio Windows crash, fixed bottom panel). Design document at docs/design/review-gate-asyncio-divider.md. Added T-P0-18 (review gate), T-P0-19 (asyncio fix), T-P3-12 (resizable divider) to TASKS.md.
+
+#### [x] T-P0-18: Configurable review gate before execution (two-layer defense) -- 2026-03-02
+- Two-layer review gate. Layer 1: review_gate_enabled column in DB, blocks BACKLOG->QUEUED in TaskManager when enabled. Layer 2: Scheduler._can_execute() checks ReviewHistoryRow for approved verdict before execution. PATCH /api/projects/{id}/review-gate endpoint. SwimLaneHeader Gate ON/OFF toggle. SSE review_gate_changed events. 22 new tests, 641 total passing.
+
+#### [x] T-P0-19: Fix asyncio NotImplementedError on Windows with --reload -- 2026-03-02
+- Added --loop none to start.ps1 uvicorn command. Split error logging in api.py lifespan (NotImplementedError vs FileNotFoundError with distinct messages). Defense-in-depth comment on ProactorEventLoopPolicy. QUICKSTART.md updated with Windows dev instructions and troubleshooting. 4 tests, 619 total passing.
+
+#### [x] T-P0-20: Fix --loop none breaks uvicorn CLI startup -- 2026-03-02
+- uvicorn CLI rejects --loop none; replaced with scripts/run_server.py calling uvicorn.run(loop="none"). Rewrote tests with behavioral mocks + upstream guards. 8 tests, 645 total passing.
+- Followup: fixed sys.path bug (uvicorn.run doesn't add CWD like CLI does), updated 8 stale uvicorn references across 4 docs, added --log-level arg, added doc regression guard test. 13 tests, 650 total passing.
+- Followup-3: Fixed stale DB crash (_migrate_missing_columns in init_db), added real subprocess smoke test (test_server_startup.py), embedded verification best practices in CLAUDE.md/LESSONS.md/stop hook. 655 total passing.
+
+#### [x] T-P3-12: Resizable bottom panel divider -- 2026-03-02
+- ResizableDivider.tsx with setPointerCapture, grip dots, hover/drag highlight. Min 80px, max 60% viewport, double-click reset to 224px. localStorage persistence. Wired into App.tsx replacing fixed h-56. npm run build succeeds, 641 tests passing.

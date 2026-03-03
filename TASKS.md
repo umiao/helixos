@@ -10,7 +10,102 @@
 ## Active Tasks
 
 ### P0 -- Must Have (core functionality)
-<!-- All P0 tasks completed. See Completed Tasks below. -->
+
+#### T-P0-25: Token usage limit bar in UI top-right corner [NEEDS-INPUT]
+- **Priority**: P0
+- **Complexity**: M
+- **Depends on**: None
+- **Status**: Blocked -- requires research on reliable usage API endpoint (non-public internal API may change)
+
+#### T-P0-26: Fix drag-to-REVIEW workflow -- transition-driven pipeline + review_status [BUG]
+- **Priority**: P0 (core review workflow non-functional via most common user action)
+- **Complexity**: L (touches DB schema, backend orchestration, frontend UX)
+- **Depends on**: T-P0-24 [DONE]
+- **Root cause**: Pipeline trigger was orphaned (no task wired it to status transition).
+  Frontend was expected to orchestrate two independent writes (anti-pattern).
+
+##### Design (3 changes)
+
+**Change 1: Backend transition-driven side-effect** (`src/api.py`, `src/task_manager.py`)
+- In the status transition handler, when `old_status != REVIEW and new_status == REVIEW`:
+  - Set `review_status = "running"` on the task row
+  - Enqueue `_run_review()` as asyncio background task (reuse existing logic from trigger_review endpoint)
+  - Emit SSE `review_started` event
+- If `review_status == "running"` and another transition to REVIEW is attempted:
+  - Accept the status change (idempotent) but do NOT re-enqueue pipeline
+- `_run_review()` updates `review_status`:
+  - On success: `review_status = "done"`, then transitions to REVIEW_AUTO_APPROVED or REVIEW_NEEDS_HUMAN
+  - On failure: `review_status = "failed"`, emit SSE `review_failed` event, task stays in REVIEW
+- Repurpose `POST /api/tasks/{id}/review` as **retry-only** endpoint:
+  - Only works when `review_status == "failed"` (or `idle` for manual trigger)
+  - Rejects with 409 if `review_status == "running"`
+  - Semantically: "retry the review pipeline for this task"
+
+**Change 2: Add `review_status` DB column** (`src/db.py`, `src/models.py`)
+- New column: `review_status: Mapped[str] = mapped_column(String(32), nullable=False, default="idle")`
+- Values: `idle` (no review requested), `running` (pipeline active), `done` (pipeline completed), `failed` (pipeline error)
+- Auto-migrated via existing `_migrate_missing_columns()` mechanism
+- Cleared on backward transitions (REVIEW -> BACKLOG): reset to `idle`
+- Exposed in TaskResponse schema for frontend
+
+**Change 3: Frontend auto-focus + status rendering** (`frontend/src/App.tsx`, `frontend/src/components/ReviewPanel.tsx`)
+- `handleMoveTask` success path: when `newStatus == "review"`, call `setSelectedTask(updated)` + `setBottomPanel("review")` (safe because backend handles pipeline)
+- `handleReviewSubmitted`: same auto-focus (backend will trigger pipeline when modal's status change hits the transition handler)
+- ReviewPanel: render based on `review_status`:
+  - `idle`: "No review requested"
+  - `running`: spinner + "Review in progress..."
+  - `done`: show review results (existing behavior)
+  - `failed`: error message + "Retry Review" button (calls repurposed retry endpoint)
+- **Remove any frontend triggerReview() orchestration** -- backend handles it
+
+##### Gate Semantics Clarification
+- Gate controls **mandatory review path** (BACKLOG->QUEUED blocked when ON)
+- Gate does NOT prevent review pipeline execution
+- Explicit drag to REVIEW: pipeline runs regardless of gate setting
+- Gate OFF + drag to REVIEW: pipeline runs (user opted in)
+- Gate ON + drag to QUEUED: 428 -> modal -> REVIEW -> pipeline runs
+
+##### Acceptance Criteria (journey-first)
+- [ ] AC1 (happy path): User drags BACKLOG task to REVIEW -> card moves, backend auto-triggers pipeline (review_status becomes "running"), bottom panel auto-switches to Review tab with task focused, spinner visible
+- [ ] AC2 (modal path): "Send to Review" context menu -> modal -> submit -> same behavior as AC1
+- [ ] AC3 (pipeline completes): Pipeline finishes -> review_status becomes "done", task transitions to REVIEW_AUTO_APPROVED or REVIEW_NEEDS_HUMAN, ReviewPanel shows results
+- [ ] AC4 (pipeline fails): Pipeline errors -> review_status becomes "failed", task stays REVIEW, ReviewPanel shows error + "Retry Review" button, SSE alert emitted
+- [ ] AC5 (retry): User clicks "Retry Review" on failed task -> pipeline re-runs, review_status back to "running"
+- [ ] AC6 (idempotent): Re-dragging a task already in REVIEW with review_status=running -> no duplicate pipeline, no error
+- [ ] AC7 (no Claude CLI): Pipeline unavailable -> review_status = "failed" immediately, error visible in ReviewPanel
+- [ ] AC8 (backward transition): Drag REVIEW task back to BACKLOG -> review_status resets to "idle"
+- [ ] AC9 (regression): All existing tests pass
+- [ ] AC10 (smoke): Manual test -- start server, create task, drag to REVIEW, observe panel switch + pipeline activity in ReviewPanel
+
+##### Files to modify
+- `src/db.py` -- add review_status column to TaskRow
+- `src/models.py` -- add review_status to Task Pydantic model
+- `src/schemas.py` -- add review_status to TaskResponse
+- `src/task_manager.py` -- update_status clears review_status on backward transitions; set review_status on REVIEW entry
+- `src/api.py` -- move pipeline enqueue from trigger_review into status transition handler; repurpose trigger_review as retry
+- `frontend/src/App.tsx` -- handleMoveTask + handleReviewSubmitted auto-focus (no triggerReview call)
+- `frontend/src/types.ts` -- add review_status to Task interface
+- `frontend/src/components/ReviewPanel.tsx` -- render based on review_status (idle/running/done/failed)
+- `tests/` -- new tests for transition-driven trigger, review_status lifecycle, idempotency, retry
+
+#### T-P0-27: Add planning quality rules to CLAUDE.md + LESSONS.md postmortem
+- **Priority**: P0 (process fix -- prevents T-P0-26 class bugs)
+- **Complexity**: S
+- **Depends on**: None
+- **Deliverables**:
+  1. CLAUDE.md "## Task Planning Rules" section (5 rules):
+     - Scenario matrix: conditional UX tasks must list ALL branches with expected outcome
+     - Journey-first ACs: at least one AC per task as "User does X -> observes Y"
+     - Cross-boundary integration: UX + backend = must verify wiring, not just existence
+     - "Other case" gate: every conditional AC must specify behavior for the inverse
+     - Manual smoke test: every UX task must have a manual verification AC
+  2. CLAUDE.md "## State Machine Rules" section (1 rule):
+     - Any workflow with status transitions must document: states, triggers, side-effects
+     - Side-effects attached to transitions are backend responsibility (not frontend)
+  3. LESSONS.md entry #12: T-P0-24 postmortem (context, failure modes, rules)
+- **Acceptance Criteria**:
+  - [ ] CLAUDE.md has 6 new actionable rules (checkable, not aspirational)
+  - [ ] LESSONS.md has entry #12 with T-P0-24 root cause analysis
 
 ### P1 -- Should Have (important features)
 <!-- All 7 P1 tasks completed. See Completed Tasks below. -->
@@ -27,6 +122,8 @@
 - [ ] Review state machine diagram documentation
 - [ ] (from web UI) Done column: investigate random ordering, add sort/filter.
       Self-editing workflow: test changes then restart (queued stage only?).
+- [ ] Audit completed UX tasks (T-P0-8a through T-P3-11) for scenario-matrix gaps
+- [ ] Clarify Pause/Gate/Launch semantic boundaries in PRD (does Pause affect review pipeline?)
 
 ## Dependency Graph
 
@@ -114,6 +211,16 @@ T-P0-22 [M] Soft-delete tasks [DONE]
 --- P3 (new) ---
 
 T-P3-12 [M] Resizable divider [DONE]
+
+--- P0 (new -- review workflow fix + process rules) ---
+
+T-P0-24 [M] Review gate UX modal [DONE]
+  |
+  +--> T-P0-26 [L] Fix drag-to-REVIEW (transition-driven pipeline + review_status)
+
+T-P0-25 [M] Token usage limit bar [NEEDS-INPUT]
+
+T-P0-27 [S] Planning quality rules (no deps)
 ```
 
 ---
