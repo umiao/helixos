@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import argparse
 import sys
+from pathlib import Path
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
@@ -48,6 +49,14 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
 def main(argv: list[str] | None = None) -> None:
     """Entry point: configure event loop policy, then call uvicorn.run()."""
     args = parse_args(argv)
+
+    # uvicorn CLI adds CWD to sys.path in its main(), but uvicorn.run() does
+    # not.  Without this, `src.api:app` fails with ModuleNotFoundError when
+    # the script is invoked as `python scripts/run_server.py` (Python puts
+    # scripts/ on sys.path[0], not the project root).
+    project_root = str(Path(__file__).resolve().parent.parent)
+    if project_root not in sys.path:
+        sys.path.insert(0, project_root)
 
     if sys.platform == "win32":
         import asyncio

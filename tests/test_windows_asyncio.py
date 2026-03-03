@@ -7,6 +7,7 @@ Verifies that:
 - scripts/start.ps1 uses run_server.py (not --loop none CLI)
 - scripts/run_server.py passes loop="none" to uvicorn.run on Windows
 - scripts/run_server.py supports --log-level argument
+- scripts/run_server.py adds project root to sys.path (uvicorn.run needs it)
 - uvicorn accepts loop="none" via Python API but rejects it via CLI
 - No .md file shows bare uvicorn in a PowerShell code block
 """
@@ -245,6 +246,65 @@ def test_run_server_log_level_default_is_info():
     call_kwargs = mock_uvicorn.run.call_args
     assert call_kwargs.kwargs.get("log_level") == "info", (
         "run_server.py default log_level must be 'info'"
+    )
+
+
+# ------------------------------------------------------------------
+# sys.path fix (uvicorn.run does NOT add CWD like the CLI does)
+# ------------------------------------------------------------------
+
+def test_run_server_adds_project_root_to_sys_path():
+    """run_server.py must add the project root to sys.path.
+
+    uvicorn CLI does sys.path.insert(0, ".") in its main(), but
+    uvicorn.run() does NOT. Without this fix, `python scripts/run_server.py`
+    fails with ModuleNotFoundError: No module named 'src' because Python
+    puts scripts/ (not the project root) on sys.path[0].
+    """
+    run_server = _load_run_server_module()
+    project_root = str(Path(__file__).parent.parent.resolve())
+
+    mock_uvicorn = MagicMock()
+    # Temporarily remove project_root from sys.path to test the fix
+    original_path = sys.path[:]
+    sys.path = [p for p in sys.path if str(Path(p).resolve()) != project_root]
+    try:
+        with (
+            patch.dict("sys.modules", {"uvicorn": mock_uvicorn}),
+            patch.object(sys, "platform", "linux"),
+        ):
+            run_server.main(["--no-reload"])
+
+        assert project_root in sys.path, (
+            "run_server.py must add the project root to sys.path so that "
+            "'src.api:app' can be imported by uvicorn.run()"
+        )
+    finally:
+        sys.path = original_path
+
+
+def test_run_server_importable_src_after_path_fix():
+    """After run_server.py sets up sys.path, 'src' must be importable.
+
+    This is the smoke test that would have caught the original
+    ModuleNotFoundError bug.
+    """
+    run_server = _load_run_server_module()
+
+    mock_uvicorn = MagicMock()
+    with (
+        patch.dict("sys.modules", {"uvicorn": mock_uvicorn}),
+        patch.object(sys, "platform", "linux"),
+    ):
+        run_server.main(["--no-reload"])
+
+    # After main() runs, src should be importable
+    import importlib
+
+    src_spec = importlib.util.find_spec("src")
+    assert src_spec is not None, (
+        "After run_server.py runs, 'src' must be importable. "
+        "The script must add the project root to sys.path."
     )
 
 

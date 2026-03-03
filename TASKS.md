@@ -260,6 +260,7 @@ T-P3-12 [M] Resizable divider [DONE]
 
 #### [x] T-P0-20: Fix --loop none breaks uvicorn CLI startup -- 2026-03-02
 - uvicorn CLI rejects --loop none; replaced with scripts/run_server.py calling uvicorn.run(loop="none"). Rewrote tests with behavioral mocks + upstream guards. 8 tests, 645 total passing.
+- Followup: fixed sys.path bug (uvicorn.run doesn't add CWD like CLI does), updated 8 stale uvicorn references across 4 docs, added --log-level arg, added doc regression guard test. 13 tests, 650 total passing.
 
 #### [x] T-P3-12: Resizable bottom panel divider -- 2026-03-02
 - ResizableDivider.tsx with setPointerCapture, grip dots, hover/drag highlight. Min 80px, max 60% viewport, double-click reset to 224px. localStorage persistence. Wired into App.tsx replacing fixed h-56. npm run build succeeds, 641 tests passing.

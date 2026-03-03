@@ -404,3 +404,9 @@
 - **Sanity check result**: pytest 648/648 passed. ruff check clean.
 - **Status**: [DONE]
 - **Request**: No TASKS.md change needed (followup fix, not a separate task)
+## 2026-03-03 00:10 -- [T-P0-20-followup-2] Fix ModuleNotFoundError in run_server.py
+- **What I did**: User reported `python scripts/run_server.py --no-reload` crashes with `ModuleNotFoundError: No module named 'src'`. Root cause: uvicorn CLI does `sys.path.insert(0, ".")` in its main(), but `uvicorn.run()` does NOT. When running `python scripts/run_server.py`, Python adds `scripts/` to sys.path[0], not the project root. All 648 tests passed because they mocked `uvicorn.run()` and never tested the real import path. Fixed by adding `sys.path.insert(0, project_root)` in run_server.py. Added 2 smoke tests: one verifying project root is on sys.path, one verifying `src` is importable after main() runs. Added lesson 10 about mock-only test blindness. Updated TASKS.md T-P0-20 entry with followup note.
+- **Deliverables**: scripts/run_server.py (mod), tests/test_windows_asyncio.py (mod -- 13 tests), LESSONS.md (append 10), TASKS.md (mod)
+- **Sanity check result**: pytest 650/650 passed. ruff check clean. Manual test: server starts without ModuleNotFoundError.
+- **Status**: [DONE]
+- **Request**: No TASKS.md change needed (T-P0-20 already updated with followup note)

@@ -65,3 +65,9 @@
   - Check: all .md files, project structure trees, design docs, test fixtures.
   - Rule: after making changes, run `grep -ri "old_entry_point" **/*.md` and verify zero unexpected hits.
   - Add an automated guard test (e.g. scan powershell code blocks for bare uvicorn) to catch future regressions.
+
+  10. Mock-only tests hide integration failures
+  - All run_server.py tests mocked uvicorn.run(), so 648 tests passed but the script crashed on real invocation with ModuleNotFoundError.
+  - Root cause: uvicorn CLI does `sys.path.insert(0, ".")` in its main(), but `uvicorn.run()` does NOT. When running `python scripts/run_server.py`, Python puts `scripts/` on sys.path[0], not the project root. So `import src` fails.
+  - Fix: Add `sys.path.insert(0, project_root)` in run_server.py before calling uvicorn.run(). Add a smoke test that verifies `src` is importable after main() runs.
+  - Rule: When writing a launcher script, always include at least one smoke test that exercises the real import path (e.g. `importlib.util.find_spec("src") is not None`). Mock tests verify kwargs but not environment setup.
