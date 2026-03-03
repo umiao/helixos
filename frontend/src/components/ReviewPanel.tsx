@@ -1,11 +1,22 @@
 /**
  * ReviewPanel -- conversation-style review history with persistent DB data,
  * review progress, consensus score, and human decision buttons.
+ *
+ * Renders based on task.review_status:
+ *   idle    -- "No review requested"
+ *   running -- spinner + "Review in progress..."
+ *   done    -- existing review results / history
+ *   failed  -- error message + "Retry Review" button
  */
 
 import { useEffect, useState } from "react";
 import type { Task, ReviewHistoryEntry } from "../types";
-import { submitReviewDecision, fetchReviewHistory, ApiError } from "../api";
+import {
+  submitReviewDecision,
+  fetchReviewHistory,
+  retryReview,
+  ApiError,
+} from "../api";
 
 interface ReviewPanelProps {
   task: Task | null;
@@ -21,6 +32,7 @@ export default function ReviewPanel({
   onError,
 }: ReviewPanelProps) {
   const [submitting, setSubmitting] = useState(false);
+  const [retrying, setRetrying] = useState(false);
   const [reason, setReason] = useState("");
   const [historyEntries, setHistoryEntries] = useState<ReviewHistoryEntry[]>(
     [],
@@ -56,15 +68,14 @@ export default function ReviewPanel({
     };
   }, [task?.id]);
 
-  // Poll for updates when task is in a review state
+  // Poll for updates when task is in a review state or review is running
   useEffect(() => {
-    if (
-      !task ||
-      !["review", "review_auto_approved", "review_needs_human"].includes(
+    if (!task) return;
+    const shouldPoll =
+      ["review", "review_auto_approved", "review_needs_human"].includes(
         task.status,
-      )
-    )
-      return;
+      ) || task.review_status === "running";
+    if (!shouldPoll) return;
 
     const interval = setInterval(async () => {
       try {
@@ -76,7 +87,7 @@ export default function ReviewPanel({
     }, POLL_INTERVAL_MS);
 
     return () => clearInterval(interval);
-  }, [task?.id, task?.status]);
+  }, [task?.id, task?.status, task?.review_status]);
 
   if (!task) {
     return (
@@ -97,6 +108,7 @@ export default function ReviewPanel({
 
   const review = task.review;
   const hasReview = review !== null && review !== undefined;
+  const reviewStatus = task.review_status ?? "idle";
 
   const handleDecision = async (decision: "approve" | "reject") => {
     setSubmitting(true);
@@ -110,6 +122,19 @@ export default function ReviewPanel({
       onError(msg);
     } finally {
       setSubmitting(false);
+    }
+  };
+
+  const handleRetryReview = async () => {
+    setRetrying(true);
+    try {
+      await retryReview(task.id);
+    } catch (err) {
+      const msg =
+        err instanceof ApiError ? err.detail : "Failed to retry review";
+      onError(msg);
+    } finally {
+      setRetrying(false);
     }
   };
 
@@ -153,6 +178,32 @@ export default function ReviewPanel({
     }
   };
 
+  // Review status badge for the header
+  const reviewStatusBadge = () => {
+    switch (reviewStatus) {
+      case "running":
+        return (
+          <span className="px-1.5 py-0.5 rounded text-[10px] font-semibold uppercase bg-blue-100 text-blue-700 animate-pulse">
+            reviewing
+          </span>
+        );
+      case "done":
+        return (
+          <span className="px-1.5 py-0.5 rounded text-[10px] font-semibold uppercase bg-green-100 text-green-700">
+            complete
+          </span>
+        );
+      case "failed":
+        return (
+          <span className="px-1.5 py-0.5 rounded text-[10px] font-semibold uppercase bg-red-100 text-red-700">
+            failed
+          </span>
+        );
+      default:
+        return null;
+    }
+  };
+
   return (
     <div className="flex flex-col h-full bg-white rounded-lg border border-gray-200 overflow-hidden">
       {/* Header */}
@@ -161,6 +212,7 @@ export default function ReviewPanel({
           Review Panel
         </h3>
         <div className="flex items-center gap-2">
+          {reviewStatusBadge()}
           <span className="text-xs text-gray-500 font-mono">
             {task.local_task_id}
           </span>
@@ -171,7 +223,50 @@ export default function ReviewPanel({
       </div>
 
       <div className="flex-1 overflow-y-auto p-3 space-y-3">
-        {/* Progress bar */}
+        {/* review_status == idle: no review requested */}
+        {reviewStatus === "idle" && !hasReview && historyEntries.length === 0 && (
+          <div className="flex items-center justify-center py-8">
+            <p className="text-sm text-gray-400">
+              No review requested
+            </p>
+          </div>
+        )}
+
+        {/* review_status == running: spinner */}
+        {reviewStatus === "running" && (
+          <div className="flex items-center gap-3 py-4 px-3 rounded-lg bg-blue-50 border border-blue-200">
+            <div className="w-5 h-5 border-2 border-blue-400 border-t-transparent rounded-full animate-spin" />
+            <div>
+              <p className="text-sm font-medium text-blue-700">
+                Review in progress...
+              </p>
+              <p className="text-xs text-blue-500 mt-0.5">
+                The review pipeline is analyzing this task
+              </p>
+            </div>
+          </div>
+        )}
+
+        {/* review_status == failed: error + retry button */}
+        {reviewStatus === "failed" && (
+          <div className="py-4 px-3 rounded-lg bg-red-50 border border-red-200 space-y-2">
+            <p className="text-sm font-medium text-red-700">
+              Review pipeline failed
+            </p>
+            <p className="text-xs text-red-500">
+              The review pipeline encountered an error. You can retry or move the task back.
+            </p>
+            <button
+              onClick={handleRetryReview}
+              disabled={retrying}
+              className="rounded-md bg-red-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+            >
+              {retrying ? "Retrying..." : "Retry Review"}
+            </button>
+          </div>
+        )}
+
+        {/* Progress bar (shown when review data exists) */}
         {hasReview && (
           <div className="pb-2 border-b border-gray-100">
             <div className="flex justify-between text-xs text-gray-500 mb-1">
@@ -291,11 +386,7 @@ export default function ReviewPanel({
           <p className="text-xs text-gray-400 text-center py-2">
             No review rounds recorded yet
           </p>
-        ) : (
-          <p className="text-xs text-gray-400 text-center py-2">
-            No review data available
-          </p>
-        )}
+        ) : reviewStatus !== "idle" ? null : null}
 
         {/* Decision area: reason + buttons */}
         {hasReview && review.human_decision_needed && !review.human_choice && (

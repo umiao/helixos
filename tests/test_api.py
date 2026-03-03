@@ -356,14 +356,18 @@ class TestUpdateTaskStatus:
         assert resp.status_code == 404
 
 
-class TestTriggerReview:
-    """Tests for POST /api/tasks/{task_id}/review."""
+class TestRetryReview:
+    """Tests for POST /api/tasks/{task_id}/review (retry-only)."""
 
-    async def test_review_returns_202(
-        self, client: AsyncClient, test_app, seeded_task: Task,
+    async def test_retry_returns_202_when_failed(
+        self, client: AsyncClient, test_app, task_manager: TaskManager,
     ):
-        """Should return 202 when review pipeline is available."""
-        # Provide a mock review pipeline
+        """Should return 202 when review_status is failed and pipeline available."""
+        # Create task in REVIEW with review_status=failed
+        task = _make_task(status=TaskStatus.REVIEW)
+        task = task.model_copy(update={"review_status": "failed"})
+        await task_manager.create_task(task)
+
         mock_pipeline = MagicMock()
         mock_pipeline.review_task = AsyncMock(
             return_value=ReviewState(
@@ -382,15 +386,19 @@ class TestTriggerReview:
         # Wait for background task to complete
         await asyncio.sleep(0.1)
 
-    async def test_review_no_pipeline_returns_409(
-        self, client: AsyncClient, seeded_task: Task,
+    async def test_retry_rejects_running_with_409(
+        self, client: AsyncClient, task_manager: TaskManager,
     ):
-        """Should return 409 when no review pipeline."""
+        """Should return 409 when review_status is running."""
+        task = _make_task(status=TaskStatus.REVIEW)
+        task = task.model_copy(update={"review_status": "running"})
+        await task_manager.create_task(task)
+
         resp = await client.post("/api/tasks/proj-a:T-P0-1/review")
         assert resp.status_code == 409
-        assert "not available" in resp.json()["detail"]
+        assert "already running" in resp.json()["detail"]
 
-    async def test_review_not_found_returns_404(self, client: AsyncClient):
+    async def test_retry_not_found_returns_404(self, client: AsyncClient):
         """Unknown task should return 404."""
         resp = await client.post("/api/tasks/nonexistent/review")
         assert resp.status_code == 404

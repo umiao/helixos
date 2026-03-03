@@ -68,6 +68,7 @@ class TaskResponse(BaseModel):
     created_at: datetime
     updated_at: datetime
     completed_at: datetime | None = None
+    review_status: str = "idle"
 
 
 class ReviewStateResponse(BaseModel):

@@ -146,6 +146,7 @@ def _task_to_response(task: Task) -> TaskResponse:
         created_at=task.created_at,
         updated_at=task.updated_at,
         completed_at=task.completed_at,
+        review_status=task.review_status,
     )
 
 
@@ -989,6 +990,83 @@ async def update_task_fields(
     return _task_to_response(task)
 
 
+def _enqueue_review_pipeline(
+    task_manager: TaskManager,
+    review_pipeline: ReviewPipeline | None,
+    event_bus: EventBus,
+    task: Task,
+    task_id: str,
+) -> None:
+    """Enqueue the review pipeline as a background asyncio task.
+
+    If the pipeline is unavailable (Claude CLI not found), immediately
+    marks review_status as "failed" and emits an SSE alert.
+    """
+    if review_pipeline is None:
+        # Pipeline unavailable -- fail immediately
+        asyncio.create_task(
+            _set_review_failed(task_manager, event_bus, task_id,
+                               "Review pipeline unavailable (Claude CLI not found)")
+        )
+        return
+
+    event_bus.emit("review_started", task_id, {})
+
+    async def _run_review_bg() -> None:
+        """Background task to run the review pipeline."""
+        try:
+            def on_progress(completed: int, total: int) -> None:
+                event_bus.emit(
+                    "review_progress",
+                    task_id,
+                    {"completed": completed, "total": total},
+                )
+
+            review_state = await review_pipeline.review_task(
+                task=task,
+                plan_content=task.description,
+                on_progress=on_progress,
+            )
+
+            updated_task = task.model_copy(update={"review": review_state})
+            await task_manager.update_task(updated_task)
+
+            # Mark review_status as "done"
+            await task_manager.set_review_status(task_id, "done")
+
+            if review_state.human_decision_needed:
+                new_status = TaskStatus.REVIEW_NEEDS_HUMAN
+            else:
+                new_status = TaskStatus.REVIEW_AUTO_APPROVED
+
+            await task_manager.update_status(task_id, new_status)
+            event_bus.emit(
+                "status_change", task_id, {"status": new_status.value},
+            )
+        except Exception:
+            logger.exception("Review failed for task %s", task_id)
+            await _set_review_failed(
+                task_manager, event_bus, task_id, "Review pipeline failed",
+            )
+
+    asyncio.create_task(_run_review_bg())
+
+
+async def _set_review_failed(
+    task_manager: TaskManager,
+    event_bus: EventBus,
+    task_id: str,
+    error_msg: str,
+) -> None:
+    """Mark review_status as failed and emit SSE alert."""
+    try:
+        await task_manager.set_review_status(task_id, "failed")
+    except Exception:
+        logger.exception("Failed to set review_status for task %s", task_id)
+    event_bus.emit("alert", task_id, {"error": error_msg})
+    event_bus.emit("review_failed", task_id, {"error": error_msg})
+
+
 @api_router.patch(
     "/api/tasks/{task_id}/status",
     responses={
@@ -1047,6 +1125,16 @@ async def update_task_status(
     event_bus: EventBus = request.app.state.event_bus
     event_bus.emit("status_change", task_id, {"status": body.status.value})
 
+    # Transition-driven pipeline trigger: enqueue review when entering REVIEW
+    if (
+        existing.status != TaskStatus.REVIEW
+        and body.status == TaskStatus.REVIEW
+    ):
+        review_pipeline: ReviewPipeline | None = request.app.state.review_pipeline
+        _enqueue_review_pipeline(
+            task_manager, review_pipeline, event_bus, updated, task_id,
+        )
+
     return _task_to_response(updated)
 
 
@@ -1058,8 +1146,12 @@ async def update_task_status(
         409: {"model": ErrorResponse},
     },
 )
-async def trigger_review(task_id: str, request: Request) -> dict:
-    """Trigger an async review for a task (202 Accepted)."""
+async def retry_review(task_id: str, request: Request) -> dict:
+    """Retry the review pipeline for a task (202 Accepted).
+
+    Only works when ``review_status`` is ``"failed"`` or ``"idle"``.
+    Returns 409 if the pipeline is already running.
+    """
     task_manager: TaskManager = request.app.state.task_manager
     review_pipeline: ReviewPipeline | None = request.app.state.review_pipeline
     event_bus: EventBus = request.app.state.event_bus
@@ -1068,54 +1160,34 @@ async def trigger_review(task_id: str, request: Request) -> dict:
     if task is None:
         raise HTTPException(status_code=404, detail=f"Task not found: {task_id}")
 
-    if review_pipeline is None:
+    if task.review_status == "running":
         raise HTTPException(
             status_code=409,
-            detail="Review pipeline not available",
+            detail="Review pipeline is already running for this task",
         )
 
-    try:
-        await task_manager.update_status(task_id, TaskStatus.REVIEW)
-    except ValueError as exc:
-        raise HTTPException(status_code=409, detail=str(exc)) from None
+    if task.review_status not in ("failed", "idle"):
+        raise HTTPException(
+            status_code=409,
+            detail=f"Cannot retry review: review_status is '{task.review_status}'",
+        )
 
-    event_bus.emit("status_change", task_id, {"status": "review"})
-
-    async def _run_review() -> None:
-        """Background task to run the review pipeline."""
+    # Ensure task is in REVIEW status; if not, transition it
+    if task.status != TaskStatus.REVIEW:
         try:
-            def on_progress(completed: int, total: int) -> None:
-                event_bus.emit(
-                    "review_progress",
-                    task_id,
-                    {"completed": completed, "total": total},
-                )
+            task = await task_manager.update_status(task_id, TaskStatus.REVIEW)
+        except ValueError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from None
+        event_bus.emit("status_change", task_id, {"status": "review"})
+    else:
+        # Already in REVIEW, just reset review_status to running
+        await task_manager.set_review_status(task_id, "running")
 
-            review_state = await review_pipeline.review_task(
-                task=task,
-                plan_content=task.description,
-                on_progress=on_progress,
-            )
+    _enqueue_review_pipeline(
+        task_manager, review_pipeline, event_bus, task, task_id,
+    )
 
-            updated_task = task.model_copy(update={"review": review_state})
-            await task_manager.update_task(updated_task)
-
-            if review_state.human_decision_needed:
-                new_status = TaskStatus.REVIEW_NEEDS_HUMAN
-            else:
-                new_status = TaskStatus.REVIEW_AUTO_APPROVED
-
-            await task_manager.update_status(task_id, new_status)
-            event_bus.emit(
-                "status_change", task_id, {"status": new_status.value},
-            )
-        except Exception:
-            logger.exception("Review failed for task %s", task_id)
-            event_bus.emit("alert", task_id, {"error": "Review pipeline failed"})
-
-    asyncio.create_task(_run_review())
-
-    return {"detail": "Review started", "task_id": task_id}
+    return {"detail": "Review retry started", "task_id": task_id}
 
 
 @api_router.post(

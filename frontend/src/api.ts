@@ -145,6 +145,17 @@ export async function updateTaskStatus(
   return handleResponse<Task>(res);
 }
 
+/** Retry the review pipeline for a task. Returns 202 on success. */
+export async function retryReview(
+  taskId: string,
+): Promise<{ detail: string; task_id: string }> {
+  const res = await fetch(
+    `/api/tasks/${encodeURIComponent(taskId)}/review`,
+    { method: "POST" },
+  );
+  return handleResponse(res);
+}
+
 /** Submit a human review decision (approve/reject) for a task. */
 export async function submitReviewDecision(
   taskId: string,

@@ -198,6 +198,44 @@ function App() {
           );
           break;
         }
+        case "review_started": {
+          // Update review_status on the task in local state
+          setTasks((prev) =>
+            prev.map((t) =>
+              t.id === event.task_id
+                ? { ...t, review_status: "running" as const }
+                : t,
+            ),
+          );
+          addLogEntry(
+            event.task_id,
+            "Review pipeline started",
+            event.timestamp,
+          );
+          break;
+        }
+        case "review_failed": {
+          // Update review_status on the task in local state
+          setTasks((prev) =>
+            prev.map((t) =>
+              t.id === event.task_id
+                ? { ...t, review_status: "failed" as const }
+                : t,
+            ),
+          );
+          // Also refresh task data from server
+          fetchTask(event.task_id)
+            .then((updated) => {
+              setTasks((prev) =>
+                prev.map((t) => (t.id === updated.id ? updated : t)),
+              );
+              setSelectedTask((sel) =>
+                sel && sel.id === updated.id ? updated : sel,
+              );
+            })
+            .catch(() => { /* ignore */ });
+          break;
+        }
       }
     },
     [addToast, addLogEntry],
@@ -347,6 +385,12 @@ function App() {
       });
       // Replace with server response to ensure consistency
       setTasks((prev) => prev.map((t) => (t.id === taskId ? updated : t)));
+
+      // Auto-focus when dragging to REVIEW: open ReviewPanel with task selected
+      if (newStatus === "review") {
+        setSelectedTask(updated);
+        setBottomPanel("review");
+      }
     } catch (err) {
       // Revert optimistic update on error
       const original = tasksRef.current.find((t) => t.id === taskId);

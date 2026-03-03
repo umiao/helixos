@@ -242,6 +242,22 @@ class TaskManager:
                 )
                 row.execution_json = exec_state.model_dump_json()
 
+            # review_status lifecycle
+            old_review_status = getattr(row, "review_status", "idle")
+            if (
+                current != TaskStatus.REVIEW
+                and new_status == TaskStatus.REVIEW
+            ):
+                # Entering REVIEW: set to "running" (pipeline will be enqueued by caller)
+                row.review_status = "running"
+            elif (
+                current == TaskStatus.REVIEW
+                and new_status == TaskStatus.REVIEW
+                and old_review_status == "running"
+            ):
+                # Idempotent: already in REVIEW with running pipeline, no change
+                pass
+
             # Timestamp cleanup on backward transitions
             self._cleanup_on_backward(row, current, new_status)
 
@@ -260,9 +276,10 @@ class TaskManager:
         target: TaskStatus,
     ) -> None:
         """Reset timestamp/state fields per the backward-transition cleanup matrix."""
-        # * -> BACKLOG: clear started_at, completed_at, execution_state, error_summary
+        # * -> BACKLOG: clear started_at, completed_at, execution_state, error_summary, review_status
         if target == TaskStatus.BACKLOG:
             row.completed_at = None
+            row.review_status = "idle"
             if row.execution_json:
                 exec_data = json.loads(row.execution_json)
                 exec_data.pop("started_at", None)
@@ -286,6 +303,18 @@ class TaskManager:
 
         # QUEUED -> REVIEW: no cleanup needed (just status change)
         # QUEUED -> BACKLOG is handled by the * -> BACKLOG rule above
+
+    async def set_review_status(self, task_id: str, review_status: str) -> None:
+        """Update only the review_status column for a task.
+
+        Valid values: ``"idle"``, ``"running"``, ``"done"``, ``"failed"``.
+        """
+        async with get_session(self._sf) as session:
+            row = await session.get(TaskRow, task_id)
+            if row is None or row.is_deleted:
+                raise ValueError(f"Task not found: {task_id}")
+            row.review_status = review_status
+            row.updated_at = datetime.now(UTC).isoformat()
 
     async def update_task(self, task: Task) -> Task:
         """Persist arbitrary field updates from a Task object.

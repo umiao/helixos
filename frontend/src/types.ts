@@ -49,6 +49,8 @@ export interface ExecutionState {
   error_summary: string | null;
 }
 
+export type ReviewStatus = "idle" | "running" | "done" | "failed";
+
 export interface Task {
   id: string;
   project_id: string;
@@ -63,6 +65,7 @@ export interface Task {
   created_at: string;
   updated_at: string;
   completed_at: string | null;
+  review_status: ReviewStatus;
 }
 
 export interface Dependency {

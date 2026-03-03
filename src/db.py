@@ -55,6 +55,9 @@ class TaskRow(Base):
     updated_at: Mapped[str] = mapped_column(String(64), nullable=False)
     completed_at: Mapped[str | None] = mapped_column(String(64), nullable=True)
     is_deleted: Mapped[bool] = mapped_column(default=False)
+    review_status: Mapped[str] = mapped_column(
+        String(32), nullable=False, default="idle",
+    )
 
     __table_args__ = (
         Index("ix_tasks_status", "status"),
@@ -148,6 +151,7 @@ def task_row_to_dict(row: TaskRow) -> dict:
         "created_at": row.created_at,
         "updated_at": row.updated_at,
         "completed_at": row.completed_at,
+        "review_status": getattr(row, "review_status", "idle"),
     }
 
 
@@ -175,6 +179,7 @@ def task_dict_to_row_kwargs(data: dict) -> dict:
         "created_at": data["created_at"],
         "updated_at": data["updated_at"],
         "completed_at": data.get("completed_at"),
+        "review_status": data.get("review_status", "idle"),
     }
 
 

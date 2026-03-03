@@ -17,76 +17,7 @@
 - **Depends on**: None
 - **Status**: Blocked -- requires research on reliable usage API endpoint (non-public internal API may change)
 
-#### T-P0-26: Fix drag-to-REVIEW workflow -- transition-driven pipeline + review_status [BUG]
-- **Priority**: P0 (core review workflow non-functional via most common user action)
-- **Complexity**: L (touches DB schema, backend orchestration, frontend UX)
-- **Depends on**: T-P0-24 [DONE]
-- **Root cause**: Pipeline trigger was orphaned (no task wired it to status transition).
-  Frontend was expected to orchestrate two independent writes (anti-pattern).
-
-##### Design (3 changes)
-
-**Change 1: Backend transition-driven side-effect** (`src/api.py`, `src/task_manager.py`)
-- In the status transition handler, when `old_status != REVIEW and new_status == REVIEW`:
-  - Set `review_status = "running"` on the task row
-  - Enqueue `_run_review()` as asyncio background task (reuse existing logic from trigger_review endpoint)
-  - Emit SSE `review_started` event
-- If `review_status == "running"` and another transition to REVIEW is attempted:
-  - Accept the status change (idempotent) but do NOT re-enqueue pipeline
-- `_run_review()` updates `review_status`:
-  - On success: `review_status = "done"`, then transitions to REVIEW_AUTO_APPROVED or REVIEW_NEEDS_HUMAN
-  - On failure: `review_status = "failed"`, emit SSE `review_failed` event, task stays in REVIEW
-- Repurpose `POST /api/tasks/{id}/review` as **retry-only** endpoint:
-  - Only works when `review_status == "failed"` (or `idle` for manual trigger)
-  - Rejects with 409 if `review_status == "running"`
-  - Semantically: "retry the review pipeline for this task"
-
-**Change 2: Add `review_status` DB column** (`src/db.py`, `src/models.py`)
-- New column: `review_status: Mapped[str] = mapped_column(String(32), nullable=False, default="idle")`
-- Values: `idle` (no review requested), `running` (pipeline active), `done` (pipeline completed), `failed` (pipeline error)
-- Auto-migrated via existing `_migrate_missing_columns()` mechanism
-- Cleared on backward transitions (REVIEW -> BACKLOG): reset to `idle`
-- Exposed in TaskResponse schema for frontend
-
-**Change 3: Frontend auto-focus + status rendering** (`frontend/src/App.tsx`, `frontend/src/components/ReviewPanel.tsx`)
-- `handleMoveTask` success path: when `newStatus == "review"`, call `setSelectedTask(updated)` + `setBottomPanel("review")` (safe because backend handles pipeline)
-- `handleReviewSubmitted`: same auto-focus (backend will trigger pipeline when modal's status change hits the transition handler)
-- ReviewPanel: render based on `review_status`:
-  - `idle`: "No review requested"
-  - `running`: spinner + "Review in progress..."
-  - `done`: show review results (existing behavior)
-  - `failed`: error message + "Retry Review" button (calls repurposed retry endpoint)
-- **Remove any frontend triggerReview() orchestration** -- backend handles it
-
-##### Gate Semantics Clarification
-- Gate controls **mandatory review path** (BACKLOG->QUEUED blocked when ON)
-- Gate does NOT prevent review pipeline execution
-- Explicit drag to REVIEW: pipeline runs regardless of gate setting
-- Gate OFF + drag to REVIEW: pipeline runs (user opted in)
-- Gate ON + drag to QUEUED: 428 -> modal -> REVIEW -> pipeline runs
-
-##### Acceptance Criteria (journey-first)
-- [ ] AC1 (happy path): User drags BACKLOG task to REVIEW -> card moves, backend auto-triggers pipeline (review_status becomes "running"), bottom panel auto-switches to Review tab with task focused, spinner visible
-- [ ] AC2 (modal path): "Send to Review" context menu -> modal -> submit -> same behavior as AC1
-- [ ] AC3 (pipeline completes): Pipeline finishes -> review_status becomes "done", task transitions to REVIEW_AUTO_APPROVED or REVIEW_NEEDS_HUMAN, ReviewPanel shows results
-- [ ] AC4 (pipeline fails): Pipeline errors -> review_status becomes "failed", task stays REVIEW, ReviewPanel shows error + "Retry Review" button, SSE alert emitted
-- [ ] AC5 (retry): User clicks "Retry Review" on failed task -> pipeline re-runs, review_status back to "running"
-- [ ] AC6 (idempotent): Re-dragging a task already in REVIEW with review_status=running -> no duplicate pipeline, no error
-- [ ] AC7 (no Claude CLI): Pipeline unavailable -> review_status = "failed" immediately, error visible in ReviewPanel
-- [ ] AC8 (backward transition): Drag REVIEW task back to BACKLOG -> review_status resets to "idle"
-- [ ] AC9 (regression): All existing tests pass
-- [ ] AC10 (smoke): Manual test -- start server, create task, drag to REVIEW, observe panel switch + pipeline activity in ReviewPanel
-
-##### Files to modify
-- `src/db.py` -- add review_status column to TaskRow
-- `src/models.py` -- add review_status to Task Pydantic model
-- `src/schemas.py` -- add review_status to TaskResponse
-- `src/task_manager.py` -- update_status clears review_status on backward transitions; set review_status on REVIEW entry
-- `src/api.py` -- move pipeline enqueue from trigger_review into status transition handler; repurpose trigger_review as retry
-- `frontend/src/App.tsx` -- handleMoveTask + handleReviewSubmitted auto-focus (no triggerReview call)
-- `frontend/src/types.ts` -- add review_status to Task interface
-- `frontend/src/components/ReviewPanel.tsx` -- render based on review_status (idle/running/done/failed)
-- `tests/` -- new tests for transition-driven trigger, review_status lifecycle, idempotency, retry
+#### ~~T-P0-26: Fix drag-to-REVIEW workflow~~ [DONE -- see Completed Tasks]
 
 #### T-P0-27: Add planning quality rules to CLAUDE.md + LESSONS.md postmortem
 - **Priority**: P0 (process fix -- prevents T-P0-26 class bugs)
@@ -216,7 +147,7 @@ T-P3-12 [M] Resizable divider [DONE]
 
 T-P0-24 [M] Review gate UX modal [DONE]
   |
-  +--> T-P0-26 [L] Fix drag-to-REVIEW (transition-driven pipeline + review_status)
+  +--> T-P0-26 [L] Fix drag-to-REVIEW [DONE]
 
 T-P0-25 [M] Token usage limit bar [NEEDS-INPUT]
 
@@ -230,6 +161,9 @@ T-P0-27 [S] Planning quality rules (no deps)
 
 ## Completed Tasks
 <!-- Move finished tasks here with [x] and completion date -->
+
+#### [x] T-P0-26: Fix drag-to-REVIEW workflow -- transition-driven pipeline + review_status -- 2026-03-03
+- Transition-driven review pipeline: status transition to REVIEW auto-enqueues pipeline (sets review_status=running). Pipeline success -> review_status=done + transition to REVIEW_AUTO_APPROVED/REVIEW_NEEDS_HUMAN. Pipeline failure -> review_status=failed + SSE alert. Backward transitions reset to idle. POST /api/tasks/{id}/review repurposed as retry-only (409 if running). Frontend: auto-focus ReviewPanel on drag-to-REVIEW, review_status-based rendering (idle/running/done/failed), retry button. 25 new tests, 784 total passing.
 
 #### [x] T-P0-24: Review gate UX -- edit modal + preview before review submission -- 2026-03-03
 - PATCH /api/tasks/{id} endpoint for title/description updates. Frontend 428 detection opens ReviewSubmitModal with edit fields + live preview. PATCH-if-changed then BACKLOG->REVIEW transition. "Send to Review" context menu for BACKLOG/QUEUED tasks. Auto-focus in ReviewPanel on submit. Gate OFF = direct transition, no modal. 15 new tests, 759 total passing.
