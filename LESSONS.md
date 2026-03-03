@@ -51,3 +51,10 @@
   - Root cause: CI ran `pip install ruff` (latest), while local had ruff 0.1.14. New ruff promoted UP041 and UP042 to stable, activating them automatically under the `"UP"` category.
   - Fix: Pin exactly in requirements.txt (`ruff==0.15.4`). CI uses `pip install -r requirements.txt` instead of `pip install ruff`. Add a git pre-commit hook running `ruff check` on staged files.
   - Rule: Always pin linter/formatter versions with `==`. Use a pre-commit hook to catch lint errors before they reach CI.
+
+  9. uvicorn internal API vs CLI mismatch for loop="none"
+  - `uvicorn.run(loop="none")` works (LOOP_SETUPS contains "none"), but the CLI `--loop none` is rejected (`click.Choice` explicitly excludes it).
+  - Root cause: `uvicorn/main.py` defines `LOOP_CHOICES = click.Choice([k for k in LOOP_SETUPS if k != "none"])`.
+  - String-match tests (`assert "--loop none" in content`) verified the bug was PRESENT, not absent. They proved the broken command was in the file.
+  - Fix: Use `scripts/run_server.py` with `uvicorn.run(loop="none")` instead of CLI invocation. Add behavioral tests that mock `uvicorn.run` and assert kwargs.
+  - Rule: When testing CLI flags, write a behavioral test (mock the target function, assert it receives correct args) rather than just grepping for the flag in a script. String-match tests catch presence, not correctness.

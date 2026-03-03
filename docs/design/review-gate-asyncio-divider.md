@@ -131,19 +131,24 @@ it is low cost and essential for the Windows dev workflow.
 
 ### Proposed Fix: `--loop none` in startup script
 
-No new files needed. With `loop="none"`, `setup_event_loop()` does nothing.
+With `loop="none"`, `setup_event_loop()` does nothing.
 Python 3.11's default on Windows is already `ProactorEventLoop`, so subprocess
 works.
 
+**Update (post-implementation)**: The initial fix used `--loop none` in the
+uvicorn CLI command, but uvicorn 0.27.0 CLI rejects `none` via
+`click.Choice`. The actual fix uses `scripts/run_server.py` which calls
+`uvicorn.run(loop="none")` programmatically (the Python API accepts it).
+
 Concrete changes:
 
-1. **`scripts/start.ps1`** -- add `--loop none` to the uvicorn command
-2. **`src/api.py:235`** -- split the `except` to distinguish
+1. **`scripts/run_server.py`** (new) -- calls `uvicorn.run(loop="none")`
+2. **`scripts/start.ps1`** -- calls `python scripts/run_server.py`
+3. **`src/api.py:235`** -- split the `except` to distinguish
    `NotImplementedError` from `FileNotFoundError` with accurate log messages
-3. **Keep `src/api.py:72-73`** as defense-in-depth with explanatory comment
+4. **Keep `src/api.py:72-73`** as defense-in-depth with explanatory comment
    (protects non-uvicorn usage like pytest, direct import)
-4. **`QUICKSTART.md`** -- document `--loop none` requirement on Windows with
-   `--reload`
+5. **`QUICKSTART.md`** -- document `run_server.py` usage on Windows
 
 ### Files to Modify
 

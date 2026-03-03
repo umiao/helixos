@@ -391,3 +391,10 @@
 - **Sanity check result**: pytest 641/641 passed. ruff check clean. npm run build succeeds.
 - **Status**: [DONE]
 - **Request**: Move T-P3-12 to Completed (REMOVE spec block from Active, ADD summary line to Completed Tasks)
+
+## 2026-03-02 23:30 -- [T-P0-20] Fix --loop none breaks uvicorn CLI startup
+- **What I did**: uvicorn 0.27.0 CLI rejects `--loop none` (click.Choice excludes it), crashing `start.ps1` on startup. Created `scripts/run_server.py` that calls `uvicorn.run(loop="none")` programmatically (the Python API accepts it). Updated `start.ps1` to call `run_server.py`. Updated error messages in `src/api.py` to reference `run_server.py`. Updated QUICKSTART.md Windows sections and troubleshooting. Updated design doc with post-implementation note. Rewrote `tests/test_windows_asyncio.py` with behavioral tests (mock uvicorn.run, assert kwargs) plus upstream guard tests (assert "none" in LOOP_SETUPS, assert "none" not in CLI choices).
+- **Deliverables**: scripts/run_server.py (new), scripts/start.ps1 (mod), src/api.py (mod), tests/test_windows_asyncio.py (rewrite -- 8 tests), QUICKSTART.md (mod), docs/design/review-gate-asyncio-divider.md (mod), LESSONS.md (append)
+- **Sanity check result**: pytest 645/645 passed. ruff check clean.
+- **Status**: [DONE]
+- **Request**: Move T-P0-20 to Completed (ADD summary line to Completed Tasks)

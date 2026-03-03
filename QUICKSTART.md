@@ -177,18 +177,19 @@ npm run dev
 
 **Windows (PowerShell):**
 ```powershell
-# Terminal 1: Backend API server (--loop none required on Windows)
-uvicorn src.api:app --host 127.0.0.1 --port 8000 --reload --loop none
+# Terminal 1: Backend API server (uses uvicorn.run with correct event loop)
+python scripts/run_server.py
 
 # Terminal 2: Frontend dev server (with proxy to backend)
 cd frontend
 npm run dev
 ```
 
-> **Windows note**: The `--loop none` flag is required on Windows when using
-> `--reload`. Without it, uvicorn forces SelectorEventLoop which does not
-> support `asyncio.create_subprocess_exec()`, causing `NotImplementedError`
-> when the review pipeline or code executor runs.
+> **Windows note**: Use `scripts/run_server.py` instead of calling uvicorn
+> directly. The script calls `uvicorn.run(loop="none")` which skips uvicorn's
+> event loop override, preserving the ProactorEventLoop needed for
+> `asyncio.create_subprocess_exec()`. The uvicorn CLI rejects `--loop none`
+> even though the Python API accepts it.
 
 - Backend API: http://localhost:8000
 - Frontend dev server: http://localhost:5173 (proxied API calls to :8000)
@@ -422,15 +423,17 @@ If you see `NotImplementedError` when the server tries to run subprocess
 commands (review pipeline or code executor), the event loop is wrong.
 
 **Cause**: uvicorn with `--reload` forces `SelectorEventLoop` on Windows,
-which does not support `asyncio.create_subprocess_exec()`.
+which does not support `asyncio.create_subprocess_exec()`. The uvicorn CLI
+rejects `--loop none` (only accepts `auto|asyncio|uvloop`), but the Python
+API `uvicorn.run(loop="none")` works correctly.
 
-**Fix**: Add `--loop none` to the uvicorn command:
+**Fix**: Use the launcher script instead of calling uvicorn directly:
 
 ```powershell
-uvicorn src.api:app --host 127.0.0.1 --port 8000 --reload --loop none
+python scripts/run_server.py
 ```
 
-Or use `scripts/start.ps1` which includes this flag automatically.
+Or use `scripts/start.ps1` which calls `run_server.py` automatically.
 
 This is a dev-only issue. Production mode (without `--reload`) is unaffected.
 

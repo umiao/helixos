@@ -71,7 +71,7 @@ logger = logging.getLogger(__name__)
 # Defense-in-depth: set ProactorEventLoop on Windows for subprocess support.
 # When running under uvicorn with --reload, uvicorn's setup_event_loop()
 # overrides this policy BEFORE importing our module (sets SelectorEventLoop).
-# The real fix is --loop none in the uvicorn command (see start.ps1).
+# The real fix is scripts/run_server.py which calls uvicorn.run(loop="none").
 # This policy still protects non-uvicorn usage (pytest, direct import).
 if sys.platform == "win32":
     asyncio.set_event_loop_policy(asyncio.WindowsProactorEventLoopPolicy())
@@ -244,8 +244,8 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         logger.warning(
             "asyncio.create_subprocess_exec raised NotImplementedError -- "
             "this typically means uvicorn is using SelectorEventLoop on Windows. "
-            "Add --loop none to the uvicorn command to fix this. "
-            "Review pipeline disabled."
+            "Use 'python scripts/run_server.py' to start with the correct "
+            "event loop policy. Review pipeline disabled."
         )
     except (FileNotFoundError, OSError):
         logger.warning(

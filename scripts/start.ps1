@@ -17,4 +17,4 @@ try {
 
 Write-Host "[START] Launching uvicorn..." -ForegroundColor Cyan
 Set-Location $ProjectRoot
-python -m uvicorn src.api:app --host 127.0.0.1 --port 8000 --reload --loop none
+python scripts/run_server.py

@@ -98,6 +98,8 @@ T-P2-6 [M] Frontend Swim Lanes [DONE] ------------------+
 
 T-P0-18 [M] Review gate [DONE]
 T-P0-19 [S] asyncio fix [DONE]
+  |
+  +---> T-P0-20 [S] Fix --loop none CLI crash [DONE]
 
 --- P3 (new) ---
 
@@ -255,6 +257,9 @@ T-P3-12 [M] Resizable divider [DONE]
 
 #### [x] T-P0-19: Fix asyncio NotImplementedError on Windows with --reload -- 2026-03-02
 - Added --loop none to start.ps1 uvicorn command. Split error logging in api.py lifespan (NotImplementedError vs FileNotFoundError with distinct messages). Defense-in-depth comment on ProactorEventLoopPolicy. QUICKSTART.md updated with Windows dev instructions and troubleshooting. 4 tests, 619 total passing.
+
+#### [x] T-P0-20: Fix --loop none breaks uvicorn CLI startup -- 2026-03-02
+- uvicorn CLI rejects --loop none; replaced with scripts/run_server.py calling uvicorn.run(loop="none"). Rewrote tests with behavioral mocks + upstream guards. 8 tests, 645 total passing.
 
 #### [x] T-P3-12: Resizable bottom panel divider -- 2026-03-02
 - ResizableDivider.tsx with setPointerCapture, grip dots, hover/drag highlight. Min 80px, max 60% viewport, double-click reset to 224px. localStorage persistence. Wired into App.tsx replacing fixed h-56. npm run build succeeds, 641 tests passing.
