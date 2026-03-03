@@ -356,3 +356,10 @@
 - **Sanity check result**: pytest 615/615 passed. ruff check clean. npm run build succeeds.
 - **Status**: [DONE]
 - **Request**: Move T-P3-11 to Completed
+
+## 2026-03-02 19:00 -- [MAINT] Clean up failed task + rename project keys to descriptive slugs
+- **What I did**: (1) Preserved T-P0-14 text in TASKS.md Tech Debt section before deletion. (2) Deleted T-P0-14 from DB (tasks, execution_logs). (3) Renamed project keys in orchestrator_config.yaml: P0->helixos, P1->homestead. (4) Migrated all DB tables (tasks, execution_logs, review_history, dependencies, project_settings) to use new project_id values. (5) Rewrote suggest_next_project_id() from P-number sequential to slug-based (derives from project name, e.g. "My App" -> "my-app" with collision suffixes). (6) Updated API call sites to pass project_name. (7) Updated all onboarding tests for new slug behavior (34 tests, up from 29).
+- **Deliverables**: TASKS.md (mod), orchestrator_config.yaml (mod), src/config_writer.py (mod), src/api.py (mod), tests/test_project_onboarding.py (mod), ~/.helixos/state.db (migrated)
+- **Sanity check result**: pytest 617/617 passed. ruff check clean. npm run build succeeds. DB: project_id values are helixos/homestead, 0 failed tasks.
+- **Status**: [DONE]
+- **Request**: No task status change (maintenance, not a tracked task)

@@ -431,7 +431,7 @@ async def validate_project(
     if not directory.is_absolute():
         directory = directory.expanduser().resolve()
 
-    suggested_id = suggest_next_project_id(config_path)
+    suggested_id = suggest_next_project_id(config_path, directory.name)
     result = validate_project_directory(directory, suggested_id)
 
     return ValidateProjectResponse(
@@ -479,8 +479,8 @@ async def import_project(
         )
 
     # Determine project ID
-    project_id = body.project_id or suggest_next_project_id(config_path)
     name = body.name or directory.name
+    project_id = body.project_id or suggest_next_project_id(config_path, name)
 
     # Check for duplicate
     try:

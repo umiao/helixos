@@ -19,53 +19,68 @@ class TestSuggestNextProjectId:
     """Tests for suggest_next_project_id."""
 
     def test_no_config_file(self, tmp_path: Path) -> None:
-        """Returns P0 when config file does not exist."""
+        """Returns slugified name when config file does not exist."""
+        result = suggest_next_project_id(tmp_path / "missing.yaml", "My App")
+        assert result == "my-app"
+
+    def test_no_config_file_no_name(self, tmp_path: Path) -> None:
+        """Returns 'project' when config file does not exist and no name given."""
         result = suggest_next_project_id(tmp_path / "missing.yaml")
-        assert result == "P0"
+        assert result == "project"
 
     def test_empty_config(self, tmp_path: Path) -> None:
-        """Returns P0 when config file has no projects section."""
+        """Returns slug when config file has no projects section."""
         cfg = tmp_path / "config.yaml"
         cfg.write_text("orchestrator:\n  global_concurrency_limit: 3\n", encoding="utf-8")
-        result = suggest_next_project_id(cfg)
-        assert result == "P0"
+        result = suggest_next_project_id(cfg, "Test Project")
+        assert result == "test-project"
 
-    def test_config_with_p0(self, tmp_path: Path) -> None:
-        """Returns P1 when P0 already exists."""
+    def test_slug_collision_appends_suffix(self, tmp_path: Path) -> None:
+        """Returns slug-2 when slug already exists."""
         cfg = tmp_path / "config.yaml"
         cfg.write_text(
-            "projects:\n  P0:\n    name: test\n",
+            "projects:\n  my-app:\n    name: test\n",
             encoding="utf-8",
         )
-        result = suggest_next_project_id(cfg)
-        assert result == "P1"
+        result = suggest_next_project_id(cfg, "My App")
+        assert result == "my-app-2"
 
-    def test_config_with_gap(self, tmp_path: Path) -> None:
-        """Returns P3 when P0 and P2 exist (max-based, not gap-filling)."""
+    def test_multiple_collisions(self, tmp_path: Path) -> None:
+        """Returns slug-3 when slug and slug-2 both exist."""
         cfg = tmp_path / "config.yaml"
         cfg.write_text(
-            "projects:\n  P0:\n    name: a\n  P2:\n    name: b\n",
+            "projects:\n  my-app:\n    name: a\n  my-app-2:\n    name: b\n",
             encoding="utf-8",
         )
-        result = suggest_next_project_id(cfg)
-        assert result == "P3"
+        result = suggest_next_project_id(cfg, "My App")
+        assert result == "my-app-3"
 
-    def test_non_numeric_ids_ignored(self, tmp_path: Path) -> None:
-        """Non-P\\d+ project IDs are ignored in suggestion."""
+    def test_no_collision_returns_base_slug(self, tmp_path: Path) -> None:
+        """Returns base slug when no collision exists."""
         cfg = tmp_path / "config.yaml"
         cfg.write_text(
-            "projects:\n  myproject:\n    name: a\n",
+            "projects:\n  other-project:\n    name: a\n",
             encoding="utf-8",
         )
-        result = suggest_next_project_id(cfg)
-        assert result == "P0"
+        result = suggest_next_project_id(cfg, "My App")
+        assert result == "my-app"
 
     def test_null_projects_section(self, tmp_path: Path) -> None:
-        """Returns P0 when projects section is explicitly null."""
+        """Returns slug when projects section is explicitly null."""
         cfg = tmp_path / "config.yaml"
         cfg.write_text("projects:\n", encoding="utf-8")
+        result = suggest_next_project_id(cfg, "Hello World")
+        assert result == "hello-world"
+
+    def test_fallback_no_name(self, tmp_path: Path) -> None:
+        """Falls back to project-N when no name given and project taken."""
+        cfg = tmp_path / "config.yaml"
+        cfg.write_text(
+            "projects:\n  project:\n    name: a\n",
+            encoding="utf-8",
+        )
         result = suggest_next_project_id(cfg)
-        assert result == "P0"
+        assert result == "project-2"
 
 
 class TestAddProjectToConfig:
@@ -339,7 +354,7 @@ class TestValidateEndpoint:
         assert data["has_git"] is True
         assert data["has_tasks_md"] is True
         assert data["has_claude_config"] is True
-        assert data["suggested_id"] == "P1"
+        assert data["suggested_id"] == "sample-project"
 
     @pytest.mark.asyncio
     async def test_nonexistent_dir(
@@ -373,7 +388,7 @@ class TestImportEndpoint:
         )
         assert resp.status_code == 200
         data = resp.json()
-        assert data["project_id"] == "P1"
+        assert data["project_id"] == "sample-project"
         assert data["name"] == "sample_project"
         assert data["synced"] is True
 
@@ -480,7 +495,7 @@ class TestImportEndpoint:
         # New project should be visible via list_projects
         registry = onboarding_app.state.registry
         project_ids = [p.id for p in registry.list_projects()]
-        assert "P1" in project_ids
+        assert "sample-project" in project_ids
 
     @pytest.mark.asyncio
     async def test_import_auto_sets_claude_md_path(
@@ -497,7 +512,7 @@ class TestImportEndpoint:
         assert resp.status_code == 200
         # Registry should have claude_md_path set via auto-detect
         registry = onboarding_app.state.registry
-        project = registry.get_project("P1")
+        project = registry.get_project("sample-project")
         assert project.claude_md_path is not None
         assert str(project.claude_md_path).endswith("CLAUDE.md")
 

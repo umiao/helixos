@@ -66,33 +66,61 @@ def add_project_to_config(
     logger.info("Added project %s to %s", project_id, config_path)
 
 
-def suggest_next_project_id(config_path: Path) -> str:
-    """Suggest the next available P-number project ID.
+def _slugify(name: str) -> str:
+    """Convert a project name to a URL-safe slug.
 
-    Scans existing project IDs matching ``P\\d+`` and returns
-    the next sequential one (e.g. if P0 and P2 exist, returns P3).
+    Lowercases, replaces non-alphanumeric runs with hyphens,
+    and strips leading/trailing hyphens.
+
+    Args:
+        name: Human-readable project name.
+
+    Returns:
+        A slug like ``"my-app"`` or ``"hello-world"``.
+    """
+    import re
+
+    slug = re.sub(r"[^a-z0-9]+", "-", name.lower()).strip("-")
+    return slug or "project"
+
+
+def suggest_next_project_id(
+    config_path: Path,
+    project_name: str = "",
+) -> str:
+    """Suggest a project ID slug derived from *project_name*.
+
+    If *project_name* is given, slugifies it (e.g. ``"My App"`` ->
+    ``"my-app"``).  If the slug already exists, appends ``-2``,
+    ``-3``, etc.
+
+    If *project_name* is empty, falls back to ``"project-1"``,
+    ``"project-2"``, etc.
 
     Args:
         config_path: Path to the orchestrator_config.yaml file.
+        project_name: Optional human-readable project name.
 
     Returns:
-        A suggested project ID string like ``"P1"``.
+        A suggested project ID slug string.
     """
-    if not config_path.exists():
-        return "P0"
-
     yaml = YAML()
-    with open(config_path, encoding="utf-8") as f:
-        doc = yaml.load(f)
+    existing: set[str] = set()
 
-    if doc is None or "projects" not in doc or doc["projects"] is None:
-        return "P0"
+    if config_path.exists():
+        with open(config_path, encoding="utf-8") as f:
+            doc = yaml.load(f)
+        if doc and "projects" in doc and doc["projects"]:
+            existing = set(doc["projects"].keys())
 
-    max_num = -1
-    for key in doc["projects"]:
-        if isinstance(key, str) and key.startswith("P") and key[1:].isdigit():
-            num = int(key[1:])
-            if num > max_num:
-                max_num = num
+    base = _slugify(project_name) if project_name else "project"
 
-    return f"P{max_num + 1}"
+    # If base slug is not taken, use it directly
+    if base not in existing:
+        return base
+
+    # Append -2, -3, ... until unique
+    n = 2
+    while f"{base}-{n}" in existing:
+        n += 1
+    return f"{base}-{n}"

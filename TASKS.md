@@ -24,6 +24,8 @@
 - [ ] Log retention/purge policy for execution_logs + review_history tables
 - [ ] Unified timeout policy for enrichment and review CLI subprocess calls
 - [ ] Review state machine diagram documentation
+- [ ] (from web UI) Done column: investigate random ordering, add sort/filter.
+      Self-editing workflow: test changes then restart (queued stage only?).
 
 ## Dependency Graph
 
