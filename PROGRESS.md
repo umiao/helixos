@@ -416,3 +416,10 @@
 - **Sanity check result**: pytest 655/655 passed (654 fast + 1 slow). ruff check clean. Real smoke test: server starts on random port, HTTP 200 on /api/projects, clean shutdown.
 - **Status**: [DONE]
 - **Request**: No TASKS.md change needed (T-P0-20 already updated with followup-3 note)
+
+## 2026-03-02 23:45 -- [TASK-PLANNING] Add 4 new P0 tasks from approved plan
+- **What I did**: Added 4 new P0 tasks (T-P0-21 through T-P0-24) to TASKS.md based on the approved plan analysis. T-P0-21: fix review gate bypass (5 vulnerable paths). T-P0-22: soft-delete tasks via context menu + API. T-P0-23: bidirectional state transitions + concurrency control. T-P0-24: review gate UX modal. Updated dependency graph with new task relationships.
+- **Deliverables**: TASKS.md (mod -- 4 new task specs under Active P0, dependency graph updated)
+- **Sanity check result**: TASKS.md has sequential IDs (T-P0-21 through T-P0-24), dependency graph shows T-P0-21 -> T-P0-23 -> T-P0-24 chain and T-P0-22 independent. No code files modified.
+- **Status**: [DONE]
+- **Request**: No further changes needed

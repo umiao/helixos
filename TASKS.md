@@ -10,7 +10,135 @@
 ## Active Tasks
 
 ### P0 -- Must Have (core functionality)
-<!-- All P0 tasks completed. See Completed Tasks below. -->
+
+#### T-P0-21: Fix review gate bypass -- tasks auto-jump BACKLOG -> QUEUED [BUG]
+- **Priority**: P0 (critical -- gate is completely non-functional)
+- **Problem**: Multiple code paths bypass the review gate:
+  1. `sync_project_tasks()` (tasks_parser.py) -- converts BACKLOG to QUEUED on creation
+  2. `POST /api/tasks/{id}/review/decide` (api.py) -- no `review_gate_enabled` check
+  3. `POST /api/tasks/{id}/execute` (api.py) -- force-execute bypasses gate
+  4. `POST /api/tasks/{id}/retry` (api.py) -- retry bypasses gate
+  5. `POST /api/tasks/{id}/review` auto-approve path (api.py) -- auto-approve bypasses gate
+- **Design**:
+  - **tasks_parser.py**: Remove BACKLOG->QUEUED conversion. New tasks stay in BACKLOG.
+    If `review_gate_enabled`, must go through REVIEW before QUEUED.
+  - **api.py**: All endpoints calling `update_status()` targeting QUEUED must check
+    `review_gate_enabled`. Apply to: review/decide, execute, retry, review auto-approve.
+  - **task_manager.py**: Enforce gate for ALL BACKLOG->QUEUED transitions.
+  - **428 response**: When gate blocks a transition, return HTTP 428 (Precondition Required)
+    with body `{"detail": "...", "gate_action": "review_required"}` instead of 409.
+    Lets frontend distinguish "invalid transition" (409) from "gate requires review" (428).
+- **Files**: `src/sync/tasks_parser.py`, `src/api.py`, `src/task_manager.py`
+- **Tests**: Regression tests for each of the 5 bypass paths + gate-on sync test
+- **Acceptance Criteria**:
+  - [ ] All 5 bypass paths fixed and regression-tested
+  - [ ] Gate-on: BACKLOG->QUEUED blocked with 428 at all entry points
+  - [ ] Gate-off: existing behavior unchanged
+  - [ ] Sync no longer auto-promotes tasks to QUEUED
+- **Complexity**: M
+- **Depends on**: None (fix first, everything else depends on this)
+
+#### T-P0-22: Soft-delete tasks via context menu + API
+- **Problem**: No delete capability exists at any level.
+- **Design**:
+  - **DB** (`src/db.py`): Add `is_deleted: bool = False` column to TaskRow +
+    migration in `_migrate_missing_columns()`.
+  - **TaskManager** (`src/task_manager.py`): Add `delete_task(task_id, force=False)`:
+    - RUNNING tasks cannot be deleted (409)
+    - Tasks with active dependents cannot be deleted unless `force=True`
+    - Sets `is_deleted=True`, does NOT remove rows
+    - All query methods filter `is_deleted=False`
+  - **API** (`src/api.py`): `DELETE /api/tasks/{task_id}?force=false`:
+    - 204 on success, 404 if not found, 409 if RUNNING or has dependents (without force)
+    - 409 body includes `{"dependents": ["T-P0-X", ...]}` for UI
+  - **Frontend** (`TaskContextMenu.tsx`): Red "Delete" option with confirmation dialog.
+    If 409 with dependents, show force-delete option listing dependent tasks.
+  - **Frontend** (`api.ts`): `deleteTask(taskId, force?)` function.
+- **Files**: `src/db.py`, `src/task_manager.py`, `src/api.py`,
+  `frontend/src/components/TaskContextMenu.tsx`, `frontend/src/api.ts`
+- **Acceptance Criteria**:
+  - [ ] Right-click -> Delete -> confirm -> task disappears (soft-deleted in DB)
+  - [ ] Cannot delete RUNNING tasks (409)
+  - [ ] Deleting task with dependents shows warning, requires force confirm
+  - [ ] Soft-deleted tasks excluded from all queries and UI
+  - [ ] Execution logs and review history preserved in DB
+- **Complexity**: M
+- **Depends on**: None
+
+#### T-P0-23: Bidirectional state transitions + concurrency control
+- **Problem**: State machine is forward-only. Users can't drag tasks backwards.
+  No concurrency protection.
+- **Design -- Relaxed transitions**:
+  ```python
+  VALID_TRANSITIONS = {
+      BACKLOG:              {REVIEW, QUEUED},
+      REVIEW:               {REVIEW_AUTO_APPROVED, REVIEW_NEEDS_HUMAN, BACKLOG},
+      REVIEW_AUTO_APPROVED: {QUEUED, BACKLOG},
+      REVIEW_NEEDS_HUMAN:   {QUEUED, BACKLOG},
+      QUEUED:               {RUNNING, BLOCKED, BACKLOG, REVIEW},
+      RUNNING:              {DONE, FAILED},            # strict -- active process
+      FAILED:               {QUEUED, BLOCKED, BACKLOG},
+      DONE:                 {BACKLOG, QUEUED},          # reopen
+      BLOCKED:              {QUEUED, BACKLOG},
+  }
+  ```
+- **Timestamp cleanup matrix** (on backward transitions):
+  - `* -> BACKLOG`: clear started_at, completed_at, execution_state, error_summary
+  - `DONE -> QUEUED`: clear completed_at, execution_state
+  - `FAILED -> QUEUED`: clear error_summary, execution_state
+  - `FAILED -> BACKLOG`: clear started_at, completed_at, error_summary, execution_state
+  - `QUEUED -> REVIEW`: none (just status change)
+  - `QUEUED -> BACKLOG`: clear started_at (if set)
+- **Reason field**: Optional `reason: str` on `StatusTransitionRequest`. Written to
+  event log on backward transitions. Frontend shows text input when dragging backwards.
+- **Concurrency control**: `updated_at` optimistic locking:
+  - `StatusTransitionRequest` gets optional `expected_updated_at: datetime`
+  - `update_status()` checks match, returns 409 with `{"conflict": true}` on mismatch
+  - Frontend sends `updated_at` with every transition request
+- **User-friendly error messages**:
+  - Invalid forward skip: "Tasks cannot skip stages. Move to [valid next] first."
+  - Drag from RUNNING: "This task is currently running. Cancel it first."
+  - Optimistic lock conflict: "Task was just updated. Refreshing..."
+- **Files**: `src/task_manager.py`, `src/schemas.py`, `src/api.py`, `src/db.py`,
+  `frontend/src/components/KanbanBoard.tsx`, `frontend/src/api.ts`, `frontend/src/types.ts`
+- **Acceptance Criteria**:
+  - [ ] All backward drags in the transition table work
+  - [ ] RUNNING -> anywhere (except DONE/FAILED) blocked with clear message
+  - [ ] DONE -> BACKLOG/QUEUED works, resets fields per matrix
+  - [ ] Backward transitions log optional reason to event log
+  - [ ] Concurrent edits detected via updated_at, second writer gets 409 + auto-refresh
+  - [ ] Existing forward transitions unchanged
+- **Complexity**: L
+- **Depends on**: T-P0-21 (gate fix must land first so gate-aware transitions work)
+
+#### T-P0-24: Review gate UX -- edit modal + preview before review submission
+- **Problem**: Gate ON provides zero user guidance. No edit form, no preview.
+- **Design**:
+  - **Backend 428 response** (from T-P0-21): When gate blocks a transition, API returns
+    `{"detail": "...", "gate_action": "review_required", "task_id": "..."}`.
+  - **Frontend unified handler**: In `App.tsx` `handleMoveTask()`, detect 428 response.
+    If `gate_action === "review_required"`, open ReviewSubmitModal for that task.
+  - **ReviewSubmitModal** (component): Modal with editable title/description fields,
+    preview section showing reviewer context, "Submit for Review" button (saves edits
+    via PATCH, transitions BACKLOG -> REVIEW), "Cancel" button (no changes).
+    On confirm: PATCH task if fields changed, transition to REVIEW, auto-focus
+    task in ReviewPanel, toast "Task [ID] submitted for review".
+  - **"Send to Review" in context menu**: For BACKLOG/QUEUED tasks. Opens
+    ReviewSubmitModal directly (attempts transition, gets 428 if gate on, modal opens).
+- **Files**: `frontend/src/components/ReviewSubmitModal.tsx` (exists as partial),
+  `frontend/src/components/TaskContextMenu.tsx`, `frontend/src/App.tsx`,
+  `frontend/src/api.ts`
+- **Note**: `ReviewSubmitModal.tsx` already exists as untracked file with TODOs.
+  Backend 428 support and App.tsx integration not yet done.
+- **Acceptance Criteria**:
+  - [ ] Gate ON + any attempt to skip review = 428 -> modal opens with edit + preview
+  - [ ] Edit fields, confirm -> task moves to REVIEW, ReviewPanel auto-opens
+  - [ ] Cancel -> no state change
+  - [ ] Context menu "Send to Review" triggers same flow
+  - [ ] Gate OFF -> direct transition, no modal
+  - [ ] Works for all entry points (drag, context menu, future API/automation)
+- **Complexity**: M
+- **Depends on**: T-P0-21 (428 response), T-P0-23 (QUEUED -> REVIEW transition)
 
 ### P1 -- Should Have (important features)
 <!-- All 7 P1 tasks completed. See Completed Tasks below. -->
@@ -94,12 +222,22 @@ T-P2-6 [M] Frontend Swim Lanes [DONE] ------------------+
                                                            |
                                                     T-P2-8 [S] E2E Integration
 
---- P0 (new) ---
+--- P0 (new, completed) ---
 
 T-P0-18 [M] Review gate [DONE]
 T-P0-19 [S] asyncio fix [DONE]
   |
   +---> T-P0-20 [S] Fix --loop none CLI crash [DONE]
+
+--- P0 (new) ---
+
+T-P0-21 [M] Fix review gate bypass [DONE? -> NOT DONE]
+  |
+  +--> T-P0-23 [L] Bidirectional transitions + concurrency
+         |
+         +--> T-P0-24 [M] Review gate UX modal
+
+T-P0-22 [M] Soft-delete tasks (no deps)
 
 --- P3 (new) ---
 
