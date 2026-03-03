@@ -89,3 +89,10 @@
   - Fix: Added 6 rules to CLAUDE.md (Task Planning Rules + State Machine Rules) requiring scenario matrices, journey-first ACs, cross-boundary integration checks, inverse-case specification, manual smoke test ACs, and complete transition documentation.
   - Related tasks: T-P0-24, T-P0-26, T-P0-27
   - Tags: #planning #ux #state-machine #scenario-matrix #integration
+
+  13. "Surface X to user" requires semantic distinctness verification
+  - Context: T-P0-28 (raw_response) had 8 passing tests but the surfaced data was identical to existing fields. Decision reason had UI/schema/API support but was never persisted to DB.
+  - Root cause: Tests verified plumbing (data flows through pipe) not value (pipe carries useful water). raw_response stored the same parsed result JSON already shown in summary/suggestions. human_reason was wired in UI and API schemas but write_review_decision never persisted it to the DB column.
+  - Fix: For any "display X to user" task, verification must assert that X contains at least one field not already visible in the existing UI. For any user input field, trace the full path: UI -> API -> DB -> retrieval -> display. A broken link at ANY point = bug.
+  - Related tasks: T-P0-28, T-P0-33
+  - Tags: #data-path #e2e-verification #testing #review-panel

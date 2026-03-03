@@ -31,8 +31,214 @@
 
 #### ~~T-P0-32: Review + execution progress phase reporting via SSE~~ [DONE -- see Completed Tasks]
 
+#### T-P0-33: Fix review panel data bugs (T-P0-28 regressions)
+- **Priority**: P0
+- **Complexity**: M
+- **Depends on**: None
+
+**Problem**: 3 data-path bugs make ReviewPanel a rubber-stamp UI.
+
+**AC**:
+
+1. **raw_response stores explicit CLI fields** (not parsed result JSON):
+   - `review_pipeline.py:_call_reviewer()`: build raw_response as:
+     ```python
+     raw_response = json.dumps({
+         "model": cli_output.get("model"),
+         "usage": cli_output.get("usage"),
+         "result": cli_output.get("result"),
+         "session_id": cli_output.get("session_id"),
+     })
+     ```
+   - Explicit field extraction -- do NOT `json.dumps(cli_output)` blindly.
+     Decouples DB schema from CLI contract.
+   - Journey AC: User clicks "Show Full Response" -> sees model info,
+     token counts (input/output), result text. This is data NOT already
+     shown in summary/suggestions.
+   - Inverse: When raw_response is empty/legacy -> section hidden (existing)
+   - Invariant test: `assert set(json.loads(raw_response).keys()) - {"result"}`
+     is non-empty (raw_response must contain fields beyond parsed result)
+
+2. **Plan content visible in ReviewPanel**:
+   - Collapsible "Plan Under Review" section at top showing `task.description`
+   - When description is empty: show "(No plan content provided to reviewer)"
+     -- explicit emptiness, NOT hidden section
+   - Journey AC: User sees REVIEW_NEEDS_HUMAN task -> opens ReviewPanel ->
+     reads plan text -> reads reviewer feedback -> makes informed decision
+
+3. **Decision reason persisted E2E**:
+   - `db.py`: add `human_reason TEXT NULL DEFAULT NULL` column to
+     ReviewHistoryRow (auto-migrate, explicitly nullable)
+   - `history_writer.write_review_decision()`: accept + persist `reason`
+   - `api.py:submit_review_decision()`: pass `body.reason` through
+   - API response: include `human_reason` in ReviewHistoryEntry
+   - Frontend: display persisted reason below "Human decision:" label
+   - Journey AC: User types "Need error handling for X" -> clicks Approve ->
+     reloads -> reason appears in review history
+   - Inverse: When reason is empty -> no reason line displayed
+
+4. **Manual smoke test**: Open ReviewPanel for a reviewed task -> verify
+   plan content visible, raw response has token usage data, submit decision
+   with reason, reload and verify reason persists.
+
+**Files**: `src/review_pipeline.py`, `src/history_writer.py`, `src/db.py`,
+`src/api.py`, `src/schemas.py`, `frontend/src/types.ts`,
+`frontend/src/components/ReviewPanel.tsx`, + regression tests
+
+---
+
+#### T-P0-34: Request Changes decision + human feedback loop
+- **Priority**: P0
+- **Complexity**: M
+- **Depends on**: T-P0-33
+- **Pre-implementation requirement**: Produce formal state machine diagram
+  (ASCII in task description or separate doc) before writing any code.
+
+**Problem**: Binary approve/reject is too coarse. No iteration.
+
+**State Machine (must be formalized before coding)**:
+```
+BACKLOG --[submit to review]--> REVIEW (review_status=running)
+REVIEW (running) --[pipeline completes]--> REVIEW_NEEDS_HUMAN
+REVIEW_NEEDS_HUMAN --[approve]--> QUEUED
+REVIEW_NEEDS_HUMAN --[reject]--> BACKLOG
+REVIEW_NEEDS_HUMAN --[request_changes]--> REVIEW (review_status=idle)
+REVIEW (idle) --[user edits plan + triggers re-review]--> REVIEW (running)
+
+Illegal transitions (must be guarded):
+- request_changes while review_status=running -> 409
+- edit plan while review_status=running -> allowed (edit is on task,
+  not review), but does NOT cancel running review
+- re-review while review_status=running -> 409 (already running)
+
+Semantics:
+- reject = "this task should not be done" -> BACKLOG (terminal for this cycle)
+- request_changes = "right direction, needs revision" -> stays in REVIEW
+- approve = "proceed to execution" -> QUEUED
+```
+
+**AC**:
+
+1. **"Request Changes" decision type**:
+   - New decision: `"request_changes"` alongside approve/reject
+   - Requires non-empty reason (400 if empty)
+   - Backend: task transitions REVIEW_NEEDS_HUMAN -> REVIEW, review_status=idle
+   - Human feedback persisted via write_review_decision with reason
+   - Journey AC: User clicks "Request Changes" -> types "Add timeout handling"
+     -> submits -> task stays in REVIEW column -> user can edit and re-review
+
+2. **Feedback injection into re-review** (all previous feedback, not just latest):
+   - On re-review, fetch ALL human feedback from previous attempts for this
+     task, ordered by timestamp
+   - Include plan version identifier with each feedback entry
+   - Append to reviewer user prompt as "Previous human feedback" section
+   - Token safety: practical limit ~5 iterations, not a concern
+   - Journey AC: Attempt 1 reject -> Attempt 2 request_changes("add X") ->
+     Attempt 3 request_changes("also fix Y") -> Attempt 4 reviewer sees
+     both feedback entries in context
+
+3. **Review attempt increment timing**:
+   - Increment happens at pipeline start (not at human decision time)
+   - Each automated reviewer run = one review_attempt
+   - Human decisions do not increment attempt number
+
+4. **Frontend 3-button decision area**:
+   - Approve (green) -- reason optional -> QUEUED
+   - Reject (red) -- reason optional -> BACKLOG
+   - Request Changes (amber) -- reason REQUIRED -> REVIEW (idle)
+   - When Request Changes selected: textarea border amber, placeholder
+     "Describe the changes needed (required)", submit disabled if empty
+   - After request_changes: show "Re-review" button
+
+5. **Concurrent scenario guards**:
+   - If review_status=running: decision buttons disabled with tooltip
+     "Review in progress, please wait"
+   - If user submits request_changes then immediately clicks Re-review:
+     normal flow (request_changes sets idle, re-review sets running)
+
+6. **Manual smoke test**: Review completes -> click Request Changes with
+   feedback -> task stays REVIEW -> edit plan -> re-review -> verify
+   reviewer prompt contains human feedback -> approve -> QUEUED.
+
+**Files**: `src/models.py`, `src/api.py`, `src/review_pipeline.py`,
+`src/history_writer.py`, `src/schemas.py`,
+`frontend/src/components/ReviewPanel.tsx`, `frontend/src/api.ts`, + tests
+
+---
+
+#### T-P0-35: Inline plan editing + versioned review history
+- **Priority**: P0
+- **Complexity**: M
+- **Depends on**: T-P0-34
+
+**Problem**: No way to iterate on the plan itself before re-review.
+
+**AC**:
+
+1. **Inline plan editor in ReviewPanel**:
+   - "Edit Plan" button on "Plan Under Review" section (from T-P0-33)
+   - Toggles to textarea with Save/Cancel buttons
+   - Save calls PATCH /api/tasks/{id} (existing endpoint)
+   - When review_status=running: edit button disabled (keep simple)
+   - Journey AC: User reads plan -> clicks Edit -> modifies -> saves ->
+     clicks Re-review -> new review runs on updated plan
+
+2. **Plan snapshot per review attempt**:
+   - `db.py`: add `plan_snapshot TEXT NULL` column to ReviewHistoryRow
+   - Each review_attempt stores immutable copy of task.description at
+     pipeline start
+   - Never reconstruct from current task.description
+   - Snapshots are append-only, never updated
+
+3. **Review attempt grouping in UI**:
+   - ReviewPanel groups history entries by review_attempt
+   - Each group header: "Attempt N" with timestamp
+   - Human feedback entries shown between attempt groups
+   - Journey AC: User sees Attempt 1 (original plan, reject), human
+     feedback, Attempt 2 (edited plan, approve)
+
+4. **Simple text diff after plan edit**:
+   - When current plan differs from previous attempt's snapshot,
+     show "Plan was modified" banner with collapsible unified diff
+   - Pure text diff (no semantic diffing)
+   - Journey AC: After editing plan and re-reviewing, diff shows
+     what changed between attempts
+
+5. **Manual smoke test**: Create task -> review rejects -> edit plan
+   inline -> re-review -> verify attempt history with grouping and
+   diff visible -> approve.
+
+**Files**: `frontend/src/components/ReviewPanel.tsx` (editor + grouping),
+`frontend/src/components/PlanDiffView.tsx` (new, simple text diff),
+`src/db.py` (plan_snapshot column), `src/review_pipeline.py` (snapshot
+storage), `src/history_writer.py` (write snapshot), + tests
+
+---
+
 ### P1 -- Should Have (important features)
-<!-- All 7 P1 tasks completed. See Completed Tasks below. -->
+
+#### T-P0-36: Structured plan generation via Claude --plan
+- **Priority**: P1 (evaluate feasibility first)
+- **Complexity**: M
+- **Depends on**: T-P0-35
+- **Pre-implementation requirement**: Research Claude CLI `--plan` output
+  format stability. If format is unstable or undocumented, defer task.
+
+**Problem**: Plans are currently free-text task descriptions. Structured
+plan generation could improve review quality.
+
+**AC**:
+
+1. **Feasibility assessment**: Document `--plan` output format, stability
+   guarantees, and parsing requirements before implementation.
+2. **Plan generation**: For M/L complexity tasks, offer "Generate Plan"
+   button that calls Claude CLI with `--plan` flag.
+3. **Plan output stored**: Generated plan stored as task.description,
+   visible in ReviewPanel.
+4. **Graceful degradation**: If --plan fails or format changes, fall back
+   to raw description without breaking review pipeline.
+
+<!-- All 7 P1 tasks completed (pre-T-P0-36). See Completed Tasks below. -->
 
 ### P2 -- Nice to Have (polish, optimization)
 <!-- All 8 P2 tasks completed. See Completed Tasks below. -->
@@ -41,6 +247,7 @@
 <!-- All P3 tasks completed. See Completed Tasks below. -->
 
 ### Tech Debt (tracked, not blocking current work)
+- [ ] T-P0-28 postmortem: integration test asserting raw_response contains fields not present in summary/suggestions
 - [ ] Log retention/purge policy for execution_logs + review_history tables
 - [ ] Unified timeout policy for enrichment CLI subprocess calls (review covered by T-P0-31)
 - [ ] Unify subprocess management into shared `SubprocessRunner` abstraction (T-P0-30/T-P0-31 tech debt)
@@ -157,6 +364,16 @@ T-P0-30 [M] Inactivity timeout + process groups [DONE] (no deps)
   +--> T-P0-31 [S] Review pipeline timeout + retry semantics [DONE] (needs T-P0-30)
   |
   +--> T-P0-32 [M] Progress phase SSE (needs T-P0-28 + T-P0-30)
+
+--- P0 (new -- review panel overhaul) ---
+
+T-P0-33 [M] Fix review panel data bugs (no deps)
+  |
+  +--> T-P0-34 [M] Request Changes + feedback loop (needs T-P0-33)
+         |
+         +--> T-P0-35 [M] Inline plan editing + versioned history (needs T-P0-34)
+                |
+                +--> T-P0-36 [M] Claude --plan integration [P1] (needs T-P0-35)
 ```
 
 ---
