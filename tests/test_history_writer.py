@@ -297,3 +297,37 @@ class TestReviewHistory:
         reviews = await hw.get_reviews("task-1")
         assert reviews[0]["consensus_score"] is None
         assert reviews[1]["consensus_score"] == pytest.approx(0.92)
+
+    async def test_raw_response_persisted(self, session_factory):
+        """raw_response is persisted and returned by get_reviews."""
+        hw = HistoryWriter(session_factory)
+        review = _make_review()
+        review.raw_response = "Full reviewer reasoning text here..."
+        await hw.write_review("task-1", 1, review)
+
+        reviews = await hw.get_reviews("task-1")
+        assert reviews[0]["raw_response"] == "Full reviewer reasoning text here..."
+
+    async def test_raw_response_empty_default(self, session_factory):
+        """raw_response defaults to empty string when not set (legacy compat)."""
+        hw = HistoryWriter(session_factory)
+        review = _make_review()
+        # raw_response defaults to "" on LLMReview
+        await hw.write_review("task-1", 1, review)
+
+        reviews = await hw.get_reviews("task-1")
+        assert reviews[0]["raw_response"] == ""
+
+    async def test_raw_response_in_existing_write_read_cycle(self, session_factory):
+        """raw_response round-trips correctly through write_review / get_reviews."""
+        hw = HistoryWriter(session_factory)
+        raw = '{"verdict":"approve","summary":"Good plan","suggestions":[]}'
+        review = _make_review(summary="Good plan")
+        review.raw_response = raw
+        await hw.write_review("task-1", 1, review, consensus_score=0.95)
+
+        reviews = await hw.get_reviews("task-1")
+        assert len(reviews) == 1
+        assert reviews[0]["raw_response"] == raw
+        assert reviews[0]["summary"] == "Good plan"
+        assert reviews[0]["consensus_score"] == pytest.approx(0.95)

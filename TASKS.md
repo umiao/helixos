@@ -21,26 +21,7 @@
 
 #### ~~T-P0-27: Add planning quality rules to CLAUDE.md + LESSONS.md postmortem~~ [DONE -- see Completed Tasks]
 
-#### T-P0-28: Store full reviewer raw_response + surface in ReviewPanel
-- **Priority**: P0
-- **Complexity**: M
-- **Depends on**: None
-- **Problem**: `_call_claude_cli()` returns `cli_output.get("result", "")` -- full text discarded after JSON extraction. When review needs human intervention (low consensus), ReviewPanel shows only extracted JSON fields; full reasoning is lost.
-- **Changes**:
-  - `src/db.py`: Add `raw_response TEXT` column to `ReviewHistoryRow` + auto-migration
-  - `src/models.py`: Add `raw_response: str = ""` to `LLMReview`
-  - `src/review_pipeline.py`: Capture raw result, **truncate to 200KB** before storage, pass through to LLMReview
-  - `src/history_writer.py`: Persist + return `raw_response`. Storage cap: 200KB per entry (truncate with `[TRUNCATED]` marker)
-  - `src/schemas.py`: Add `raw_response` to `ReviewHistoryEntry`
-  - `frontend/src/types.ts`: Add `raw_response: string`
-  - `frontend/src/components/ReviewPanel.tsx`: Default view = structured summary (verdict + suggestions). "Show Full Response" as collapsible debug section, collapsed by default. Warning banner inside expanded section. Lazy-load or paginate if >50KB.
-- **Acceptance Criteria**:
-  - **Storage safety**: raw_response truncated to 200KB before DB write. Truncation adds `[TRUNCATED at 200KB]` marker. DB growth is bounded.
-  - **Journey**: drag to REVIEW -> REVIEW_NEEDS_HUMAN -> click task -> see structured verdict/summary/suggestions as PRIMARY view -> optionally expand "Show Full Response (debug)" -> see warning banner + full reasoning
-  - **Scenario (present)**: raw_response present = collapsible section with warning banner
-  - **Scenario (absent/legacy)**: raw_response empty/null = section hidden entirely
-  - **UX priority**: Structured summary is the decision-making tool. Raw response is debug context, NOT the primary decision input.
-  - **Manual smoke**: open browser, trigger review, verify structured summary is prominent, raw response is secondary/collapsed
+#### ~~T-P0-28: Store full reviewer raw_response + surface in ReviewPanel~~ [DONE -- see Completed Tasks]
 
 #### T-P0-29: Upgrade primary reviewer to Opus + per-reviewer budget config + cost tracking
 - **Priority**: P0
@@ -241,7 +222,7 @@ T-P0-27 [S] Planning quality rules [DONE] (no deps)
 
 --- P0 (new -- review context + monitoring + liveness) ---
 
-T-P0-28 [M] Full reviewer raw_response (no deps)
+T-P0-28 [M] Full reviewer raw_response [DONE] (no deps)
 T-P0-29 [S] Opus upgrade + cost tracking (no deps)
 
 T-P0-30 [M] Inactivity timeout + process groups (no deps)
@@ -258,6 +239,9 @@ T-P0-30 [M] Inactivity timeout + process groups (no deps)
 
 ## Completed Tasks
 <!-- Move finished tasks here with [x] and completion date -->
+
+#### [x] T-P0-28: Store full reviewer raw_response + surface in ReviewPanel -- 2026-03-03
+- Added raw_response TEXT column to ReviewHistoryRow (auto-migrated, 200KB truncation limit). Capture raw CLI result text in review_pipeline.py, persist in HistoryWriter, return via API. Frontend: collapsible "Show Full Response (debug)" section in ReviewPanel with amber warning banner, collapsed by default, hidden for legacy/empty entries. 8 new tests, 792 total passing.
 
 #### [x] T-P0-27: Add planning quality rules to CLAUDE.md + LESSONS.md postmortem -- 2026-03-03
 - Added 6 actionable rules to CLAUDE.md: Task Planning Rules (5 rules: scenario matrix, journey-first ACs, cross-boundary integration, "other case" gate, manual smoke test AC) and State Machine Rules (1 rule: document states/triggers/side-effects, backend owns side-effects). Added LESSONS.md entry #12 with T-P0-24 root cause analysis (missing scenario matrix, no journey-first AC, cross-boundary gap, no manual smoke test).

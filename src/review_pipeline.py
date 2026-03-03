@@ -94,6 +94,26 @@ _DEFAULT_REVIEW_PROMPT = (
 
 
 # ------------------------------------------------------------------
+# Raw response truncation
+# ------------------------------------------------------------------
+
+# Maximum size for raw_response before DB write (200KB).
+MAX_RAW_RESPONSE_BYTES = 200 * 1024
+_TRUNCATION_MARKER = "\n[TRUNCATED at 200KB]"
+
+
+def _truncate_raw_response(text: str) -> str:
+    """Truncate raw_response to MAX_RAW_RESPONSE_BYTES, appending marker if needed."""
+    if len(text.encode("utf-8")) <= MAX_RAW_RESPONSE_BYTES:
+        return text
+    # Truncate by characters, estimating safely
+    limit = MAX_RAW_RESPONSE_BYTES - len(_TRUNCATION_MARKER.encode("utf-8"))
+    # Encode and truncate at byte boundary
+    truncated = text.encode("utf-8")[:limit].decode("utf-8", errors="ignore")
+    return truncated + _TRUNCATION_MARKER
+
+
+# ------------------------------------------------------------------
 # ReviewPipeline
 # ------------------------------------------------------------------
 
@@ -281,7 +301,9 @@ class ReviewPipeline:
             json_schema=_REVIEW_JSON_SCHEMA,
         )
 
-        return self._parse_review(result_text, reviewer)
+        review = self._parse_review(result_text, reviewer)
+        review.raw_response = _truncate_raw_response(result_text)
+        return review
 
     def _build_review_prompt(self, focus: str) -> str:
         """Generate a focus-area system prompt for a reviewer.

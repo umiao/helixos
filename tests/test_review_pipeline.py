@@ -14,7 +14,11 @@ import pytest
 
 from src.config import ReviewerConfig, ReviewPipelineConfig
 from src.models import ExecutorType, Task, TaskStatus
-from src.review_pipeline import ReviewPipeline
+from src.review_pipeline import (
+    MAX_RAW_RESPONSE_BYTES,
+    ReviewPipeline,
+    _truncate_raw_response,
+)
 
 # ------------------------------------------------------------------
 # Helpers
@@ -528,3 +532,67 @@ async def test_synthesis_score_clamped(mock_exec: AsyncMock) -> None:
 
     assert result.consensus_score == 1.0
     assert result.human_decision_needed is False
+
+
+# ------------------------------------------------------------------
+# raw_response capture
+# ------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+@patch("src.review_pipeline.asyncio.create_subprocess_exec")
+async def test_raw_response_captured(mock_exec: AsyncMock) -> None:
+    """raw_response is captured on each LLMReview from the CLI result text."""
+    inner_json = json.dumps({
+        "verdict": "approve",
+        "summary": "Plan looks good",
+        "suggestions": [],
+    })
+    mock_exec.return_value = _mock_proc(_make_cli_output(inner_json))
+
+    pipeline = ReviewPipeline(_default_config(), threshold=0.8)
+    result = await pipeline.review_task(
+        _sample_task(), "Build the thing", lambda c, t: None, complexity="S"
+    )
+
+    assert result.reviews[0].raw_response == inner_json
+
+
+@pytest.mark.asyncio
+@patch("src.review_pipeline.asyncio.create_subprocess_exec")
+async def test_raw_response_captured_on_parse_failure(mock_exec: AsyncMock) -> None:
+    """raw_response is captured even when JSON parsing fails."""
+    raw_text = "This is not valid JSON but is the raw reviewer output"
+    mock_exec.return_value = _mock_proc(_make_cli_output(raw_text))
+
+    pipeline = ReviewPipeline(_default_config(), threshold=0.8)
+    result = await pipeline.review_task(
+        _sample_task(), "Plan", lambda c, t: None, complexity="S"
+    )
+
+    assert result.reviews[0].raw_response == raw_text
+    assert result.reviews[0].verdict == "reject"
+
+
+# ------------------------------------------------------------------
+# _truncate_raw_response
+# ------------------------------------------------------------------
+
+
+def test_truncate_raw_response_short_text() -> None:
+    """Short text passes through unchanged."""
+    assert _truncate_raw_response("hello") == "hello"
+
+
+def test_truncate_raw_response_at_limit() -> None:
+    """Text exactly at limit passes through unchanged."""
+    text = "x" * MAX_RAW_RESPONSE_BYTES
+    assert _truncate_raw_response(text) == text
+
+
+def test_truncate_raw_response_over_limit() -> None:
+    """Text over 200KB is truncated with marker."""
+    text = "x" * (MAX_RAW_RESPONSE_BYTES + 1000)
+    result = _truncate_raw_response(text)
+    assert len(result.encode("utf-8")) <= MAX_RAW_RESPONSE_BYTES
+    assert result.endswith("[TRUNCATED at 200KB]")

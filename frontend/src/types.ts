@@ -213,6 +213,7 @@ export interface ReviewHistoryEntry {
   suggestions: string[];
   consensus_score: number | null;
   human_decision: string | null;
+  raw_response: string;
   timestamp: string;
 }
 

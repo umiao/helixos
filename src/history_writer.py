@@ -185,6 +185,7 @@ class HistoryWriter:
                 suggestions_json=json.dumps(review.suggestions),
                 consensus_score=consensus_score,
                 human_decision=human_decision,
+                raw_response=getattr(review, "raw_response", ""),
                 timestamp=review.timestamp.isoformat(),
             )
             session.add(row)
@@ -250,6 +251,7 @@ class HistoryWriter:
                     "suggestions": json.loads(r.suggestions_json),
                     "consensus_score": r.consensus_score,
                     "human_decision": r.human_decision,
+                    "raw_response": getattr(r, "raw_response", ""),
                     "timestamp": r.timestamp,
                 }
                 for r in rows

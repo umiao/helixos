@@ -9,7 +9,7 @@
  *   failed  -- error message + "Retry Review" button
  */
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import type { Task, ReviewHistoryEntry } from "../types";
 import {
   submitReviewDecision,
@@ -38,14 +38,21 @@ export default function ReviewPanel({
     [],
   );
   const [historyLoading, setHistoryLoading] = useState(false);
+  const [expandedRaw, setExpandedRaw] = useState<Record<number, boolean>>({});
+
+  const toggleRawResponse = useCallback((entryId: number) => {
+    setExpandedRaw((prev) => ({ ...prev, [entryId]: !prev[entryId] }));
+  }, []);
 
   // Fetch review history when task changes
   useEffect(() => {
     if (!task) {
       setHistoryEntries([]);
       setReason("");
+      setExpandedRaw({});
       return;
     }
+    setExpandedRaw({});
 
     let cancelled = false;
     const load = async () => {
@@ -377,6 +384,35 @@ export default function ReviewPanel({
                     >
                       {entry.human_decision.toUpperCase()}
                     </span>
+                  </div>
+                )}
+
+                {/* Collapsible raw response (debug) -- hidden when empty/legacy */}
+                {entry.raw_response && entry.raw_response.length > 0 && (
+                  <div className="mt-1.5 pt-1.5 border-t border-gray-200">
+                    <button
+                      onClick={() => toggleRawResponse(entry.id)}
+                      className="text-[10px] text-gray-400 hover:text-gray-600 transition-colors flex items-center gap-1"
+                    >
+                      <span className="inline-block transition-transform" style={{
+                        transform: expandedRaw[entry.id] ? "rotate(90deg)" : "rotate(0deg)",
+                      }}>
+                        &#9654;
+                      </span>
+                      Show Full Response (debug)
+                    </button>
+                    {expandedRaw[entry.id] && (
+                      <div className="mt-1.5">
+                        <div className="rounded bg-amber-50 border border-amber-200 px-2 py-1 mb-1.5">
+                          <p className="text-[10px] text-amber-700">
+                            This is the raw LLM output for debugging. Use the structured summary above for decision-making.
+                          </p>
+                        </div>
+                        <pre className="text-[10px] text-gray-600 bg-gray-100 rounded p-2 overflow-x-auto max-h-64 overflow-y-auto whitespace-pre-wrap break-words font-mono leading-relaxed">
+                          {entry.raw_response}
+                        </pre>
+                      </div>
+                    )}
                   </div>
                 )}
               </div>

@@ -465,3 +465,10 @@
 - **Sanity check result**: 784 tests passing (no code changes, doc-only task). Rules are checkable and specific, not aspirational.
 - **Status**: [DONE]
 - **Request**: Move T-P0-27 to Completed
+
+## 2026-03-03 00:50 -- [T-P0-28] Store full reviewer raw_response + surface in ReviewPanel
+- **What I did**: Added raw_response storage and display across the full stack. Backend: added raw_response TEXT column to ReviewHistoryRow (auto-migrated), raw_response field to LLMReview model, _truncate_raw_response() helper (200KB limit with [TRUNCATED at 200KB] marker) in review_pipeline.py, raw_response capture after _call_claude_cli returns, persistence in HistoryWriter.write_review() and retrieval in get_reviews(), raw_response field on ReviewHistoryEntry API schema. Frontend: raw_response field on ReviewHistoryEntry type, collapsible "Show Full Response (debug)" section in ReviewPanel with triangle toggle, amber warning banner inside expanded section, max-h-64 scrollable pre block, auto-collapse on task switch. Legacy/empty raw_response hides section entirely.
+- **Deliverables**: src/db.py (mod -- raw_response column on ReviewHistoryRow), src/models.py (mod -- raw_response on LLMReview), src/review_pipeline.py (mod -- _truncate_raw_response, raw_response capture in _call_reviewer), src/history_writer.py (mod -- raw_response in write_review + get_reviews), src/schemas.py (mod -- raw_response on ReviewHistoryEntry), frontend/src/types.ts (mod -- raw_response on ReviewHistoryEntry), frontend/src/components/ReviewPanel.tsx (mod -- collapsible raw response section with warning banner)
+- **Sanity check result**: 792 tests passing (8 new: 5 review_pipeline + 3 history_writer). Ruff clean. Frontend builds clean.
+- **Status**: [DONE]
+- **Request**: Move T-P0-28 to Completed

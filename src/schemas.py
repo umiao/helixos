@@ -366,6 +366,7 @@ class ReviewHistoryEntry(BaseModel):
     suggestions: list[str] = Field(default_factory=list)
     consensus_score: float | None = None
     human_decision: str | None = None
+    raw_response: str = ""
     timestamp: str
 
 
