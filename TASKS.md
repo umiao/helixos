@@ -21,6 +21,108 @@
 
 #### ~~T-P0-27: Add planning quality rules to CLAUDE.md + LESSONS.md postmortem~~ [DONE -- see Completed Tasks]
 
+#### T-P0-28: Store full reviewer raw_response + surface in ReviewPanel
+- **Priority**: P0
+- **Complexity**: M
+- **Depends on**: None
+- **Problem**: `_call_claude_cli()` returns `cli_output.get("result", "")` -- full text discarded after JSON extraction. When review needs human intervention (low consensus), ReviewPanel shows only extracted JSON fields; full reasoning is lost.
+- **Changes**:
+  - `src/db.py`: Add `raw_response TEXT` column to `ReviewHistoryRow` + auto-migration
+  - `src/models.py`: Add `raw_response: str = ""` to `LLMReview`
+  - `src/review_pipeline.py`: Capture raw result, **truncate to 200KB** before storage, pass through to LLMReview
+  - `src/history_writer.py`: Persist + return `raw_response`. Storage cap: 200KB per entry (truncate with `[TRUNCATED]` marker)
+  - `src/schemas.py`: Add `raw_response` to `ReviewHistoryEntry`
+  - `frontend/src/types.ts`: Add `raw_response: string`
+  - `frontend/src/components/ReviewPanel.tsx`: Default view = structured summary (verdict + suggestions). "Show Full Response" as collapsible debug section, collapsed by default. Warning banner inside expanded section. Lazy-load or paginate if >50KB.
+- **Acceptance Criteria**:
+  - **Storage safety**: raw_response truncated to 200KB before DB write. Truncation adds `[TRUNCATED at 200KB]` marker. DB growth is bounded.
+  - **Journey**: drag to REVIEW -> REVIEW_NEEDS_HUMAN -> click task -> see structured verdict/summary/suggestions as PRIMARY view -> optionally expand "Show Full Response (debug)" -> see warning banner + full reasoning
+  - **Scenario (present)**: raw_response present = collapsible section with warning banner
+  - **Scenario (absent/legacy)**: raw_response empty/null = section hidden entirely
+  - **UX priority**: Structured summary is the decision-making tool. Raw response is debug context, NOT the primary decision input.
+  - **Manual smoke**: open browser, trigger review, verify structured summary is prominent, raw response is secondary/collapsed
+
+#### T-P0-29: Upgrade primary reviewer to Opus + per-reviewer budget config + cost tracking
+- **Priority**: P0
+- **Complexity**: S
+- **Depends on**: None
+- **Changes**:
+  - `orchestrator_config.yaml`: Primary reviewer -> `claude-opus-4-6` with `max_budget_usd: 2.00`. Adversarial stays `claude-sonnet-4-5` at `0.50`
+  - `src/config.py`: Add `max_budget_usd: float = 0.50` to `ReviewerConfig`
+  - `src/review_pipeline.py`: Read `reviewer.max_budget_usd` instead of hardcoded `"0.50"`
+  - `src/db.py`: Add `cost_usd REAL` nullable column to `ReviewHistoryRow` (auto-migrated)
+  - `src/review_pipeline.py`: Parse `usage` from Claude CLI JSON output (if available), compute approximate cost, store in ReviewHistoryRow
+  - `src/history_writer.py`: Persist `cost_usd` in `write_review()`
+  - `src/schemas.py`: Add `cost_usd: float | None` to `ReviewHistoryEntry`
+  - `frontend/src/components/ReviewPanel.tsx`: Show `~$X.XX` cost badge per review entry (if available)
+- **Acceptance Criteria**:
+  - Config: primary uses `claude-opus-4-6` / `max_budget_usd: 2.00`. Adversarial uses `claude-sonnet-4-5` / `0.50`
+  - **Cost tracking**: Each review attempt records `cost_usd` in DB. If Claude CLI doesn't expose usage in JSON output, store NULL (no crash). ReviewPanel shows cost when available, hidden when NULL.
+  - Backward compat: configs without `max_budget_usd` default to 0.50
+  - Synthesis step stays `claude-sonnet-4-5` (cheap)
+  - **Manual smoke**: trigger review, verify logs show `claude-opus-4-6` invocation, check cost badge in ReviewPanel
+
+#### T-P0-30: Subprocess inactivity timeout + process group cleanup for execution pipeline
+- **Priority**: P0
+- **Complexity**: M
+- **Depends on**: None
+- **Problem**: (a) Hanging process not detected until 60-min total timeout. (b) `CodeExecutor` spawns subprocess WITHOUT `start_new_session=True` / `CREATE_NEW_PROCESS_GROUP` -- killing parent leaves orphan child processes. ProcessManager already does this correctly; CodeExecutor does not.
+- **Changes**:
+  - `src/config.py`: Add `inactivity_timeout_minutes: int = 20` to `OrchestratorSettings`
+  - `src/executors/base.py`: Add `INACTIVITY_TIMEOUT` to `ErrorType` enum
+  - `src/executors/code_executor.py`:
+    - Add `start_new_session=True` (Unix) / `CREATE_NEW_PROCESS_GROUP` (Windows) to subprocess creation, matching ProcessManager pattern
+    - On kill: use `os.killpg(pgid, SIGTERM)` (Unix) / `CTRL_BREAK_EVENT` (Windows) to kill entire process tree
+    - Replace `async for raw_line in self._proc.stdout` with per-line `asyncio.wait_for(stdout.readline(), timeout=inactivity_seconds)`. On per-line TimeoutError -> inactivity detected -> terminate process group
+  - `orchestrator_config.yaml`: Add `inactivity_timeout_minutes: 20`
+- **Acceptance Criteria**:
+  - **Process group**: Subprocess created with `start_new_session=True` (Unix) / `CREATE_NEW_PROCESS_GROUP` (Windows). On timeout/cancel, entire process group killed (not just parent PID). Verified: no zombie/orphan processes remain after kill.
+  - **Scenario active**: output every few seconds -> inactivity never fires, total timeout still applies
+  - **Scenario hung**: no stdout for 20 min -> `[INACTIVITY] No output for 20 minutes -- stdout-based detection, terminating process group` -> SIGTERM group -> grace -> SIGKILL group -> FAILED with `ErrorType.INACTIVITY_TIMEOUT`
+  - **Scenario slow-but-alive**: one line every 19 min -> timer resets, not killed
+  - **Scenario disabled**: `inactivity_timeout_minutes: 0` -> feature off
+  - **Known limitation (documented)**: Detection is stdout-based. Programs that buffer stdout or write partial lines without `\n` may trigger false positives. Default 20 min is conservative to minimize this.
+  - **Journey**: task QUEUED -> executor starts -> subprocess hangs -> 20 min silence -> process group terminated -> task FAILED -> SSE alert
+
+#### T-P0-31: Apply timeout to review pipeline subprocess calls
+- **Priority**: P0
+- **Complexity**: S
+- **Depends on**: T-P0-30 (reuses process group pattern, ErrorType conventions)
+- **Problem**: `_call_claude_cli()` calls `await proc.communicate()` with NO timeout. Reviewer hang blocks pipeline forever.
+- **Tech debt note**: Review and execution pipelines both manage subprocesses with timeout logic. Long-term, unify into a shared `SubprocessRunner` abstraction. For now, keep pragmatic -- two call sites with same patterns, documented for future refactor.
+- **Changes**:
+  - `src/config.py`: Add `review_timeout_minutes: int = 10` to `ReviewPipelineConfig`
+  - `src/review_pipeline.py`:
+    - Add process group flags to subprocess creation (same pattern as T-P0-30)
+    - Wrap `proc.communicate()` with `asyncio.wait_for(..., timeout=review_timeout_seconds)`
+    - On TimeoutError -> kill process group -> raise RuntimeError
+  - `orchestrator_config.yaml`: Add `review_timeout_minutes: 10`
+- **Acceptance Criteria**:
+  - **Scenario normal**: reviewer responds in 30s -> timeout doesn't fire
+  - **Scenario hung**: after 10 min -> process group killed -> review_status="failed" -> SSE alert -> Retry button
+  - **Retry semantics**: Each retry creates NEW `ReviewHistoryRow` entries with incremented `round_number` (not overwrite). Add `review_attempt: int` column to `ReviewHistoryRow` (auto-migrated). First attempt = 1, retry = 2, etc. History shows all attempts for audit.
+  - Synthesis step also covered by same timeout
+  - **Journey**: drag to REVIEW -> primary OK -> adversarial hangs -> 10 min -> "failed" -> Retry -> new attempt rows in history -> succeeds
+
+#### T-P0-32: Review + execution progress phase reporting via SSE
+- **Priority**: P0
+- **Complexity**: M
+- **Depends on**: T-P0-28 (on_progress callback changes), T-P0-30 (elapsed time tracking)
+- **Changes**:
+  - `src/review_pipeline.py`: Extend `on_progress` to `on_progress(completed, total, phase)`. Phase strings: "Starting {focus} review...", "Completed {focus} review", "Synthesizing..."
+  - `src/api.py`: Forward `phase` in SSE `review_progress` events. All SSE events MUST include `task_id` (verify all paths)
+  - `src/executors/code_executor.py`: Emit `[PROGRESS]` log entry every 60s with elapsed time + line count + seconds since last output
+  - `frontend/src/components/ReviewPanel.tsx`: Show phase label when `review_status == "running"`
+  - `frontend/src/components/ExecutionLog.tsx`: Running elapsed counter in header when RUNNING
+  - **Frontend SSE guard**: All SSE event handlers MUST check `event.task_id === selectedTaskId` before updating UI. Stale events from previously selected tasks are discarded.
+- **Acceptance Criteria**:
+  - **SSE task_id guard**: Every SSE handler in ReviewPanel and ExecutionLog validates task_id matches currently selected task. Switching tasks mid-review doesn't show stale phase labels.
+  - **Journey (review)**: drag to REVIEW -> "Starting feasibility_and_edge_cases review..." -> "Starting adversarial_red_team review..." -> "Synthesizing..." -> verdict
+  - **Journey (execution)**: task RUNNING -> "0:30 elapsed" counter -> every 60s `[PROGRESS]` log line
+  - **Scenario**: no task selected -> phase events ignored, no crash
+  - **Scenario**: switch task during review -> old phases cleared, new task state shown
+  - **Manual smoke**: observe phase transitions in ReviewPanel as reviewers run
+
 ### P1 -- Should Have (important features)
 <!-- All 7 P1 tasks completed. See Completed Tasks below. -->
 
@@ -32,7 +134,8 @@
 
 ### Tech Debt (tracked, not blocking current work)
 - [ ] Log retention/purge policy for execution_logs + review_history tables
-- [ ] Unified timeout policy for enrichment and review CLI subprocess calls
+- [ ] Unified timeout policy for enrichment CLI subprocess calls (review covered by T-P0-31)
+- [ ] Unify subprocess management into shared `SubprocessRunner` abstraction (T-P0-30/T-P0-31 tech debt)
 - [ ] Review state machine diagram documentation
 - [ ] (from web UI) Done column: investigate random ordering, add sort/filter.
       Self-editing workflow: test changes then restart (queued stage only?).
@@ -135,6 +238,17 @@ T-P0-24 [M] Review gate UX modal [DONE]
 T-P0-25 [M] Token usage limit bar [NEEDS-INPUT]
 
 T-P0-27 [S] Planning quality rules [DONE] (no deps)
+
+--- P0 (new -- review context + monitoring + liveness) ---
+
+T-P0-28 [M] Full reviewer raw_response (no deps)
+T-P0-29 [S] Opus upgrade + cost tracking (no deps)
+
+T-P0-30 [M] Inactivity timeout + process groups (no deps)
+  |
+  +--> T-P0-31 [S] Review pipeline timeout + retry semantics (needs T-P0-30)
+  |
+  +--> T-P0-32 [M] Progress phase SSE (needs T-P0-28 + T-P0-30)
 ```
 
 ---
