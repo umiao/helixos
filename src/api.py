@@ -996,11 +996,20 @@ def _enqueue_review_pipeline(
     event_bus: EventBus,
     task: Task,
     task_id: str,
+    review_attempt: int = 1,
 ) -> None:
     """Enqueue the review pipeline as a background asyncio task.
 
     If the pipeline is unavailable (Claude CLI not found), immediately
     marks review_status as "failed" and emits an SSE alert.
+
+    Args:
+        task_manager: TaskManager for status updates.
+        review_pipeline: The ReviewPipeline instance (or None if unavailable).
+        event_bus: EventBus for SSE events.
+        task: The task to review.
+        task_id: Task ID string.
+        review_attempt: Attempt number (1-based). Retries increment this.
     """
     if review_pipeline is None:
         # Pipeline unavailable -- fail immediately
@@ -1026,6 +1035,7 @@ def _enqueue_review_pipeline(
                 task=task,
                 plan_content=task.description,
                 on_progress=on_progress,
+                review_attempt=review_attempt,
             )
 
             updated_task = task.model_copy(update={"review": review_state})
@@ -1151,10 +1161,14 @@ async def retry_review(task_id: str, request: Request) -> dict:
 
     Only works when ``review_status`` is ``"failed"`` or ``"idle"``.
     Returns 409 if the pipeline is already running.
+
+    Each retry creates NEW ReviewHistoryRow entries with incremented
+    ``review_attempt``. First attempt = 1, retry = 2, etc.
     """
     task_manager: TaskManager = request.app.state.task_manager
     review_pipeline: ReviewPipeline | None = request.app.state.review_pipeline
     event_bus: EventBus = request.app.state.event_bus
+    history_writer: HistoryWriter = request.app.state.history_writer
 
     task = await task_manager.get_task(task_id)
     if task is None:
@@ -1172,6 +1186,10 @@ async def retry_review(task_id: str, request: Request) -> dict:
             detail=f"Cannot retry review: review_status is '{task.review_status}'",
         )
 
+    # Determine next review_attempt number
+    max_attempt = await history_writer.get_max_review_attempt(task_id)
+    next_attempt = max_attempt + 1
+
     # Ensure task is in REVIEW status; if not, transition it
     if task.status != TaskStatus.REVIEW:
         try:
@@ -1185,6 +1203,7 @@ async def retry_review(task_id: str, request: Request) -> dict:
 
     _enqueue_review_pipeline(
         task_manager, review_pipeline, event_bus, task, task_id,
+        review_attempt=next_attempt,
     )
 
     return {"detail": "Review retry started", "task_id": task_id}

@@ -7,8 +7,12 @@ and run as background tasks. Uses Claude CLI (``claude -p``) for LLM calls.
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import json
 import logging
+import os
+import signal
+import sys
 from collections.abc import Callable
 from datetime import UTC, datetime
 
@@ -166,6 +170,39 @@ def _extract_cost_usd(cli_output: dict, model: str) -> float | None:
 
 
 # ------------------------------------------------------------------
+# Process group helpers (same pattern as CodeExecutor / T-P0-30)
+# ------------------------------------------------------------------
+
+_IS_WINDOWS = sys.platform == "win32"
+
+
+def _terminate_review_process(proc: asyncio.subprocess.Process) -> None:
+    """Send SIGTERM to the entire process group (or CTRL_BREAK on Windows)."""
+    pid = proc.pid
+    if pid is None:
+        return
+    if _IS_WINDOWS:
+        with contextlib.suppress(OSError):
+            os.kill(pid, signal.CTRL_BREAK_EVENT)  # type: ignore[attr-defined]
+    else:
+        with contextlib.suppress(ProcessLookupError):
+            os.killpg(os.getpgid(pid), signal.SIGTERM)
+
+
+def _kill_review_process(proc: asyncio.subprocess.Process) -> None:
+    """Send SIGKILL to the entire process group (force-kill)."""
+    pid = proc.pid
+    if pid is None:
+        return
+    if _IS_WINDOWS:
+        with contextlib.suppress(OSError):
+            proc.kill()
+    else:
+        with contextlib.suppress(ProcessLookupError):
+            os.killpg(os.getpgid(pid), signal.SIGKILL)
+
+
+# ------------------------------------------------------------------
 # ReviewPipeline
 # ------------------------------------------------------------------
 
@@ -195,6 +232,7 @@ class ReviewPipeline:
         self.optional_reviewers = [r for r in config.reviewers if not r.required]
         self.threshold = threshold
         self._history_writer = history_writer
+        self._timeout_minutes = config.review_timeout_minutes
 
     async def review_task(
         self,
@@ -202,6 +240,7 @@ class ReviewPipeline:
         plan_content: str,
         on_progress: Callable[[int, int], None],
         complexity: str = "S",
+        review_attempt: int = 1,
     ) -> ReviewState:
         """Run the review pipeline for a task plan.
 
@@ -211,6 +250,7 @@ class ReviewPipeline:
             on_progress: Callback ``(completed, total)`` for progress reporting.
             complexity: Task complexity (``"S"``, ``"M"``, ``"L"``). Adversarial
                 reviewer added for M and L tasks.
+            review_attempt: Attempt number (1-based). Retries increment this.
 
         Returns:
             ReviewState with all reviews, consensus score, and human decision flag.
@@ -260,6 +300,7 @@ class ReviewPipeline:
                     review=review,
                     consensus_score=score if i == len(reviews) - 1 else None,
                     cost_usd=review.cost_usd,
+                    review_attempt=review_attempt,
                 )
 
         return ReviewState(
@@ -284,6 +325,10 @@ class ReviewPipeline:
         Invokes ``claude -p`` with ``--output-format json`` and parses the
         outer JSON wrapper to extract the ``result`` and ``usage`` fields.
 
+        Uses process group isolation (same pattern as CodeExecutor / T-P0-30)
+        and wraps ``proc.communicate()`` with ``asyncio.wait_for`` to enforce
+        ``review_timeout_minutes``.
+
         Args:
             prompt: The user prompt to send.
             system_prompt: The system prompt.
@@ -295,7 +340,8 @@ class ReviewPipeline:
             Dict with ``result`` (str) and full CLI output for usage extraction.
 
         Raises:
-            RuntimeError: If the subprocess exits with a non-zero code.
+            RuntimeError: If the subprocess exits with a non-zero code or
+                times out.
         """
         args = [
             "claude", "-p", prompt,
@@ -308,12 +354,50 @@ class ReviewPipeline:
         if json_schema is not None:
             args.extend(["--json-schema", json_schema])
 
+        # Platform-specific process group flags
+        kwargs: dict[str, object] = {
+            "stdout": asyncio.subprocess.PIPE,
+            "stderr": asyncio.subprocess.PIPE,
+        }
+        if _IS_WINDOWS:
+            import subprocess as _subprocess
+            kwargs["creationflags"] = (
+                _subprocess.CREATE_NEW_PROCESS_GROUP  # type: ignore[attr-defined]
+            )
+        else:
+            kwargs["start_new_session"] = True
+
         proc = await asyncio.create_subprocess_exec(
             *args,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
+            **kwargs,  # type: ignore[arg-type]
         )
-        stdout_bytes, stderr_bytes = await proc.communicate()
+
+        timeout_seconds = self._timeout_minutes * 60 if self._timeout_minutes > 0 else None
+
+        try:
+            if timeout_seconds is not None:
+                stdout_bytes, stderr_bytes = await asyncio.wait_for(
+                    proc.communicate(),
+                    timeout=timeout_seconds,
+                )
+            else:
+                stdout_bytes, stderr_bytes = await proc.communicate()
+        except TimeoutError:
+            logger.warning(
+                "Review subprocess timed out after %d minutes (model=%s), "
+                "killing process group",
+                self._timeout_minutes, model,
+            )
+            _terminate_review_process(proc)
+            try:
+                await asyncio.wait_for(proc.wait(), timeout=5)
+            except TimeoutError:
+                _kill_review_process(proc)
+                await proc.wait()
+            raise RuntimeError(
+                f"Review subprocess timed out after {self._timeout_minutes} "
+                f"minutes (model={model})"
+            ) from None
 
         if proc.returncode != 0:
             stderr_text = stderr_bytes.decode("utf-8", errors="replace")

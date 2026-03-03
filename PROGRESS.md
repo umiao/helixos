@@ -486,3 +486,10 @@
 - **Sanity check result**: 820 tests passing (13 new: 6 inactivity timeout + 3 process group helpers + 4 config). Ruff clean.
 - **Status**: [DONE]
 - **Request**: Move T-P0-30 to Completed
+
+## 2026-03-03 03:00 -- [T-P0-31] Apply timeout to review pipeline subprocess calls
+- **What I did**: Added process group isolation and timeout to review pipeline's `_call_claude_cli()`. Process group: same pattern as CodeExecutor (start_new_session on Unix, CREATE_NEW_PROCESS_GROUP on Windows). Timeout: `proc.communicate()` wrapped with `asyncio.wait_for(timeout=review_timeout_minutes*60)`. On timeout: SIGTERM to process group, 5s grace, SIGKILL fallback, then RuntimeError raised (caught by `_run_review_bg` -> review_status=failed + SSE alert + Retry button). Config: `review_timeout_minutes: int = 10` on ReviewPipelineConfig. Retry semantics: added `review_attempt` column to ReviewHistoryRow (auto-migrated, default 1). Each retry increments attempt via `get_max_review_attempt()`. History shows all attempts for audit. API: `retry_review` computes next attempt number from DB, passes to pipeline.
+- **Deliverables**: src/config.py (mod -- review_timeout_minutes on ReviewPipelineConfig), src/db.py (mod -- review_attempt column on ReviewHistoryRow), src/review_pipeline.py (mod -- process group helpers, timeout in _call_claude_cli, review_attempt param), src/history_writer.py (mod -- review_attempt param + get_max_review_attempt), src/api.py (mod -- review_attempt wiring in _enqueue_review_pipeline + retry_review), orchestrator_config.yaml (mod -- review_timeout_minutes: 10), tests/test_review_pipeline.py (mod -- 17 new tests), tests/test_history_writer.py (mod -- 7 new tests)
+- **Sanity check result**: 843 tests passing (23 new). Ruff clean.
+- **Status**: [DONE]
+- **Request**: Move T-P0-31 to Completed

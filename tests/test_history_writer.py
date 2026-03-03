@@ -359,3 +359,69 @@ class TestReviewHistory:
         reviews = await hw.get_reviews("task-1")
         assert reviews[0]["cost_usd"] == pytest.approx(0.05)
         assert reviews[1]["cost_usd"] == pytest.approx(0.01)
+
+    # ------------------------------------------------------------------
+    # review_attempt (T-P0-31)
+    # ------------------------------------------------------------------
+
+    async def test_review_attempt_persisted(self, session_factory):
+        """review_attempt is persisted and returned by get_reviews."""
+        hw = HistoryWriter(session_factory)
+        await hw.write_review("task-1", 1, _make_review(), review_attempt=2)
+
+        reviews = await hw.get_reviews("task-1")
+        assert reviews[0]["review_attempt"] == 2
+
+    async def test_review_attempt_defaults_to_1(self, session_factory):
+        """review_attempt defaults to 1 when not specified."""
+        hw = HistoryWriter(session_factory)
+        await hw.write_review("task-1", 1, _make_review())
+
+        reviews = await hw.get_reviews("task-1")
+        assert reviews[0]["review_attempt"] == 1
+
+    async def test_review_attempt_multiple_attempts(self, session_factory):
+        """Multiple attempts create separate rows with different attempt numbers."""
+        hw = HistoryWriter(session_factory)
+        # Attempt 1
+        await hw.write_review("task-1", 1, _make_review(), review_attempt=1)
+        await hw.write_review("task-1", 2, _make_review(), review_attempt=1)
+        # Attempt 2 (retry)
+        await hw.write_review("task-1", 1, _make_review(), review_attempt=2)
+        await hw.write_review("task-1", 2, _make_review(), review_attempt=2)
+
+        reviews = await hw.get_reviews("task-1")
+        assert len(reviews) == 4
+        assert reviews[0]["review_attempt"] == 1
+        assert reviews[1]["review_attempt"] == 1
+        assert reviews[2]["review_attempt"] == 2
+        assert reviews[3]["review_attempt"] == 2
+
+    async def test_get_max_review_attempt_no_history(self, session_factory):
+        """get_max_review_attempt returns 0 when no history exists."""
+        hw = HistoryWriter(session_factory)
+        assert await hw.get_max_review_attempt("nonexistent") == 0
+
+    async def test_get_max_review_attempt_single(self, session_factory):
+        """get_max_review_attempt returns 1 after first attempt."""
+        hw = HistoryWriter(session_factory)
+        await hw.write_review("task-1", 1, _make_review(), review_attempt=1)
+        assert await hw.get_max_review_attempt("task-1") == 1
+
+    async def test_get_max_review_attempt_multiple(self, session_factory):
+        """get_max_review_attempt returns highest attempt across all rows."""
+        hw = HistoryWriter(session_factory)
+        await hw.write_review("task-1", 1, _make_review(), review_attempt=1)
+        await hw.write_review("task-1", 2, _make_review(), review_attempt=1)
+        await hw.write_review("task-1", 1, _make_review(), review_attempt=3)
+
+        assert await hw.get_max_review_attempt("task-1") == 3
+
+    async def test_get_max_review_attempt_isolated_by_task(self, session_factory):
+        """get_max_review_attempt is scoped to the given task_id."""
+        hw = HistoryWriter(session_factory)
+        await hw.write_review("task-1", 1, _make_review(), review_attempt=5)
+        await hw.write_review("task-2", 1, _make_review(), review_attempt=2)
+
+        assert await hw.get_max_review_attempt("task-1") == 5
+        assert await hw.get_max_review_attempt("task-2") == 2

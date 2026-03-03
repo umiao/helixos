@@ -165,6 +165,7 @@ class HistoryWriter:
         consensus_score: float | None = None,
         human_decision: str | None = None,
         cost_usd: float | None = None,
+        review_attempt: int = 1,
     ) -> None:
         """Persist a single review history entry.
 
@@ -175,6 +176,7 @@ class HistoryWriter:
             consensus_score: Overall consensus score (set on final round).
             human_decision: Human decision if applicable.
             cost_usd: Approximate cost in USD for this reviewer call.
+            review_attempt: Attempt number (1-based). Retries increment this.
         """
         async with get_session(self._sf) as session:
             row = ReviewHistoryRow(
@@ -189,6 +191,7 @@ class HistoryWriter:
                 human_decision=human_decision,
                 raw_response=getattr(review, "raw_response", ""),
                 cost_usd=cost_usd,
+                review_attempt=review_attempt,
                 timestamp=review.timestamp.isoformat(),
             )
             session.add(row)
@@ -256,6 +259,7 @@ class HistoryWriter:
                     "human_decision": r.human_decision,
                     "raw_response": getattr(r, "raw_response", ""),
                     "cost_usd": getattr(r, "cost_usd", None),
+                    "review_attempt": getattr(r, "review_attempt", 1),
                     "timestamp": r.timestamp,
                 }
                 for r in rows
@@ -269,6 +273,26 @@ class HistoryWriter:
             )
             result = await session.execute(stmt)
             return len(result.scalars().all())
+
+    async def get_max_review_attempt(self, task_id: str) -> int:
+        """Return the highest review_attempt number for a task, or 0 if none.
+
+        Args:
+            task_id: The task to query.
+
+        Returns:
+            Maximum review_attempt value, or 0 if no review history exists.
+        """
+        async with get_session(self._sf) as session:
+            stmt = (
+                select(ReviewHistoryRow.review_attempt)
+                .where(ReviewHistoryRow.task_id == task_id)
+                .order_by(ReviewHistoryRow.review_attempt.desc())
+                .limit(1)
+            )
+            result = await session.execute(stmt)
+            row = result.scalar_one_or_none()
+            return row if row is not None else 0
 
     async def has_approved_review(self, task_id: str) -> bool:
         """Check if any review entry for *task_id* has an approved verdict.

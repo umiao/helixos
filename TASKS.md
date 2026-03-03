@@ -27,25 +27,7 @@
 
 #### ~~T-P0-30: Subprocess inactivity timeout + process group cleanup for execution pipeline~~ [DONE -- see Completed Tasks]
 
-#### T-P0-31: Apply timeout to review pipeline subprocess calls
-- **Priority**: P0
-- **Complexity**: S
-- **Depends on**: T-P0-30 (reuses process group pattern, ErrorType conventions)
-- **Problem**: `_call_claude_cli()` calls `await proc.communicate()` with NO timeout. Reviewer hang blocks pipeline forever.
-- **Tech debt note**: Review and execution pipelines both manage subprocesses with timeout logic. Long-term, unify into a shared `SubprocessRunner` abstraction. For now, keep pragmatic -- two call sites with same patterns, documented for future refactor.
-- **Changes**:
-  - `src/config.py`: Add `review_timeout_minutes: int = 10` to `ReviewPipelineConfig`
-  - `src/review_pipeline.py`:
-    - Add process group flags to subprocess creation (same pattern as T-P0-30)
-    - Wrap `proc.communicate()` with `asyncio.wait_for(..., timeout=review_timeout_seconds)`
-    - On TimeoutError -> kill process group -> raise RuntimeError
-  - `orchestrator_config.yaml`: Add `review_timeout_minutes: 10`
-- **Acceptance Criteria**:
-  - **Scenario normal**: reviewer responds in 30s -> timeout doesn't fire
-  - **Scenario hung**: after 10 min -> process group killed -> review_status="failed" -> SSE alert -> Retry button
-  - **Retry semantics**: Each retry creates NEW `ReviewHistoryRow` entries with incremented `round_number` (not overwrite). Add `review_attempt: int` column to `ReviewHistoryRow` (auto-migrated). First attempt = 1, retry = 2, etc. History shows all attempts for audit.
-  - Synthesis step also covered by same timeout
-  - **Journey**: drag to REVIEW -> primary OK -> adversarial hangs -> 10 min -> "failed" -> Retry -> new attempt rows in history -> succeeds
+#### ~~T-P0-31: Apply timeout to review pipeline subprocess calls~~ [DONE -- see Completed Tasks]
 
 #### T-P0-32: Review + execution progress phase reporting via SSE
 - **Priority**: P0
@@ -189,7 +171,7 @@ T-P0-29 [S] Opus upgrade + cost tracking [DONE] (no deps)
 
 T-P0-30 [M] Inactivity timeout + process groups [DONE] (no deps)
   |
-  +--> T-P0-31 [S] Review pipeline timeout + retry semantics (needs T-P0-30)
+  +--> T-P0-31 [S] Review pipeline timeout + retry semantics [DONE] (needs T-P0-30)
   |
   +--> T-P0-32 [M] Progress phase SSE (needs T-P0-28 + T-P0-30)
 ```
@@ -201,6 +183,9 @@ T-P0-30 [M] Inactivity timeout + process groups [DONE] (no deps)
 
 ## Completed Tasks
 <!-- Move finished tasks here with [x] and completion date -->
+
+#### [x] T-P0-31: Apply timeout to review pipeline subprocess calls -- 2026-03-03
+- Process group isolation in _call_claude_cli (start_new_session / CREATE_NEW_PROCESS_GROUP). Timeout via asyncio.wait_for on proc.communicate() (review_timeout_minutes, default 10, 0=disabled). On timeout: SIGTERM -> 5s grace -> SIGKILL -> RuntimeError -> review_status=failed + SSE alert + Retry. Retry semantics: review_attempt column on ReviewHistoryRow (auto-migrated, default 1), get_max_review_attempt() query, next attempt = max+1. Synthesis step covered by same timeout. 23 new tests, 843 total passing.
 
 #### [x] T-P0-30: Subprocess inactivity timeout + process group cleanup for execution pipeline -- 2026-03-03
 - Process group isolation: start_new_session=True (Unix) / CREATE_NEW_PROCESS_GROUP (Windows) matching ProcessManager pattern. On timeout/cancel, entire process group killed via os.killpg/CTRL_BREAK_EVENT with SIGKILL fallback. Inactivity detection: per-line asyncio.wait_for(readline(), timeout) replaces async-for iteration. No output for inactivity_timeout_minutes (default 20, 0=disabled) -> INACTIVITY_TIMEOUT error type, process group terminated. Config: inactivity_timeout_minutes on OrchestratorSettings. 13 new tests, 820 total passing.

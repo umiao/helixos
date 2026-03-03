@@ -7,8 +7,10 @@ scenarios. All LLM calls go through the Claude CLI subprocess.
 
 from __future__ import annotations
 
+import asyncio
 import json
-from unittest.mock import AsyncMock, patch
+import sys
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -18,6 +20,8 @@ from src.review_pipeline import (
     MAX_RAW_RESPONSE_BYTES,
     ReviewPipeline,
     _extract_cost_usd,
+    _kill_review_process,
+    _terminate_review_process,
     _truncate_raw_response,
 )
 
@@ -778,3 +782,361 @@ async def test_cost_usd_none_when_no_usage(mock_exec: AsyncMock) -> None:
     )
 
     assert result.reviews[0].cost_usd is None
+
+
+# ------------------------------------------------------------------
+# Process group flags (T-P0-31)
+# ------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+@patch("src.review_pipeline.asyncio.create_subprocess_exec")
+async def test_subprocess_created_with_process_group_flags(mock_exec: AsyncMock) -> None:
+    """Subprocess is created with process group isolation flags."""
+    mock_exec.return_value = _mock_proc(
+        _make_review_output("approve", "OK")
+    )
+
+    pipeline = ReviewPipeline(_default_config(), threshold=0.8)
+    await pipeline.review_task(
+        _sample_task(), "Plan", lambda c, t: None, complexity="S"
+    )
+
+    kwargs = mock_exec.call_args.kwargs
+    if sys.platform == "win32":
+        assert "creationflags" in kwargs
+    else:
+        assert kwargs.get("start_new_session") is True
+
+
+@pytest.mark.asyncio
+@patch("src.review_pipeline.asyncio.create_subprocess_exec")
+async def test_subprocess_stdout_stderr_pipes(mock_exec: AsyncMock) -> None:
+    """Subprocess is created with PIPE for stdout and stderr."""
+    mock_exec.return_value = _mock_proc(
+        _make_review_output("approve", "OK")
+    )
+
+    pipeline = ReviewPipeline(_default_config(), threshold=0.8)
+    await pipeline.review_task(
+        _sample_task(), "Plan", lambda c, t: None, complexity="S"
+    )
+
+    kwargs = mock_exec.call_args.kwargs
+    assert kwargs["stdout"] == asyncio.subprocess.PIPE
+    assert kwargs["stderr"] == asyncio.subprocess.PIPE
+
+
+# ------------------------------------------------------------------
+# Timeout behavior (T-P0-31)
+# ------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+@patch("src.review_pipeline._kill_review_process")
+@patch("src.review_pipeline._terminate_review_process")
+@patch("src.review_pipeline.asyncio.create_subprocess_exec")
+async def test_timeout_kills_process_group(
+    mock_exec: AsyncMock,
+    mock_terminate: MagicMock,
+    mock_kill: MagicMock,
+) -> None:
+    """When communicate() times out, process group is terminated and RuntimeError raised."""
+    proc = AsyncMock()
+    proc.communicate = AsyncMock(side_effect=TimeoutError)
+    proc.wait = AsyncMock(return_value=0)
+    proc.pid = 12345
+    mock_exec.return_value = proc
+
+    config = ReviewPipelineConfig(
+        reviewers=[
+            ReviewerConfig(
+                model="claude-sonnet-4-5",
+                focus="feasibility_and_edge_cases",
+                api="claude_cli",
+                required=True,
+            ),
+        ],
+        review_timeout_minutes=1,
+    )
+    pipeline = ReviewPipeline(config, threshold=0.8)
+
+    with pytest.raises(RuntimeError, match="timed out"):
+        await pipeline.review_task(
+            _sample_task(), "Plan", lambda c, t: None, complexity="S"
+        )
+
+    mock_terminate.assert_called_once_with(proc)
+
+
+@pytest.mark.asyncio
+@patch("src.review_pipeline._kill_review_process")
+@patch("src.review_pipeline._terminate_review_process")
+@patch("src.review_pipeline.asyncio.create_subprocess_exec")
+async def test_timeout_force_kill_on_stubborn_process(
+    mock_exec: AsyncMock,
+    mock_terminate: MagicMock,
+    mock_kill: MagicMock,
+) -> None:
+    """When process doesn't exit after SIGTERM, force-kill is used."""
+    proc = AsyncMock()
+    proc.communicate = AsyncMock(side_effect=TimeoutError)
+    # wait() times out after terminate (grace period), then succeeds after kill
+    proc.wait = AsyncMock(side_effect=[TimeoutError, 0])
+    proc.pid = 12345
+    mock_exec.return_value = proc
+
+    config = ReviewPipelineConfig(
+        reviewers=[
+            ReviewerConfig(
+                model="claude-sonnet-4-5",
+                focus="feasibility_and_edge_cases",
+                api="claude_cli",
+                required=True,
+            ),
+        ],
+        review_timeout_minutes=1,
+    )
+    pipeline = ReviewPipeline(config, threshold=0.8)
+
+    with pytest.raises(RuntimeError, match="timed out"):
+        await pipeline.review_task(
+            _sample_task(), "Plan", lambda c, t: None, complexity="S"
+        )
+
+    mock_terminate.assert_called_once_with(proc)
+    mock_kill.assert_called_once_with(proc)
+
+
+@pytest.mark.asyncio
+@patch("src.review_pipeline.asyncio.create_subprocess_exec")
+async def test_no_timeout_when_zero(mock_exec: AsyncMock) -> None:
+    """When review_timeout_minutes is 0, no timeout is applied."""
+    mock_exec.return_value = _mock_proc(
+        _make_review_output("approve", "OK")
+    )
+
+    config = ReviewPipelineConfig(
+        reviewers=[
+            ReviewerConfig(
+                model="claude-sonnet-4-5",
+                focus="feasibility_and_edge_cases",
+                api="claude_cli",
+                required=True,
+            ),
+        ],
+        review_timeout_minutes=0,
+    )
+    pipeline = ReviewPipeline(config, threshold=0.8)
+
+    result = await pipeline.review_task(
+        _sample_task(), "Plan", lambda c, t: None, complexity="S"
+    )
+
+    assert result.consensus_score == 1.0
+    assert len(result.reviews) == 1
+
+
+@pytest.mark.asyncio
+@patch("src.review_pipeline.asyncio.create_subprocess_exec")
+async def test_normal_completion_within_timeout(mock_exec: AsyncMock) -> None:
+    """Normal review completes within timeout -- no error."""
+    mock_exec.return_value = _mock_proc(
+        _make_review_output("approve", "OK")
+    )
+
+    config = ReviewPipelineConfig(
+        reviewers=[
+            ReviewerConfig(
+                model="claude-sonnet-4-5",
+                focus="feasibility_and_edge_cases",
+                api="claude_cli",
+                required=True,
+            ),
+        ],
+        review_timeout_minutes=10,
+    )
+    pipeline = ReviewPipeline(config, threshold=0.8)
+
+    result = await pipeline.review_task(
+        _sample_task(), "Plan", lambda c, t: None, complexity="S"
+    )
+
+    assert result.consensus_score == 1.0
+    assert result.reviews[0].verdict == "approve"
+
+
+@pytest.mark.asyncio
+@patch("src.review_pipeline._terminate_review_process")
+@patch("src.review_pipeline.asyncio.create_subprocess_exec")
+async def test_synthesis_timeout_also_covered(
+    mock_exec: AsyncMock,
+    mock_terminate: MagicMock,
+) -> None:
+    """Timeout applies to synthesis step too, not just individual reviewers."""
+    review_proc = _mock_proc(_make_review_output("approve", "OK"))
+
+    # Synthesis subprocess times out
+    synthesis_proc = AsyncMock()
+    synthesis_proc.communicate = AsyncMock(side_effect=TimeoutError)
+    synthesis_proc.wait = AsyncMock(return_value=0)
+    synthesis_proc.pid = 99999
+
+    mock_exec.side_effect = [review_proc, review_proc, synthesis_proc]
+
+    config = ReviewPipelineConfig(
+        reviewers=[
+            ReviewerConfig(
+                model="claude-sonnet-4-5",
+                focus="feasibility_and_edge_cases",
+                api="claude_cli",
+                required=True,
+            ),
+            ReviewerConfig(
+                model="claude-sonnet-4-5",
+                focus="adversarial_red_team",
+                api="claude_cli",
+                required=False,
+            ),
+        ],
+        review_timeout_minutes=1,
+    )
+    pipeline = ReviewPipeline(config, threshold=0.8)
+
+    with pytest.raises(RuntimeError, match="timed out"):
+        await pipeline.review_task(
+            _sample_task(), "Plan", lambda c, t: None, complexity="M"
+        )
+
+    mock_terminate.assert_called_once_with(synthesis_proc)
+
+
+# ------------------------------------------------------------------
+# review_attempt parameter (T-P0-31)
+# ------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+@patch("src.review_pipeline.asyncio.create_subprocess_exec")
+async def test_review_attempt_passed_to_history_writer(mock_exec: AsyncMock) -> None:
+    """review_attempt is forwarded to HistoryWriter.write_review()."""
+    mock_exec.return_value = _mock_proc(
+        _make_review_output("approve", "OK")
+    )
+
+    mock_writer = AsyncMock()
+    mock_writer.write_review = AsyncMock()
+
+    pipeline = ReviewPipeline(
+        _default_config(), threshold=0.8, history_writer=mock_writer,
+    )
+
+    await pipeline.review_task(
+        _sample_task(), "Plan", lambda c, t: None,
+        complexity="S", review_attempt=3,
+    )
+
+    mock_writer.write_review.assert_called_once()
+    kw = mock_writer.write_review.call_args.kwargs
+    assert kw["review_attempt"] == 3
+
+
+@pytest.mark.asyncio
+@patch("src.review_pipeline.asyncio.create_subprocess_exec")
+async def test_review_attempt_defaults_to_1(mock_exec: AsyncMock) -> None:
+    """review_attempt defaults to 1 when not specified."""
+    mock_exec.return_value = _mock_proc(
+        _make_review_output("approve", "OK")
+    )
+
+    mock_writer = AsyncMock()
+    mock_writer.write_review = AsyncMock()
+
+    pipeline = ReviewPipeline(
+        _default_config(), threshold=0.8, history_writer=mock_writer,
+    )
+
+    await pipeline.review_task(
+        _sample_task(), "Plan", lambda c, t: None, complexity="S",
+    )
+
+    kw = mock_writer.write_review.call_args.kwargs
+    assert kw["review_attempt"] == 1
+
+
+@pytest.mark.asyncio
+@patch("src.review_pipeline.asyncio.create_subprocess_exec")
+async def test_review_attempt_on_multi_reviewer(mock_exec: AsyncMock) -> None:
+    """review_attempt is the same for all reviewers in a single pipeline run."""
+    mock_exec.side_effect = [
+        _mock_proc(_make_review_output("approve", "OK")),
+        _mock_proc(_make_review_output("approve", "OK")),
+        _mock_proc(_make_synthesis_output(0.95, [])),
+    ]
+
+    mock_writer = AsyncMock()
+    mock_writer.write_review = AsyncMock()
+
+    pipeline = ReviewPipeline(
+        _default_config(), threshold=0.8, history_writer=mock_writer,
+    )
+
+    await pipeline.review_task(
+        _sample_task(), "Plan", lambda c, t: None,
+        complexity="M", review_attempt=2,
+    )
+
+    assert mock_writer.write_review.call_count == 2
+    for c in mock_writer.write_review.call_args_list:
+        assert c.kwargs["review_attempt"] == 2
+
+
+# ------------------------------------------------------------------
+# review_timeout_minutes config (T-P0-31)
+# ------------------------------------------------------------------
+
+
+def test_review_timeout_minutes_default() -> None:
+    """ReviewPipelineConfig defaults review_timeout_minutes to 10."""
+    config = ReviewPipelineConfig()
+    assert config.review_timeout_minutes == 10
+
+
+def test_review_timeout_minutes_custom() -> None:
+    """review_timeout_minutes can be customized."""
+    config = ReviewPipelineConfig(review_timeout_minutes=30)
+    assert config.review_timeout_minutes == 30
+
+
+def test_review_timeout_minutes_zero_disables() -> None:
+    """review_timeout_minutes=0 is valid (disables timeout)."""
+    config = ReviewPipelineConfig(review_timeout_minutes=0)
+    assert config.review_timeout_minutes == 0
+
+
+def test_review_timeout_minutes_stored_on_pipeline() -> None:
+    """ReviewPipeline stores _timeout_minutes from config."""
+    config = ReviewPipelineConfig(review_timeout_minutes=15)
+    pipeline = ReviewPipeline(config)
+    assert pipeline._timeout_minutes == 15
+
+
+# ------------------------------------------------------------------
+# _terminate_review_process / _kill_review_process helpers (T-P0-31)
+# ------------------------------------------------------------------
+
+
+def test_terminate_review_process_none_pid() -> None:
+    """_terminate_review_process is a no-op when pid is None."""
+    proc = MagicMock()
+    proc.pid = None
+    # Should not raise
+    _terminate_review_process(proc)
+
+
+def test_kill_review_process_none_pid() -> None:
+    """_kill_review_process is a no-op when pid is None."""
+    proc = MagicMock()
+    proc.pid = None
+    # Should not raise
+    _kill_review_process(proc)

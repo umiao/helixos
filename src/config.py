@@ -127,6 +127,7 @@ class ReviewPipelineConfig(BaseModel):
     """The ``review_pipeline:`` section."""
 
     reviewers: list[ReviewerConfig] = Field(default_factory=list)
+    review_timeout_minutes: int = Field(default=10, ge=0)
 
 
 class DependencyConfig(BaseModel):
