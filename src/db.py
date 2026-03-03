@@ -54,6 +54,7 @@ class TaskRow(Base):
     created_at: Mapped[str] = mapped_column(String(64), nullable=False)
     updated_at: Mapped[str] = mapped_column(String(64), nullable=False)
     completed_at: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    is_deleted: Mapped[bool] = mapped_column(default=False)
 
     __table_args__ = (
         Index("ix_tasks_status", "status"),

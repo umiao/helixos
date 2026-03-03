@@ -406,6 +406,17 @@ function App() {
     }
   }, [addToast]);
 
+  const handleTaskDeleted = useCallback(async () => {
+    // Refresh tasks after deletion
+    try {
+      const updatedTasks = await fetchTasks();
+      setTasks(updatedTasks);
+      addToast("Task deleted", "success");
+    } catch {
+      // Data will be stale but not broken
+    }
+  }, [addToast]);
+
   const soloLane = activeProjectIds.length === 1;
 
   return (
@@ -544,6 +555,7 @@ function App() {
                       setAutoEnrich(true);
                       setNewTaskProject(project);
                     }}
+                    onTaskDeleted={handleTaskDeleted}
                   />
                 </div>
               );

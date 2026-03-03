@@ -430,3 +430,10 @@
 - **Sanity check result**: 670 tests passing (up from 655). Ruff clean. All 5 bypass paths regression-tested.
 - **Status**: [DONE]
 - **Request**: Move T-P0-21 to Completed
+
+## 2026-03-02 -- [T-P0-22] Soft-delete tasks via context menu + API
+- **What I did**: Implemented full soft-delete capability. Added is_deleted column to TaskRow with auto-migration. TaskManager.delete_task() enforces: no deleting RUNNING tasks (409), no deleting tasks with active dependents (409 unless force=True). All query methods (get_task, list_tasks, get_ready_tasks, count_running_by_project, mark_running_as_failed) filter out soft-deleted tasks. DELETE /api/tasks/{task_id}?force= endpoint returns 204/404/409 (with dependents list). Frontend: deleteTask() API function, red Delete option in TaskContextMenu with confirmation dialog and force-delete flow for dependent tasks.
+- **Deliverables**: src/db.py (mod -- is_deleted column), src/task_manager.py (mod -- delete_task, get_dependents, is_deleted filtering in all queries), src/api.py (mod -- DELETE endpoint), frontend/src/api.ts (mod -- deleteTask), frontend/src/components/TaskContextMenu.tsx (mod -- Delete with confirmation), frontend/src/components/KanbanBoard.tsx (mod -- onTaskDeleted prop), frontend/src/components/SwimLane.tsx (mod -- onTaskDeleted prop), frontend/src/App.tsx (mod -- handleTaskDeleted), tests/test_soft_delete.py (new -- 22 tests)
+- **Sanity check result**: 692 tests passing (up from 670). Ruff clean. Frontend builds clean.
+- **Status**: [DONE]
+- **Request**: Move T-P0-22 to Completed

@@ -3,10 +3,11 @@
  * Renders via portal at mouse position with status-aware actions.
  */
 
-import { useCallback, useEffect, useRef } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import type { Task, TaskStatus, KanbanColumn } from "../types";
 import { STATUS_TO_COLUMN, KANBAN_COLUMNS, COLUMN_TO_STATUS } from "../types";
+import { deleteTask, ApiError } from "../api";
 
 interface TaskContextMenuProps {
   task: Task;
@@ -14,6 +15,8 @@ interface TaskContextMenuProps {
   onClose: () => void;
   onMoveTask: (taskId: string, newStatus: TaskStatus) => void;
   onSelectTask?: (task: Task) => void;
+  onTaskDeleted?: () => void;
+  onError?: (msg: string) => void;
 }
 
 const COLUMN_LABELS: Record<KanbanColumn, string> = {
@@ -30,8 +33,13 @@ export default function TaskContextMenu({
   onClose,
   onMoveTask,
   onSelectTask,
+  onTaskDeleted,
+  onError,
 }: TaskContextMenuProps) {
   const menuRef = useRef<HTMLDivElement>(null);
+  const [confirmingDelete, setConfirmingDelete] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+  const [dependents, setDependents] = useState<string[] | null>(null);
 
   // Close on click outside or Escape
   useEffect(() => {
@@ -66,7 +74,7 @@ export default function TaskContextMenu({
     if (y < 4) y = 4;
     menuRef.current.style.left = `${x}px`;
     menuRef.current.style.top = `${y}px`;
-  }, [position]);
+  }, [position, confirmingDelete]);
 
   const currentColumn = STATUS_TO_COLUMN[task.status];
 
@@ -83,8 +91,47 @@ export default function TaskContextMenu({
     onClose();
   }, [task, onSelectTask, onClose]);
 
+  const handleDeleteClick = useCallback(() => {
+    setConfirmingDelete(true);
+  }, []);
+
+  const handleDeleteConfirm = useCallback(
+    async (force: boolean = false) => {
+      setDeleting(true);
+      try {
+        await deleteTask(task.id, force);
+        onTaskDeleted?.();
+        onClose();
+      } catch (err) {
+        if (err instanceof ApiError && err.status === 409) {
+          const deps = (err as ApiError & { dependents?: string[] }).dependents;
+          if (deps && deps.length > 0) {
+            setDependents(deps);
+            setDeleting(false);
+            return;
+          }
+          onError?.(err.detail);
+        } else if (err instanceof ApiError) {
+          onError?.(err.detail);
+        } else {
+          onError?.("Failed to delete task");
+        }
+        setDeleting(false);
+      }
+    },
+    [task.id, onTaskDeleted, onClose, onError],
+  );
+
+  const handleDeleteCancel = useCallback(() => {
+    setConfirmingDelete(false);
+    setDependents(null);
+  }, []);
+
   // Build "Move to" options: all columns except current
   const moveTargets = KANBAN_COLUMNS.filter((col) => col !== currentColumn);
+
+  // Cannot delete RUNNING tasks
+  const canDelete = task.status !== "running";
 
   return createPortal(
     <div
@@ -97,44 +144,115 @@ export default function TaskContextMenu({
         {task.local_task_id}
       </div>
 
-      {/* View details */}
-      {onSelectTask && (
-        <button
-          onClick={handleViewDetails}
-          className="w-full text-left px-3 py-1.5 text-sm text-gray-700 hover:bg-gray-100 transition-colors"
-        >
-          View details
-        </button>
-      )}
-
-      {/* Separator */}
-      <div className="h-px bg-gray-100 my-0.5" />
-
-      {/* Move to options */}
-      <div className="px-3 py-1 text-xs text-gray-400 uppercase tracking-wide">
-        Move to
-      </div>
-      {moveTargets.map((col) => (
-        <button
-          key={col}
-          onClick={() => handleMove(col)}
-          className="w-full text-left px-3 py-1.5 text-sm text-gray-700 hover:bg-gray-100 transition-colors"
-        >
-          {COLUMN_LABELS[col]}
-        </button>
-      ))}
-
-      {/* Status-specific actions */}
-      {(task.status === "failed" || task.status === "blocked") && (
+      {!confirmingDelete ? (
         <>
+          {/* View details */}
+          {onSelectTask && (
+            <button
+              onClick={handleViewDetails}
+              className="w-full text-left px-3 py-1.5 text-sm text-gray-700 hover:bg-gray-100 transition-colors"
+            >
+              View details
+            </button>
+          )}
+
+          {/* Separator */}
           <div className="h-px bg-gray-100 my-0.5" />
-          <button
-            onClick={() => handleMove("QUEUED")}
-            className="w-full text-left px-3 py-1.5 text-sm text-indigo-600 hover:bg-indigo-50 transition-colors"
-          >
-            Retry (queue)
-          </button>
+
+          {/* Move to options */}
+          <div className="px-3 py-1 text-xs text-gray-400 uppercase tracking-wide">
+            Move to
+          </div>
+          {moveTargets.map((col) => (
+            <button
+              key={col}
+              onClick={() => handleMove(col)}
+              className="w-full text-left px-3 py-1.5 text-sm text-gray-700 hover:bg-gray-100 transition-colors"
+            >
+              {COLUMN_LABELS[col]}
+            </button>
+          ))}
+
+          {/* Status-specific actions */}
+          {(task.status === "failed" || task.status === "blocked") && (
+            <>
+              <div className="h-px bg-gray-100 my-0.5" />
+              <button
+                onClick={() => handleMove("QUEUED")}
+                className="w-full text-left px-3 py-1.5 text-sm text-indigo-600 hover:bg-indigo-50 transition-colors"
+              >
+                Retry (queue)
+              </button>
+            </>
+          )}
+
+          {/* Delete action */}
+          {canDelete && (
+            <>
+              <div className="h-px bg-gray-100 my-0.5" />
+              <button
+                onClick={handleDeleteClick}
+                className="w-full text-left px-3 py-1.5 text-sm text-red-600 hover:bg-red-50 transition-colors"
+              >
+                Delete
+              </button>
+            </>
+          )}
         </>
+      ) : (
+        <div className="px-3 py-2">
+          {dependents ? (
+            <>
+              <p className="text-xs text-red-600 mb-1">
+                This task has dependents:
+              </p>
+              <ul className="text-xs text-gray-600 mb-2 list-disc pl-4">
+                {dependents.map((dep) => (
+                  <li key={dep} className="font-mono">{dep}</li>
+                ))}
+              </ul>
+              <p className="text-xs text-gray-500 mb-2">
+                Force delete anyway?
+              </p>
+              <div className="flex gap-2">
+                <button
+                  onClick={() => handleDeleteConfirm(true)}
+                  disabled={deleting}
+                  className="px-2 py-1 text-xs bg-red-600 text-white rounded hover:bg-red-700 disabled:opacity-50"
+                >
+                  {deleting ? "Deleting..." : "Force delete"}
+                </button>
+                <button
+                  onClick={handleDeleteCancel}
+                  className="px-2 py-1 text-xs bg-gray-100 text-gray-600 rounded hover:bg-gray-200"
+                >
+                  Cancel
+                </button>
+              </div>
+            </>
+          ) : (
+            <>
+              <p className="text-xs text-gray-600 mb-2">
+                Delete "{task.title}"?
+              </p>
+              <div className="flex gap-2">
+                <button
+                  onClick={() => handleDeleteConfirm(false)}
+                  disabled={deleting}
+                  className="px-2 py-1 text-xs bg-red-600 text-white rounded hover:bg-red-700 disabled:opacity-50"
+                >
+                  {deleting ? "Deleting..." : "Confirm"}
+                </button>
+                <button
+                  onClick={handleDeleteCancel}
+                  className="px-2 py-1 text-xs bg-gray-100 text-gray-600 rounded hover:bg-gray-200"
+                >
+                  Cancel
+                </button>
+              </div>
+            </>
+          )}
+        </div>
       )}
     </div>,
     document.body,

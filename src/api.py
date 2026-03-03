@@ -1245,6 +1245,54 @@ async def cancel_task(task_id: str, request: Request) -> dict:
     return {"detail": "Task cancelled", "task_id": task_id}
 
 
+@api_router.delete(
+    "/api/tasks/{task_id}",
+    responses={
+        404: {"model": ErrorResponse},
+        409: {"model": ErrorResponse},
+    },
+)
+async def delete_task(
+    task_id: str,
+    request: Request,
+    force: bool = False,
+) -> JSONResponse:
+    """Soft-delete a task.
+
+    Query params:
+        force: If true, delete even if task has active dependents.
+
+    Returns 204 on success, 404 if not found, 409 if RUNNING or has
+    dependents (without force). The 409 body includes a ``dependents``
+    list when blocked by dependent tasks.
+    """
+    task_manager: TaskManager = request.app.state.task_manager
+
+    try:
+        await task_manager.delete_task(task_id, force=force)
+    except ValueError as exc:
+        msg = str(exc)
+        if "not found" in msg.lower():
+            raise HTTPException(status_code=404, detail=msg) from None
+
+        # Check if it's a dependents issue -- include the list for UI
+        if "active dependents" in msg:
+            dependents = await task_manager.get_dependents(task_id)
+            return JSONResponse(
+                status_code=409,
+                content={
+                    "detail": msg,
+                    "dependents": dependents,
+                },
+            )
+        raise HTTPException(status_code=409, detail=msg) from None
+
+    event_bus: EventBus = request.app.state.event_bus
+    event_bus.emit("task_deleted", task_id, {"task_id": task_id})
+
+    return JSONResponse(status_code=204, content=None)
+
+
 # ------------------------------------------------------------------
 # Execution log + review history endpoints
 # ------------------------------------------------------------------

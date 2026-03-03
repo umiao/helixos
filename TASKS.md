@@ -11,33 +11,6 @@
 
 ### P0 -- Must Have (core functionality)
 
-#### T-P0-22: Soft-delete tasks via context menu + API
-- **Problem**: No delete capability exists at any level.
-- **Design**:
-  - **DB** (`src/db.py`): Add `is_deleted: bool = False` column to TaskRow +
-    migration in `_migrate_missing_columns()`.
-  - **TaskManager** (`src/task_manager.py`): Add `delete_task(task_id, force=False)`:
-    - RUNNING tasks cannot be deleted (409)
-    - Tasks with active dependents cannot be deleted unless `force=True`
-    - Sets `is_deleted=True`, does NOT remove rows
-    - All query methods filter `is_deleted=False`
-  - **API** (`src/api.py`): `DELETE /api/tasks/{task_id}?force=false`:
-    - 204 on success, 404 if not found, 409 if RUNNING or has dependents (without force)
-    - 409 body includes `{"dependents": ["T-P0-X", ...]}` for UI
-  - **Frontend** (`TaskContextMenu.tsx`): Red "Delete" option with confirmation dialog.
-    If 409 with dependents, show force-delete option listing dependent tasks.
-  - **Frontend** (`api.ts`): `deleteTask(taskId, force?)` function.
-- **Files**: `src/db.py`, `src/task_manager.py`, `src/api.py`,
-  `frontend/src/components/TaskContextMenu.tsx`, `frontend/src/api.ts`
-- **Acceptance Criteria**:
-  - [ ] Right-click -> Delete -> confirm -> task disappears (soft-deleted in DB)
-  - [ ] Cannot delete RUNNING tasks (409)
-  - [ ] Deleting task with dependents shows warning, requires force confirm
-  - [ ] Soft-deleted tasks excluded from all queries and UI
-  - [ ] Execution logs and review history preserved in DB
-- **Complexity**: M
-- **Depends on**: None
-
 #### T-P0-23: Bidirectional state transitions + concurrency control
 - **Problem**: State machine is forward-only. Users can't drag tasks backwards.
   No concurrency protection.
@@ -210,7 +183,7 @@ T-P0-21 [M] Fix review gate bypass [DONE]
          |
          +--> T-P0-24 [M] Review gate UX modal
 
-T-P0-22 [M] Soft-delete tasks (no deps)
+T-P0-22 [M] Soft-delete tasks [DONE]
 
 --- P3 (new) ---
 
@@ -224,6 +197,9 @@ T-P3-12 [M] Resizable divider [DONE]
 
 ## Completed Tasks
 <!-- Move finished tasks here with [x] and completion date -->
+
+#### [x] T-P0-22: Soft-delete tasks via context menu + API -- 2026-03-02
+- is_deleted column + auto-migration, TaskManager.delete_task() with RUNNING/dependents guards, DELETE endpoint (204/404/409 with dependents list), frontend deleteTask + context menu Delete with confirmation and force-delete flow. 22 new tests, 692 total passing.
 
 #### [x] T-P0-21: Fix review gate bypass -- 5 vulnerable paths -- 2026-03-02
 - Fixed all 5 bypass paths: sync auto-promotion, execute, retry, review/decide, status endpoint. ReviewGateBlockedError returns 428 (not 409). 15 new regression tests, 670 total passing.

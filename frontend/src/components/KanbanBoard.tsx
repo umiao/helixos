@@ -99,6 +99,8 @@ interface KanbanBoardProps {
   onError?: (msg: string) => void;
   /** Called when inline creator Tab key triggers enrich-expand. */
   onEnrichExpand?: (title: string) => void;
+  /** Called after a task is successfully deleted. */
+  onTaskDeleted?: () => void;
 }
 
 const COLUMN_STYLES: Record<KanbanColumn, string> = {
@@ -251,6 +253,7 @@ export default function KanbanBoard({
   onTaskCreated,
   onError,
   onEnrichExpand,
+  onTaskDeleted,
 }: KanbanBoardProps) {
   const columns = groupByColumn(tasks);
   const [activeTask, setActiveTask] = useState<Task | null>(null);
@@ -432,6 +435,8 @@ export default function KanbanBoard({
           onClose={closeContextMenu}
           onMoveTask={onMoveTask}
           onSelectTask={onSelectTask}
+          onTaskDeleted={onTaskDeleted}
+          onError={onError}
         />
       )}
     </DndContext>

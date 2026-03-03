@@ -85,10 +85,13 @@ class TaskManager:
     # ------------------------------------------------------------------
 
     async def get_task(self, task_id: str) -> Task | None:
-        """Fetch a single task by id, or None if not found."""
+        """Fetch a single task by id, or None if not found.
+
+        Soft-deleted tasks are excluded by default.
+        """
         async with get_session(self._sf) as session:
             row = await session.get(TaskRow, task_id)
-            if row is None:
+            if row is None or row.is_deleted:
                 return None
             return Task.model_validate(task_row_to_dict(row))
 
@@ -97,9 +100,12 @@ class TaskManager:
         project_id: str | None = None,
         status: TaskStatus | None = None,
     ) -> list[Task]:
-        """List tasks with optional filtering by project and/or status."""
+        """List tasks with optional filtering by project and/or status.
+
+        Soft-deleted tasks are always excluded.
+        """
         async with get_session(self._sf) as session:
-            stmt = select(TaskRow)
+            stmt = select(TaskRow).where(TaskRow.is_deleted == False)  # noqa: E712
             if project_id is not None:
                 stmt = stmt.where(TaskRow.project_id == project_id)
             if status is not None:
@@ -132,7 +138,7 @@ class TaskManager:
         """
         async with get_session(self._sf) as session:
             row = await session.get(TaskRow, task_id)
-            if row is None:
+            if row is None or row.is_deleted:
                 raise ValueError(f"Task not found: {task_id}")
 
             current = TaskStatus(row.status)
@@ -173,11 +179,11 @@ class TaskManager:
     async def update_task(self, task: Task) -> Task:
         """Persist arbitrary field updates from a Task object.
 
-        The task must already exist in the database.
+        The task must already exist in the database (and not be soft-deleted).
         """
         async with get_session(self._sf) as session:
             row = await session.get(TaskRow, task.id)
-            if row is None:
+            if row is None or row.is_deleted:
                 raise ValueError(f"Task not found: {task.id}")
 
             data = task.model_dump(mode="json")
@@ -194,12 +200,14 @@ class TaskManager:
     async def get_ready_tasks(self, limit: int = 10) -> list[Task]:
         """Return tasks that are QUEUED, ordered by creation time.
 
+        Soft-deleted tasks are excluded.
         Caller (Scheduler) is responsible for additional dep/concurrency checks.
         """
         async with get_session(self._sf) as session:
             stmt = (
                 select(TaskRow)
                 .where(TaskRow.status == TaskStatus.QUEUED.value)
+                .where(TaskRow.is_deleted == False)  # noqa: E712
                 .order_by(TaskRow.created_at)
                 .limit(limit)
             )
@@ -214,9 +222,88 @@ class TaskManager:
                 select(TaskRow)
                 .where(TaskRow.project_id == project_id)
                 .where(TaskRow.status == TaskStatus.RUNNING.value)
+                .where(TaskRow.is_deleted == False)  # noqa: E712
             )
             result = await session.execute(stmt)
             return len(result.scalars().all())
+
+    async def delete_task(
+        self,
+        task_id: str,
+        *,
+        force: bool = False,
+    ) -> None:
+        """Soft-delete a task by setting is_deleted=True.
+
+        Raises ``ValueError`` if:
+        - Task not found (or already deleted)
+        - Task is RUNNING (cannot delete active process)
+        - Task has non-deleted dependents (unless *force* is True)
+
+        Returns the list of dependent task IDs that blocked deletion
+        (empty on success).
+        """
+        async with get_session(self._sf) as session:
+            row = await session.get(TaskRow, task_id)
+            if row is None or row.is_deleted:
+                raise ValueError(f"Task not found: {task_id}")
+
+            if row.status == TaskStatus.RUNNING.value:
+                raise ValueError(
+                    f"Cannot delete RUNNING task {task_id}. Cancel it first."
+                )
+
+            # Check for non-deleted dependents (tasks that depend on this one)
+            dep_stmt = (
+                select(TaskRow)
+                .where(TaskRow.is_deleted == False)  # noqa: E712
+                .where(TaskRow.id != task_id)
+            )
+            dep_result = await session.execute(dep_stmt)
+            all_active = dep_result.scalars().all()
+
+            dependents: list[str] = []
+            for other in all_active:
+                deps_list = (
+                    json.loads(other.depends_on_json)
+                    if other.depends_on_json
+                    else []
+                )
+                if task_id in deps_list:
+                    dependents.append(other.id)
+
+            if dependents and not force:
+                raise ValueError(
+                    f"Task {task_id} has active dependents: "
+                    + ", ".join(dependents)
+                )
+
+            now = datetime.now(UTC).isoformat()
+            row.is_deleted = True
+            row.updated_at = now
+            logger.info("Soft-deleted task %s (force=%s)", task_id, force)
+
+    async def get_dependents(self, task_id: str) -> list[str]:
+        """Return IDs of non-deleted tasks that depend on *task_id*."""
+        async with get_session(self._sf) as session:
+            stmt = (
+                select(TaskRow)
+                .where(TaskRow.is_deleted == False)  # noqa: E712
+                .where(TaskRow.id != task_id)
+            )
+            result = await session.execute(stmt)
+            all_active = result.scalars().all()
+
+            dependents: list[str] = []
+            for other in all_active:
+                deps_list = (
+                    json.loads(other.depends_on_json)
+                    if other.depends_on_json
+                    else []
+                )
+                if task_id in deps_list:
+                    dependents.append(other.id)
+            return dependents
 
     async def mark_running_as_failed(self) -> int:
         """Mark all RUNNING tasks as FAILED (startup recovery).
@@ -225,8 +312,12 @@ class TaskManager:
         """
         now = datetime.now(UTC).isoformat()
         async with get_session(self._sf) as session:
-            # First count them
-            stmt = select(TaskRow).where(TaskRow.status == TaskStatus.RUNNING.value)
+            # First count them (exclude soft-deleted)
+            stmt = (
+                select(TaskRow)
+                .where(TaskRow.status == TaskStatus.RUNNING.value)
+                .where(TaskRow.is_deleted == False)  # noqa: E712
+            )
             result = await session.execute(stmt)
             rows = result.scalars().all()
             count = len(rows)

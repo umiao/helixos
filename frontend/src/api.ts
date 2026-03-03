@@ -261,6 +261,32 @@ export async function getProcessStatus(
   return handleResponse<ProcessStatus>(res);
 }
 
+/** Soft-delete a task. Returns void on 204, throws ApiError on failure. */
+export async function deleteTask(
+  taskId: string,
+  force: boolean = false,
+): Promise<void> {
+  const params = new URLSearchParams();
+  if (force) params.set("force", "true");
+  const qs = params.toString();
+  const url = `/api/tasks/${encodeURIComponent(taskId)}${qs ? `?${qs}` : ""}`;
+  const res = await fetch(url, { method: "DELETE" });
+  if (!res.ok) {
+    let detail = `HTTP ${res.status}`;
+    let dependents: string[] | undefined;
+    try {
+      const body = await res.json();
+      if (body.detail) detail = body.detail;
+      if (body.dependents) dependents = body.dependents;
+    } catch {
+      // body not JSON
+    }
+    const err = new ApiError(res.status, detail);
+    (err as ApiError & { dependents?: string[] }).dependents = dependents;
+    throw err;
+  }
+}
+
 /** Fetch paginated execution logs for a task. */
 export async function fetchExecutionLogs(
   taskId: string,
