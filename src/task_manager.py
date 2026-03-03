@@ -1,7 +1,8 @@
 """TaskManager -- CRUD operations and state machine for tasks.
 
 Implements the task lifecycle from PRD Section 5.3 with valid state
-transitions enforced by ``update_status``.
+transitions enforced by ``update_status``.  Supports bidirectional
+transitions (backward drags) and optimistic concurrency control.
 """
 
 from __future__ import annotations
@@ -32,8 +33,23 @@ class ReviewGateBlockedError(Exception):
         super().__init__(message)
 
 
+class OptimisticLockError(Exception):
+    """Raised when ``expected_updated_at`` does not match the DB row.
+
+    Signals a concurrent edit conflict (HTTP 409 with ``conflict=true``).
+    """
+
+    def __init__(self, task_id: str) -> None:
+        """Initialize with the conflicting *task_id*."""
+        self.task_id = task_id
+        super().__init__(
+            f"Task {task_id} was just updated by another request. "
+            "Please refresh and try again."
+        )
+
+
 # ---------------------------------------------------------------------------
-# Valid state transitions per PRD Section 5.3
+# Valid state transitions (bidirectional)
 # ---------------------------------------------------------------------------
 
 VALID_TRANSITIONS: dict[TaskStatus, set[TaskStatus]] = {
@@ -41,15 +57,50 @@ VALID_TRANSITIONS: dict[TaskStatus, set[TaskStatus]] = {
     TaskStatus.REVIEW: {
         TaskStatus.REVIEW_AUTO_APPROVED,
         TaskStatus.REVIEW_NEEDS_HUMAN,
+        TaskStatus.BACKLOG,
     },
-    TaskStatus.REVIEW_AUTO_APPROVED: {TaskStatus.QUEUED},
+    TaskStatus.REVIEW_AUTO_APPROVED: {TaskStatus.QUEUED, TaskStatus.BACKLOG},
     TaskStatus.REVIEW_NEEDS_HUMAN: {TaskStatus.QUEUED, TaskStatus.BACKLOG},
-    TaskStatus.QUEUED: {TaskStatus.RUNNING, TaskStatus.BLOCKED},
+    TaskStatus.QUEUED: {
+        TaskStatus.RUNNING,
+        TaskStatus.BLOCKED,
+        TaskStatus.BACKLOG,
+        TaskStatus.REVIEW,
+    },
     TaskStatus.RUNNING: {TaskStatus.DONE, TaskStatus.FAILED},
-    TaskStatus.FAILED: {TaskStatus.QUEUED, TaskStatus.BLOCKED},
-    TaskStatus.DONE: set(),
+    TaskStatus.FAILED: {TaskStatus.QUEUED, TaskStatus.BLOCKED, TaskStatus.BACKLOG},
+    TaskStatus.DONE: {TaskStatus.BACKLOG, TaskStatus.QUEUED},
     TaskStatus.BLOCKED: {TaskStatus.QUEUED, TaskStatus.BACKLOG},
 }
+
+
+def _build_transition_error(
+    current: TaskStatus,
+    target: TaskStatus,
+    task_id: str,
+) -> str:
+    """Return a user-friendly error message for an invalid transition."""
+    valid = VALID_TRANSITIONS.get(current, set())
+
+    # Trying to move from RUNNING to anything except DONE/FAILED
+    if current == TaskStatus.RUNNING:
+        return (
+            f"Task {task_id} is currently running. "
+            "Wait for it to finish or cancel it first."
+        )
+
+    # Has valid targets but this one isn't among them
+    if valid:
+        names = sorted(s.value for s in valid)
+        return (
+            f"Cannot move task {task_id} from {current.value} to "
+            f"{target.value}. Valid targets: {', '.join(names)}."
+        )
+
+    return (
+        f"Invalid transition: {current.value} -> {target.value} "
+        f"for task {task_id}"
+    )
 
 
 class TaskManager:
@@ -126,15 +177,25 @@ class TaskManager:
         new_status: TaskStatus,
         *,
         review_gate_enabled: bool = False,
+        reason: str = "",
+        expected_updated_at: str | None = None,
     ) -> Task:
         """Transition a task to *new_status*, enforcing the state machine.
 
         When *review_gate_enabled* is True, BACKLOG -> QUEUED is blocked;
         the task must go through REVIEW first (Layer 1 review gate).
 
+        *reason* is an optional human-supplied note for backward transitions
+        (logged but not persisted on the task itself).
+
+        *expected_updated_at* enables optimistic concurrency control.  If
+        provided, the row's ``updated_at`` must match exactly; otherwise
+        ``OptimisticLockError`` is raised (HTTP 409 with ``conflict=true``).
+
         Raises ``ValueError`` on illegal transitions or missing tasks.
         Raises ``ReviewGateBlockedError`` when the review gate blocks
         the transition (callers should return HTTP 428).
+        Raises ``OptimisticLockError`` on concurrent-edit conflict.
         """
         async with get_session(self._sf) as session:
             row = await session.get(TaskRow, task_id)
@@ -144,9 +205,16 @@ class TaskManager:
             current = TaskStatus(row.status)
             if new_status not in VALID_TRANSITIONS.get(current, set()):
                 raise ValueError(
-                    f"Invalid transition: {current.value} -> {new_status.value} "
-                    f"for task {task_id}"
+                    _build_transition_error(current, new_status, task_id)
                 )
+
+            # Optimistic concurrency check -- normalize timezone suffix
+            # (Pydantic uses "Z", Python isoformat uses "+00:00")
+            if expected_updated_at is not None:
+                db_val = row.updated_at.replace("+00:00", "Z")
+                exp_val = expected_updated_at.replace("+00:00", "Z")
+                if db_val != exp_val:
+                    raise OptimisticLockError(task_id)
 
             # Layer 1: review gate blocks BACKLOG -> QUEUED
             if (
@@ -174,7 +242,50 @@ class TaskManager:
                 )
                 row.execution_json = exec_state.model_dump_json()
 
+            # Timestamp cleanup on backward transitions
+            self._cleanup_on_backward(row, current, new_status)
+
+            if reason:
+                logger.info(
+                    "Transition %s: %s -> %s (reason: %s)",
+                    task_id, current.value, new_status.value, reason,
+                )
+
             return Task.model_validate(task_row_to_dict(row))
+
+    @staticmethod
+    def _cleanup_on_backward(
+        row: TaskRow,
+        current: TaskStatus,
+        target: TaskStatus,
+    ) -> None:
+        """Reset timestamp/state fields per the backward-transition cleanup matrix."""
+        # * -> BACKLOG: clear started_at, completed_at, execution_state, error_summary
+        if target == TaskStatus.BACKLOG:
+            row.completed_at = None
+            if row.execution_json:
+                exec_data = json.loads(row.execution_json)
+                exec_data.pop("started_at", None)
+                exec_data.pop("error_summary", None)
+                exec_data.pop("error_type", None)
+                row.execution_json = json.dumps(exec_data) if exec_data else None
+            # If no execution data remains meaningful, clear it
+            if row.execution_json:
+                exec_data = json.loads(row.execution_json)
+                # Clear the whole execution state for clean slate
+                row.execution_json = None
+
+        # DONE -> QUEUED: clear completed_at, execution_state
+        elif current == TaskStatus.DONE and target == TaskStatus.QUEUED:
+            row.completed_at = None
+            row.execution_json = None
+
+        # FAILED -> QUEUED: clear error_summary, execution_state
+        elif current == TaskStatus.FAILED and target == TaskStatus.QUEUED:
+            row.execution_json = None
+
+        # QUEUED -> REVIEW: no cleanup needed (just status change)
+        # QUEUED -> BACKLOG is handled by the * -> BACKLOG rule above
 
     async def update_task(self, task: Task) -> Task:
         """Persist arbitrary field updates from a Task object.

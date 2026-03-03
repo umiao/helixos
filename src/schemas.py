@@ -101,9 +101,18 @@ class ExecutionStateResponse(BaseModel):
 
 
 class StatusTransitionRequest(BaseModel):
-    """Request to transition a task to a new status."""
+    """Request to transition a task to a new status.
+
+    Optional fields support backward transitions and optimistic locking:
+    - *reason*: human note for why the task is being moved backwards.
+    - *expected_updated_at*: if provided, the server checks the task's
+      ``updated_at`` matches before applying.  On mismatch the server
+      returns 409 with ``{"conflict": true}``.
+    """
 
     status: TaskStatus
+    reason: str = ""
+    expected_updated_at: str | None = None
 
 
 class ReviewDecisionRequest(BaseModel):

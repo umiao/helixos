@@ -64,7 +64,7 @@ from src.schemas import (
 )
 from src.subprocess_registry import SubprocessRegistry
 from src.sync.tasks_parser import sync_project_tasks
-from src.task_manager import ReviewGateBlockedError, TaskManager
+from src.task_manager import OptimisticLockError, ReviewGateBlockedError, TaskManager
 from src.tasks_writer import NewTask, TasksWriter
 
 logger = logging.getLogger(__name__)
@@ -971,7 +971,11 @@ async def update_task_status(
     body: StatusTransitionRequest,
     request: Request,
 ) -> TaskResponse:
-    """Transition a task to a new status (validates state machine)."""
+    """Transition a task to a new status (validates state machine).
+
+    Supports bidirectional transitions (backward drags) with optional
+    *reason* and optimistic concurrency via *expected_updated_at*.
+    """
     task_manager: TaskManager = request.app.state.task_manager
     scheduler: Scheduler = request.app.state.scheduler
 
@@ -986,6 +990,8 @@ async def update_task_status(
         updated = await task_manager.update_status(
             task_id, body.status,
             review_gate_enabled=gate_enabled,
+            reason=body.reason,
+            expected_updated_at=body.expected_updated_at,
         )
     except ReviewGateBlockedError as exc:
         return JSONResponse(
@@ -993,6 +999,15 @@ async def update_task_status(
             content={
                 "detail": str(exc),
                 "gate_action": "review_required",
+                "task_id": task_id,
+            },
+        )
+    except OptimisticLockError:
+        return JSONResponse(
+            status_code=409,
+            content={
+                "detail": "Task was just updated by another request. Refreshing...",
+                "conflict": True,
                 "task_id": task_id,
             },
         )

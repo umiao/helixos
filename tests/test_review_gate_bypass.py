@@ -504,5 +504,5 @@ class TestReviewGateBlockedError:
         tm = TaskManager(test_session_factory)
         await tm.create_task(_make_task())
 
-        with pytest.raises(ValueError, match="Invalid transition"):
+        with pytest.raises(ValueError, match="Cannot move"):
             await tm.update_status("proj-a:T-P0-1", TaskStatus.DONE)

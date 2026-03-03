@@ -92,7 +92,7 @@ import SkeletonCard from "./SkeletonCard";
 interface KanbanBoardProps {
   tasks: Task[];
   loading: boolean;
-  onMoveTask: (taskId: string, newStatus: TaskStatus) => void;
+  onMoveTask: (taskId: string, newStatus: TaskStatus, opts?: { reason?: string }) => void;
   onSelectTask?: (task: Task) => void;
   projectId?: string;
   onTaskCreated?: () => void;
@@ -102,6 +102,15 @@ interface KanbanBoardProps {
   /** Called after a task is successfully deleted. */
   onTaskDeleted?: () => void;
 }
+
+/** Column index for detecting backward drags. */
+const COLUMN_ORDER: Record<KanbanColumn, number> = {
+  BACKLOG: 0,
+  REVIEW: 1,
+  QUEUED: 2,
+  RUNNING: 3,
+  DONE: 4,
+};
 
 const COLUMN_STYLES: Record<KanbanColumn, string> = {
   BACKLOG: "border-t-gray-400",
@@ -323,7 +332,19 @@ export default function KanbanBoard({
     if (currentColumn === targetColumn) return;
 
     const newStatus = COLUMN_TO_STATUS[targetColumn];
-    onMoveTask(taskId, newStatus);
+
+    // Detect backward drag and prompt for optional reason
+    const isBackward = COLUMN_ORDER[targetColumn] < COLUMN_ORDER[currentColumn];
+    if (isBackward) {
+      const reason = window.prompt(
+        `Moving "${task.title}" back to ${targetColumn}.\nReason (optional):`,
+      );
+      // null = user cancelled the prompt
+      if (reason === null) return;
+      onMoveTask(taskId, newStatus, { reason });
+    } else {
+      onMoveTask(taskId, newStatus);
+    }
   }
 
   return (

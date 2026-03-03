@@ -12,7 +12,7 @@ interface SwimLaneProps {
   project: Project;
   tasks: Task[];
   loading: boolean;
-  onMoveTask: (taskId: string, newStatus: TaskStatus) => void;
+  onMoveTask: (taskId: string, newStatus: TaskStatus, opts?: { reason?: string }) => void;
   onSelectTask?: (task: Task) => void;
   /** Whether this is the only swim lane (takes full height). */
   solo: boolean;

@@ -11,52 +11,6 @@
 
 ### P0 -- Must Have (core functionality)
 
-#### T-P0-23: Bidirectional state transitions + concurrency control
-- **Problem**: State machine is forward-only. Users can't drag tasks backwards.
-  No concurrency protection.
-- **Design -- Relaxed transitions**:
-  ```python
-  VALID_TRANSITIONS = {
-      BACKLOG:              {REVIEW, QUEUED},
-      REVIEW:               {REVIEW_AUTO_APPROVED, REVIEW_NEEDS_HUMAN, BACKLOG},
-      REVIEW_AUTO_APPROVED: {QUEUED, BACKLOG},
-      REVIEW_NEEDS_HUMAN:   {QUEUED, BACKLOG},
-      QUEUED:               {RUNNING, BLOCKED, BACKLOG, REVIEW},
-      RUNNING:              {DONE, FAILED},            # strict -- active process
-      FAILED:               {QUEUED, BLOCKED, BACKLOG},
-      DONE:                 {BACKLOG, QUEUED},          # reopen
-      BLOCKED:              {QUEUED, BACKLOG},
-  }
-  ```
-- **Timestamp cleanup matrix** (on backward transitions):
-  - `* -> BACKLOG`: clear started_at, completed_at, execution_state, error_summary
-  - `DONE -> QUEUED`: clear completed_at, execution_state
-  - `FAILED -> QUEUED`: clear error_summary, execution_state
-  - `FAILED -> BACKLOG`: clear started_at, completed_at, error_summary, execution_state
-  - `QUEUED -> REVIEW`: none (just status change)
-  - `QUEUED -> BACKLOG`: clear started_at (if set)
-- **Reason field**: Optional `reason: str` on `StatusTransitionRequest`. Written to
-  event log on backward transitions. Frontend shows text input when dragging backwards.
-- **Concurrency control**: `updated_at` optimistic locking:
-  - `StatusTransitionRequest` gets optional `expected_updated_at: datetime`
-  - `update_status()` checks match, returns 409 with `{"conflict": true}` on mismatch
-  - Frontend sends `updated_at` with every transition request
-- **User-friendly error messages**:
-  - Invalid forward skip: "Tasks cannot skip stages. Move to [valid next] first."
-  - Drag from RUNNING: "This task is currently running. Cancel it first."
-  - Optimistic lock conflict: "Task was just updated. Refreshing..."
-- **Files**: `src/task_manager.py`, `src/schemas.py`, `src/api.py`, `src/db.py`,
-  `frontend/src/components/KanbanBoard.tsx`, `frontend/src/api.ts`, `frontend/src/types.ts`
-- **Acceptance Criteria**:
-  - [ ] All backward drags in the transition table work
-  - [ ] RUNNING -> anywhere (except DONE/FAILED) blocked with clear message
-  - [ ] DONE -> BACKLOG/QUEUED works, resets fields per matrix
-  - [ ] Backward transitions log optional reason to event log
-  - [ ] Concurrent edits detected via updated_at, second writer gets 409 + auto-refresh
-  - [ ] Existing forward transitions unchanged
-- **Complexity**: L
-- **Depends on**: T-P0-21 (gate fix must land first so gate-aware transitions work)
-
 #### T-P0-24: Review gate UX -- edit modal + preview before review submission
 - **Problem**: Gate ON provides zero user guidance. No edit form, no preview.
 - **Design**:
@@ -197,6 +151,9 @@ T-P3-12 [M] Resizable divider [DONE]
 
 ## Completed Tasks
 <!-- Move finished tasks here with [x] and completion date -->
+
+#### [x] T-P0-23: Bidirectional state transitions + concurrency control -- 2026-03-03
+- Bidirectional VALID_TRANSITIONS (backward drags: REVIEW->BACKLOG, QUEUED->BACKLOG/REVIEW, DONE->BACKLOG/QUEUED, FAILED->BACKLOG). RUNNING stays strict (DONE/FAILED only). Timestamp cleanup matrix clears completed_at/execution_state on backward moves. OptimisticLockError with updated_at comparison (Z/+00:00 normalized). StatusTransitionRequest gains reason + expected_updated_at. API returns 409 with conflict=true on lock mismatch. Frontend: KanbanBoard backward-drag prompt, App.tsx sends expected_updated_at, auto-refresh on conflict. 52 new tests, 744 total passing.
 
 #### [x] T-P0-22: Soft-delete tasks via context menu + API -- 2026-03-02
 - is_deleted column + auto-migration, TaskManager.delete_task() with RUNNING/dependents guards, DELETE endpoint (204/404/409 with dependents list), frontend deleteTask + context menu Delete with confirmation and force-delete flow. 22 new tests, 692 total passing.

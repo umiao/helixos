@@ -74,19 +74,41 @@ export async function fetchTask(taskId: string): Promise<Task> {
   return handleResponse<Task>(res);
 }
 
-/** Update a task's status via PATCH. Returns the updated task. */
+/** Update a task's status via PATCH. Returns the updated task.
+ *  Supports optional reason (for backward transitions) and
+ *  expected_updated_at (optimistic locking). */
 export async function updateTaskStatus(
   taskId: string,
   status: TaskStatus,
+  opts?: { reason?: string; expected_updated_at?: string },
 ): Promise<Task> {
+  const payload: Record<string, unknown> = { status };
+  if (opts?.reason) payload.reason = opts.reason;
+  if (opts?.expected_updated_at) payload.expected_updated_at = opts.expected_updated_at;
+
   const res = await fetch(
     `/api/tasks/${encodeURIComponent(taskId)}/status`,
     {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ status }),
+      body: JSON.stringify(payload),
     },
   );
+
+  // Handle conflict response (optimistic lock failure)
+  if (res.status === 409) {
+    let detail = "Conflict";
+    let conflict = false;
+    try {
+      const body = await res.json();
+      if (body.detail) detail = body.detail;
+      if (body.conflict) conflict = body.conflict;
+    } catch { /* ignore */ }
+    const err = new ApiError(409, detail);
+    (err as ApiError & { conflict?: boolean }).conflict = conflict;
+    throw err;
+  }
+
   return handleResponse<Task>(res);
 }
 

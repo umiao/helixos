@@ -324,14 +324,25 @@ function App() {
     [addToast],
   );
 
-  const handleMoveTask = async (taskId: string, newStatus: TaskStatus) => {
+  const handleMoveTask = async (
+    taskId: string,
+    newStatus: TaskStatus,
+    opts?: { reason?: string },
+  ) => {
+    // Find the task to get its updated_at for optimistic locking
+    const task = tasksRef.current.find((t) => t.id === taskId);
+    const expectedUpdatedAt = task?.updated_at;
+
     // Optimistic update: move card immediately
     setTasks((prev) =>
       prev.map((t) => (t.id === taskId ? { ...t, status: newStatus } : t)),
     );
 
     try {
-      const updated = await updateTaskStatus(taskId, newStatus);
+      const updated = await updateTaskStatus(taskId, newStatus, {
+        reason: opts?.reason,
+        expected_updated_at: expectedUpdatedAt,
+      });
       // Replace with server response to ensure consistency
       setTasks((prev) => prev.map((t) => (t.id === taskId ? updated : t)));
     } catch (err) {
@@ -342,11 +353,28 @@ function App() {
           prev.map((t) => (t.id === taskId ? original : t)),
         );
       }
-      const msg =
-        err instanceof ApiError
-          ? `Invalid transition: ${err.detail}`
-          : "Failed to update task";
-      addToast(msg, "error");
+
+      if (err instanceof ApiError) {
+        const conflict = (err as ApiError & { conflict?: boolean }).conflict;
+        if (conflict) {
+          // Optimistic lock conflict: auto-refresh the task
+          addToast("Task was just updated. Refreshing...", "error");
+          try {
+            const refreshed = await fetchTask(taskId);
+            setTasks((prev) =>
+              prev.map((t) => (t.id === taskId ? refreshed : t)),
+            );
+          } catch {
+            // Fallback: full refresh
+            const updatedTasks = await fetchTasks();
+            setTasks(updatedTasks);
+          }
+        } else {
+          addToast(err.detail, "error");
+        }
+      } else {
+        addToast("Failed to update task", "error");
+      }
     }
   };
 

@@ -437,3 +437,10 @@
 - **Sanity check result**: 692 tests passing (up from 670). Ruff clean. Frontend builds clean.
 - **Status**: [DONE]
 - **Request**: Move T-P0-22 to Completed
+
+## 2026-03-03 -- [T-P0-23] Bidirectional state transitions + concurrency control
+- **What I did**: Implemented full bidirectional state machine. Updated VALID_TRANSITIONS to allow backward drags (REVIEW->BACKLOG, QUEUED->BACKLOG/REVIEW, DONE->BACKLOG/QUEUED, FAILED->BACKLOG). RUNNING remains strict (DONE/FAILED only) with clear error messages. Added timestamp cleanup matrix (_cleanup_on_backward) that clears completed_at and execution_json on backward transitions. Added OptimisticLockError with updated_at comparison (normalizes Z vs +00:00). StatusTransitionRequest now accepts optional reason and expected_updated_at fields. API returns 409 with conflict=true on optimistic lock mismatch. Frontend: KanbanBoard detects backward drags and shows prompt for reason, App.tsx sends expected_updated_at with every transition, auto-refreshes task on conflict. Updated 3 existing tests for new error message format and transition table.
+- **Deliverables**: src/task_manager.py (mod -- VALID_TRANSITIONS, OptimisticLockError, _build_transition_error, _cleanup_on_backward, update_status with reason/expected_updated_at), src/schemas.py (mod -- reason + expected_updated_at on StatusTransitionRequest), src/api.py (mod -- OptimisticLockError import, 409 conflict response), frontend/src/api.ts (mod -- updateTaskStatus with opts), frontend/src/App.tsx (mod -- handleMoveTask with reason/conflict handling), frontend/src/components/KanbanBoard.tsx (mod -- backward drag detection + prompt), frontend/src/components/SwimLane.tsx (mod -- onMoveTask type), frontend/src/components/TaskContextMenu.tsx (mod -- onMoveTask type), tests/test_bidirectional_transitions.py (new -- 52 tests), tests/test_task_manager.py (mod -- 3 tests updated), tests/test_api.py (mod -- 1 test updated), tests/test_review_gate_bypass.py (mod -- 1 test updated)
+- **Sanity check result**: 744 tests passing (up from 692). Ruff clean. Frontend builds clean.
+- **Status**: [DONE]
+- **Request**: Move T-P0-23 to Completed

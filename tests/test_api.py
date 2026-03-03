@@ -481,11 +481,15 @@ class TestForceExecute:
     async def test_force_execute_invalid_state(
         self, client: AsyncClient, task_manager: TaskManager,
     ):
-        """Should return 409 for tasks that cannot transition to QUEUED."""
+        """Should return 409 for tasks that cannot transition to QUEUED.
+
+        RUNNING is the only status that truly cannot move to QUEUED
+        (DONE -> QUEUED is valid since bidirectional transitions).
+        """
         task = _make_task(
             task_id="proj-a:T-P0-4",
             local_task_id="T-P0-4",
-            status=TaskStatus.DONE,
+            status=TaskStatus.RUNNING,
         )
         await task_manager.create_task(task)
 

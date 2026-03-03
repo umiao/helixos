@@ -196,28 +196,28 @@ class TestStateMachine:
         """BACKLOG -> RUNNING is NOT valid (must go through QUEUED)."""
         tm = TaskManager(session_factory)
         await tm.create_task(_make_task())
-        with pytest.raises(ValueError, match="Invalid transition"):
+        with pytest.raises(ValueError, match="Cannot move"):
             await tm.update_status("P0:T-P0-1", TaskStatus.RUNNING)
 
-    async def test_done_to_anything_invalid(self, session_factory) -> None:
-        """DONE is a terminal state -- no transitions allowed."""
+    async def test_done_to_running_invalid(self, session_factory) -> None:
+        """DONE -> RUNNING is NOT valid (must go through QUEUED first)."""
         tm = TaskManager(session_factory)
         await tm.create_task(_make_task(status=TaskStatus.DONE))
-        with pytest.raises(ValueError, match="Invalid transition"):
-            await tm.update_status("P0:T-P0-1", TaskStatus.QUEUED)
+        with pytest.raises(ValueError, match="Cannot move"):
+            await tm.update_status("P0:T-P0-1", TaskStatus.RUNNING)
 
     async def test_queued_to_done_invalid(self, session_factory) -> None:
         """QUEUED -> DONE is NOT valid (must go through RUNNING)."""
         tm = TaskManager(session_factory)
         await tm.create_task(_make_task(status=TaskStatus.QUEUED))
-        with pytest.raises(ValueError, match="Invalid transition"):
+        with pytest.raises(ValueError, match="Cannot move"):
             await tm.update_status("P0:T-P0-1", TaskStatus.DONE)
 
     async def test_running_to_backlog_invalid(self, session_factory) -> None:
         """RUNNING -> BACKLOG is NOT valid."""
         tm = TaskManager(session_factory)
         await tm.create_task(_make_task(status=TaskStatus.RUNNING))
-        with pytest.raises(ValueError, match="Invalid transition"):
+        with pytest.raises(ValueError, match="currently running"):
             await tm.update_status("P0:T-P0-1", TaskStatus.BACKLOG)
 
     async def test_update_nonexistent_raises(self, session_factory) -> None:
@@ -375,6 +375,8 @@ class TestTransitionMap:
         for status in TaskStatus:
             assert status in VALID_TRANSITIONS, f"Missing entry for {status}"
 
-    def test_done_is_terminal(self) -> None:
-        """DONE should have no outgoing transitions."""
-        assert VALID_TRANSITIONS[TaskStatus.DONE] == set()
+    def test_done_allows_reopen(self) -> None:
+        """DONE allows transitions to BACKLOG and QUEUED (reopen)."""
+        assert VALID_TRANSITIONS[TaskStatus.DONE] == {
+            TaskStatus.BACKLOG, TaskStatus.QUEUED,
+        }

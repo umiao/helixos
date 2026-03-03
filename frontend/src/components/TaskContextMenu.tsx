@@ -13,7 +13,7 @@ interface TaskContextMenuProps {
   task: Task;
   position: { x: number; y: number };
   onClose: () => void;
-  onMoveTask: (taskId: string, newStatus: TaskStatus) => void;
+  onMoveTask: (taskId: string, newStatus: TaskStatus, opts?: { reason?: string }) => void;
   onSelectTask?: (task: Task) => void;
   onTaskDeleted?: () => void;
   onError?: (msg: string) => void;
