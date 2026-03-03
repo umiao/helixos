@@ -165,6 +165,7 @@ The env loader injects only the keys listed in each project's `env_keys` field.
 
 Start the backend and frontend dev servers separately:
 
+**Linux / macOS (bash):**
 ```bash
 # Terminal 1: Backend API server
 uvicorn src.api:app --host 127.0.0.1 --port 8000 --reload
@@ -173,6 +174,21 @@ uvicorn src.api:app --host 127.0.0.1 --port 8000 --reload
 cd frontend
 npm run dev
 ```
+
+**Windows (PowerShell):**
+```powershell
+# Terminal 1: Backend API server (--loop none required on Windows)
+uvicorn src.api:app --host 127.0.0.1 --port 8000 --reload --loop none
+
+# Terminal 2: Frontend dev server (with proxy to backend)
+cd frontend
+npm run dev
+```
+
+> **Windows note**: The `--loop none` flag is required on Windows when using
+> `--reload`. Without it, uvicorn forces SelectorEventLoop which does not
+> support `asyncio.create_subprocess_exec()`, causing `NotImplementedError`
+> when the review pipeline or code executor runs.
 
 - Backend API: http://localhost:8000
 - Frontend dev server: http://localhost:5173 (proxied API calls to :8000)
@@ -399,6 +415,24 @@ pip install -r requirements.txt
 # Use a different port
 uvicorn src.api:app --port 8001
 ```
+
+### NotImplementedError on Windows with --reload
+
+If you see `NotImplementedError` when the server tries to run subprocess
+commands (review pipeline or code executor), the event loop is wrong.
+
+**Cause**: uvicorn with `--reload` forces `SelectorEventLoop` on Windows,
+which does not support `asyncio.create_subprocess_exec()`.
+
+**Fix**: Add `--loop none` to the uvicorn command:
+
+```powershell
+uvicorn src.api:app --host 127.0.0.1 --port 8000 --reload --loop none
+```
+
+Or use `scripts/start.ps1` which includes this flag automatically.
+
+This is a dev-only issue. Production mode (without `--reload`) is unaffected.
 
 ### Claude CLI not found
 

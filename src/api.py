@@ -68,7 +68,11 @@ from src.tasks_writer import NewTask, TasksWriter
 
 logger = logging.getLogger(__name__)
 
-# Windows: ProactorEventLoop required for asyncio.create_subprocess_exec
+# Defense-in-depth: set ProactorEventLoop on Windows for subprocess support.
+# When running under uvicorn with --reload, uvicorn's setup_event_loop()
+# overrides this policy BEFORE importing our module (sets SelectorEventLoop).
+# The real fix is --loop none in the uvicorn command (see start.ps1).
+# This policy still protects non-uvicorn usage (pytest, direct import).
 if sys.platform == "win32":
     asyncio.set_event_loop_policy(asyncio.WindowsProactorEventLoopPolicy())
 
@@ -232,7 +236,14 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
                 "Claude CLI exited with code %d -- review pipeline disabled",
                 proc.returncode,
             )
-    except (FileNotFoundError, NotImplementedError, OSError):
+    except NotImplementedError:
+        logger.warning(
+            "asyncio.create_subprocess_exec raised NotImplementedError -- "
+            "this typically means uvicorn is using SelectorEventLoop on Windows. "
+            "Add --loop none to the uvicorn command to fix this. "
+            "Review pipeline disabled."
+        )
+    except (FileNotFoundError, OSError):
         logger.warning(
             "Claude CLI not found in PATH -- review pipeline disabled"
         )

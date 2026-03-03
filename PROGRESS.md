@@ -370,3 +370,10 @@
 - **Sanity check result**: Design doc reviewed for accuracy against source code. TASKS.md structure valid.
 - **Status**: [DONE]
 - **Request**: Move T-P0-17 to Completed (REMOVE spec block from Active, ADD summary line to Completed Tasks)
+
+## 2026-03-02 21:00 -- [T-P0-19] Fix asyncio NotImplementedError on Windows with --reload
+- **What I did**: Added `--loop none` to uvicorn command in scripts/start.ps1 to prevent uvicorn from forcing SelectorEventLoop on Windows with --reload. Split the except clause in src/api.py lifespan to distinguish NotImplementedError (wrong event loop, suggests --loop none fix) from FileNotFoundError (missing Claude CLI). Added defense-in-depth comment explaining why the ProactorEventLoopPolicy at module level is kept. Updated QUICKSTART.md with Windows-specific dev mode instructions and new troubleshooting section for the asyncio issue.
+- **Deliverables**: scripts/start.ps1 (mod), src/api.py (mod), QUICKSTART.md (mod), tests/test_windows_asyncio.py (mod -- 4 tests, up from 2)
+- **Sanity check result**: pytest 619/619 passed. ruff check clean.
+- **Status**: [DONE]
+- **Request**: Move T-P0-19 to Completed (REMOVE spec block from Active, ADD summary line to Completed Tasks)

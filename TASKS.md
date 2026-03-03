@@ -24,15 +24,6 @@
   SwimLaneHeader toggle; 10+ tests.
 - **Design doc**: docs/design/review-gate-asyncio-divider.md (Issue 1)
 
-#### T-P0-19: Fix asyncio NotImplementedError on Windows with --reload
-- **Complexity**: S | **Depends on**: None
-- Add `--loop none` to uvicorn command in start.ps1. Split
-  NotImplementedError/FileNotFoundError logging in lifespan. Keep
-  src/api.py:72-73 ProactorEventLoopPolicy as defense-in-depth comment.
-- **AC**: subprocess works on Windows with --reload; accurate error log
-  distinguishing missing CLI from wrong event loop; QUICKSTART.md updated; 3+ tests.
-- **Design doc**: docs/design/review-gate-asyncio-divider.md (Issue 2)
-
 ### P1 -- Should Have (important features)
 <!-- All 7 P1 tasks completed. See Completed Tasks below. -->
 
@@ -127,7 +118,7 @@ T-P2-6 [M] Frontend Swim Lanes [DONE] ------------------+
 --- P0 (new) ---
 
 T-P0-18 [M] Review gate (no deps)
-T-P0-19 [S] asyncio fix (no deps)
+T-P0-19 [S] asyncio fix [DONE]
 
 --- P3 (new) ---
 
@@ -279,3 +270,6 @@ T-P3-12 [M] Resizable divider (no deps)
 
 #### [x] T-P0-17: Design analysis -- evaluate achievements and future directions -- 2026-03-02
 - Root cause analysis of three issues (missing review gate, asyncio Windows crash, fixed bottom panel). Design document at docs/design/review-gate-asyncio-divider.md. Added T-P0-18 (review gate), T-P0-19 (asyncio fix), T-P3-12 (resizable divider) to TASKS.md.
+
+#### [x] T-P0-19: Fix asyncio NotImplementedError on Windows with --reload -- 2026-03-02
+- Added --loop none to start.ps1 uvicorn command. Split error logging in api.py lifespan (NotImplementedError vs FileNotFoundError with distinct messages). Defense-in-depth comment on ProactorEventLoopPolicy. QUICKSTART.md updated with Windows dev instructions and troubleshooting. 4 tests, 619 total passing.
