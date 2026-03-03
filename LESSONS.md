@@ -71,3 +71,9 @@
   - Root cause: uvicorn CLI does `sys.path.insert(0, ".")` in its main(), but `uvicorn.run()` does NOT. When running `python scripts/run_server.py`, Python puts `scripts/` on sys.path[0], not the project root. So `import src` fails.
   - Fix: Add `sys.path.insert(0, project_root)` in run_server.py before calling uvicorn.run(). Add a smoke test that verifies `src` is importable after main() runs.
   - Rule: When writing a launcher script, always include at least one smoke test that exercises the real import path (e.g. `importlib.util.find_spec("src") is not None`). Mock tests verify kwargs but not environment setup.
+
+  11. "Tests pass" != "it works" -- verify what you ship
+  - 650 mock tests passed but `python scripts/run_server.py` crashed on real invocation. DB schema crash (missing review_gate_enabled column) was dismissed as "unrelated" during a dry run that showed a full traceback.
+  - Rule: if the dry run shows ANY crash, it is a bug -- not "unrelated." Fix it or explicitly document it as a known issue requiring user action.
+  - Rule: for scripts/services, always run the actual code once and confirm it reaches its expected ready state (e.g. "Application startup complete"). Mock tests verify implementation; real tests verify environment.
+  - Rule: SQLAlchemy create_all() only creates missing TABLES, not missing COLUMNS. Any column added to an existing model needs a migration path (see _migrate_missing_columns in db.py).

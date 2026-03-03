@@ -410,3 +410,9 @@
 - **Sanity check result**: pytest 650/650 passed. ruff check clean. Manual test: server starts without ModuleNotFoundError.
 - **Status**: [DONE]
 - **Request**: No TASKS.md change needed (T-P0-20 already updated with followup note)
+## 2026-03-03 01:00 -- [T-P0-20-followup-3] Fix stale DB crash + real smoke tests + best practices
+- **What I did**: Fixed stale DB crash where `state.db` created before T-P0-18 is missing `review_gate_enabled` column (create_all only creates missing TABLES, not COLUMNS). Added `_migrate_missing_columns()` to `init_db()` that introspects existing tables and ALTERs to add any missing columns with correct defaults. Added real subprocess-based server smoke test that starts run_server.py, waits for "Application startup complete", and hits GET /api/projects. Added run_server.py importability check to test_smoke.py. Embedded verification best practices in CLAUDE.md (verification requirements section, schema change rule), LESSONS.md (lesson 11), and tightened stop hook rule 2 for script/server verification.
+- **Deliverables**: src/db.py (mod -- _migrate_missing_columns + init_db update), tests/test_db.py (mod -- 3 migration tests), tests/test_server_startup.py (new -- 1 real smoke test, @pytest.mark.slow), tests/test_smoke.py (mod -- importability check), CLAUDE.md (mod -- verification rules + schema change rule), LESSONS.md (mod -- lesson 11), .claude/settings.json (mod -- tightened stop hook), TASKS.md (mod -- T-P0-20 followup note)
+- **Sanity check result**: pytest 655/655 passed (654 fast + 1 slow). ruff check clean. Real smoke test: server starts on random port, HTTP 200 on /api/projects, clean shutdown.
+- **Status**: [DONE]
+- **Request**: No TASKS.md change needed (T-P0-20 already updated with followup-3 note)

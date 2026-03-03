@@ -45,6 +45,10 @@
 - **Windows asyncio subprocess**: Any use of `asyncio.create_subprocess_exec` or
   `create_subprocess_shell` requires `WindowsProactorEventLoopPolicy` at app startup.
   Guard with `sys.platform == "win32"`.
+- **Schema changes require migration**: When adding a column to an existing
+  SQLAlchemy model, ensure `init_db()` handles the case where the table
+  already exists without the new column.  Never assume users will delete
+  their database.
 
 ## Prohibited Actions
 - Never hardcode API keys, cookies, or personal info
@@ -56,6 +60,18 @@
 ## Behavior Rules
 - **Fix violations immediately**: When a check you run (lint, emoji scan, tests) discovers
   violations in project files, fix them immediately.
+
+### Verification Requirements
+- **"Tests pass" is necessary but not sufficient.** If your task changes a
+  server entry point, subprocess launcher, or configuration loader, you MUST
+  also run the actual code (not just mocked tests) and verify it produces
+  expected output.
+- **Smoke test rule**: After creating or modifying a script that users will
+  invoke directly (e.g. `run_server.py`, `start.ps1`), run it for real and
+  verify it reaches the expected state (e.g. "Application startup complete").
+  A crash during dry-run is a blocker, not an "unrelated issue."
+- **Mock tests verify arguments. Real tests verify behavior.** Both are
+  needed for subprocess-based code.
 
 ### Task Planning Mode
 When the user says "plan tasks" / "edit TASKS.md only" / contains keyword "TASKS.md":

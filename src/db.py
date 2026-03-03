@@ -12,7 +12,8 @@ from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from sqlalchemy import Float, Index, Integer, String, Text
+from sqlalchemy import Float, Index, Integer, String, Text, text
+from sqlalchemy import inspect as sa_inspect
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
@@ -198,10 +199,53 @@ def create_session_factory(engine) -> async_sessionmaker[AsyncSession]:
 
 
 async def init_db(engine) -> None:
-    """Create all tables if they don't already exist."""
+    """Create all tables and add any missing columns to existing tables."""
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
+        await conn.run_sync(_migrate_missing_columns)
     logger.info("Database tables initialized")
+
+
+def _migrate_missing_columns(connection) -> None:
+    """Add columns that exist in ORM models but not in the DB schema.
+
+    SQLAlchemy's create_all() only creates missing tables, not missing
+    columns.  This bridges the gap for single-file SQLite databases
+    without requiring a full migration framework like alembic.
+    """
+    inspector = sa_inspect(connection)
+
+    for table in Base.metadata.sorted_tables:
+        if not inspector.has_table(table.name):
+            continue  # table will be created by create_all
+
+        existing_cols = {c["name"] for c in inspector.get_columns(table.name)}
+
+        for column in table.columns:
+            if column.name in existing_cols:
+                continue
+
+            # Build ALTER TABLE ADD COLUMN
+            col_type = column.type.compile(dialect=connection.dialect)
+            nullable = "NULL" if column.nullable else "NOT NULL"
+            default = ""
+            if column.default is not None:
+                val = column.default.arg
+                if isinstance(val, bool):
+                    default = f" DEFAULT {1 if val else 0}"
+                elif isinstance(val, (int, float)):
+                    default = f" DEFAULT {val}"
+                elif isinstance(val, str):
+                    default = f" DEFAULT '{val}'"
+
+            sql = (
+                f"ALTER TABLE {table.name} "
+                f"ADD COLUMN {column.name} {col_type} {nullable}{default}"
+            )
+            connection.execute(text(sql))
+            logger.info(
+                "Migrated: ALTER TABLE %s ADD COLUMN %s", table.name, column.name
+            )
 
 
 @asynccontextmanager

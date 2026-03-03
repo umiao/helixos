@@ -1,5 +1,6 @@
 """Smoke tests to verify basic project setup."""
 
+import importlib.util
 from pathlib import Path
 
 
@@ -38,3 +39,19 @@ def test_project_structure() -> None:
     assert (root / "src" / "executors" / "__init__.py").is_file()
     assert (root / "src" / "sync" / "__init__.py").is_file()
     assert (root / "scripts" / "start.ps1").is_file()
+    assert (root / "scripts" / "run_server.py").is_file()
+
+
+def test_run_server_script_importable() -> None:
+    """run_server.py must exist and its main() must be callable."""
+    root = Path(__file__).parent.parent
+    script = root / "scripts" / "run_server.py"
+    assert script.is_file(), "scripts/run_server.py not found"
+
+    spec = importlib.util.spec_from_file_location("run_server", script)
+    assert spec is not None, f"Could not load spec from {script}"
+    assert spec.loader is not None, f"No loader for {script}"
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    assert callable(module.main), "run_server.main must be callable"
+    assert callable(module.parse_args), "run_server.parse_args must be callable"
