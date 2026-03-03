@@ -10,7 +10,28 @@
 ## Active Tasks
 
 ### P0 -- Must Have (core functionality)
-<!-- All 13 P0 tasks completed. See Completed Tasks below. -->
+
+#### T-P0-18: Configurable review gate before execution (two-layer defense)
+- **Complexity**: M | **Depends on**: None
+- Layer 1: Per-project `review_gate_enabled` flag (default: true) that prevents
+  BACKLOG -> QUEUED in TaskManager, forcing tasks through REVIEW first.
+  DB persistence (follows execution_paused pattern), API toggle, SSE event,
+  frontend shield toggle + drag rejection toast.
+- Layer 2: `_can_execute(task)` check at scheduler execution entry validating
+  has_been_reviewed (review_history exists OR gate disabled). Last line of defense.
+- **AC**: gate-on rejects BACKLOG->QUEUED; gate-off allows it; scheduler refuses
+  to execute unreviewed tasks when gate is on; toggle endpoint;
+  SwimLaneHeader toggle; 10+ tests.
+- **Design doc**: docs/design/review-gate-asyncio-divider.md (Issue 1)
+
+#### T-P0-19: Fix asyncio NotImplementedError on Windows with --reload
+- **Complexity**: S | **Depends on**: None
+- Add `--loop none` to uvicorn command in start.ps1. Split
+  NotImplementedError/FileNotFoundError logging in lifespan. Keep
+  src/api.py:72-73 ProactorEventLoopPolicy as defense-in-depth comment.
+- **AC**: subprocess works on Windows with --reload; accurate error log
+  distinguishing missing CLI from wrong event loop; QUICKSTART.md updated; 3+ tests.
+- **Design doc**: docs/design/review-gate-asyncio-divider.md (Issue 2)
 
 ### P1 -- Should Have (important features)
 <!-- All 7 P1 tasks completed. See Completed Tasks below. -->
@@ -19,6 +40,16 @@
 <!-- All 8 P2 tasks completed. See Completed Tasks below. -->
 
 ### P3 -- Phase 3: UX + Polish
+
+#### T-P3-12: Resizable bottom panel divider
+- **Complexity**: M | **Depends on**: None
+- Draggable horizontal divider between kanban and bottom panel.
+  Pure React + pointer events with setPointerCapture. localStorage persistence
+  (project-namespaced key).
+- **AC**: drag to resize; min 80px / max 60% viewport; double-click reset;
+  localStorage persistence; grab handle visual; setPointerCapture for reliable
+  drag; no @dnd-kit conflict.
+- **Design doc**: docs/design/review-gate-asyncio-divider.md (Issue 3)
 
 ### Tech Debt (tracked, not blocking current work)
 - [ ] Log retention/purge policy for execution_logs + review_history tables
@@ -92,6 +123,15 @@ T-P2-6 [M] Frontend Swim Lanes [DONE] ------------------+
                                                     T-P2-7 [M] Frontend Operations UI [DONE]
                                                            |
                                                     T-P2-8 [S] E2E Integration
+
+--- P0 (new) ---
+
+T-P0-18 [M] Review gate (no deps)
+T-P0-19 [S] asyncio fix (no deps)
+
+--- P3 (new) ---
+
+T-P3-12 [M] Resizable divider (no deps)
 ```
 
 ---
@@ -236,3 +276,6 @@ T-P2-6 [M] Frontend Swim Lanes [DONE] ------------------+
 
 #### [x] T-P3-11: Enhanced review observation and human interaction UX -- 2026-03-02
 - Review status badges: pulsing for active review, orange for needs-human, green for auto-approved. REVIEW_NEEDS_HUMAN triggers toast + auto-switch to Review tab + auto-select task. ReviewPanel reason text area wired to ReviewDecisionRequest.reason. REVIEW column header shows pulsing needs-human count badge. Client-side only, no backend changes. npm run build succeeds, 615 tests passing.
+
+#### [x] T-P0-17: Design analysis -- evaluate achievements and future directions -- 2026-03-02
+- Root cause analysis of three issues (missing review gate, asyncio Windows crash, fixed bottom panel). Design document at docs/design/review-gate-asyncio-divider.md. Added T-P0-18 (review gate), T-P0-19 (asyncio fix), T-P3-12 (resizable divider) to TASKS.md.

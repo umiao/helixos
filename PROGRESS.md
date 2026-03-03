@@ -363,3 +363,10 @@
 - **Sanity check result**: pytest 617/617 passed. ruff check clean. npm run build succeeds. DB: project_id values are helixos/homestead, 0 failed tasks.
 - **Status**: [DONE]
 - **Request**: No task status change (maintenance, not a tracked task)
+
+## 2026-03-02 20:00 -- [T-P0-17] Design analysis -- evaluate achievements and future directions
+- **What I did**: Root cause analysis of three issues that surfaced during T-P0-17 task creation: (1) no review gate before execution (BACKLOG->QUEUED allowed without review), (2) asyncio NotImplementedError on Windows with --reload (uvicorn forces SelectorEventLoop), (3) fixed-height bottom panel with no resize capability. Created design document at docs/design/review-gate-asyncio-divider.md with root causes, proposed fixes (two-layer review gate defense, --loop none for uvicorn, ResizableDivider component), files to modify, and verification plans. Added three new tasks to TASKS.md: T-P0-18 (review gate, M), T-P0-19 (asyncio fix, S), T-P3-12 (resizable divider, M).
+- **Deliverables**: docs/design/review-gate-asyncio-divider.md (new), TASKS.md (mod -- added T-P0-18, T-P0-19, T-P3-12; moved T-P0-17 to Completed)
+- **Sanity check result**: Design doc reviewed for accuracy against source code. TASKS.md structure valid.
+- **Status**: [DONE]
+- **Request**: Move T-P0-17 to Completed (REMOVE spec block from Active, ADD summary line to Completed Tasks)
