@@ -172,6 +172,7 @@ class SyncResponse(BaseModel):
     added: int = 0
     updated: int = 0
     unchanged: int = 0
+    skipped: int = 0
     warnings: list[str] = Field(default_factory=list)
 
 

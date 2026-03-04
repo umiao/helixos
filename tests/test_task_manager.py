@@ -401,12 +401,19 @@ class TestUpsertTask:
         assert fetched is not None
         assert fetched.title == "Test task"
 
-    async def test_upsert_resurrects_deleted(self, session_factory) -> None:
-        """upsert_task un-deletes a soft-deleted row."""
+    async def test_upsert_resurrects_sync_deleted(self, session_factory) -> None:
+        """upsert_task un-deletes a sync-deleted row (not user-deleted)."""
+        from src.db import TaskRow, get_session
+
         tm = TaskManager(session_factory)
         task = _make_task()
         await tm.create_task(task)
-        await tm.delete_task("P0:T-P0-1")
+
+        # Manually mark as sync-deleted (simulating sync_mark_removed)
+        async with get_session(session_factory) as session:
+            row = await session.get(TaskRow, "P0:T-P0-1")
+            row.is_deleted = True
+            row.deleted_source = "sync"
 
         # Verify it's gone from normal queries
         assert await tm.get_task("P0:T-P0-1") is None
@@ -419,6 +426,17 @@ class TestUpsertTask:
         fetched = await tm.get_task("P0:T-P0-1")
         assert fetched is not None
         assert fetched.title == "Resurrected title"
+
+    async def test_upsert_skips_user_deleted(self, session_factory) -> None:
+        """upsert_task skips user-deleted rows (returns SKIPPED_DELETED)."""
+        tm = TaskManager(session_factory)
+        task = _make_task()
+        await tm.create_task(task)
+        await tm.delete_task("P0:T-P0-1")
+
+        result = await tm.upsert_task(_make_task(title="Should skip"))
+        assert result == UpsertResult.skipped_deleted
+        assert await tm.get_task("P0:T-P0-1") is None
 
     async def test_upsert_updates_changed(self, session_factory) -> None:
         """upsert_task updates when fields differ."""

@@ -588,6 +588,7 @@ async def import_project(
                 added=sync_result.added,
                 updated=sync_result.updated,
                 unchanged=sync_result.unchanged,
+                skipped=sync_result.skipped,
                 warnings=sync_result.warnings,
             )
             synced = True
@@ -1681,6 +1682,7 @@ async def sync_project(project_id: str, request: Request) -> SyncResponse:
         added=result.added,
         updated=result.updated,
         unchanged=result.unchanged,
+        skipped=result.skipped,
         warnings=result.warnings,
     )
 
@@ -1699,6 +1701,7 @@ async def sync_all(request: Request) -> SyncAllResponse:
             added=result.added,
             updated=result.updated,
             unchanged=result.unchanged,
+            skipped=result.skipped,
             warnings=result.warnings,
         ))
 

@@ -64,6 +64,7 @@ class SyncResult:
     added: int = 0
     updated: int = 0
     unchanged: int = 0
+    skipped: int = 0
     warnings: list[str] = field(default_factory=list)
 
 
@@ -281,8 +282,11 @@ async def sync_project_tasks(
 
     result = SyncResult(warnings=parser.warnings[:])
 
+    parsed_ids: set[str] = set()
+
     for pt in parsed_tasks:
         global_id = f"{project_id}:{pt.local_task_id}"
+        parsed_ids.add(global_id)
         task = Task(
             id=global_id,
             project_id=project_id,
@@ -295,17 +299,28 @@ async def sync_project_tasks(
         upsert_result = await task_manager.upsert_task(task)
         if upsert_result == UpsertResult.created:
             result.added += 1
+        elif upsert_result == UpsertResult.skipped_deleted:
+            result.skipped += 1
         elif upsert_result == UpsertResult.unchanged:
             result.unchanged += 1
         else:
             result.updated += 1
 
+    # Mark tasks removed from TASKS.md as sync-deleted
+    removed = await task_manager.sync_mark_removed(project_id, parsed_ids)
+    if removed:
+        logger.info(
+            "Sync-deleted %d tasks removed from TASKS.md in %s",
+            removed, project_id,
+        )
+
     logger.info(
-        "Synced %s: +%d ~%d =%d",
+        "Synced %s: +%d ~%d =%d skipped=%d",
         project_id,
         result.added,
         result.updated,
         result.unchanged,
+        result.skipped,
     )
 
     return result

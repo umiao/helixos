@@ -556,3 +556,10 @@
 - **Sanity check result**: 944 tests passing. Ruff clean. TypeScript compiles clean.
 - **Status**: [DONE]
 - **Request**: Move T-P0-42 to Completed
+
+## 2026-03-03 13:00 -- [T-P0-43] Fix soft-delete sync with deleted_source tracking
+- **What I did**: Added `deleted_source` column to TaskRow (`"user"` | `"sync"` | NULL) to distinguish how a task was deleted. `delete_task()` API sets `deleted_source="user"`. `upsert_task()` now returns `SKIPPED_DELETED` for user-deleted tasks (sync cannot resurrect them) but still allows resurrection for sync-deleted or legacy (NULL) tasks. Added `sync_mark_removed()` to TaskManager: marks tasks removed from TASKS.md as sync-deleted (`deleted_source="sync"`). Updated `sync_project_tasks()` to call `sync_mark_removed()` and count skipped tasks. Added `skipped` field to `SyncResult` and `SyncResponse`. All 4 SyncResponse constructions in api.py updated. Updated 3 existing tests to match new behavior.
+- **Deliverables**: src/db.py (mod -- deleted_source column), src/task_manager.py (mod -- SKIPPED_DELETED, upsert_task source check, delete_task sets source, sync_mark_removed), src/sync/tasks_parser.py (mod -- skipped field, sync-delete call), src/schemas.py (mod -- skipped in SyncResponse), src/api.py (mod -- skipped passthrough), tests/test_deleted_source.py (new -- 13 tests), tests/test_task_manager.py (mod -- updated upsert tests), tests/test_tasks_parser.py (mod -- updated sync tests)
+- **Sanity check result**: 958 tests passing (14 new). Ruff clean.
+- **Status**: [DONE]
+- **Request**: Move T-P0-43 to Completed

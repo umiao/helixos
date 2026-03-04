@@ -581,9 +581,10 @@ class TestSyncProjectTasks:
         assert result.added == 0
         assert result.updated + result.unchanged == 1
 
-        # All 7 original tasks still in DB
+        # Only 1 task visible (the 6 removed ones are sync-deleted)
         all_tasks = await task_manager.list_tasks(project_id="proj")
-        assert len(all_tasks) == 7
+        assert len(all_tasks) == 1
+        assert all_tasks[0].local_task_id == "T-P0-4"
 
     async def test_sync_no_repo_path(self, task_manager: TaskManager) -> None:
         """Sync returns warning when project has no repo_path."""
@@ -675,31 +676,28 @@ class TestSyncProjectTasks:
         result = await sync_project_tasks("proj", task_manager, registry)
         assert any("without task ID" in w for w in result.warnings)
 
-    async def test_sync_with_soft_deleted_task(
+    async def test_sync_with_user_deleted_task(
         self,
         task_manager: TaskManager,
         project_dir: Path,
     ) -> None:
-        """Sync succeeds when a task was soft-deleted -- resurrects it."""
+        """Sync skips user-deleted tasks (does not resurrect them)."""
         registry = _make_registry("proj", project_dir)
 
         # First sync: adds all tasks
         result1 = await sync_project_tasks("proj", task_manager, registry)
         assert result1.added == 7
 
-        # Soft-delete one task
+        # User-delete one task
         await task_manager.delete_task("proj:T-P0-4")
         assert await task_manager.get_task("proj:T-P0-4") is None
 
-        # Re-sync should NOT crash, should resurrect the deleted task
+        # Re-sync should NOT crash, should skip the user-deleted task
         result2 = await sync_project_tasks("proj", task_manager, registry)
-        # The deleted task should be resurrected (counted as updated)
-        assert result2.updated >= 1
+        assert result2.skipped == 1
 
-        # Task is visible again
-        task = await task_manager.get_task("proj:T-P0-4")
-        assert task is not None
-        assert task.title is not None
+        # Task should stay deleted
+        assert await task_manager.get_task("proj:T-P0-4") is None
 
     async def test_sync_after_delete_and_recreate(
         self,

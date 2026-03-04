@@ -28,6 +28,7 @@ class UpsertResult(StrEnum):
     resurrected = "resurrected"
     updated = "updated"
     unchanged = "unchanged"
+    skipped_deleted = "skipped_deleted"
 
 
 class ReviewGateBlockedError(Exception):
@@ -161,11 +162,18 @@ class TaskManager:
                 return UpsertResult.created
 
             if row.is_deleted:
+                if row.deleted_source == "user":
+                    logger.warning(
+                        "Skipping user-deleted task %s during sync", task.id,
+                    )
+                    return UpsertResult.skipped_deleted
+                # sync-deleted or legacy (NULL) -- allow resurrection
                 data = task.model_dump(mode="json")
                 kwargs = task_dict_to_row_kwargs(data)
                 for key, value in kwargs.items():
                     setattr(row, key, value)
                 row.is_deleted = False
+                row.deleted_source = None
                 row.updated_at = now
                 return UpsertResult.resurrected
 
@@ -497,6 +505,7 @@ class TaskManager:
 
             now = datetime.now(UTC).isoformat()
             row.is_deleted = True
+            row.deleted_source = "user"
             row.updated_at = now
             logger.info("Soft-deleted task %s (force=%s)", task_id, force)
 
@@ -521,6 +530,38 @@ class TaskManager:
                 if task_id in deps_list:
                     dependents.append(other.id)
             return dependents
+
+    async def sync_mark_removed(
+        self,
+        project_id: str,
+        parsed_ids: set[str],
+    ) -> int:
+        """Mark tasks for *project_id* not in *parsed_ids* as sync-deleted.
+
+        Only affects non-deleted tasks. Tasks already deleted by the user
+        (``deleted_source='user'``) are left untouched. Returns the count
+        of newly sync-deleted tasks.
+        """
+        async with get_session(self._sf) as session:
+            stmt = (
+                select(TaskRow)
+                .where(TaskRow.project_id == project_id)
+                .where(TaskRow.is_deleted == False)  # noqa: E712
+            )
+            result = await session.execute(stmt)
+            rows = result.scalars().all()
+
+            now = datetime.now(UTC).isoformat()
+            count = 0
+            for row in rows:
+                if row.id not in parsed_ids:
+                    row.is_deleted = True
+                    row.deleted_source = "sync"
+                    row.updated_at = now
+                    count += 1
+                    logger.info("Sync-deleted task %s (removed from TASKS.md)", row.id)
+
+            return count
 
     async def mark_running_as_failed(self) -> int:
         """Mark all RUNNING tasks as FAILED (startup recovery).

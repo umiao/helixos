@@ -78,22 +78,7 @@
 
 #### ~~T-P0-42: Make ReviewPanel purely state-driven (no field-guessing)~~ [DONE -- see Completed Tasks]
 
-#### T-P0-43: Fix soft-delete sync with `deleted_source` tracking
-- **Priority**: P0
-- **Complexity**: S
-- **Depends on**: None
-- **Problem**: `upsert_task()` unconditionally resurrects soft-deleted tasks when sync finds them in TASKS.md. User deletes a task via UI, next sync brings it back. Simply skipping `is_deleted=True` creates inverse problem: file-removed tasks can never be restored.
-- **Acceptance Criteria**:
-  1. Add `deleted_source` column to task model: `user` (deleted via UI) | `sync` (deleted because removed from TASKS.md) | NULL (not deleted)
-  2. `upsert_task()`: when `row.is_deleted == True` and `deleted_source == "user"`, skip (return new `UpsertResult.SKIPPED_DELETED`)
-  3. When `deleted_source == "sync"`, allow resurrection if file re-adds the task
-  4. `delete_task()` API sets `deleted_source = "user"`
-  5. Add `SKIPPED_DELETED` to `UpsertResult` enum
-  6. `sync_project_tasks()`: count skipped-deleted in SyncResult (new `skipped` field)
-  7. Log warning when encountering user-deleted task during sync
-  8. **Schema migration**: `deleted_source` column added with `init_db()` migration handling (per CLAUDE.md rules)
-  9. **Journey AC**: User deletes task via UI -> sync runs -> task stays deleted. User removes task from TASKS.md -> sync marks as sync-deleted -> user re-adds to TASKS.md -> task resurrects
-- **Files**: `src/task_manager.py`, `src/sync/tasks_parser.py`, `src/schemas.py`
+#### ~~T-P0-43: Fix soft-delete sync with `deleted_source` tracking~~ [DONE -- see Completed Tasks]
 
 ---
 
@@ -335,6 +320,9 @@ T-P0-47 [M] No Plan badges + visual guidance (no deps, pairs with T-P0-44)
 
 ## Completed Tasks
 <!-- Move finished tasks here with [x] and completion date -->
+
+#### [x] T-P0-43: Fix soft-delete sync with deleted_source tracking -- 2026-03-03
+- Added `deleted_source` column to TaskRow (`"user"` | `"sync"` | NULL). `delete_task()` sets `deleted_source="user"`. `upsert_task()` skips user-deleted tasks (SKIPPED_DELETED) but allows resurrection for sync-deleted/legacy tasks. `sync_mark_removed()` marks tasks removed from TASKS.md as sync-deleted. `SyncResult`/`SyncResponse` gain `skipped` field. Schema auto-migrated. 13 new tests, 958 total passing.
 
 #### [x] T-P0-40: Define Canonical ReviewLifecycleState enum in backend -- 2026-03-03
 - Created ReviewLifecycleState(StrEnum) with 7 values (NOT_STARTED, RUNNING, PARTIAL, FAILED, REJECTED_SINGLE, REJECTED_CONSENSUS, APPROVED) and REVIEW_LIFECYCLE_TRANSITIONS state machine map. Added lifecycle_state column to ReviewHistoryRow and review_lifecycle_state column to TaskRow (auto-migrated). Exposed in API schemas (TaskResponse, ReviewHistoryEntry). Added set_review_lifecycle_state() to TaskManager. Updated HistoryWriter and frontend types. Full state machine diagram documented in code comments. 24 new tests, 930 total passing.

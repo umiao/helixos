@@ -55,6 +55,7 @@ class TaskRow(Base):
     updated_at: Mapped[str] = mapped_column(String(64), nullable=False)
     completed_at: Mapped[str | None] = mapped_column(String(64), nullable=True)
     is_deleted: Mapped[bool] = mapped_column(default=False)
+    deleted_source: Mapped[str | None] = mapped_column(String(16), nullable=True)
     review_status: Mapped[str] = mapped_column(
         String(32), nullable=False, default="idle",
     )
