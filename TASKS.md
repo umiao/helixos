@@ -11,15 +11,6 @@
 
 ### P0 -- Must Have (core functionality)
 
-#### T-P0-25: Token usage limit bar in UI top-right corner [NEEDS-INPUT]
-- **Priority**: P0
-- **Complexity**: M
-- **Depends on**: None
-- **Status**: Blocked -- requires research on reliable usage API endpoint (non-public internal API may change)
-
-
-
-
 #### T-P0-53: Active process pulsing badges on task cards (RUNNING + review)
 - **Priority**: P0
 - **Complexity**: S
