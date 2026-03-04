@@ -398,20 +398,36 @@ export default function KanbanBoard({
                       {loading ? "-" : columns[col].length}
                     </span>
                   </div>
-                  {/* Needs-human attention count for REVIEW column */}
-                  {col === "REVIEW" && !loading && (() => {
-                    const needsHuman = columns.REVIEW.filter(
-                      (t) => t.status === "review_needs_human",
-                    ).length;
-                    return needsHuman > 0 ? (
-                      <span
-                        className="rounded-full bg-orange-100 text-orange-800 px-2 py-0.5 text-[10px] font-semibold animate-pulse"
-                        title={`${needsHuman} task${needsHuman > 1 ? "s" : ""} need${needsHuman === 1 ? "s" : ""} human decision`}
-                      >
-                        {needsHuman} needs human
-                      </span>
-                    ) : null;
-                  })()}
+                  <div className="flex items-center gap-1.5">
+                    {/* Planless task count for BACKLOG / REVIEW */}
+                    {(col === "BACKLOG" || col === "REVIEW") && !loading && (() => {
+                      const planless = columns[col].filter(
+                        (t) => !t.description || !t.description.trim(),
+                      ).length;
+                      return planless > 0 ? (
+                        <span
+                          className="rounded-full bg-amber-100 text-amber-700 px-2 py-0.5 text-[10px] font-semibold"
+                          title={`${planless} task${planless > 1 ? "s" : ""} without a plan`}
+                        >
+                          {planless} no plan
+                        </span>
+                      ) : null;
+                    })()}
+                    {/* Needs-human attention count for REVIEW column */}
+                    {col === "REVIEW" && !loading && (() => {
+                      const needsHuman = columns.REVIEW.filter(
+                        (t) => t.status === "review_needs_human",
+                      ).length;
+                      return needsHuman > 0 ? (
+                        <span
+                          className="rounded-full bg-orange-100 text-orange-800 px-2 py-0.5 text-[10px] font-semibold animate-pulse"
+                          title={`${needsHuman} task${needsHuman > 1 ? "s" : ""} need${needsHuman === 1 ? "s" : ""} human decision`}
+                        >
+                          {needsHuman} needs human
+                        </span>
+                      ) : null;
+                    })()}
+                  </div>
                 </div>
               )}
 

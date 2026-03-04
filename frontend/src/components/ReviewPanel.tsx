@@ -258,6 +258,8 @@ export default function ReviewPanel({
       await generatePlan(task.id);
       // Endpoint auto-saves to task.description; refresh task state
       const updated = await fetchTask(task.id);
+      // Auto-expand plan section so user sees new content immediately
+      setPlanExpanded(true);
       onTaskUpdated?.(updated);
     } catch (err) {
       const msg =
@@ -718,7 +720,11 @@ export default function ReviewPanel({
                       <button
                         onClick={handleGeneratePlan}
                         disabled={generating}
-                        className="rounded-md bg-indigo-100 px-2.5 py-1 text-[10px] font-medium text-indigo-700 hover:bg-indigo-200 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                        className={`rounded-md disabled:opacity-50 disabled:cursor-not-allowed transition-colors ${
+                          task.description && task.description.trim()
+                            ? "bg-indigo-100 px-2.5 py-1 text-[10px] font-medium text-indigo-700 hover:bg-indigo-200"
+                            : "bg-indigo-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-indigo-700 shadow-sm"
+                        }`}
                         title="Generate a structured plan using AI (uses codebase context)"
                       >
                         {generating ? "Generating..." : "Generate Plan"}

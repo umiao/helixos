@@ -591,3 +591,10 @@
 - **Sanity check result**: 992 tests passing. Ruff clean. Frontend builds clean.
 - **Status**: [DONE]
 - **Request**: Move T-P0-46 to Completed
+
+## 2026-03-03 18:00 -- [T-P0-47] No Plan badges + visual guidance in swim lanes
+- **What I did**: Added amber "No Plan" badge on TaskCard when task.description is empty/whitespace. Added planless task count indicator ("X no plan") in BACKLOG and REVIEW column headers. Made Generate Plan button a prominent CTA (indigo-600, larger, shadow) for planless tasks; subtle styling for tasks that already have plans. Plan section auto-expands after successful generate-plan call so user sees new content immediately.
+- **Deliverables**: frontend/src/components/TaskCard.tsx (mod -- No Plan badge), frontend/src/components/KanbanBoard.tsx (mod -- planless count in column headers), frontend/src/components/ReviewPanel.tsx (mod -- prominent Generate Plan button, auto-expand after generate)
+- **Sanity check result**: 992 tests passing. Ruff clean. Frontend builds clean. TypeScript compiles clean.
+- **Status**: [DONE]
+- **Request**: Move T-P0-47 to Completed

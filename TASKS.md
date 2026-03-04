@@ -102,19 +102,9 @@
 
 #### ~~T-P0-46: Unified MarkdownRenderer abstraction layer~~ [DONE -- see Completed Tasks]
 
-#### T-P0-47: No Plan badges + visual guidance in swim lanes
-- **Priority**: P1
-- **Complexity**: M
-- **Depends on**: None (pairs with T-P0-44 for enforcement)
-- **Problem**: No visual indication in swim lanes that a task lacks a plan. After generating a plan, the preview doesn't refresh properly.
-- **Acceptance Criteria**:
-  1. Add "No Plan" badge on TaskCard when `task.description` is empty/whitespace (amber or gray badge)
-  2. In BACKLOG/REVIEW columns, add subtle indicator counting planless tasks
-  3. After successful `generate-plan` call, ReviewPanel plan section auto-expands and shows new content (verify refresh)
-  4. "Generate Plan" button more prominent for planless tasks (larger, colored CTA)
-  5. **Inverse case**: tasks with plans do NOT show the badge; generate-plan button is less prominent (already has plan)
-  6. **Manual smoke test**: Create task with no description -> amber "No Plan" badge visible on card -> generate plan -> badge disappears, plan section shows content
-- **Files**: `frontend/src/components/TaskCard.tsx`, `frontend/src/components/ReviewPanel.tsx`
+#### ~~T-P0-47: No Plan badges + visual guidance in swim lanes~~ [DONE -- see Completed Tasks]
+
+#### T-P0-48: 1. 点击右上角的running需要能够看到正在执行的job list。可以在下方的review状态栏右侧增加一列。
 
 ## Dependency Graph
 
@@ -267,6 +257,9 @@ T-P0-47 [M] No Plan badges + visual guidance (no deps, pairs with T-P0-44)
 
 ## Completed Tasks
 <!-- Move finished tasks here with [x] and completion date -->
+
+#### [x] T-P0-47: No Plan badges + visual guidance in swim lanes -- 2026-03-03
+- Added amber "No Plan" badge on TaskCard when `task.description` is empty/whitespace. Added planless task count indicator in BACKLOG/REVIEW column headers. Generate Plan button is now a prominent CTA for planless tasks (indigo-600 with shadow) and subtle for tasks with plans. Plan section auto-expands after successful generate-plan call. 992 tests passing, frontend builds clean.
 
 #### [x] T-P0-46: Unified MarkdownRenderer abstraction layer -- 2026-03-03
 - Created MarkdownRenderer.tsx using react-markdown with unified styling tokens (headings, lists, code blocks, tables, blockquotes). Font size toggle (S/M/L) with localStorage persistence. Applied to plan content (view mode), reviewer raw output, and new edit-preview mode in inline plan editor. Scroll container with max-height. 992 tests passing.

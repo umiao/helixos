@@ -85,6 +85,7 @@ export default function TaskCard({ task, onClick, onContextMenu }: TaskCardProps
   const isRunning = task.status === "running";
   const isReviewActive = task.status === "review";
   const startedAt = task.execution?.started_at;
+  const hasNoPlan = !task.description || !task.description.trim();
 
   // Hover popover state: 300ms delay before showing
   const [showPopover, setShowPopover] = useState(false);
@@ -186,6 +187,14 @@ export default function TaskCard({ task, onClick, onContextMenu }: TaskCardProps
           >
             {label}
           </span>
+          {hasNoPlan && (
+            <span
+              className="inline-block rounded-full px-2 py-0.5 text-xs font-semibold bg-amber-100 text-amber-700"
+              title="This task has no plan"
+            >
+              No Plan
+            </span>
+          )}
           {isRunning && startedAt && <ElapsedTimer startedAt={startedAt} />}
         </div>
 
