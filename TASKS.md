@@ -51,6 +51,7 @@
 ### P1-UX -- Polish
 
 
+
 ## Dependency Graph
 
 > Full historical dependency graph relocated to [docs/architecture/dependency-graph-history.md](docs/architecture/dependency-graph-history.md).
@@ -99,6 +100,9 @@
 
 #### [x] T-P0-65: Plan generation button discoverability + Kanban card visual feedback -- 2026-03-04
 - Persistent "Plan" button on TaskCard face for tasks needing plans. Pulsing blue border animation during generation. "Planning" spinner badge replaces "No Plan" during generation. Double-click prevention + backend 409 guard. TypeScript clean, Vite build clean, 1031 tests passing.
+
+#### [x] T-P0-66: Fix three critical plan generation bugs -- 2026-03-04
+- Fixed hasNoPlan using description proxy instead of plan_status field (TaskCard, TaskCardPopover, KanbanBoard). Raised budget caps ($0.10->$1.00 enrichment, $0.50->$5.00 plan gen). Plan generation now visible in Running indicator and RunningJobsPanel (blue "Planning" theme). TypeScript clean, Vite build clean, 1031 tests passing.
 
 #### [x] T-P0-55: Execution log visual markers for review activity -- 2026-03-04
 - Added purple "REVIEW" badge on review-originated log entries. Extended LogEntry with source field, SSE handlers pass source="review" for review_started/review_progress events. Uses SSE event type for origin detection.

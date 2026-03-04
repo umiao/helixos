@@ -360,7 +360,9 @@ function App() {
     saveSelectedProjects(ids);
   }, []);
 
-  const runningCount = tasks.filter((t) => t.status === "running").length;
+  const runningCount = tasks.filter(
+    (t) => t.status === "running" || t.plan_status === "generating"
+  ).length;
 
   // Apply global filters (status + search) to all tasks
   const globallyFiltered = tasks.filter((t) => {

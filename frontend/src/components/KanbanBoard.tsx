@@ -408,7 +408,7 @@ export default function KanbanBoard({
                     {/* Planless task count for BACKLOG / REVIEW */}
                     {(col === "BACKLOG" || col === "REVIEW") && !loading && (() => {
                       const planless = columns[col].filter(
-                        (t) => !t.description || !t.description.trim(),
+                        (t) => t.plan_status === "none",
                       ).length;
                       return planless > 0 ? (
                         <span

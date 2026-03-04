@@ -91,7 +91,7 @@ export default function TaskCard({ task, onClick, onContextMenu, onTaskUpdated }
     task.status === "running" || task.review_status === "running";
   const isGeneratingPlan = task.plan_status === "generating";
   const startedAt = task.execution?.started_at;
-  const hasNoPlan = !task.description || !task.description.trim();
+  const hasNoPlan = task.plan_status === "none";
   const isDoneOrTerminal = task.status === "done" || task.status === "failed" || task.status === "blocked";
   const showPlanButton = (hasNoPlan || task.plan_status === "failed") && !isDoneOrTerminal && !isGeneratingPlan;
 

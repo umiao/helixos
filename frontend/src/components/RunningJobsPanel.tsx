@@ -48,7 +48,9 @@ export default function RunningJobsPanel({
   projects,
   onSelectTask,
 }: RunningJobsPanelProps) {
-  const runningTasks = tasks.filter((t) => t.status === "running");
+  const runningTasks = tasks.filter(
+    (t) => t.status === "running" || t.plan_status === "generating"
+  );
 
   const projectMap = new Map(projects.map((p) => [p.id, p]));
 
@@ -78,29 +80,37 @@ export default function RunningJobsPanel({
   return (
     <div className="flex flex-col h-full overflow-y-auto p-3 space-y-2">
       {runningTasks.map((task) => {
+        const isPlanGenerating = task.plan_status === "generating" && task.status !== "running";
         const project = projectMap.get(task.project_id);
-        const startedAt = task.execution?.started_at;
-        const phase = task.execution?.result || "executing";
-        const retryCount = task.execution?.retry_count ?? 0;
+        const startedAt = isPlanGenerating ? null : task.execution?.started_at;
+        const phase = isPlanGenerating ? "Planning" : (task.execution?.result || "executing");
+        const retryCount = isPlanGenerating ? 0 : (task.execution?.retry_count ?? 0);
+
+        const borderClass = isPlanGenerating
+          ? "border-blue-100 bg-blue-50/50 hover:bg-blue-50"
+          : "border-indigo-100 bg-indigo-50/50 hover:bg-indigo-50";
+        const pingClass = isPlanGenerating ? "bg-blue-400" : "bg-indigo-400";
+        const dotClass = isPlanGenerating ? "bg-blue-500" : "bg-indigo-500";
+        const idClass = isPlanGenerating ? "text-blue-700" : "text-indigo-700";
 
         return (
           <button
             key={task.id}
             onClick={() => onSelectTask(task)}
-            className="flex items-center gap-3 rounded-lg border border-indigo-100 bg-indigo-50/50 px-4 py-3 text-left hover:bg-indigo-50 transition-colors w-full"
+            className={`flex items-center gap-3 rounded-lg border ${borderClass} px-4 py-3 text-left transition-colors w-full`}
           >
             {/* Pulsing indicator */}
             <div className="flex-shrink-0">
               <span className="relative flex h-3 w-3">
-                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-indigo-400 opacity-75" />
-                <span className="relative inline-flex rounded-full h-3 w-3 bg-indigo-500" />
+                <span className={`animate-ping absolute inline-flex h-full w-full rounded-full ${pingClass} opacity-75`} />
+                <span className={`relative inline-flex rounded-full h-3 w-3 ${dotClass}`} />
               </span>
             </div>
 
             {/* Task info */}
             <div className="flex-1 min-w-0">
               <div className="flex items-center gap-2 mb-0.5">
-                <span className="text-xs font-mono font-semibold text-indigo-700">
+                <span className={`text-xs font-mono font-semibold ${idClass}`}>
                   {task.local_task_id}
                 </span>
                 {project && (

@@ -95,7 +95,7 @@ export default function TaskCardPopover({ task, anchorRect, onTaskUpdated }: Tas
     setPos({ top, left });
   }, [anchorRect]);
 
-  const hasNoPlan = !task.description || !task.description.trim();
+  const hasNoPlan = task.plan_status === "none";
   const isDone = task.status === "done" || task.status === "failed" || task.status === "blocked";
   const planFailed = task.plan_status === "failed";
   const planGenerating = task.plan_status === "generating" || generating;

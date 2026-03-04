@@ -80,7 +80,7 @@ async def enrich_task_title(
         "--model", "claude-haiku-4-5-20251001",
         "--output-format", "json",
         "--no-session-persistence",
-        "--max-budget-usd", "0.10",
+        "--max-budget-usd", "1.00",
         "--json-schema", _ENRICHMENT_JSON_SCHEMA,
     ]
 
@@ -227,7 +227,7 @@ async def generate_task_plan(
         "--model", "claude-sonnet-4-5",
         "--output-format", "json",
         "--no-session-persistence",
-        "--max-budget-usd", "0.50",
+        "--max-budget-usd", "5.00",
         "--json-schema", _PLAN_JSON_SCHEMA,
     ]
 

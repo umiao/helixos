@@ -738,3 +738,10 @@
 - **Sanity check result**: TypeScript clean. Vite build clean. All 1031 backend tests passing.
 - **Status**: [DONE]
 - **Request**: Move T-P0-65 to Completed in TASKS.md
+
+## 2026-03-04 23:00 -- [T-P0-66] Fix three critical plan generation bugs
+- **What I did**: Fixed three compounding bugs that made plan generation broken on enriched tasks. (1) `hasNoPlan` used `!task.description` as proxy for plan_status -- replaced with `task.plan_status === "none"` in TaskCard.tsx, TaskCardPopover.tsx, KanbanBoard.tsx. (2) Budget caps too low ($0.10 enrichment, $0.50 plan gen) causing generation failures -- raised to $1.00 and $5.00 respectively. (3) Plan generation invisible in Running indicator -- added `plan_status === "generating"` to runningCount filter in App.tsx and RunningJobsPanel.tsx, with blue "Planning" visual differentiation.
+- **Deliverables**: frontend/src/components/TaskCard.tsx, TaskCardPopover.tsx, KanbanBoard.tsx, RunningJobsPanel.tsx, frontend/src/App.tsx (mod), src/enrichment.py (mod)
+- **Sanity check result**: TypeScript clean. Vite build clean. All 1031 backend tests passing.
+- **Status**: [DONE]
+- **Request**: Move T-P0-66 to Completed in TASKS.md
