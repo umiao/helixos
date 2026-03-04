@@ -7,7 +7,8 @@
 import { createPortal } from "react-dom";
 import { useLayoutEffect, useRef, useState } from "react";
 import type { Task, TaskStatus } from "../types";
-import { generatePlan, fetchTask, ApiError } from "../api";
+import { generatePlan, ApiError } from "../api";
+import type { PlanStatus } from "../types";
 
 interface TaskCardPopoverProps {
   task: Task;
@@ -107,8 +108,12 @@ export default function TaskCardPopover({ task, anchorRect, onTaskUpdated }: Tas
     setGenError(null);
     try {
       await generatePlan(task.id);
-      const updated = await fetchTask(task.id);
-      onTaskUpdated?.(updated);
+      // 202 accepted -- SSE plan_status_change events drive UI updates.
+      // Optimistically update local task to show generating state immediately.
+      onTaskUpdated?.({
+        ...task,
+        plan_status: "generating" as PlanStatus,
+      });
     } catch (err) {
       const msg = err instanceof ApiError ? err.detail : "Failed to generate plan";
       setGenError(msg);

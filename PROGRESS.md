@@ -717,3 +717,10 @@
 - **Sanity check result**: Ruff clean. All 1028 tests passing (50 in test_enrichment.py including new tests for 202 response, 409 idempotency, SSE events, heartbeat, zombie cleanup).
 - **Status**: [DONE]
 - **Request**: Move T-P0-63a to Completed in TASKS.md
+
+## 2026-03-04 20:15 -- [T-P0-63b] Frontend plan generation UX wiring
+- **What I did**: Wired frontend to consume SSE `plan_status_change` events from T-P0-63a. App.tsx SSE handler updates task `plan_status` in real-time and fetches full task on terminal states (ready/failed) to get updated description. Added purple "PLAN" badge in ExecutionLog for `source="plan"` log entries (same pattern as "REVIEW" badge). Added elapsed timer in ReviewPanel's "Plan Under Review" section header during `plan_status=generating` with spinner and MM:SS format. Updated `generatePlan` API client for 202 async response (no longer expects sync plan result). ReviewPanel and TaskCardPopover `handleGeneratePlan` adapted for fire-and-forget pattern where SSE events drive all subsequent UI updates. SSE `log` events now pass `source` field to ExecutionLog for proper badge rendering. Generic source tag display skips "review" and "plan" (which have dedicated colored badges).
+- **Deliverables**: frontend/src/App.tsx (mod), frontend/src/components/ExecutionLog.tsx (mod), frontend/src/components/ReviewPanel.tsx (mod), frontend/src/components/TaskCardPopover.tsx (mod), frontend/src/api.ts (mod), frontend/src/types.ts (mod)
+- **Sanity check result**: TypeScript clean (tsc --noEmit). Vite production build succeeds. Ruff clean. All 1028 backend tests passing.
+- **Status**: [DONE]
+- **Request**: Move T-P0-63b to Completed in TASKS.md

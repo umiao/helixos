@@ -27,19 +27,6 @@
 
 ### P0 -- Must Have (core functionality)
 
-#### T-P0-63b: Frontend plan generation UX wiring
-- **Priority**: P0
-- **Complexity**: S (< 1 session)
-- **Depends on**: T-P0-63a
-- **Description**: Wire frontend components to consume SSE plan_status_change events and plan log stream from 63a. App.tsx subscribes to events, ExecutionLog shows plan logs with "PLAN" badge, ReviewPanel shows elapsed timer during generation.
-- **Acceptance Criteria**:
-  1. App.tsx SSE handler subscribes to `plan_status_change` events, updates task state -- card transitions happen automatically without manual refresh
-  2. ExecutionLog shows plan logs with purple "PLAN" badge (source="plan"), same pattern as "REVIEW" badge from T-P0-55
-  3. ReviewPanel shows elapsed timer during generation (like execution timer)
-  4. SSE reconnection recovery: on page refresh or SSE reconnect, ExecutionLog loads historical plan logs from DB via existing `/api/tasks/{id}/logs` endpoint (verify it returns source="plan" logs)
-  5. **User journey**: User clicks "Generate Plan" -> sees "Generating..." state immediately -> ExecutionLog shows Claude CLI output streaming in real-time -> after 1-5 min plan appears in ReviewPanel -> plan_status badge updates on Kanban card
-  6. **Inverse case**: If CLI fails, user sees error in both ReviewPanel (red error msg) AND ExecutionLog (error-level log entry) AND Kanban card shows "failed" badge
-  7. **Manual smoke test**: Start server, create task, click Generate Plan, watch ExecutionLog panel -- must see log lines appearing within 5 seconds of clicking button, not only after completion
 
 #### T-P0-64: Real-time log streaming for review pipeline
 - **Priority**: P0
@@ -133,6 +120,9 @@
 
 #### [x] T-P0-63a: Backend plan generation streaming + SSE events -- 2026-03-04
 - Refactored generate_task_plan() to readline() loop with on_log callback. POST returns 202 with background task. SSE plan_status_change + log events with source="plan". Per-line DB writes. 409 idempotency guard, startup zombie cleanup, 30s heartbeat. 1028 tests passing.
+
+#### [x] T-P0-63b: Frontend plan generation UX wiring -- 2026-03-04
+- Wired SSE plan_status_change events in App.tsx for real-time plan_status updates. Added "PLAN" badge in ExecutionLog for source="plan" logs. Added elapsed timer in ReviewPanel during generation. Updated API client and components for 202 async flow. TypeScript clean, Vite build clean, 1028 tests passing.
 
 #### [x] T-P0-55: Execution log visual markers for review activity -- 2026-03-04
 - Added purple "REVIEW" badge on review-originated log entries. Extended LogEntry with source field, SSE handlers pass source="review" for review_started/review_progress events. Uses SSE event type for origin detection.

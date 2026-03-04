@@ -342,6 +342,13 @@ export default function ExecutionLog({
                   review
                 </span>
               )}
+              {entry.source === "plan" && (
+                <span
+                  className="px-1 rounded text-[10px] uppercase font-medium shrink-0 bg-violet-900 text-violet-300"
+                >
+                  plan
+                </span>
+              )}
               {entry.level && (
                 <span
                   className={`px-1 rounded text-[10px] uppercase font-medium shrink-0 ${levelBadgeClass(entry.level)}`}
@@ -354,7 +361,7 @@ export default function ExecutionLog({
                   [{entry.task_id}]
                 </span>
               )}
-              {entry.source && (
+              {entry.source && entry.source !== "review" && entry.source !== "plan" && (
                 <span className="text-gray-500 whitespace-nowrap shrink-0">
                   [{entry.source}]
                 </span>

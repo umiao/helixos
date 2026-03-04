@@ -171,12 +171,18 @@ export interface EnrichResult {
   priority: string;
 }
 
-/** Result of AI-generated structured plan. */
+/** Result of AI-generated structured plan (legacy sync response). */
 export interface GeneratePlanResult {
   plan: string;
   steps: { step: string; files?: string[] }[];
   acceptance_criteria: string[];
   formatted: string;
+}
+
+/** 202 Accepted response from async plan generation endpoint. */
+export interface GeneratePlanAccepted {
+  task_id: string;
+  plan_status: string;
 }
 
 /** Result of creating a task. */

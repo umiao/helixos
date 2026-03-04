@@ -19,12 +19,11 @@
  * No frontend state-guessing: all display logic driven by ReviewLifecycleState.
  */
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { Task, ReviewHistoryEntry } from "../types";
 import {
   submitReviewDecision,
   fetchReviewHistory,
-  fetchTask,
   retryReview,
   updateTask,
   generatePlan,
@@ -81,6 +80,35 @@ export default function ReviewPanel({
   const [saving, setSaving] = useState(false);
   const [generating, setGenerating] = useState(false);
   const [editPreview, setEditPreview] = useState(false);
+
+  // Plan generation elapsed timer
+  const [planElapsedSeconds, setPlanElapsedSeconds] = useState(0);
+  const planGenStartRef = useRef<number | null>(null);
+  useEffect(() => {
+    const isGenerating = task?.plan_status === "generating";
+    if (!isGenerating) {
+      setPlanElapsedSeconds(0);
+      planGenStartRef.current = null;
+      return;
+    }
+    // Record start time on first transition to generating
+    if (planGenStartRef.current === null) {
+      planGenStartRef.current = Date.now();
+    }
+    const startMs = planGenStartRef.current;
+    const tick = () => {
+      setPlanElapsedSeconds(Math.max(0, Math.floor((Date.now() - startMs) / 1000)));
+    };
+    tick();
+    const interval = setInterval(tick, 1000);
+    return () => clearInterval(interval);
+  }, [task?.plan_status]);
+
+  const formatPlanElapsed = (totalSec: number) => {
+    const mins = Math.floor(totalSec / 60);
+    const secs = totalSec % 60;
+    return `${mins}:${secs.toString().padStart(2, "0")}`;
+  };
 
   const toggleRawResponse = useCallback((entryId: number) => {
     setExpandedRaw((prev) => ({ ...prev, [entryId]: !prev[entryId] }));
@@ -256,11 +284,9 @@ export default function ReviewPanel({
     setGenerating(true);
     try {
       await generatePlan(task.id);
-      // Endpoint auto-saves to task.description; refresh task state
-      const updated = await fetchTask(task.id);
-      // Auto-expand plan section so user sees new content immediately
+      // 202 accepted -- plan generates asynchronously.
+      // SSE plan_status_change events drive UI updates (timer, status, description).
       setPlanExpanded(true);
-      onTaskUpdated?.(updated);
     } catch (err) {
       const msg =
         err instanceof ApiError ? err.detail : "Failed to generate plan";
@@ -641,7 +667,18 @@ export default function ReviewPanel({
             onClick={() => setPlanExpanded((prev) => !prev)}
             className="w-full px-2.5 py-2 flex items-center justify-between text-xs font-semibold text-gray-600 hover:bg-gray-100 transition-colors rounded-lg"
           >
-            <span>Plan Under Review</span>
+            <span className="flex items-center gap-2">
+              Plan Under Review
+              {task.plan_status === "generating" && (
+                <span className="inline-flex items-center gap-1 text-[10px] font-mono text-violet-600 bg-violet-100 px-1.5 py-0.5 rounded animate-pulse">
+                  <svg className="animate-spin h-3 w-3" viewBox="0 0 24 24" fill="none">
+                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                  </svg>
+                  Generating... {planElapsedSeconds > 0 && formatPlanElapsed(planElapsedSeconds)}
+                </span>
+              )}
+            </span>
             <span
               className="inline-block transition-transform text-[10px]"
               style={{

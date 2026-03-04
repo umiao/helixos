@@ -155,7 +155,40 @@ function App() {
             typeof event.data.message === "string"
               ? event.data.message
               : JSON.stringify(event.data);
-          addLogEntry(event.task_id, msg, event.timestamp);
+          const logSource = typeof event.data.source === "string"
+            ? event.data.source
+            : undefined;
+          addLogEntry(event.task_id, msg, event.timestamp, logSource);
+          break;
+        }
+        case "plan_status_change": {
+          const newPlanStatus = event.data.plan_status as string;
+          setTasks((prev) =>
+            prev.map((t) =>
+              t.id === event.task_id
+                ? { ...t, plan_status: newPlanStatus as Task["plan_status"] }
+                : t,
+            ),
+          );
+          // Update selected task inline
+          setSelectedTask((sel) =>
+            sel && sel.id === event.task_id
+              ? { ...sel, plan_status: newPlanStatus as Task["plan_status"] }
+              : sel,
+          );
+          // On terminal states, fetch full task to get updated description
+          if (newPlanStatus === "ready" || newPlanStatus === "failed") {
+            fetchTask(event.task_id)
+              .then((updated) => {
+                setTasks((prev) =>
+                  prev.map((t) => (t.id === updated.id ? updated : t)),
+                );
+                setSelectedTask((sel) =>
+                  sel && sel.id === updated.id ? updated : sel,
+                );
+              })
+              .catch(() => { /* ignore */ });
+          }
           break;
         }
         case "alert": {

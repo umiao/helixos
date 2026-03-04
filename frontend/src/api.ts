@@ -8,7 +8,7 @@ import type {
   CreateTaskResult,
   EnrichResult,
   ExecutionLogsResponse,
-  GeneratePlanResult,
+  GeneratePlanAccepted,
   ImportResult,
   ProcessStatus,
   Project,
@@ -258,15 +258,15 @@ export async function enrichTask(title: string): Promise<EnrichResult> {
   return handleResponse<EnrichResult>(res);
 }
 
-/** Generate a structured implementation plan for a task. */
+/** Start async plan generation for a task (returns 202 immediately). */
 export async function generatePlan(
   taskId: string,
-): Promise<GeneratePlanResult> {
+): Promise<GeneratePlanAccepted> {
   const res = await fetch(
     `/api/tasks/${encodeURIComponent(taskId)}/generate-plan`,
     { method: "POST" },
   );
-  return handleResponse<GeneratePlanResult>(res);
+  return handleResponse<GeneratePlanAccepted>(res);
 }
 
 /** Pause task execution for a project. */
