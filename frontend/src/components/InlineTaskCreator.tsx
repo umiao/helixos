@@ -9,7 +9,7 @@ import { ApiError, createTask } from "../api";
 
 interface InlineTaskCreatorProps {
   projectId: string;
-  onCreated: () => void;
+  onCreated: (synced: boolean) => void;
   onError: (msg: string) => void;
   /** Called when Tab is pressed -- opens NewTaskModal with title + auto-enrich. */
   onEnrichExpand?: (title: string) => void;
@@ -46,7 +46,7 @@ export default function InlineTaskCreator({
       if (result.success) {
         setTitle("");
         setEditing(false);
-        onCreated();
+        onCreated(result.synced);
       } else {
         onError(result.error || "Failed to create task");
       }

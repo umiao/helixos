@@ -95,7 +95,7 @@ interface KanbanBoardProps {
   onMoveTask: (taskId: string, newStatus: TaskStatus, opts?: { reason?: string }) => void;
   onSelectTask?: (task: Task) => void;
   projectId?: string;
-  onTaskCreated?: () => void;
+  onTaskCreated?: (synced: boolean) => void;
   onError?: (msg: string) => void;
   /** Called when inline creator Tab key triggers enrich-expand. */
   onEnrichExpand?: (title: string) => void;

@@ -494,12 +494,16 @@ function App() {
     }
   }, [addToast]);
 
-  const handleTaskCreated = useCallback(async () => {
+  const handleTaskCreated = useCallback(async (synced?: boolean) => {
     // Refresh tasks after creation
     try {
       const updatedTasks = await fetchTasks();
       setTasks(updatedTasks);
-      addToast("Task created", "success");
+      if (synced === false) {
+        addToast("Task saved to TASKS.md but sync to board failed. Try manual sync.", "error");
+      } else {
+        addToast("Task created", "success");
+      }
     } catch {
       // Data will be stale but not broken
     }

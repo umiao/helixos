@@ -674,3 +674,45 @@ class TestSyncProjectTasks:
 
         result = await sync_project_tasks("proj", task_manager, registry)
         assert any("without task ID" in w for w in result.warnings)
+
+    async def test_sync_with_soft_deleted_task(
+        self,
+        task_manager: TaskManager,
+        project_dir: Path,
+    ) -> None:
+        """Sync succeeds when a task was soft-deleted -- resurrects it."""
+        registry = _make_registry("proj", project_dir)
+
+        # First sync: adds all tasks
+        result1 = await sync_project_tasks("proj", task_manager, registry)
+        assert result1.added == 7
+
+        # Soft-delete one task
+        await task_manager.delete_task("proj:T-P0-4")
+        assert await task_manager.get_task("proj:T-P0-4") is None
+
+        # Re-sync should NOT crash, should resurrect the deleted task
+        result2 = await sync_project_tasks("proj", task_manager, registry)
+        # The deleted task should be resurrected (counted as updated)
+        assert result2.updated >= 1
+
+        # Task is visible again
+        task = await task_manager.get_task("proj:T-P0-4")
+        assert task is not None
+        assert task.title is not None
+
+    async def test_sync_after_delete_and_recreate(
+        self,
+        task_manager: TaskManager,
+        project_dir: Path,
+    ) -> None:
+        """Sync -> delete -> sync cycle does not crash."""
+        registry = _make_registry("proj", project_dir)
+
+        await sync_project_tasks("proj", task_manager, registry)
+        await task_manager.delete_task("proj:T-P0-7")
+
+        # This was the crash scenario: soft-deleted row exists but
+        # list_tasks excludes it, so create_task fails with "already exists"
+        result = await sync_project_tasks("proj", task_manager, registry)
+        assert result.added == 0  # No new tasks, just resurrect/update

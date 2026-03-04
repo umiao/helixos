@@ -10,11 +10,10 @@ from __future__ import annotations
 import logging
 import re
 from dataclasses import dataclass, field
-from datetime import UTC, datetime
 
 from src.config import ProjectRegistry
 from src.models import Task, TaskStatus
-from src.task_manager import TaskManager
+from src.task_manager import TaskManager, UpsertResult
 
 logger = logging.getLogger(__name__)
 
@@ -282,49 +281,24 @@ async def sync_project_tasks(
 
     result = SyncResult(warnings=parser.warnings[:])
 
-    # Fetch existing tasks for comparison
-    existing_tasks = await task_manager.list_tasks(project_id=project_id)
-    existing_map = {t.local_task_id: t for t in existing_tasks}
-
-    now = datetime.now(UTC)
-
     for pt in parsed_tasks:
         global_id = f"{project_id}:{pt.local_task_id}"
-
-        if pt.local_task_id in existing_map:
-            existing = existing_map[pt.local_task_id]
-            updates: dict[str, object] = {}
-
-            if pt.title != existing.title:
-                updates["title"] = pt.title
-
-            if pt.description != existing.description:
-                updates["description"] = pt.description
-
-            # Force DONE transition when TASKS.md says completed
-            if pt.status == TaskStatus.DONE and existing.status != TaskStatus.DONE:
-                updates["status"] = TaskStatus.DONE
-
-            if updates:
-                updates["updated_at"] = now
-                updated = existing.model_copy(update=updates)
-                await task_manager.update_task(updated)
-                result.updated += 1
-            else:
-                result.unchanged += 1
-        else:
-            # New task -- keep parsed status (no auto-promotion to QUEUED)
-            task = Task(
-                id=global_id,
-                project_id=project_id,
-                local_task_id=pt.local_task_id,
-                title=pt.title,
-                description=pt.description,
-                status=pt.status,
-                executor_type=project.executor_type,
-            )
-            await task_manager.create_task(task)
+        task = Task(
+            id=global_id,
+            project_id=project_id,
+            local_task_id=pt.local_task_id,
+            title=pt.title,
+            description=pt.description,
+            status=pt.status,
+            executor_type=project.executor_type,
+        )
+        upsert_result = await task_manager.upsert_task(task)
+        if upsert_result == UpsertResult.created:
             result.added += 1
+        elif upsert_result == UpsertResult.unchanged:
+            result.unchanged += 1
+        else:
+            result.updated += 1
 
     logger.info(
         "Synced %s: +%d ~%d =%d",

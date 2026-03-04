@@ -66,6 +66,8 @@
 - [ ] Audit completed UX tasks (T-P0-8a through T-P3-11) for scenario-matrix gaps
 - [ ] Clarify Pause/Gate/Launch semantic boundaries in PRD (does Pause affect review pipeline?)
 
+#### ~~T-P0-37: Fix sync crash on soft-deleted tasks + task creation feedback~~ [DONE -- see Completed Tasks]
+
 ## Dependency Graph
 
 ```
@@ -192,6 +194,9 @@ T-P0-33 [M] Fix review panel data bugs [DONE] (no deps)
 
 ## Completed Tasks
 <!-- Move finished tasks here with [x] and completion date -->
+
+#### [x] T-P0-37: Fix sync crash on soft-deleted tasks + task creation feedback -- 2026-03-03
+- Added UpsertResult StrEnum and upsert_task() to TaskManager: handles create/resurrect/update/unchanged without exceptions. Simplified sync_project_tasks() to single upsert_task() call per parsed task, removing existing_map query and create-or-update branches. Added sync_error field to CreateTaskResponse schema. Frontend: onCreated callbacks now pass synced boolean, App.tsx shows warning toast on sync failure. Added *.md.bak to .gitignore. 6 new tests (4 upsert + 2 sync resilience), 906 total passing.
 
 #### [x] T-P0-36: Structured plan generation via Claude CLI -- 2026-03-03
 - Feasibility: no `--plan` flag exists in Claude CLI. Implemented using stable features: `claude -p` + `--system-prompt` + `--json-schema` + `--add-dir` (codebase context) + `--permission-mode plan`. generate_task_plan() produces structured plan (summary, steps with files, acceptance criteria). format_plan_as_text() converts to readable markdown. POST /api/tasks/{id}/generate-plan auto-saves to task.description. Frontend: "Generate Plan" button in ReviewPanel. Graceful degradation: 503 when CLI unavailable, raw text fallback on parse failure. 18 new tests, 900 total passing.

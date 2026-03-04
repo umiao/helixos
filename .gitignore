@@ -49,3 +49,4 @@ frontend/dist/
 
 # Misc
 *.log
+*.md.bak

@@ -779,6 +779,7 @@ async def create_project_task(
     # Auto-trigger sync to bring the new task into the database
     sync_result_resp = None
     synced = False
+    sync_error_msg: str | None = None
     try:
         sync_result = await sync_project_tasks(
             project_id, task_manager, registry,
@@ -791,7 +792,8 @@ async def create_project_task(
             warnings=sync_result.warnings,
         )
         synced = True
-    except Exception:
+    except Exception as exc:
+        sync_error_msg = str(exc)
         logger.warning(
             "Auto-sync failed after task creation for project %s",
             project_id,
@@ -804,6 +806,7 @@ async def create_project_task(
         backup_path=result.backup_path,
         synced=synced,
         sync_result=sync_result_resp,
+        sync_error=sync_error_msg,
     )
 
 

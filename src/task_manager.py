@@ -10,6 +10,7 @@ from __future__ import annotations
 import json
 import logging
 from datetime import UTC, datetime
+from enum import StrEnum
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
@@ -18,6 +19,15 @@ from src.db import TaskRow, get_session, task_dict_to_row_kwargs, task_row_to_di
 from src.models import ExecutionState, Task, TaskStatus
 
 logger = logging.getLogger(__name__)
+
+
+class UpsertResult(StrEnum):
+    """Outcome of an upsert_task call."""
+
+    created = "created"
+    resurrected = "resurrected"
+    updated = "updated"
+    unchanged = "unchanged"
 
 
 class ReviewGateBlockedError(Exception):
@@ -130,6 +140,52 @@ class TaskManager:
             session.add(row)
 
         return task
+
+    async def upsert_task(self, task: Task) -> UpsertResult:
+        """Insert, resurrect, or update a task -- no exceptions on conflict.
+
+        Handles all cases that ``sync_project_tasks`` needs:
+        - Row missing: INSERT (created)
+        - Row soft-deleted: un-delete + full field update (resurrected)
+        - Row exists + fields changed: UPDATE changed fields (updated)
+        - Row exists + nothing changed: no-op (unchanged)
+        """
+        async with get_session(self._sf) as session:
+            row = await session.get(TaskRow, task.id)
+            now = datetime.now(UTC).isoformat()
+
+            if row is None:
+                data = task.model_dump(mode="json")
+                new_row = TaskRow(**task_dict_to_row_kwargs(data))
+                session.add(new_row)
+                return UpsertResult.created
+
+            if row.is_deleted:
+                data = task.model_dump(mode="json")
+                kwargs = task_dict_to_row_kwargs(data)
+                for key, value in kwargs.items():
+                    setattr(row, key, value)
+                row.is_deleted = False
+                row.updated_at = now
+                return UpsertResult.resurrected
+
+            changed = False
+            if row.title != task.title:
+                row.title = task.title
+                changed = True
+            if (row.description or "") != task.description:
+                row.description = task.description
+                changed = True
+            if row.status != task.status.value and task.status == TaskStatus.DONE:
+                # Force DONE transition when TASKS.md says completed
+                row.status = task.status.value
+                changed = True
+
+            if changed:
+                row.updated_at = now
+                return UpsertResult.updated
+
+            return UpsertResult.unchanged
 
     # ------------------------------------------------------------------
     # Read

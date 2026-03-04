@@ -5,7 +5,7 @@ from __future__ import annotations
 import pytest
 
 from src.models import ExecutorType, Task, TaskStatus
-from src.task_manager import VALID_TRANSITIONS, TaskManager
+from src.task_manager import VALID_TRANSITIONS, TaskManager, UpsertResult
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -380,3 +380,66 @@ class TestTransitionMap:
         assert VALID_TRANSITIONS[TaskStatus.DONE] == {
             TaskStatus.BACKLOG, TaskStatus.QUEUED,
         }
+
+
+# ---------------------------------------------------------------------------
+# Upsert task
+# ---------------------------------------------------------------------------
+
+
+class TestUpsertTask:
+    """Tests for TaskManager.upsert_task."""
+
+    async def test_upsert_creates_new(self, session_factory) -> None:
+        """upsert_task inserts when no row exists."""
+        tm = TaskManager(session_factory)
+        task = _make_task()
+        result = await tm.upsert_task(task)
+        assert result == UpsertResult.created
+
+        fetched = await tm.get_task("P0:T-P0-1")
+        assert fetched is not None
+        assert fetched.title == "Test task"
+
+    async def test_upsert_resurrects_deleted(self, session_factory) -> None:
+        """upsert_task un-deletes a soft-deleted row."""
+        tm = TaskManager(session_factory)
+        task = _make_task()
+        await tm.create_task(task)
+        await tm.delete_task("P0:T-P0-1")
+
+        # Verify it's gone from normal queries
+        assert await tm.get_task("P0:T-P0-1") is None
+
+        # Upsert should resurrect it
+        updated_task = _make_task(title="Resurrected title")
+        result = await tm.upsert_task(updated_task)
+        assert result == UpsertResult.resurrected
+
+        fetched = await tm.get_task("P0:T-P0-1")
+        assert fetched is not None
+        assert fetched.title == "Resurrected title"
+
+    async def test_upsert_updates_changed(self, session_factory) -> None:
+        """upsert_task updates when fields differ."""
+        tm = TaskManager(session_factory)
+        task = _make_task()
+        await tm.create_task(task)
+
+        modified = _make_task(title="Updated title", description="New desc")
+        result = await tm.upsert_task(modified)
+        assert result == UpsertResult.updated
+
+        fetched = await tm.get_task("P0:T-P0-1")
+        assert fetched.title == "Updated title"
+        assert fetched.description == "New desc"
+
+    async def test_upsert_unchanged(self, session_factory) -> None:
+        """upsert_task returns unchanged when nothing differs."""
+        tm = TaskManager(session_factory)
+        task = _make_task()
+        await tm.create_task(task)
+
+        same = _make_task()
+        result = await tm.upsert_task(same)
+        assert result == UpsertResult.unchanged

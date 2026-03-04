@@ -171,6 +171,7 @@ export interface CreateTaskResult {
   synced: boolean;
   sync_result: SyncResult | null;
   error: string | null;
+  sync_error: string | null;
 }
 
 /** A single entry returned by the directory browser. */

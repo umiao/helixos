@@ -329,6 +329,7 @@ class CreateTaskResponse(BaseModel):
     synced: bool = False
     sync_result: SyncResponse | None = None
     error: str | None = None
+    sync_error: str | None = None
 
 
 # ------------------------------------------------------------------

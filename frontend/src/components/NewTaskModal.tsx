@@ -13,7 +13,7 @@ interface NewTaskModalProps {
   projectId: string;
   projectName: string;
   onClose: () => void;
-  onCreated: () => void;
+  onCreated: (synced: boolean) => void;
   onError: (msg: string) => void;
   /** Optional initial title (e.g. from InlineTaskCreator Tab key). */
   initialTitle?: string;
@@ -87,7 +87,7 @@ export default function NewTaskModal({
           priority,
         });
         if (result.success) {
-          onCreated();
+          onCreated(result.synced);
           onClose();
         } else {
           setError(result.error || "Failed to create task");

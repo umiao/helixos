@@ -19,7 +19,7 @@ interface SwimLaneProps {
   syncing: boolean;
   onSync: () => void;
   onNewTask: () => void;
-  onTaskCreated: () => void;
+  onTaskCreated: (synced: boolean) => void;
   onError: (msg: string) => void;
   onPauseToggle?: (paused: boolean) => void;
   /** Called when inline creator Tab triggers enrich-expand into NewTaskModal. */
