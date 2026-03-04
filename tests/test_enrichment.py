@@ -1,10 +1,14 @@
-"""Tests for AI-assisted task enrichment (src/enrichment.py) and API endpoint.
+"""Tests for AI-assisted task enrichment and plan generation (src/enrichment.py).
 
 Tests cover:
 - _parse_enrichment with valid/invalid/malformed JSON
 - enrich_task_title with mocked subprocess (success + failure)
 - is_claude_cli_available pre-flight check
 - POST /api/tasks/enrich endpoint (success, CLI unavailable 503, CLI error 503)
+- _parse_plan with valid/invalid/malformed JSON
+- generate_task_plan with mocked subprocess (success + failure + codebase context)
+- format_plan_as_text formatting
+- POST /api/tasks/{id}/generate-plan endpoint (success, 404, 503)
 """
 
 from __future__ import annotations
@@ -26,7 +30,14 @@ from src.config import (
     ReviewPipelineConfig,
 )
 from src.db import Base
-from src.enrichment import _parse_enrichment, enrich_task_title, is_claude_cli_available
+from src.enrichment import (
+    _parse_enrichment,
+    _parse_plan,
+    enrich_task_title,
+    format_plan_as_text,
+    generate_task_plan,
+    is_claude_cli_available,
+)
 from src.models import ExecutorType
 from src.process_manager import ProcessStatus
 from src.scheduler import Scheduler
@@ -409,3 +420,338 @@ class TestEnrichEndpoint:
             )
             assert resp.status_code == 200
             assert resp.json()["priority"] == "P1"
+
+
+# ==================================================================
+# Plan generation tests
+# ==================================================================
+
+def _make_plan_output(
+    plan: str,
+    steps: list[dict],
+    acceptance_criteria: list[str],
+) -> bytes:
+    """Create mock Claude CLI stdout for a plan generation response."""
+    inner = json.dumps({
+        "plan": plan,
+        "steps": steps,
+        "acceptance_criteria": acceptance_criteria,
+    })
+    return _make_cli_output(inner)
+
+
+# ------------------------------------------------------------------
+# Unit tests: _parse_plan
+# ------------------------------------------------------------------
+
+
+class TestParsePlan:
+    """Tests for the _parse_plan function."""
+
+    def test_valid_json(self) -> None:
+        """Parse valid plan JSON."""
+        text = json.dumps({
+            "plan": "Add caching layer",
+            "steps": [{"step": "Add Redis", "files": ["src/cache.py"]}],
+            "acceptance_criteria": ["Cache hit rate > 80%"],
+        })
+        result = _parse_plan(text)
+        assert result["plan"] == "Add caching layer"
+        assert len(result["steps"]) == 1
+        assert result["steps"][0]["step"] == "Add Redis"
+        assert result["steps"][0]["files"] == ["src/cache.py"]
+        assert result["acceptance_criteria"] == ["Cache hit rate > 80%"]
+
+    def test_steps_without_files(self) -> None:
+        """Steps without files key get empty files list."""
+        text = json.dumps({
+            "plan": "Refactor",
+            "steps": [{"step": "Split module"}],
+            "acceptance_criteria": ["Tests pass"],
+        })
+        result = _parse_plan(text)
+        assert result["steps"][0]["files"] == []
+
+    def test_invalid_json_returns_raw(self) -> None:
+        """Non-JSON text falls back to raw text as plan."""
+        result = _parse_plan("This is just text")
+        assert result["plan"] == "This is just text"
+        assert result["steps"] == []
+        assert result["acceptance_criteria"] == []
+
+    def test_empty_string(self) -> None:
+        """Empty string returns empty plan."""
+        result = _parse_plan("")
+        assert result["plan"] == ""
+        assert result["steps"] == []
+
+    def test_missing_fields(self) -> None:
+        """Missing fields default to empty."""
+        text = json.dumps({"plan": "Just a plan"})
+        result = _parse_plan(text)
+        assert result["plan"] == "Just a plan"
+        assert result["steps"] == []
+        assert result["acceptance_criteria"] == []
+
+    def test_invalid_steps_filtered(self) -> None:
+        """Steps without 'step' key are filtered out."""
+        text = json.dumps({
+            "plan": "p",
+            "steps": [
+                {"step": "valid"},
+                {"notastep": "invalid"},
+                "just a string",
+            ],
+            "acceptance_criteria": [],
+        })
+        result = _parse_plan(text)
+        assert len(result["steps"]) == 1
+        assert result["steps"][0]["step"] == "valid"
+
+
+# ------------------------------------------------------------------
+# Unit tests: format_plan_as_text
+# ------------------------------------------------------------------
+
+
+class TestFormatPlanAsText:
+    """Tests for the format_plan_as_text function."""
+
+    def test_full_plan(self) -> None:
+        """Format a complete plan with all sections."""
+        plan_data = {
+            "plan": "Add user auth with JWT tokens.",
+            "steps": [
+                {"step": "Create auth middleware", "files": ["src/auth.py"]},
+                {"step": "Add login endpoint", "files": ["src/api.py"]},
+            ],
+            "acceptance_criteria": ["Login returns JWT", "Protected routes reject unauthenticated"],
+        }
+        text = format_plan_as_text(plan_data)
+        assert "Add user auth with JWT tokens." in text
+        assert "## Implementation Steps" in text
+        assert "1. Create auth middleware" in text
+        assert "   - src/auth.py" in text
+        assert "2. Add login endpoint" in text
+        assert "## Acceptance Criteria" in text
+        assert "- Login returns JWT" in text
+
+    def test_empty_plan(self) -> None:
+        """Empty plan data produces empty string."""
+        text = format_plan_as_text({"plan": "", "steps": [], "acceptance_criteria": []})
+        assert text == ""
+
+    def test_plan_only(self) -> None:
+        """Plan with no steps or criteria."""
+        text = format_plan_as_text({
+            "plan": "Just a summary.",
+            "steps": [],
+            "acceptance_criteria": [],
+        })
+        assert text == "Just a summary."
+
+
+# ------------------------------------------------------------------
+# Unit tests: generate_task_plan (async)
+# ------------------------------------------------------------------
+
+
+class TestGenerateTaskPlan:
+    """Tests for the generate_task_plan async function."""
+
+    @pytest.mark.asyncio
+    async def test_success(self) -> None:
+        """Successful plan generation returns structured data."""
+        stdout = _make_plan_output(
+            "Implement dark mode",
+            [{"step": "Add theme context", "files": ["src/theme.ts"]}],
+            ["Theme toggle works"],
+        )
+        mock_proc = _mock_proc(stdout)
+
+        with patch(
+            "src.enrichment.asyncio.create_subprocess_exec",
+            return_value=mock_proc,
+        ):
+            result = await generate_task_plan("Add dark mode")
+            assert result["plan"] == "Implement dark mode"
+            assert len(result["steps"]) == 1
+            assert result["acceptance_criteria"] == ["Theme toggle works"]
+
+    @pytest.mark.asyncio
+    async def test_with_repo_path(self, tmp_path: Path) -> None:
+        """repo_path is passed as --add-dir when it exists."""
+        repo = tmp_path / "repo"
+        repo.mkdir()
+        stdout = _make_plan_output("Plan", [], [])
+        mock_proc = _mock_proc(stdout)
+
+        with patch(
+            "src.enrichment.asyncio.create_subprocess_exec",
+            return_value=mock_proc,
+        ) as mock_exec:
+            await generate_task_plan("Task", repo_path=repo)
+            call_args = mock_exec.call_args[0]
+            assert "--add-dir" in call_args
+            assert str(repo) in call_args
+            assert "--permission-mode" in call_args
+            assert "plan" in call_args
+
+    @pytest.mark.asyncio
+    async def test_without_repo_path(self) -> None:
+        """No --add-dir when repo_path is None."""
+        stdout = _make_plan_output("Plan", [], [])
+        mock_proc = _mock_proc(stdout)
+
+        with patch(
+            "src.enrichment.asyncio.create_subprocess_exec",
+            return_value=mock_proc,
+        ) as mock_exec:
+            await generate_task_plan("Task")
+            call_args = mock_exec.call_args[0]
+            assert "--add-dir" not in call_args
+
+    @pytest.mark.asyncio
+    async def test_cli_failure_raises(self) -> None:
+        """Non-zero exit code raises RuntimeError."""
+        mock_proc = _mock_proc(b"", returncode=1)
+        mock_proc.communicate = AsyncMock(return_value=(b"", b"error"))
+
+        with (
+            patch(
+                "src.enrichment.asyncio.create_subprocess_exec",
+                return_value=mock_proc,
+            ),
+            pytest.raises(RuntimeError, match="Claude CLI failed"),
+        ):
+            await generate_task_plan("Broken task")
+
+    @pytest.mark.asyncio
+    async def test_with_description(self) -> None:
+        """Existing description is included in the prompt."""
+        stdout = _make_plan_output("Plan", [], [])
+        mock_proc = _mock_proc(stdout)
+
+        with patch(
+            "src.enrichment.asyncio.create_subprocess_exec",
+            return_value=mock_proc,
+        ) as mock_exec:
+            await generate_task_plan("Task", description="Existing desc")
+            call_args = mock_exec.call_args[0]
+            # The prompt should contain the description
+            prompt_arg = call_args[2]  # claude, -p, <prompt>
+            assert "Existing desc" in prompt_arg
+
+
+# ------------------------------------------------------------------
+# API endpoint tests: POST /api/tasks/{id}/generate-plan
+# ------------------------------------------------------------------
+
+
+class TestGeneratePlanEndpoint:
+    """Tests for POST /api/tasks/{task_id}/generate-plan."""
+
+    @pytest.mark.asyncio
+    async def test_task_not_found_404(self, client: AsyncClient) -> None:
+        """Returns 404 for non-existent task."""
+        with patch(
+            "src.enrichment.shutil.which", return_value="/usr/bin/claude",
+        ):
+            resp = await client.post(
+                "/api/tasks/nonexistent-id/generate-plan",
+            )
+            assert resp.status_code == 404
+
+    @pytest.mark.asyncio
+    async def test_cli_unavailable_503(self, client: AsyncClient) -> None:
+        """Returns 503 when Claude CLI is not available."""
+        with patch(
+            "src.enrichment.shutil.which", return_value=None,
+        ):
+            resp = await client.post(
+                "/api/tasks/any-id/generate-plan",
+            )
+            assert resp.status_code == 503
+            assert "not available" in resp.json()["detail"].lower()
+
+    @pytest.mark.asyncio
+    async def test_success(
+        self, test_app, client: AsyncClient,
+    ) -> None:
+        """Successful plan generation returns structured plan and saves to task."""
+        from src.sync.tasks_parser import sync_project_tasks
+
+        # Sync tasks so we have a task in DB
+        task_manager: TaskManager = test_app.state.task_manager
+        registry = test_app.state.registry
+        project = registry.list_projects()[0]
+        await sync_project_tasks(project.id, task_manager, registry)
+
+        tasks = await task_manager.list_tasks(project_id=project.id)
+        task = tasks[0]
+
+        stdout = _make_plan_output(
+            "Add authentication flow",
+            [{"step": "Create auth module", "files": ["src/auth.py"]}],
+            ["Login returns token"],
+        )
+        mock_proc = _mock_proc(stdout)
+
+        with (
+            patch(
+                "src.enrichment.shutil.which", return_value="/usr/bin/claude",
+            ),
+            patch(
+                "src.enrichment.asyncio.create_subprocess_exec",
+                return_value=mock_proc,
+            ),
+        ):
+            resp = await client.post(
+                f"/api/tasks/{task.id}/generate-plan",
+            )
+            assert resp.status_code == 200
+            data = resp.json()
+            assert data["plan"] == "Add authentication flow"
+            assert len(data["steps"]) == 1
+            assert data["steps"][0]["step"] == "Create auth module"
+            assert data["acceptance_criteria"] == ["Login returns token"]
+            assert "formatted" in data
+            assert "## Implementation Steps" in data["formatted"]
+
+        # Verify task.description was updated
+        updated_task = await task_manager.get_task(task.id)
+        assert updated_task is not None
+        assert "Add authentication flow" in updated_task.description
+
+    @pytest.mark.asyncio
+    async def test_cli_error_503(
+        self, test_app, client: AsyncClient,
+    ) -> None:
+        """Returns 503 when Claude CLI subprocess fails during generation."""
+        from src.sync.tasks_parser import sync_project_tasks
+
+        task_manager: TaskManager = test_app.state.task_manager
+        registry = test_app.state.registry
+        project = registry.list_projects()[0]
+        await sync_project_tasks(project.id, task_manager, registry)
+
+        tasks = await task_manager.list_tasks(project_id=project.id)
+        task = tasks[0]
+
+        mock_proc = _mock_proc(b"", returncode=1)
+        mock_proc.communicate = AsyncMock(return_value=(b"", b"error"))
+
+        with (
+            patch(
+                "src.enrichment.shutil.which", return_value="/usr/bin/claude",
+            ),
+            patch(
+                "src.enrichment.asyncio.create_subprocess_exec",
+                return_value=mock_proc,
+            ),
+        ):
+            resp = await client.post(
+                f"/api/tasks/{task.id}/generate-plan",
+            )
+            assert resp.status_code == 503
+            assert "failed" in resp.json()["detail"].lower()

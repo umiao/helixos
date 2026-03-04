@@ -155,6 +155,14 @@ export interface EnrichResult {
   priority: string;
 }
 
+/** Result of AI-generated structured plan. */
+export interface GeneratePlanResult {
+  plan: string;
+  steps: { step: string; files?: string[] }[];
+  acceptance_criteria: string[];
+  formatted: string;
+}
+
 /** Result of creating a task. */
 export interface CreateTaskResult {
   task_id: string;

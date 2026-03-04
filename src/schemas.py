@@ -286,6 +286,23 @@ class EnrichTaskResponse(BaseModel):
     )
 
 
+class GeneratePlanResponse(BaseModel):
+    """AI-generated structured implementation plan."""
+
+    plan: str = Field(..., description="Plan summary text")
+    steps: list[dict] = Field(
+        default_factory=list,
+        description="Ordered implementation steps with optional file list",
+    )
+    acceptance_criteria: list[str] = Field(
+        default_factory=list,
+        description="Verifiable acceptance criteria",
+    )
+    formatted: str = Field(
+        ..., description="Human-readable formatted plan text",
+    )
+
+
 # ------------------------------------------------------------------
 # Task creation schemas
 # ------------------------------------------------------------------

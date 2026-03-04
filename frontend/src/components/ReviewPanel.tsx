@@ -19,8 +19,10 @@ import type { Task, ReviewHistoryEntry } from "../types";
 import {
   submitReviewDecision,
   fetchReviewHistory,
+  fetchTask,
   retryReview,
   updateTask,
+  generatePlan,
   ApiError,
 } from "../api";
 import PlanDiffView from "./PlanDiffView";
@@ -71,6 +73,7 @@ export default function ReviewPanel({
   const [editing, setEditing] = useState(false);
   const [editDraft, setEditDraft] = useState("");
   const [saving, setSaving] = useState(false);
+  const [generating, setGenerating] = useState(false);
 
   const toggleRawResponse = useCallback((entryId: number) => {
     setExpandedRaw((prev) => ({ ...prev, [entryId]: !prev[entryId] }));
@@ -84,6 +87,7 @@ export default function ReviewPanel({
       setSelectedDecision(null);
       setExpandedRaw({});
       setEditing(false);
+      setGenerating(false);
       return;
     }
     setExpandedRaw({});
@@ -236,6 +240,22 @@ export default function ReviewPanel({
       onError(msg);
     } finally {
       setSaving(false);
+    }
+  };
+
+  const handleGeneratePlan = async () => {
+    setGenerating(true);
+    try {
+      await generatePlan(task.id);
+      // Endpoint auto-saves to task.description; refresh task state
+      const updated = await fetchTask(task.id);
+      onTaskUpdated?.(updated);
+    } catch (err) {
+      const msg =
+        err instanceof ApiError ? err.detail : "Failed to generate plan";
+      onError(msg);
+    } finally {
+      setGenerating(false);
     }
   };
 
@@ -607,13 +627,24 @@ export default function ReviewPanel({
                     </p>
                   )}
                   {!isRunning && (
-                    <button
-                      onClick={handleEditPlan}
-                      className="mt-2 rounded-md bg-gray-200 px-2.5 py-1 text-[10px] font-medium text-gray-600 hover:bg-gray-300 transition-colors"
-                      title="Edit the plan before re-review"
-                    >
-                      Edit Plan
-                    </button>
+                    <div className="mt-2 flex gap-2">
+                      <button
+                        onClick={handleEditPlan}
+                        disabled={generating}
+                        className="rounded-md bg-gray-200 px-2.5 py-1 text-[10px] font-medium text-gray-600 hover:bg-gray-300 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                        title="Edit the plan before re-review"
+                      >
+                        Edit Plan
+                      </button>
+                      <button
+                        onClick={handleGeneratePlan}
+                        disabled={generating}
+                        className="rounded-md bg-indigo-100 px-2.5 py-1 text-[10px] font-medium text-indigo-700 hover:bg-indigo-200 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                        title="Generate a structured plan using AI (uses codebase context)"
+                      >
+                        {generating ? "Generating..." : "Generate Plan"}
+                      </button>
+                    </div>
                   )}
                 </>
               )}

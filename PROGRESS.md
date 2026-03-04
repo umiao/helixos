@@ -521,3 +521,10 @@
 - **Sanity check result**: 882 tests passing (9 new). Ruff clean. Frontend builds clean.
 - **Status**: [DONE]
 - **Request**: Move T-P0-35 to Completed
+
+## 2026-03-03 08:30 -- [T-P0-36] Structured plan generation via Claude CLI
+- **What I did**: Feasibility assessment found no `--plan` CLI flag exists. Implemented structured plan generation using stable CLI features: `claude -p` + `--system-prompt` + `--json-schema` + `--add-dir` (codebase context) + `--permission-mode plan` (read-only). Added `generate_task_plan()` and `format_plan_as_text()` to enrichment.py with JSON schema for structured output (plan summary, implementation steps with file lists, acceptance criteria). POST `/api/tasks/{id}/generate-plan` endpoint auto-saves formatted plan to task.description. Frontend: "Generate Plan" button next to "Edit Plan" in ReviewPanel with indigo styling and loading state. Graceful degradation: CLI unavailable returns 503, parse failures fall back to raw text.
+- **Deliverables**: src/enrichment.py (mod -- plan generation functions, JSON schema, system prompt, format_plan_as_text), src/schemas.py (mod -- GeneratePlanResponse), src/api.py (mod -- generate-plan endpoint with repo_path lookup), frontend/src/types.ts (mod -- GeneratePlanResult), frontend/src/api.ts (mod -- generatePlan function), frontend/src/components/ReviewPanel.tsx (mod -- Generate Plan button, handleGeneratePlan, generating state), tests/test_enrichment.py (mod -- 18 new plan generation tests)
+- **Sanity check result**: 900 tests passing (18 new). Ruff clean. Frontend builds clean.
+- **Status**: [DONE]
+- **Request**: Move T-P0-36 to Completed

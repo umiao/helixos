@@ -8,6 +8,7 @@ import type {
   CreateTaskResult,
   EnrichResult,
   ExecutionLogsResponse,
+  GeneratePlanResult,
   ImportResult,
   ProcessStatus,
   Project,
@@ -255,6 +256,17 @@ export async function enrichTask(title: string): Promise<EnrichResult> {
     body: JSON.stringify({ title }),
   });
   return handleResponse<EnrichResult>(res);
+}
+
+/** Generate a structured implementation plan for a task. */
+export async function generatePlan(
+  taskId: string,
+): Promise<GeneratePlanResult> {
+  const res = await fetch(
+    `/api/tasks/${encodeURIComponent(taskId)}/generate-plan`,
+    { method: "POST" },
+  );
+  return handleResponse<GeneratePlanResult>(res);
 }
 
 /** Pause task execution for a project. */

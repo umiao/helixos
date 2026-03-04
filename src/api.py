@@ -22,7 +22,12 @@ from fastapi.staticfiles import StaticFiles
 from src.config import ProjectRegistry, load_config
 from src.config_writer import add_project_to_config, suggest_next_project_id
 from src.db import create_engine, create_session_factory, init_db
-from src.enrichment import enrich_task_title, is_claude_cli_available
+from src.enrichment import (
+    enrich_task_title,
+    format_plan_as_text,
+    generate_task_plan,
+    is_claude_cli_available,
+)
 from src.env_loader import EnvLoader
 from src.events import EventBus, sse_router
 from src.history_writer import HistoryWriter
@@ -45,6 +50,7 @@ from src.schemas import (
     ExecutionLogEntry,
     ExecutionLogsResponse,
     ExecutionStateResponse,
+    GeneratePlanResponse,
     ImportProjectRequest,
     ImportProjectResponse,
     ProcessStatusResponse,
@@ -636,6 +642,80 @@ async def enrich_task(body: EnrichTaskRequest) -> EnrichTaskResponse:
     return EnrichTaskResponse(
         description=result["description"],
         priority=result["priority"],
+    )
+
+
+# ------------------------------------------------------------------
+# Structured plan generation endpoint
+# ------------------------------------------------------------------
+
+
+@api_router.post(
+    "/api/tasks/{task_id}/generate-plan",
+    responses={
+        404: {"model": ErrorResponse},
+        503: {"model": ErrorResponse},
+    },
+)
+async def generate_plan(task_id: str, request: Request) -> GeneratePlanResponse:
+    """Generate a structured implementation plan for a task.
+
+    Uses Claude CLI with codebase context (via ``--add-dir``) to produce
+    a structured plan with implementation steps and acceptance criteria.
+    The generated plan is automatically saved to ``task.description``.
+
+    Returns 503 if Claude CLI is not available.
+    Returns 404 if the task does not exist.
+    """
+    if not is_claude_cli_available():
+        raise HTTPException(
+            status_code=503,
+            detail="Claude CLI not available -- plan generation disabled",
+        )
+
+    task_manager: TaskManager = request.app.state.task_manager
+    task = await task_manager.get_task(task_id)
+    if task is None:
+        raise HTTPException(status_code=404, detail=f"Task not found: {task_id}")
+
+    # Get repo_path from project registry for codebase context
+    repo_path = None
+    try:
+        registry: ProjectRegistry = request.app.state.registry
+        project = registry.get_project(task.project_id)
+        if project.repo_path:
+            repo_path = project.repo_path
+    except (KeyError, AttributeError):
+        logger.debug(
+            "Could not resolve repo_path for project %s, "
+            "generating plan without codebase context",
+            task.project_id,
+        )
+
+    try:
+        plan_data = await generate_task_plan(
+            title=task.title,
+            description=task.description,
+            repo_path=repo_path,
+        )
+    except RuntimeError as exc:
+        logger.warning("Plan generation failed: %s", exc)
+        raise HTTPException(
+            status_code=503,
+            detail=f"Plan generation failed: {exc}",
+        ) from exc
+
+    formatted = format_plan_as_text(plan_data)
+
+    # Auto-save generated plan as task description
+    task.description = formatted
+    await task_manager.update_task(task)
+
+    return GeneratePlanResponse(
+        plan=plan_data["plan"],
+        steps=plan_data["steps"],
+        acceptance_criteria=plan_data["acceptance_criteria"],
+        formatted=formatted,
     )
 
 

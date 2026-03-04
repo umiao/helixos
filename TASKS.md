@@ -45,26 +45,7 @@
 
 ### P1 -- Should Have (important features)
 
-#### T-P0-36: Structured plan generation via Claude --plan
-- **Priority**: P1 (evaluate feasibility first)
-- **Complexity**: M
-- **Depends on**: T-P0-35
-- **Pre-implementation requirement**: Research Claude CLI `--plan` output
-  format stability. If format is unstable or undocumented, defer task.
-
-**Problem**: Plans are currently free-text task descriptions. Structured
-plan generation could improve review quality.
-
-**AC**:
-
-1. **Feasibility assessment**: Document `--plan` output format, stability
-   guarantees, and parsing requirements before implementation.
-2. **Plan generation**: For M/L complexity tasks, offer "Generate Plan"
-   button that calls Claude CLI with `--plan` flag.
-3. **Plan output stored**: Generated plan stored as task.description,
-   visible in ReviewPanel.
-4. **Graceful degradation**: If --plan fails or format changes, fall back
-   to raw description without breaking review pipeline.
+#### ~~T-P0-36: Structured plan generation via Claude CLI~~ [DONE -- see Completed Tasks]
 
 <!-- All 7 P1 tasks completed (pre-T-P0-36). See Completed Tasks below. -->
 
@@ -211,6 +192,9 @@ T-P0-33 [M] Fix review panel data bugs [DONE] (no deps)
 
 ## Completed Tasks
 <!-- Move finished tasks here with [x] and completion date -->
+
+#### [x] T-P0-36: Structured plan generation via Claude CLI -- 2026-03-03
+- Feasibility: no `--plan` flag exists in Claude CLI. Implemented using stable features: `claude -p` + `--system-prompt` + `--json-schema` + `--add-dir` (codebase context) + `--permission-mode plan`. generate_task_plan() produces structured plan (summary, steps with files, acceptance criteria). format_plan_as_text() converts to readable markdown. POST /api/tasks/{id}/generate-plan auto-saves to task.description. Frontend: "Generate Plan" button in ReviewPanel. Graceful degradation: 503 when CLI unavailable, raw text fallback on parse failure. 18 new tests, 900 total passing.
 
 #### [x] T-P0-35: Inline plan editing + versioned review history -- 2026-03-03
 - Added plan_snapshot TEXT NULL column to ReviewHistoryRow (auto-migrated). Review pipeline stores immutable snapshot of task.description at pipeline start (first round only). PlanDiffView component with LCS-based unified line diff. ReviewPanel groups history entries by review_attempt with "Attempt N" headers + timestamps. Inline plan editor (Edit Plan -> textarea + Save/Cancel) using existing PATCH endpoint. Plan diff banner between attempt groups when plan changed. App.tsx onTaskUpdated refreshes state after inline edit. 9 new tests, 882 total passing.
