@@ -76,20 +76,7 @@
 
 #### ~~T-P0-41: Refactor review_pipeline to emit ReviewLifecycleState~~ [DONE -- see Completed Tasks]
 
-#### T-P0-42: Make ReviewPanel purely state-driven (no field-guessing)
-- **Priority**: P0
-- **Complexity**: M
-- **Depends on**: T-P0-40, T-P0-41
-- **Problem**: Frontend ReviewPanel guesses state from multiple fields. Feasibility/edge_cases reviewers show 30% consensus and "reject" badge when review hasn't meaningfully started.
-- **Acceptance Criteria**:
-  1. **Verdict badge**: When lifecycle state is `NOT_STARTED`, show "Not Reviewed" instead of "reject"
-  2. **Consensus display**: Individual non-final review entries do NOT show consensus bar; only show on synthesis/final entries
-  3. **Cost display**: Only show when cost data is meaningful and accurate
-  4. **Idle state**: When `review_status` is idle and no history entries exist, show "Review not started" (not blank or confusing defaults)
-  5. When entries exist from single-reviewer rejection, show contextual label "Single reviewer rejected" (not raw 30%)
-  6. Remove ALL frontend state-guessing logic -- drive entirely from backend `ReviewLifecycleState`
-  7. **Manual smoke test**: Open ReviewPanel for task with no reviews -> shows "Not Reviewed". Run review -> shows progress. Complete -> shows correct verdict with no confusing percentages
-- **Files**: `frontend/src/components/ReviewPanel.tsx`
+#### ~~T-P0-42: Make ReviewPanel purely state-driven (no field-guessing)~~ [DONE -- see Completed Tasks]
 
 #### T-P0-43: Fix soft-delete sync with `deleted_source` tracking
 - **Priority**: P0

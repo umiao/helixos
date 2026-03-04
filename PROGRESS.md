@@ -549,3 +549,10 @@
 - **Sanity check result**: 944 tests passing (14 new). Ruff clean.
 - **Status**: [DONE]
 - **Request**: Move T-P0-41 to Completed
+
+## 2026-03-03 12:30 -- [T-P0-42] Make ReviewPanel purely state-driven (no field-guessing)
+- **What I did**: Refactored `ReviewPanel.tsx` to drive all display logic from `task.review_lifecycle_state` (backend ReviewLifecycleState) instead of guessing state from `review_status` + field combinations. Replaced `reviewStatus` variable with `lifecycleState` from `task.review_lifecycle_state`. Updated header badge (`lifecycleBadge()`) to show lifecycle-specific states (approved/rejected/partial/failed/reviewing) instead of generic done/running/failed. Changed idle display from "No review requested" to "Review not started" when lifecycle is `not_started`. Consensus bar now only renders on terminal-state entries (approved, rejected_consensus) -- intermediate (running) entries no longer show misleading percentages. Added "Single reviewer rejected" contextual label for `rejected_single` entries instead of raw 0% consensus. Entry verdict badge shows "not reviewed" when entry lifecycle is `not_started`. Cost display suppressed when `cost_usd` is 0. Re-review button logic driven by terminal lifecycle states instead of `review_status === "idle"`. Polling condition updated to use `review_lifecycle_state === "running"`.
+- **Deliverables**: frontend/src/components/ReviewPanel.tsx (mod -- all display logic driven by ReviewLifecycleState, removed reviewStatus field-guessing)
+- **Sanity check result**: 944 tests passing. Ruff clean. TypeScript compiles clean.
+- **Status**: [DONE]
+- **Request**: Move T-P0-42 to Completed

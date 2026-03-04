@@ -7,11 +7,16 @@
  *   - Review attempt grouping with plan snapshots
  *   - Plan diff between attempts (via PlanDiffView)
  *
- * Renders based on task.review_status:
- *   idle    -- "No review requested" or "Re-review" button after request_changes
- *   running -- spinner + "Review in progress..."
- *   done    -- existing review results / history
- *   failed  -- error message + "Retry Review" button
+ * Renders based on task.review_lifecycle_state (backend is single source of truth):
+ *   not_started         -- "Review not started"
+ *   running             -- spinner + "Review in progress..."
+ *   approved            -- review results with approved badge
+ *   rejected_single     -- "Single reviewer rejected" label
+ *   rejected_consensus  -- review results with consensus bar
+ *   partial             -- partial results
+ *   failed              -- error message + "Retry Review" button
+ *
+ * No frontend state-guessing: all display logic driven by ReviewLifecycleState.
  */
 
 import { useCallback, useEffect, useMemo, useState } from "react";
@@ -122,7 +127,7 @@ export default function ReviewPanel({
     const shouldPoll =
       ["review", "review_auto_approved", "review_needs_human"].includes(
         task.status,
-      ) || task.review_status === "running";
+      ) || task.review_lifecycle_state === "running";
     if (!shouldPoll) return;
 
     const interval = setInterval(async () => {
@@ -135,7 +140,7 @@ export default function ReviewPanel({
     }, POLL_INTERVAL_MS);
 
     return () => clearInterval(interval);
-  }, [task?.id, task?.status, task?.review_status]);
+  }, [task?.id, task?.status, task?.review_lifecycle_state]);
 
   // Group history entries by review_attempt
   const attemptGroups: AttemptGroup[] = useMemo(() => {
@@ -185,8 +190,8 @@ export default function ReviewPanel({
 
   const review = task.review;
   const hasReview = review !== null && review !== undefined;
-  const reviewStatus = task.review_status ?? "idle";
-  const isRunning = reviewStatus === "running";
+  const lifecycleState = task.review_lifecycle_state ?? "not_started";
+  const isRunning = lifecycleState === "running";
 
   const handleDecision = async (decision: DecisionType) => {
     setSubmitting(true);
@@ -270,7 +275,15 @@ export default function ReviewPanel({
       ? Math.round((review.rounds_completed / review.rounds_total) * 100)
       : 0;
 
-  const verdictBadge = (verdict: string) => {
+  const verdictBadge = (verdict: string, entryLifecycleState: string) => {
+    // AC1: When lifecycle state is NOT_STARTED, show "Not Reviewed" instead of misleading verdicts
+    if (entryLifecycleState === "not_started") {
+      return (
+        <span className="px-1.5 py-0.5 rounded text-[10px] font-semibold uppercase bg-gray-100 text-gray-500">
+          not reviewed
+        </span>
+      );
+    }
     const v = verdict.toLowerCase();
     if (v === "approve" || v === "approved") {
       return (
@@ -311,25 +324,44 @@ export default function ReviewPanel({
     }
   };
 
-  // Check if task is in REVIEW with idle status (i.e., after request_changes)
+  // Show re-review button when review reached a terminal state and human requested changes
+  const terminalStates = ["approved", "rejected_single", "rejected_consensus", "partial"];
   const showReReviewButton =
     task.status === "review" &&
-    reviewStatus === "idle" &&
+    terminalStates.includes(lifecycleState) &&
     historyEntries.some((e) => e.human_decision === "request_changes");
 
-  // Review status badge for the header
-  const reviewStatusBadge = () => {
-    switch (reviewStatus) {
+  // Review lifecycle badge for the header -- driven by backend ReviewLifecycleState
+  const lifecycleBadge = () => {
+    switch (lifecycleState) {
       case "running":
         return (
           <span className="px-1.5 py-0.5 rounded text-[10px] font-semibold uppercase bg-blue-100 text-blue-700 animate-pulse">
             reviewing
           </span>
         );
-      case "done":
+      case "approved":
         return (
           <span className="px-1.5 py-0.5 rounded text-[10px] font-semibold uppercase bg-green-100 text-green-700">
-            complete
+            approved
+          </span>
+        );
+      case "rejected_single":
+        return (
+          <span className="px-1.5 py-0.5 rounded text-[10px] font-semibold uppercase bg-red-100 text-red-700">
+            rejected
+          </span>
+        );
+      case "rejected_consensus":
+        return (
+          <span className="px-1.5 py-0.5 rounded text-[10px] font-semibold uppercase bg-red-100 text-red-700">
+            rejected
+          </span>
+        );
+      case "partial":
+        return (
+          <span className="px-1.5 py-0.5 rounded text-[10px] font-semibold uppercase bg-yellow-100 text-yellow-700">
+            partial
           </span>
         );
       case "failed":
@@ -363,8 +395,8 @@ export default function ReviewPanel({
           </span>
         </div>
         <div className="flex items-center gap-1.5">
-          {verdictBadge(entry.verdict)}
-          {entry.cost_usd != null && (
+          {verdictBadge(entry.verdict, entry.lifecycle_state)}
+          {entry.cost_usd != null && entry.cost_usd > 0 && (
             <span className="px-1.5 py-0.5 rounded text-[10px] font-semibold bg-gray-100 text-gray-600" title="Approximate LLM cost">
               ~${entry.cost_usd < 0.01 ? entry.cost_usd.toFixed(4) : entry.cost_usd.toFixed(2)}
             </span>
@@ -394,8 +426,17 @@ export default function ReviewPanel({
         </ul>
       )}
 
-      {/* Consensus score (shown when present, typically on final round) */}
-      {entry.consensus_score !== null && (
+      {/* Consensus score -- only shown on terminal (final) entries, not intermediate */}
+      {entry.consensus_score !== null &&
+        entry.lifecycle_state === "rejected_single" && (
+        <div className="mt-1.5 pt-1.5 border-t border-gray-200">
+          <span className="text-[10px] font-semibold text-red-600">
+            Single reviewer rejected
+          </span>
+        </div>
+      )}
+      {entry.consensus_score !== null &&
+        ["approved", "rejected_consensus"].includes(entry.lifecycle_state) && (
         <div className="mt-1.5 pt-1.5 border-t border-gray-200 flex items-center gap-2">
           <span className="text-[10px] text-gray-500">
             Consensus:
@@ -480,7 +521,7 @@ export default function ReviewPanel({
           Review Panel
         </h3>
         <div className="flex items-center gap-2">
-          {reviewStatusBadge()}
+          {lifecycleBadge()}
           <span className="text-xs text-gray-500 font-mono">
             {task.local_task_id}
           </span>
@@ -491,17 +532,17 @@ export default function ReviewPanel({
       </div>
 
       <div className="flex-1 overflow-y-auto p-3 space-y-3">
-        {/* review_status == idle: no review requested */}
-        {reviewStatus === "idle" && !hasReview && historyEntries.length === 0 && (
+        {/* Lifecycle: not_started -- review has not been initiated */}
+        {lifecycleState === "not_started" && historyEntries.length === 0 && (
           <div className="flex items-center justify-center py-8">
             <p className="text-sm text-gray-400">
-              No review requested
+              Review not started
             </p>
           </div>
         )}
 
-        {/* review_status == running: spinner + phase label */}
-        {reviewStatus === "running" && (
+        {/* Lifecycle: running -- pipeline actively executing */}
+        {lifecycleState === "running" && (
           <div className="flex items-center gap-3 py-4 px-3 rounded-lg bg-blue-50 border border-blue-200">
             <div className="w-5 h-5 border-2 border-blue-400 border-t-transparent rounded-full animate-spin" />
             <div>
@@ -515,8 +556,8 @@ export default function ReviewPanel({
           </div>
         )}
 
-        {/* review_status == failed: error + retry button */}
-        {reviewStatus === "failed" && (
+        {/* Lifecycle: failed -- pipeline error */}
+        {lifecycleState === "failed" && (
           <div className="py-4 px-3 rounded-lg bg-red-50 border border-red-200 space-y-2">
             <p className="text-sm font-medium text-red-700">
               Review pipeline failed
@@ -692,11 +733,11 @@ export default function ReviewPanel({
               );
             })}
           </div>
-        ) : hasReview ? (
+        ) : hasReview && lifecycleState !== "not_started" ? (
           <p className="text-xs text-gray-400 text-center py-2">
             No review rounds recorded yet
           </p>
-        ) : reviewStatus !== "idle" ? null : null}
+        ) : null}
 
         {/* Decision area: 3-button selection + reason + submit */}
         {hasReview && review.human_decision_needed && !review.human_choice && (
