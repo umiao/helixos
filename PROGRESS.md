@@ -703,3 +703,10 @@
 - **Sanity check result**: Ruff clean. 1024 tests passing (3 new plan_status tests).
 - **Status**: [DONE]
 - **Request**: Move T-P0-59 to Completed
+
+## 2026-03-04 10:00 -- [CI-FIX] Fix test_code_executor CI failures (shutil.which mock)
+- **What I did**: Added autouse pytest fixture `_mock_claude_on_path` that patches `shutil.which` in code_executor module, so preflight CLI check passes in CI environments without `claude` CLI installed. Tests were passing locally (claude on PATH) but failing in CI (22 tests hit early return with CLI_NOT_FOUND before reaching mocked subprocess).
+- **Deliverables**: tests/test_code_executor.py (mod)
+- **Sanity check result**: Ruff clean. All 69 tests in test_code_executor.py passing.
+- **Status**: [DONE]
+- **Request**: No TASKS.md change (not a tracked task)

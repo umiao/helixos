@@ -61,6 +61,14 @@ def task() -> Task:
     )
 
 
+@pytest.fixture(autouse=True)
+def _mock_claude_on_path(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Ensure preflight CLI check passes in all test environments."""
+    monkeypatch.setattr(
+        "src.executors.code_executor.shutil.which", lambda cmd: "/usr/bin/claude"
+    )
+
+
 # ------------------------------------------------------------------
 # Stdout mock helpers (readline-based)
 # ------------------------------------------------------------------

@@ -108,3 +108,9 @@
   - Fix: For any "display X to user" task, verification must assert that X contains at least one field not already visible in the existing UI. For any user input field, trace the full path: UI -> API -> DB -> retrieval -> display. A broken link at ANY point = bug.
   - Related tasks: T-P0-28, T-P0-33
   - Tags: #data-path #e2e-verification #testing #review-panel
+  15. Preflight checks bypass test mocks -- mock ALL early-return paths
+  - Context: 22 tests in test_code_executor.py mocked `asyncio.create_subprocess_exec` but failed in CI because `_preflight_checks()` called `shutil.which("claude")` before reaching the mock. Returned `None` in CI (no CLI installed), causing early return with CLI_NOT_FOUND.
+  - Why it passed locally: Developer machine has `claude` CLI on PATH, so preflight passed and the mock subprocess was reached.
+  - Fix: Added autouse fixture patching `shutil.which` to return a path. General rule: when adding preflight/validation checks that call system APIs (`shutil.which`, `os.path.isdir`, etc.), also update test mocks -- any new early-return path will bypass existing mocks targeting later code.
+  - Rule: CI is the authority, not local. If tests depend on tools being installed locally, they will fail in clean environments.
+  - Tags: #testing #mocking #ci #preflight #environment-dependency
