@@ -83,7 +83,9 @@ export default function TaskCard({ task, onClick, onContextMenu }: TaskCardProps
   const label = STATUS_LABELS[task.status];
   const hasDeps = task.depends_on.length > 0;
   const isRunning = task.status === "running";
-  const isReviewActive = task.status === "review";
+  // Centralized active-state check: pulse for running tasks OR active review
+  const isActive =
+    task.status === "running" || task.review_status === "running";
   const startedAt = task.execution?.started_at;
   const hasNoPlan = !task.description || !task.description.trim();
 
@@ -183,7 +185,7 @@ export default function TaskCard({ task, onClick, onContextMenu }: TaskCardProps
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2">
           <span
-            className={`inline-block rounded-full px-2 py-0.5 text-xs font-semibold ${badgeClass}${isReviewActive ? " animate-pulse" : ""}`}
+            className={`inline-block rounded-full px-2 py-0.5 text-xs font-semibold ${badgeClass}${isActive ? " animate-pulse" : ""}`}
           >
             {label}
           </span>

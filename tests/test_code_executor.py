@@ -449,9 +449,12 @@ class TestExecuteTimeout:
         task: Task,
     ) -> None:
         """When process doesn't exit after grace period, it gets force-killed."""
+        # Use grace=1 (not 0): asyncio.wait_for(coro, timeout=0) has
+        # edge-case behaviour on Windows that can cause hangs.
+        # grace=1 still triggers the kill path since _wait sleeps 100s.
         config = OrchestratorSettings(
             session_timeout_minutes=0,
-            subprocess_terminate_grace_seconds=0,
+            subprocess_terminate_grace_seconds=1,
             inactivity_timeout_minutes=0,
         )
 
@@ -1291,14 +1294,11 @@ class TestInactivityTimeout:
 
         mock_term_group.side_effect = _term_side_effect
 
-        wait_calls = 0
-
         async def _wait() -> int:
-            nonlocal wait_calls
-            wait_calls += 1
-            if wait_calls <= 1:
-                await asyncio.sleep(100)  # hang during grace
-            proc.returncode = -9
+            # Return immediately if process already killed, else hang
+            if proc.returncode is not None:
+                return proc.returncode
+            await asyncio.sleep(100)  # hang during grace
             return -9
 
         proc.wait = _wait

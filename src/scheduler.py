@@ -73,6 +73,8 @@ class Scheduler:
         self._cancelled: set[str] = set()
         self._tick_task: asyncio.Task[None] | None = None
         self._tick_lock = asyncio.Lock()
+        self._background_ticks: set[asyncio.Task[None]] = set()
+        self._stopped: bool = False
         self._paused_projects: set[str] = set()
         # Projects where review gate is disabled (default: enabled for all)
         self._review_gate_disabled: set[str] = set()
@@ -86,6 +88,7 @@ class Scheduler:
 
         Loads persisted pause states from DB before starting the loop.
         """
+        self._stopped = False
         if self._settings_store is not None:
             self._paused_projects = await self._settings_store.get_all_paused()
             if self._paused_projects:
@@ -107,12 +110,18 @@ class Scheduler:
         logger.info("Scheduler started (interval=%ds)", TICK_INTERVAL_SECONDS)
 
     async def stop(self) -> None:
-        """Stop the tick loop and wait for it to finish."""
+        """Stop the tick loop, cancel background ticks, and wait for cleanup."""
+        self._stopped = True
         if self._tick_task is not None:
             self._tick_task.cancel()
             with contextlib.suppress(asyncio.CancelledError):
                 await self._tick_task
             self._tick_task = None
+        for t in self._background_ticks:
+            t.cancel()
+        if self._background_ticks:
+            await asyncio.gather(*self._background_ticks, return_exceptions=True)
+            self._background_ticks.clear()
         logger.info("Scheduler stopped")
 
     async def _tick_loop(self) -> None:
@@ -314,6 +323,14 @@ class Scheduler:
     # ------------------------------------------------------------------
     # Main tick
     # ------------------------------------------------------------------
+
+    async def _safe_tick(self) -> None:
+        """Wrap tick() so fire-and-forget background calls never raise."""
+        try:
+            await self.tick()
+        except Exception:
+            if not self._stopped:
+                logger.exception("Error in background tick")
 
     async def tick(self) -> None:
         """Main scheduling loop iteration (called every 5s or on task completion).
@@ -647,7 +664,10 @@ class Scheduler:
             self._cancelled.discard(task.id)
             # Immediate next-task dispatch: trigger a tick right away
             # instead of waiting for the next periodic interval.
-            asyncio.create_task(self.tick())
+            if not self._stopped:
+                bg = asyncio.create_task(self._safe_tick())
+                self._background_ticks.add(bg)
+                bg.add_done_callback(self._background_ticks.discard)
 
     async def _run_with_retry(
         self,

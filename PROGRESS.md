@@ -619,3 +619,10 @@
 - **Sanity check result**: 1000 tests passing. Ruff clean.
 - **Status**: [DONE]
 - **Request**: Move T-P0-52 to Completed
+
+## 2026-03-04 00:00 -- [BUGFIX] Fix blocking/hanging tests + scheduler teardown race
+- **What I did**: Fixed two test hangs on Windows and a scheduler teardown race. (1) `test_timeout_kill_after_grace`: changed `grace_seconds=0` to `1` to avoid `asyncio.wait_for(coro, timeout=0)` edge case. (2) `test_inactivity_force_kill_after_grace`: replaced broken `wait_calls` counter with `proc.returncode` check. (3) Scheduler teardown race: fire-and-forget `asyncio.create_task(self.tick())` in `_execute_task` finally block races with DB disposal in test cleanup. Added `_background_ticks` set and `_stopped` flag to track/cancel background ticks. Added `_safe_tick()` wrapper to suppress exceptions after stop. Updated `stop()` to cancel all background ticks. Added `await scheduler.stop()` to 3 concurrency integration tests.
+- **Deliverables**: src/scheduler.py (mod -- _background_ticks, _stopped, _safe_tick(), updated stop/start/_execute_task), tests/test_code_executor.py (mod -- 2 test fixes), tests/integration/test_concurrency.py (mod -- scheduler.stop() in 3 tests)
+- **Sanity check result**: 1000 tests passing. Ruff clean. No hangs.
+- **Status**: [DONE]
+- **Request**: No TASKS.md change (bugfix, not a tracked task)

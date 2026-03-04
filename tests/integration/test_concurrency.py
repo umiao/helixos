@@ -70,7 +70,8 @@ async def test_per_project_concurrency_limit(
     )
     assert len(queued) == 2
 
-    # Cleanup
+    # Cleanup: stop scheduler first to prevent background ticks after DB disposal
+    await scheduler.stop()
     for task_id in list(scheduler.running.keys()):
         scheduler.running[task_id].cancel()
 
@@ -191,7 +192,8 @@ async def test_global_concurrency_with_two_projects(
     assert len(running_a) == 1
     assert len(running_b) == 1
 
-    # Cleanup
+    # Cleanup: stop scheduler first to prevent background ticks after DB disposal
+    await scheduler.stop()
     for task_id in list(scheduler.running.keys()):
         scheduler.running[task_id].cancel()
 
@@ -254,6 +256,7 @@ async def test_dependency_blocks_execution(
     assert len(running) == 1
     assert running[0].id == "proj_a:T-P0-1"
 
-    # Cleanup
+    # Cleanup: stop scheduler first to prevent background ticks after DB disposal
+    await scheduler.stop()
     for task_id in list(scheduler.running.keys()):
         scheduler.running[task_id].cancel()
