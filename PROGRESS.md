@@ -535,3 +535,10 @@
 - **Sanity check result**: 900 tests passing (18 new). Ruff clean. Frontend builds clean.
 - **Status**: [DONE]
 - **Request**: Move T-P0-36 to Completed
+
+## 2026-03-03 10:00 -- [T-P0-40] Define Canonical ReviewLifecycleState enum in backend
+- **What I did**: Created `ReviewLifecycleState(StrEnum)` with 7 values (NOT_STARTED, RUNNING, PARTIAL, FAILED, REJECTED_SINGLE, REJECTED_CONSENSUS, APPROVED) and `REVIEW_LIFECYCLE_TRANSITIONS` state machine map. Added `lifecycle_state` column to ReviewHistoryRow and `review_lifecycle_state` column to TaskRow (both auto-migrated via init_db). Exposed lifecycle state in API schemas (TaskResponse.review_lifecycle_state, ReviewHistoryEntry.lifecycle_state). Added `set_review_lifecycle_state()` method to TaskManager. Updated HistoryWriter.write_review() and get_reviews() to accept/return lifecycle_state. Updated frontend types (ReviewLifecycleState type, Task and ReviewHistoryEntry interfaces). Documented full state machine diagram and transition invariants in code comments.
+- **Deliverables**: src/models.py (mod -- ReviewLifecycleState enum, REVIEW_LIFECYCLE_TRANSITIONS dict, Task.review_lifecycle_state field), src/db.py (mod -- lifecycle_state on ReviewHistoryRow, review_lifecycle_state on TaskRow, conversion helpers), src/schemas.py (mod -- lifecycle_state on ReviewHistoryEntry, review_lifecycle_state on TaskResponse), src/history_writer.py (mod -- lifecycle_state param on write_review, included in get_reviews), src/task_manager.py (mod -- set_review_lifecycle_state method), src/api.py (mod -- review_lifecycle_state in _task_to_response), frontend/src/types.ts (mod -- ReviewLifecycleState type, Task/ReviewHistoryEntry interfaces), tests/test_review_lifecycle_state.py (new -- 24 tests)
+- **Sanity check result**: 930 tests passing (24 new). Ruff clean. Frontend builds clean.
+- **Status**: [DONE]
+- **Request**: Move T-P0-40 to Completed

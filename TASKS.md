@@ -72,18 +72,7 @@
 
 ### P0-CORE -- Correctness (must do first)
 
-#### T-P0-40: Define Canonical ReviewLifecycleState enum in backend
-- **Priority**: P0
-- **Complexity**: M
-- **Depends on**: None (foundational -- T-P0-41, T-P0-42 depend on this)
-- **Problem**: UI guesses state by combining `review_status` string + `consensus` float + `verdict` string. This produces ambiguous states (e.g., 30% consensus and "reject" badge when no meaningful review has happened).
-- **Acceptance Criteria**:
-  1. Create `ReviewLifecycleState(str, Enum)` in backend with values: `NOT_STARTED`, `RUNNING`, `PARTIAL`, `FAILED`, `REJECTED_SINGLE`, `REJECTED_CONSENSUS`, `APPROVED`
-  2. Define explicit state machine transitions: all valid states, trigger for each transition, side-effects attached to each transition
-  3. Backend drives the state; frontend only renders it
-  4. Document the lifecycle diagram in code comments
-  5. **Inverse case**: when lifecycle state is `NOT_STARTED`, no consensus/verdict/cost data should be exposed
-- **Files**: `src/schemas.py` (or new state machine module), `src/review_pipeline.py`
+#### ~~T-P0-40: Define Canonical ReviewLifecycleState enum in backend~~ [DONE -- see Completed Tasks]
 
 #### T-P0-41: Refactor review_pipeline to emit ReviewLifecycleState
 - **Priority**: P0
@@ -373,6 +362,9 @@ T-P0-47 [M] No Plan badges + visual guidance (no deps, pairs with T-P0-44)
 
 ## Completed Tasks
 <!-- Move finished tasks here with [x] and completion date -->
+
+#### [x] T-P0-40: Define Canonical ReviewLifecycleState enum in backend -- 2026-03-03
+- Created ReviewLifecycleState(StrEnum) with 7 values (NOT_STARTED, RUNNING, PARTIAL, FAILED, REJECTED_SINGLE, REJECTED_CONSENSUS, APPROVED) and REVIEW_LIFECYCLE_TRANSITIONS state machine map. Added lifecycle_state column to ReviewHistoryRow and review_lifecycle_state column to TaskRow (auto-migrated). Exposed in API schemas (TaskResponse, ReviewHistoryEntry). Added set_review_lifecycle_state() to TaskManager. Updated HistoryWriter and frontend types. Full state machine diagram documented in code comments. 24 new tests, 930 total passing.
 
 #### [x] T-P0-37: Fix sync crash on soft-deleted tasks + task creation feedback -- 2026-03-03
 - Added UpsertResult StrEnum and upsert_task() to TaskManager: handles create/resurrect/update/unchanged without exceptions. Simplified sync_project_tasks() to single upsert_task() call per parsed task, removing existing_map query and create-or-update branches. Added sync_error field to CreateTaskResponse schema. Frontend: onCreated callbacks now pass synced boolean, App.tsx shows warning toast on sync failure. Added *.md.bak to .gitignore. 6 new tests (4 upsert + 2 sync resilience), 906 total passing.

@@ -16,7 +16,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from src.db import TaskRow, get_session, task_dict_to_row_kwargs, task_row_to_dict
-from src.models import ExecutionState, Task, TaskStatus
+from src.models import ExecutionState, ReviewLifecycleState, Task, TaskStatus
 
 logger = logging.getLogger(__name__)
 
@@ -370,6 +370,27 @@ class TaskManager:
             if row is None or row.is_deleted:
                 raise ValueError(f"Task not found: {task_id}")
             row.review_status = review_status
+            row.updated_at = datetime.now(UTC).isoformat()
+
+    async def set_review_lifecycle_state(
+        self,
+        task_id: str,
+        state: ReviewLifecycleState,
+    ) -> None:
+        """Update the canonical review lifecycle state for a task.
+
+        The backend is the single source of truth for lifecycle state.
+        The frontend renders this value directly without guessing.
+
+        Args:
+            task_id: The task to update.
+            state: The new lifecycle state (from ReviewLifecycleState enum).
+        """
+        async with get_session(self._sf) as session:
+            row = await session.get(TaskRow, task_id)
+            if row is None or row.is_deleted:
+                raise ValueError(f"Task not found: {task_id}")
+            row.review_lifecycle_state = state.value
             row.updated_at = datetime.now(UTC).isoformat()
 
     async def update_task(self, task: Task) -> Task:

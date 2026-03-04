@@ -11,7 +11,7 @@ from datetime import datetime
 
 from pydantic import BaseModel, Field
 
-from src.models import ExecutorType, TaskStatus
+from src.models import ExecutorType, ReviewLifecycleState, TaskStatus
 
 # ------------------------------------------------------------------
 # Project schemas
@@ -69,6 +69,7 @@ class TaskResponse(BaseModel):
     updated_at: datetime
     completed_at: datetime | None = None
     review_status: str = "idle"
+    review_lifecycle_state: str = ReviewLifecycleState.NOT_STARTED
 
 
 class ReviewStateResponse(BaseModel):
@@ -390,6 +391,7 @@ class ReviewHistoryEntry(BaseModel):
     cost_usd: float | None = None
     review_attempt: int = 1
     plan_snapshot: str | None = None
+    lifecycle_state: str = ReviewLifecycleState.NOT_STARTED
     timestamp: str
 
 

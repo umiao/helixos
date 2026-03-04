@@ -58,6 +58,9 @@ class TaskRow(Base):
     review_status: Mapped[str] = mapped_column(
         String(32), nullable=False, default="idle",
     )
+    review_lifecycle_state: Mapped[str] = mapped_column(
+        String(32), nullable=False, default="not_started",
+    )
 
     __table_args__ = (
         Index("ix_tasks_status", "status"),
@@ -128,6 +131,9 @@ class ReviewHistoryRow(Base):
     cost_usd: Mapped[float | None] = mapped_column(Float, nullable=True)
     review_attempt: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
     plan_snapshot: Mapped[str | None] = mapped_column(Text, nullable=True)
+    lifecycle_state: Mapped[str] = mapped_column(
+        String(32), nullable=False, default="not_started",
+    )
     timestamp: Mapped[str] = mapped_column(String(64), nullable=False)
 
     __table_args__ = (
@@ -157,6 +163,7 @@ def task_row_to_dict(row: TaskRow) -> dict:
         "updated_at": row.updated_at,
         "completed_at": row.completed_at,
         "review_status": getattr(row, "review_status", "idle"),
+        "review_lifecycle_state": getattr(row, "review_lifecycle_state", "not_started"),
     }
 
 
@@ -185,6 +192,7 @@ def task_dict_to_row_kwargs(data: dict) -> dict:
         "updated_at": data["updated_at"],
         "completed_at": data.get("completed_at"),
         "review_status": data.get("review_status", "idle"),
+        "review_lifecycle_state": data.get("review_lifecycle_state", "not_started"),
     }
 
 

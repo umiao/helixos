@@ -27,6 +27,81 @@ class TaskStatus(StrEnum):
     BLOCKED = "blocked"
 
 
+class ReviewLifecycleState(StrEnum):
+    """Canonical review lifecycle states.
+
+    The backend is the single source of truth for lifecycle state.
+    The frontend renders this value directly -- no field-guessing.
+
+    State machine diagram::
+
+        NOT_STARTED ──> RUNNING ──> APPROVED
+                           │
+                           ├──> PARTIAL ──> RUNNING  (retry / re-review)
+                           │
+                           ├──> FAILED  ──> RUNNING  (retry)
+                           │
+                           ├──> REJECTED_SINGLE       (single reviewer reject)
+                           │       └──> RUNNING       (re-review after feedback)
+                           │
+                           └──> REJECTED_CONSENSUS    (multi-reviewer reject)
+                                   └──> RUNNING       (re-review after feedback)
+
+    Transitions:
+        NOT_STARTED -> RUNNING       : pipeline starts
+        RUNNING     -> APPROVED      : consensus >= threshold
+        RUNNING     -> PARTIAL       : pipeline interrupted (some reviewers done)
+        RUNNING     -> FAILED        : pipeline error / timeout
+        RUNNING     -> REJECTED_SINGLE    : single reviewer rejects
+        RUNNING     -> REJECTED_CONSENSUS : multi-reviewer consensus < threshold
+        PARTIAL     -> RUNNING       : pipeline retried
+        FAILED      -> RUNNING       : pipeline retried
+        REJECTED_SINGLE    -> RUNNING : re-review after human feedback
+        REJECTED_CONSENSUS -> RUNNING : re-review after human feedback
+        any state   -> NOT_STARTED   : task moved backward (e.g., REVIEW -> BACKLOG)
+
+    Invariants:
+        - When state is NOT_STARTED: consensus_score, verdict, and cost_usd
+          MUST NOT be exposed to the frontend.
+        - Only terminal states (APPROVED, REJECTED_*) carry meaningful
+          consensus/verdict data.
+        - RUNNING is transient -- the pipeline is actively executing.
+    """
+
+    NOT_STARTED = "not_started"
+    RUNNING = "running"
+    PARTIAL = "partial"
+    FAILED = "failed"
+    REJECTED_SINGLE = "rejected_single"
+    REJECTED_CONSENSUS = "rejected_consensus"
+    APPROVED = "approved"
+
+
+# Valid lifecycle state transitions.
+# Maps current state -> set of allowed next states.
+REVIEW_LIFECYCLE_TRANSITIONS: dict[ReviewLifecycleState, set[ReviewLifecycleState]] = {
+    ReviewLifecycleState.NOT_STARTED: {ReviewLifecycleState.RUNNING},
+    ReviewLifecycleState.RUNNING: {
+        ReviewLifecycleState.APPROVED,
+        ReviewLifecycleState.PARTIAL,
+        ReviewLifecycleState.FAILED,
+        ReviewLifecycleState.REJECTED_SINGLE,
+        ReviewLifecycleState.REJECTED_CONSENSUS,
+    },
+    ReviewLifecycleState.PARTIAL: {ReviewLifecycleState.RUNNING, ReviewLifecycleState.NOT_STARTED},
+    ReviewLifecycleState.FAILED: {ReviewLifecycleState.RUNNING, ReviewLifecycleState.NOT_STARTED},
+    ReviewLifecycleState.REJECTED_SINGLE: {
+        ReviewLifecycleState.RUNNING,
+        ReviewLifecycleState.NOT_STARTED,
+    },
+    ReviewLifecycleState.REJECTED_CONSENSUS: {
+        ReviewLifecycleState.RUNNING,
+        ReviewLifecycleState.NOT_STARTED,
+    },
+    ReviewLifecycleState.APPROVED: {ReviewLifecycleState.RUNNING, ReviewLifecycleState.NOT_STARTED},
+}
+
+
 class ExecutorType(StrEnum):
     """Executor classification per PRD Section 4.2."""
 
@@ -115,6 +190,7 @@ class Task(BaseModel):
     updated_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
     completed_at: datetime | None = None
     review_status: str = "idle"
+    review_lifecycle_state: str = ReviewLifecycleState.NOT_STARTED
 
 
 class Dependency(BaseModel):

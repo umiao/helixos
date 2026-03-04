@@ -14,7 +14,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from src.db import ExecutionLogRow, ReviewHistoryRow, get_session
-from src.models import LLMReview
+from src.models import LLMReview, ReviewLifecycleState
 
 logger = logging.getLogger(__name__)
 
@@ -167,6 +167,7 @@ class HistoryWriter:
         cost_usd: float | None = None,
         review_attempt: int = 1,
         plan_snapshot: str | None = None,
+        lifecycle_state: ReviewLifecycleState = ReviewLifecycleState.NOT_STARTED,
     ) -> None:
         """Persist a single review history entry.
 
@@ -179,6 +180,7 @@ class HistoryWriter:
             cost_usd: Approximate cost in USD for this reviewer call.
             review_attempt: Attempt number (1-based). Retries increment this.
             plan_snapshot: Immutable copy of task.description at pipeline start.
+            lifecycle_state: Canonical review lifecycle state for this entry.
         """
         async with get_session(self._sf) as session:
             row = ReviewHistoryRow(
@@ -195,6 +197,7 @@ class HistoryWriter:
                 cost_usd=cost_usd,
                 review_attempt=review_attempt,
                 plan_snapshot=plan_snapshot,
+                lifecycle_state=lifecycle_state.value,
                 timestamp=review.timestamp.isoformat(),
             )
             session.add(row)
@@ -269,6 +272,9 @@ class HistoryWriter:
                     "cost_usd": getattr(r, "cost_usd", None),
                     "review_attempt": getattr(r, "review_attempt", 1),
                     "plan_snapshot": getattr(r, "plan_snapshot", None),
+                    "lifecycle_state": getattr(
+                        r, "lifecycle_state", ReviewLifecycleState.NOT_STARTED,
+                    ),
                     "timestamp": r.timestamp,
                 }
                 for r in rows

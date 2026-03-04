@@ -51,6 +51,16 @@ export interface ExecutionState {
 
 export type ReviewStatus = "idle" | "running" | "done" | "failed";
 
+/** Canonical review lifecycle state -- backend is single source of truth. */
+export type ReviewLifecycleState =
+  | "not_started"
+  | "running"
+  | "partial"
+  | "failed"
+  | "rejected_single"
+  | "rejected_consensus"
+  | "approved";
+
 export interface Task {
   id: string;
   project_id: string;
@@ -66,6 +76,7 @@ export interface Task {
   updated_at: string;
   completed_at: string | null;
   review_status: ReviewStatus;
+  review_lifecycle_state: ReviewLifecycleState;
 }
 
 export interface Dependency {
@@ -227,6 +238,7 @@ export interface ReviewHistoryEntry {
   cost_usd: number | null;
   review_attempt: number;
   plan_snapshot: string | null;
+  lifecycle_state: ReviewLifecycleState;
   timestamp: string;
 }
 

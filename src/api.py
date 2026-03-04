@@ -153,6 +153,7 @@ def _task_to_response(task: Task) -> TaskResponse:
         updated_at=task.updated_at,
         completed_at=task.completed_at,
         review_status=task.review_status,
+        review_lifecycle_state=task.review_lifecycle_state,
     )
 
 
