@@ -654,3 +654,10 @@
 - **Sanity check result**: TypeScript type-check clean. 1000 backend tests passing.
 - **Status**: [DONE]
 - **Request**: Move T-P0-54 to Completed
+
+## 2026-03-04 04:00 -- [T-P0-55] Execution log visual markers for review activity
+- **What I did**: Added visual distinction for review-originated log entries in the execution log. Extended LogEntry interface with optional `source` field. App.tsx SSE handlers for `review_started` and `review_progress` events now pass `source: "review"` to addLogEntry. ExecutionLog.tsx renders a purple "REVIEW" badge on entries with `source === "review"`, making them visually distinct from execution entries at a glance. Uses existing SSE event type structure for origin detection (no fragile string parsing).
+- **Deliverables**: frontend/src/components/ExecutionLog.tsx (mod), frontend/src/App.tsx (mod)
+- **Sanity check result**: TypeScript type-check clean. 1000 backend tests passing.
+- **Status**: [DONE]
+- **Request**: Move T-P0-55 to Completed

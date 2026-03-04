@@ -46,23 +46,6 @@
 ### P1-UX -- Polish
 
 
-#### T-P0-55: Execution log visual markers for review activity
-- **Priority**: P1
-- **Complexity**: S
-- **Depends on**: None
-- **Description**: Review progress entries in the execution log are visually
-  indistinguishable from execution logs. Add a visual marker to review-originated
-  log entries. Use existing SSE event type field if available to distinguish origin;
-  if not, use pragmatic prefix detection for now and add SSE structure improvement
-  to tech debt.
-- **Acceptance Criteria**:
-  1. Log entries from review progress SSE events have a distinct visual marker
-     (e.g., colored "REVIEW" prefix badge or different background tint)
-  2. Review log entries are distinguishable from execution log entries at a glance
-  3. Implementation uses existing SSE event type/structure for origin detection
-     (avoid fragile string parsing of message content)
-  4. Manually verify: trigger a review for a task -> watch execution log -> review
-     entries are visually distinct from execution entries
 
 ## Dependency Graph
 
@@ -82,3 +65,6 @@
 
 #### [x] T-P0-54: Fix review panel header -- left-align task info, natural wrapping -- 2026-03-04
 - Restructured ReviewPanel header: task info left-aligned in a bg-gray-50 identity strip, title wraps naturally (overflow-wrap: break-word, no truncate/max-w-48), task ID in mono/muted style, title text-sm, clear visual separation via border-t + background.
+
+#### [x] T-P0-55: Execution log visual markers for review activity -- 2026-03-04
+- Added purple "REVIEW" badge on review-originated log entries. Extended LogEntry with source field, SSE handlers pass source="review" for review_started/review_progress events. Uses SSE event type for origin detection.

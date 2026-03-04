@@ -75,13 +75,14 @@ function App() {
   }, []);
 
   const addLogEntry = useCallback(
-    (task_id: string, message: string, timestamp: string) => {
+    (task_id: string, message: string, timestamp: string, source?: string) => {
       setLogEntries((prev) => {
         const entry: LogEntry = {
           id: ++logIdCounter,
           task_id,
           message,
           timestamp,
+          source,
         };
         const next = [...prev, entry];
         // Keep max 500 entries
@@ -174,6 +175,7 @@ function App() {
             event.task_id,
             `Review progress: ${completed}/${total} -- ${phase}`,
             event.timestamp,
+            "review",
           );
           // SSE task_id guard: only update phase if this event is for the selected task
           if (event.task_id === selectedTaskRef.current?.id) {
@@ -228,6 +230,7 @@ function App() {
             event.task_id,
             "Review pipeline started",
             event.timestamp,
+            "review",
           );
           break;
         }

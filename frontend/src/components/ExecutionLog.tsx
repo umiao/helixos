@@ -16,6 +16,7 @@ export interface LogEntry {
   task_id: string;
   message: string;
   timestamp: string;
+  source?: string;
 }
 
 /** Unified display item for both DB and SSE entries. */
@@ -160,6 +161,7 @@ export default function ExecutionLog({
         task_id: e.task_id,
         message: e.message,
         timestamp: e.timestamp,
+        source: e.source,
       }));
 
     displayEntries = [...dbDisplay, ...sseForTask].slice(-MAX_VISIBLE_LINES);
@@ -173,6 +175,7 @@ export default function ExecutionLog({
       task_id: e.task_id,
       message: e.message,
       timestamp: e.timestamp,
+      source: e.source,
     }));
   }
 
@@ -332,6 +335,13 @@ export default function ExecutionLog({
               <span className="text-gray-500 whitespace-nowrap shrink-0">
                 {formatTime(entry.timestamp)}
               </span>
+              {entry.source === "review" && (
+                <span
+                  className="px-1 rounded text-[10px] uppercase font-medium shrink-0 bg-purple-900 text-purple-300"
+                >
+                  review
+                </span>
+              )}
               {entry.level && (
                 <span
                   className={`px-1 rounded text-[10px] uppercase font-medium shrink-0 ${levelBadgeClass(entry.level)}`}
