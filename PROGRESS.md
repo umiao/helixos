@@ -745,3 +745,10 @@
 - **Sanity check result**: TypeScript clean. Vite build clean. All 1031 backend tests passing.
 - **Status**: [DONE]
 - **Request**: Move T-P0-66 to Completed in TASKS.md
+
+## 2026-03-04 23:30 -- [T-P0-67] Harden plan generation pipeline -- result-first persistence
+- **What I did**: Fixed silent data loss in plan generation. (1) Added `plan_json` column to TaskRow for structured plan storage. (2) Added `write_raw_artifact()` to HistoryWriter -- persists full CLI output with NO truncation before any parsing. (3) Added `_validate_plan_structure()` -- rejects empty plan/steps/criteria with explicit error instead of silent "ready". (4) Atomic `update_plan()` method on TaskManager -- description + plan_status + plan_json in one transaction. (5) Removed `--permission-mode plan` flag that conflicted with `--json-schema`. (6) Wired `on_raw_artifact` callback through enrichment -> api.py.
+- **Deliverables**: src/db.py, src/models.py, src/history_writer.py, src/enrichment.py, src/api.py, src/task_manager.py, tests/test_enrichment.py (9 new tests)
+- **Sanity check result**: Ruff clean. All 1040 tests passing (1031 existing + 9 new).
+- **Status**: [DONE]
+- **Request**: Move T-P0-67 to Completed in TASKS.md

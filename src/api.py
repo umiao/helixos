@@ -8,6 +8,7 @@ business logic to TaskManager, Scheduler, ReviewPipeline, and TasksParser.
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import sys
 from collections.abc import AsyncGenerator
@@ -776,22 +777,33 @@ async def generate_plan(task_id: str, request: Request) -> JSONResponse:
                     ),
                 )
 
+            async def on_raw_artifact(content: str) -> None:
+                """Persist full raw CLI output before any parsing."""
+                await history_writer.write_raw_artifact(
+                    task_id=task_id,
+                    artifact_type="plan_cli_output",
+                    content=content,
+                    metadata_json=json.dumps({"chars": len(content)}),
+                )
+
             plan_data = await generate_task_plan(
                 title=task.title,
                 description=task.description,
                 repo_path=repo_path,
                 timeout_minutes=enrichment_timeout,
                 on_log=on_log,
+                on_raw_artifact=on_raw_artifact,
             )
 
             formatted = format_plan_as_text(plan_data)
 
-            # Re-fetch task to avoid stale-state overwrites
-            current = await task_manager.get_task(task_id)
-            if current is not None:
-                current.description = formatted
-                current.plan_status = "ready"
-                await task_manager.update_task(current)
+            # Atomic update: description + plan_status + plan_json in one transaction
+            await task_manager.update_plan(
+                task_id=task_id,
+                description=formatted,
+                plan_status="ready",
+                plan_json=json.dumps(plan_data),
+            )
             event_bus.emit(
                 "plan_status_change", task_id, {"plan_status": "ready"},
             )

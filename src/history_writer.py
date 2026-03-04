@@ -73,6 +73,37 @@ class HistoryWriter:
             )
             session.add(row)
 
+    async def write_raw_artifact(
+        self,
+        task_id: str,
+        artifact_type: str,
+        content: str,
+        metadata_json: str | None = None,
+    ) -> None:
+        """Persist a complete artifact WITHOUT truncation.
+
+        Used for CLI result blobs that must survive for forensic recovery.
+        Stores in execution_logs with level='artifact' to distinguish from
+        regular log lines.
+
+        Args:
+            task_id: The task this artifact belongs to.
+            artifact_type: Artifact category (e.g. 'plan_cli_output').
+            content: Full content -- NO truncation applied.
+            metadata_json: Optional JSON string with structured context.
+        """
+        now = datetime.now(UTC).isoformat()
+        async with get_session(self._sf) as session:
+            row = ExecutionLogRow(
+                task_id=task_id,
+                timestamp=now,
+                level="artifact",
+                message=content,  # NO _truncate() -- persist full content
+                source=artifact_type,
+                metadata_json=metadata_json,
+            )
+            session.add(row)
+
     async def write_logs_batch(
         self,
         task_id: str,

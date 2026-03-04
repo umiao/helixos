@@ -210,6 +210,7 @@ class Task(BaseModel):
     review_status: str = "idle"
     review_lifecycle_state: str = ReviewLifecycleState.NOT_STARTED
     plan_status: str = PlanStatus.NONE
+    plan_json: str | None = None
 
 
 class Dependency(BaseModel):

@@ -5,13 +5,14 @@ Provides two capabilities:
    and priority suggestion.
 2. **Plan generation**: Takes task title + description + optional codebase
    path and returns a structured implementation plan. Uses ``claude -p``
-   with ``--add-dir`` for codebase context and ``--permission-mode plan``
-   for read-only access.
+   with ``--add-dir`` for codebase context and ``--json-schema`` for
+   structured output.
 
 Note on ``--plan`` flag: Claude CLI does not have a ``--plan`` flag.
 Instead, plan generation uses standard CLI features (``-p``,
 ``--system-prompt``, ``--json-schema``, ``--add-dir``) which are stable
-and documented.
+and documented.  ``--permission-mode plan`` is NOT used because it
+conflicts with ``--json-schema`` (ExitPlanMode denied in structured mode).
 """
 
 from __future__ import annotations
@@ -21,7 +22,7 @@ import json
 import logging
 import shutil
 import time
-from collections.abc import Callable
+from collections.abc import Awaitable, Callable
 from pathlib import Path
 
 logger = logging.getLogger(__name__)
@@ -80,7 +81,7 @@ async def enrich_task_title(
         "--model", "claude-haiku-4-5-20251001",
         "--output-format", "json",
         "--no-session-persistence",
-        "--max-budget-usd", "1.00",
+        "--max-budget-usd", "2.00",
         "--json-schema", _ENRICHMENT_JSON_SCHEMA,
     ]
 
@@ -190,6 +191,7 @@ async def generate_task_plan(
     timeout_minutes: int = 60,
     on_log: Callable[[str], None] | None = None,
     heartbeat_seconds: int = 30,
+    on_raw_artifact: Callable[[str], Awaitable[None]] | None = None,
 ) -> dict:
     """Call Claude CLI to generate a structured implementation plan.
 
@@ -227,14 +229,15 @@ async def generate_task_plan(
         "--model", "claude-sonnet-4-5",
         "--output-format", "json",
         "--no-session-persistence",
-        "--max-budget-usd", "5.00",
+        "--max-budget-usd", "10.00",
         "--json-schema", _PLAN_JSON_SCHEMA,
     ]
 
-    # Give Claude read-only codebase access if repo_path exists
+    # Give Claude codebase context if repo_path exists
+    # NOTE: --permission-mode plan is NOT used here because it conflicts
+    # with --json-schema (ExitPlanMode gets denied in structured output mode).
     if repo_path is not None and repo_path.is_dir():
         args.extend(["--add-dir", str(repo_path)])
-        args.extend(["--permission-mode", "plan"])
 
     proc = await asyncio.create_subprocess_exec(
         *args,
@@ -288,6 +291,12 @@ async def generate_task_plan(
             f"Plan generation subprocess timed out after {timeout_minutes} minutes"
         ) from None
 
+    # PERSIST-FIRST: save full raw output before ANY parsing or validation.
+    # Even if returncode != 0 or JSON parsing fails, the raw output is recoverable.
+    full_output = "\n".join(log_lines)
+    if on_raw_artifact is not None:
+        await on_raw_artifact(full_output)
+
     if proc.returncode != 0:
         stderr_bytes = b""
         if proc.stderr is not None:
@@ -298,7 +307,6 @@ async def generate_task_plan(
         )
 
     # Reassemble all stdout lines and parse the JSON result
-    full_output = "\n".join(log_lines)
     try:
         cli_output = json.loads(full_output)
     except json.JSONDecodeError:
@@ -313,7 +321,32 @@ async def generate_task_plan(
                 continue
 
     result_text = cli_output.get("result", "")
-    return _parse_plan(result_text)
+    plan_data = _parse_plan(result_text)
+
+    # Structural validation: reject empty/incomplete plans before caller marks "ready"
+    is_valid, reason = _validate_plan_structure(plan_data)
+    if not is_valid:
+        raise RuntimeError(
+            f"Plan generation produced invalid structure ({reason}). "
+            f"Raw output length: {len(full_output)} chars. "
+            f"Raw output preserved in execution_logs for re-parse."
+        )
+
+    return plan_data
+
+
+def _validate_plan_structure(plan_data: dict) -> tuple[bool, str]:
+    """Validate that parsed plan has meaningful content.
+
+    Returns (is_valid, reason).
+    """
+    if not plan_data.get("plan", "").strip():
+        return False, "empty_plan_text"
+    if not plan_data.get("steps"):
+        return False, "empty_steps"
+    if not plan_data.get("acceptance_criteria"):
+        return False, "empty_acceptance_criteria"
+    return True, "ok"
 
 
 def _parse_plan(text: str) -> dict:

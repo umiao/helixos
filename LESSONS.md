@@ -114,3 +114,12 @@
   - Fix: Added autouse fixture patching `shutil.which` to return a path. General rule: when adding preflight/validation checks that call system APIs (`shutil.which`, `os.path.isdir`, etc.), also update test mocks -- any new early-return path will bypass existing mocks targeting later code.
   - Rule: CI is the authority, not local. If tests depend on tools being installed locally, they will fail in clean environments.
   - Tags: #testing #mocking #ci #preflight #environment-dependency
+  16. Persist-first principle: never parse/format/truncate before saving raw results
+  - Context: Plan generation ran 10 min, cost $1.27, produced valid plan -- then silently lost everything. Three failure layers compounded: (1) history_writer truncated to 2048 chars, (2) JSON parse failed on truncated output -> _parse_plan returned empty, (3) empty result marked as "ready" with no validation.
+  - Fix: Raw CLI output persisted immediately after proc.wait() via write_raw_artifact() (no truncation). Structural validation added (_validate_plan_structure) to reject empty data. Atomic DB update for description + plan_status + plan_json.
+  - Rule: Raw results must be persisted BEFORE any parsing, formatting, or truncation. Silent success on empty data is worse than loud failure.
+  - Tags: #data-persistence #plan-generation #silent-failure
+  17. `--permission-mode plan` + `--json-schema` are incompatible Claude CLI flags
+  - Context: `--permission-mode plan` causes ExitPlanMode to be denied when `--json-schema` is also specified. The subprocess is non-interactive (`claude -p`) with structured output already enforced, so permission-mode plan adds no value and causes failures.
+  - Fix: Removed `--permission-mode plan` from plan generation CLI args.
+  - Tags: #claude-cli #plan-generation #incompatible-flags

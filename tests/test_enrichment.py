@@ -34,6 +34,7 @@ from src.db import Base
 from src.enrichment import (
     _parse_enrichment,
     _parse_plan,
+    _validate_plan_structure,
     enrich_task_title,
     format_plan_as_text,
     generate_task_plan,
@@ -458,6 +459,17 @@ class TestEnrichEndpoint:
 # Plan generation tests
 # ==================================================================
 
+# Reusable valid plan data for tests that need to pass structural validation
+# but aren't testing the plan content itself.
+_VALID_STEPS = [{"step": "Implement feature", "files": ["src/main.py"]}]
+_VALID_AC = ["Feature works as expected"]
+
+
+def _make_valid_plan_output() -> bytes:
+    """Create mock plan output that passes structural validation."""
+    return _make_plan_output("A valid plan summary", _VALID_STEPS, _VALID_AC)
+
+
 def _make_plan_output(
     plan: str,
     steps: list[dict],
@@ -542,6 +554,60 @@ class TestParsePlan:
 
 
 # ------------------------------------------------------------------
+# Unit tests: _validate_plan_structure
+# ------------------------------------------------------------------
+
+
+class TestValidatePlanStructure:
+    """Tests for the _validate_plan_structure function."""
+
+    def test_valid_plan(self) -> None:
+        """Complete plan passes validation."""
+        plan_data = {
+            "plan": "Add caching layer",
+            "steps": [{"step": "Add Redis", "files": ["src/cache.py"]}],
+            "acceptance_criteria": ["Cache hit rate > 80%"],
+        }
+        is_valid, reason = _validate_plan_structure(plan_data)
+        assert is_valid is True
+        assert reason == "ok"
+
+    def test_empty_plan_text(self) -> None:
+        """Empty plan text fails validation."""
+        plan_data = {"plan": "", "steps": [{"step": "x"}], "acceptance_criteria": ["y"]}
+        is_valid, reason = _validate_plan_structure(plan_data)
+        assert is_valid is False
+        assert reason == "empty_plan_text"
+
+    def test_whitespace_plan_text(self) -> None:
+        """Whitespace-only plan text fails validation."""
+        plan_data = {"plan": "   ", "steps": [{"step": "x"}], "acceptance_criteria": ["y"]}
+        is_valid, reason = _validate_plan_structure(plan_data)
+        assert is_valid is False
+        assert reason == "empty_plan_text"
+
+    def test_empty_steps(self) -> None:
+        """Empty steps list fails validation."""
+        plan_data = {"plan": "A plan", "steps": [], "acceptance_criteria": ["y"]}
+        is_valid, reason = _validate_plan_structure(plan_data)
+        assert is_valid is False
+        assert reason == "empty_steps"
+
+    def test_empty_acceptance_criteria(self) -> None:
+        """Empty acceptance_criteria fails validation."""
+        plan_data = {"plan": "A plan", "steps": [{"step": "x"}], "acceptance_criteria": []}
+        is_valid, reason = _validate_plan_structure(plan_data)
+        assert is_valid is False
+        assert reason == "empty_acceptance_criteria"
+
+    def test_missing_keys(self) -> None:
+        """Missing keys treated as empty."""
+        is_valid, reason = _validate_plan_structure({})
+        assert is_valid is False
+        assert reason == "empty_plan_text"
+
+
+# ------------------------------------------------------------------
 # Unit tests: format_plan_as_text
 # ------------------------------------------------------------------
 
@@ -615,7 +681,7 @@ class TestGenerateTaskPlan:
         """repo_path is passed as --add-dir when it exists."""
         repo = tmp_path / "repo"
         repo.mkdir()
-        stdout = _make_plan_output("Plan", [], [])
+        stdout = _make_valid_plan_output()
         mock_proc = _mock_readline_proc(stdout)
 
         with patch(
@@ -626,13 +692,13 @@ class TestGenerateTaskPlan:
             call_args = mock_exec.call_args[0]
             assert "--add-dir" in call_args
             assert str(repo) in call_args
-            assert "--permission-mode" in call_args
-            assert "plan" in call_args
+            # --permission-mode plan was removed: it conflicts with --json-schema
+            assert "--permission-mode" not in call_args
 
     @pytest.mark.asyncio
     async def test_without_repo_path(self) -> None:
         """No --add-dir when repo_path is None."""
-        stdout = _make_plan_output("Plan", [], [])
+        stdout = _make_valid_plan_output()
         mock_proc = _mock_readline_proc(stdout)
 
         with patch(
@@ -661,7 +727,7 @@ class TestGenerateTaskPlan:
     @pytest.mark.asyncio
     async def test_with_description(self) -> None:
         """Existing description is included in the prompt."""
-        stdout = _make_plan_output("Plan", [], [])
+        stdout = _make_valid_plan_output()
         mock_proc = _mock_readline_proc(stdout)
 
         with patch(
@@ -677,7 +743,7 @@ class TestGenerateTaskPlan:
     @pytest.mark.asyncio
     async def test_on_log_callback_called(self) -> None:
         """on_log callback is called for each stdout line."""
-        stdout = _make_plan_output("Plan", [], [])
+        stdout = _make_valid_plan_output()
         mock_proc = _mock_readline_proc(stdout)
         logged: list[str] = []
 
@@ -688,7 +754,7 @@ class TestGenerateTaskPlan:
             result = await generate_task_plan(
                 "Task", on_log=logged.append,
             )
-            assert result["plan"] == "Plan"
+            assert result["plan"] == "A valid plan summary"
             # on_log should have been called with the output line
             assert len(logged) >= 1
 
@@ -700,7 +766,7 @@ class TestGenerateTaskPlan:
         mock_proc.returncode = 0
         mock_proc.wait = AsyncMock()
 
-        stdout_data = _make_plan_output("Plan", [], [])
+        stdout_data = _make_valid_plan_output()
         mock_stdout = AsyncMock()
         mock_stdout.readline = AsyncMock(
             side_effect=[
@@ -728,6 +794,65 @@ class TestGenerateTaskPlan:
             # Should have a heartbeat line
             heartbeats = [line for line in logged if "[PROGRESS] heartbeat" in line]
             assert len(heartbeats) >= 1
+
+    @pytest.mark.asyncio
+    async def test_on_raw_artifact_called(self) -> None:
+        """on_raw_artifact callback is called with full output before parsing."""
+        stdout = _make_valid_plan_output()
+        mock_proc = _mock_readline_proc(stdout)
+        artifacts: list[str] = []
+
+        async def capture_artifact(content: str) -> None:
+            artifacts.append(content)
+
+        with patch(
+            "src.enrichment.asyncio.create_subprocess_exec",
+            return_value=mock_proc,
+        ):
+            await generate_task_plan(
+                "Task", on_raw_artifact=capture_artifact,
+            )
+            assert len(artifacts) == 1
+            assert len(artifacts[0]) > 0
+
+    @pytest.mark.asyncio
+    async def test_on_raw_artifact_called_even_on_failure(self) -> None:
+        """on_raw_artifact persists output even when CLI exits non-zero."""
+        mock_proc = _mock_readline_proc(b"partial output\n", returncode=1)
+        mock_proc.stderr.read = AsyncMock(return_value=b"error")
+        artifacts: list[str] = []
+
+        async def capture_artifact(content: str) -> None:
+            artifacts.append(content)
+
+        with (
+            patch(
+                "src.enrichment.asyncio.create_subprocess_exec",
+                return_value=mock_proc,
+            ),
+            pytest.raises(RuntimeError, match="Claude CLI failed"),
+        ):
+            await generate_task_plan(
+                "Broken task", on_raw_artifact=capture_artifact,
+            )
+        # Raw artifact should still be persisted despite CLI failure
+        assert len(artifacts) == 1
+        assert "partial output" in artifacts[0]
+
+    @pytest.mark.asyncio
+    async def test_structural_validation_rejects_empty_plan(self) -> None:
+        """Plan with empty steps is rejected after parsing."""
+        stdout = _make_plan_output("Plan text", [], ["criteria"])
+        mock_proc = _mock_readline_proc(stdout)
+
+        with (
+            patch(
+                "src.enrichment.asyncio.create_subprocess_exec",
+                return_value=mock_proc,
+            ),
+            pytest.raises(RuntimeError, match="invalid structure.*empty_steps"),
+        ):
+            await generate_task_plan("Task")
 
 
 # ------------------------------------------------------------------
@@ -913,7 +1038,7 @@ class TestGeneratePlanEndpoint:
         tasks = await task_manager.list_tasks(project_id=project.id)
         task = tasks[0]
 
-        stdout = _make_plan_output("Plan", [], [])
+        stdout = _make_valid_plan_output()
         mock_proc = _mock_readline_proc(stdout)
 
         # Collect emitted events

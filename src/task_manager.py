@@ -451,6 +451,38 @@ class TaskManager:
             row.review_lifecycle_state = state.value
             row.updated_at = datetime.now(UTC).isoformat()
 
+    async def update_plan(
+        self,
+        task_id: str,
+        description: str,
+        plan_status: str,
+        plan_json: str,
+    ) -> None:
+        """Atomically update plan fields (description + status + json).
+
+        All three fields are written in a single transaction so they are
+        always consistent.  This avoids the get-then-update pattern that
+        can lose data if a concurrent request modifies the task between
+        the read and the write.
+
+        Args:
+            task_id: The task to update.
+            description: Formatted plan text for display.
+            plan_status: New plan lifecycle state (e.g. 'ready').
+            plan_json: JSON string of the structured plan data.
+
+        Raises:
+            ValueError: If the task is not found or is deleted.
+        """
+        async with get_session(self._sf) as session:
+            row = await session.get(TaskRow, task_id)
+            if row is None or row.is_deleted:
+                raise ValueError(f"Task not found: {task_id}")
+            row.description = description
+            row.plan_status = plan_status
+            row.plan_json = plan_json
+            row.updated_at = datetime.now(UTC).isoformat()
+
     async def update_task(self, task: Task) -> Task:
         """Persist arbitrary field updates from a Task object.
 
