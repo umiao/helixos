@@ -52,6 +52,9 @@ export interface ExecutionState {
 
 export type ReviewStatus = "idle" | "running" | "done" | "failed";
 
+/** Plan generation lifecycle state -- backend is single source of truth. */
+export type PlanStatus = "none" | "generating" | "failed" | "ready";
+
 /** Canonical review lifecycle state -- backend is single source of truth. */
 export type ReviewLifecycleState =
   | "not_started"
@@ -78,6 +81,7 @@ export interface Task {
   completed_at: string | null;
   review_status: ReviewStatus;
   review_lifecycle_state: ReviewLifecycleState;
+  plan_status: PlanStatus;
 }
 
 export interface Dependency {

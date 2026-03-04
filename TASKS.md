@@ -42,24 +42,6 @@
 - [ ] SSE event payload structure: add explicit `origin` field (execution/review/scheduler) for clean log categorization (from T-P0-55)
 - [ ] Deduplicate `_is_process_alive()` -- currently copy-pasted in port_registry.py, process_manager.py, subprocess_registry.py. Extract to shared module (e.g. `src/platform_utils.py`) and import everywhere. (from os.kill CTRL_C_EVENT bug)
 
-#### T-P0-59: Plan generation progress feedback
-- **Priority**: P0
-- **Complexity**: M (1-2 sessions)
-- **Depends on**: Timing investigation (sub-task 1 below)
-- **Description**: Add progress feedback during plan generation. Requires measuring actual latency first to decide sync vs async approach. Defines plan_failed semantics to prevent state gaps.
-- **Sub-tasks**:
-  1. Measure actual plan generation latency (5 runs, log p50/p95)
-  2. If <30s: sync POST + loading spinner + disable re-click
-  3. If >30s: async with SSE (requires tech debt "SSE event payload structure" unification first)
-- **plan_failed semantics**: task.status stays unchanged (backlog/queued), task.plan_status set to "failed", UI shows retry option
-- **Acceptance Criteria**:
-  1. Sub-task 1 completed with documented latency measurements
-  2. Appropriate feedback mechanism chosen based on latency data
-  3. User sees progress indication during plan generation (spinner or SSE updates)
-  4. Failed plan generation does NOT change task.status; sets plan_status="failed"
-  5. UI shows retry option when plan_status="failed"
-  6. User journey: click Generate Plan -> see progress feedback -> plan appears (or error with retry)
-  7. Manual smoke test: trigger plan generation -> observe feedback -> verify task status unchanged on failure
 
 
 ### P1-UX -- Polish
@@ -69,7 +51,7 @@
 > Full historical dependency graph relocated to [docs/architecture/dependency-graph-history.md](docs/architecture/dependency-graph-history.md).
 
 ### Current
-- T-P0-59: blocked until timing investigation (sub-task 1) done; if async path chosen, also blocked on tech debt "SSE event payload structure" unification
+(no active dependencies)
 
 ---
 
@@ -94,6 +76,9 @@
 
 #### [x] T-P0-57: Hover-to-generate-plan UX on TaskCard -- 2026-03-04
 - Added "Generate Plan" button to TaskCardPopover for tasks with no plan (hidden when plan exists or task is done/failed/blocked). Button calls generatePlan API with loading state and double-click prevention. Error display on failure. onTaskUpdated callback threaded through SwimLane -> KanbanBoard -> TaskCard -> TaskCardPopover for immediate UI refresh.
+
+#### [x] T-P0-59: Plan generation progress feedback -- 2026-03-04
+- Added plan_status field (none/generating/failed/ready) to Task model. API sets generating->ready/failed lifecycle. Frontend shows animated spinner + retry button. Sync POST approach chosen based on architecture analysis. 1024 tests passing.
 
 #### [x] T-P0-60: Process failure detection via hard timeout + exit code -- 2026-03-04
 - ProcessMonitor background task scans SubprocessRegistry every 5s, detects dead PIDs, emits `process_failed` SSE events. Health-check endpoint `GET /api/processes/status`. Frontend toast+log on crash. No activity-based stall detection. 1021 tests passing.

@@ -173,6 +173,22 @@ class ExecutionState(BaseModel):
     error_type: str | None = None
 
 
+class PlanStatus(StrEnum):
+    """Plan generation lifecycle states.
+
+    State machine::
+
+        NONE ──> GENERATING ──> READY
+                     │
+                     └──> FAILED ──> GENERATING  (retry)
+    """
+
+    NONE = "none"
+    GENERATING = "generating"
+    FAILED = "failed"
+    READY = "ready"
+
+
 class Task(BaseModel):
     """A single orchestrated task."""
 
@@ -193,6 +209,7 @@ class Task(BaseModel):
     completed_at: datetime | None = None
     review_status: str = "idle"
     review_lifecycle_state: str = ReviewLifecycleState.NOT_STARTED
+    plan_status: str = PlanStatus.NONE
 
 
 class Dependency(BaseModel):

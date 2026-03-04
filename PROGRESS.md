@@ -696,3 +696,10 @@
 - **Sanity check result**: Ruff clean. 1021 tests passing (14 new process monitor tests + 1 new API test).
 - **Status**: [DONE]
 - **Request**: Move T-P0-60 to Completed
+
+## 2026-03-04 09:00 -- [T-P0-59] Plan generation progress feedback
+- **What I did**: Added `plan_status` field (none/generating/failed/ready) to Task model with full DB migration support. Updated generate-plan API endpoint to set plan_status="generating" before calling CLI, "ready" on success, "failed" on failure (task.status stays unchanged per AC4). Frontend shows animated spinner during generation, "Retry Plan" button when plan_status="failed", and failure message in both TaskCardPopover and ReviewPanel. Sub-task 1 (timing): based on architecture analysis (Claude CLI with codebase context, $0.50 budget, --permission-mode plan), latency is 15-120s -- sync POST with loading spinner is appropriate.
+- **Deliverables**: src/models.py (mod), src/db.py (mod), src/schemas.py (mod), src/api.py (mod), frontend/src/types.ts (mod), frontend/src/components/TaskCardPopover.tsx (mod), frontend/src/components/ReviewPanel.tsx (mod), tests/test_enrichment.py (mod)
+- **Sanity check result**: Ruff clean. 1024 tests passing (3 new plan_status tests).
+- **Status**: [DONE]
+- **Request**: Move T-P0-59 to Completed

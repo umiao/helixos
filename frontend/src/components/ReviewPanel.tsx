@@ -726,6 +726,9 @@ export default function ReviewPanel({
                       (No plan content provided to reviewer)
                     </p>
                   )}
+                  {task.plan_status === "failed" && !generating && (
+                    <p className="mt-1 text-xs text-red-600">Plan generation failed. Click Retry to try again.</p>
+                  )}
                   {!isRunning && !isDone && (
                     <div className="mt-2 flex gap-2">
                       <button
@@ -738,15 +741,29 @@ export default function ReviewPanel({
                       </button>
                       <button
                         onClick={handleGeneratePlan}
-                        disabled={generating}
-                        className={`rounded-md disabled:opacity-50 disabled:cursor-not-allowed transition-colors ${
-                          task.description && task.description.trim()
+                        disabled={generating || task.plan_status === "generating"}
+                        className={`rounded-md disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center gap-1 ${
+                          task.description && task.description.trim() && task.plan_status !== "failed"
                             ? "bg-indigo-100 px-2.5 py-1 text-[10px] font-medium text-indigo-700 hover:bg-indigo-200"
-                            : "bg-indigo-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-indigo-700 shadow-sm"
+                            : task.plan_status === "failed"
+                              ? "bg-red-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-red-700 shadow-sm"
+                              : "bg-indigo-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-indigo-700 shadow-sm"
                         }`}
-                        title="Generate a structured plan using AI (uses codebase context)"
+                        title={task.plan_status === "failed"
+                          ? "Previous plan generation failed -- click to retry"
+                          : "Generate a structured plan using AI (uses codebase context)"}
                       >
-                        {generating ? "Generating..." : "Generate Plan"}
+                        {(generating || task.plan_status === "generating") && (
+                          <svg className="animate-spin h-3 w-3" viewBox="0 0 24 24" fill="none">
+                            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                          </svg>
+                        )}
+                        {generating || task.plan_status === "generating"
+                          ? "Generating plan..."
+                          : task.plan_status === "failed"
+                            ? "Retry Plan"
+                            : "Generate Plan"}
                       </button>
                     </div>
                   )}

@@ -721,6 +721,10 @@ async def generate_plan(task_id: str, request: Request) -> GeneratePlanResponse:
     config: OrchestratorConfig = request.app.state.config
     enrichment_timeout = config.review_pipeline.enrichment_timeout_minutes
 
+    # Mark plan as generating (persisted so other clients see the status)
+    task.plan_status = "generating"
+    await task_manager.update_task(task)
+
     try:
         plan_data = await generate_task_plan(
             title=task.title,
@@ -730,6 +734,9 @@ async def generate_plan(task_id: str, request: Request) -> GeneratePlanResponse:
         )
     except RuntimeError as exc:
         logger.warning("Plan generation failed: %s", exc)
+        # AC4: task.status stays unchanged; only plan_status set to "failed"
+        task.plan_status = "failed"
+        await task_manager.update_task(task)
         raise HTTPException(
             status_code=503,
             detail=f"Plan generation failed: {exc}",
@@ -737,8 +744,9 @@ async def generate_plan(task_id: str, request: Request) -> GeneratePlanResponse:
 
     formatted = format_plan_as_text(plan_data)
 
-    # Auto-save generated plan as task description
+    # Auto-save generated plan as task description + mark ready
     task.description = formatted
+    task.plan_status = "ready"
     await task_manager.update_task(task)
 
     return GeneratePlanResponse(

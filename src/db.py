@@ -62,6 +62,9 @@ class TaskRow(Base):
     review_lifecycle_state: Mapped[str] = mapped_column(
         String(32), nullable=False, default="not_started",
     )
+    plan_status: Mapped[str] = mapped_column(
+        String(32), nullable=False, default="none",
+    )
 
     __table_args__ = (
         Index("ix_tasks_status", "status"),
@@ -165,6 +168,7 @@ def task_row_to_dict(row: TaskRow) -> dict:
         "completed_at": row.completed_at,
         "review_status": getattr(row, "review_status", "idle"),
         "review_lifecycle_state": getattr(row, "review_lifecycle_state", "not_started"),
+        "plan_status": getattr(row, "plan_status", "none"),
     }
 
 
@@ -194,6 +198,7 @@ def task_dict_to_row_kwargs(data: dict) -> dict:
         "completed_at": data.get("completed_at"),
         "review_status": data.get("review_status", "idle"),
         "review_lifecycle_state": data.get("review_lifecycle_state", "not_started"),
+        "plan_status": data.get("plan_status", "none"),
     }
 
 

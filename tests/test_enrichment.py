@@ -757,6 +757,109 @@ class TestGeneratePlanEndpoint:
             assert resp.status_code == 503
             assert "failed" in resp.json()["detail"].lower()
 
+    @pytest.mark.asyncio
+    async def test_success_sets_plan_status_ready(
+        self, test_app, client: AsyncClient,
+    ) -> None:
+        """Successful plan generation sets plan_status to 'ready'."""
+        from src.sync.tasks_parser import sync_project_tasks
+
+        task_manager: TaskManager = test_app.state.task_manager
+        registry = test_app.state.registry
+        project = registry.list_projects()[0]
+        await sync_project_tasks(project.id, task_manager, registry)
+
+        tasks = await task_manager.list_tasks(project_id=project.id)
+        task = tasks[0]
+
+        # Verify initial plan_status is 'none'
+        assert task.plan_status == "none"
+
+        stdout = _make_plan_output(
+            "Add auth",
+            [{"step": "Create module", "files": ["src/auth.py"]}],
+            ["Login works"],
+        )
+        mock_proc = _mock_proc(stdout)
+
+        with (
+            patch(
+                "src.enrichment.shutil.which", return_value="/usr/bin/claude",
+            ),
+            patch(
+                "src.enrichment.asyncio.create_subprocess_exec",
+                return_value=mock_proc,
+            ),
+        ):
+            resp = await client.post(
+                f"/api/tasks/{task.id}/generate-plan",
+            )
+            assert resp.status_code == 200
+
+        updated = await task_manager.get_task(task.id)
+        assert updated is not None
+        assert updated.plan_status == "ready"
+
+    @pytest.mark.asyncio
+    async def test_failure_sets_plan_status_failed(
+        self, test_app, client: AsyncClient,
+    ) -> None:
+        """Failed plan generation sets plan_status to 'failed', status unchanged."""
+        from src.sync.tasks_parser import sync_project_tasks
+
+        task_manager: TaskManager = test_app.state.task_manager
+        registry = test_app.state.registry
+        project = registry.list_projects()[0]
+        await sync_project_tasks(project.id, task_manager, registry)
+
+        tasks = await task_manager.list_tasks(project_id=project.id)
+        task = tasks[0]
+        original_status = task.status
+
+        mock_proc = _mock_proc(b"", returncode=1)
+        mock_proc.communicate = AsyncMock(return_value=(b"", b"error"))
+
+        with (
+            patch(
+                "src.enrichment.shutil.which", return_value="/usr/bin/claude",
+            ),
+            patch(
+                "src.enrichment.asyncio.create_subprocess_exec",
+                return_value=mock_proc,
+            ),
+        ):
+            resp = await client.post(
+                f"/api/tasks/{task.id}/generate-plan",
+            )
+            assert resp.status_code == 503
+
+        updated = await task_manager.get_task(task.id)
+        assert updated is not None
+        assert updated.plan_status == "failed"
+        # AC4: task.status stays unchanged
+        assert updated.status == original_status
+
+    @pytest.mark.asyncio
+    async def test_plan_status_in_task_response(
+        self, test_app, client: AsyncClient,
+    ) -> None:
+        """plan_status field is included in task API responses."""
+        from src.sync.tasks_parser import sync_project_tasks
+
+        task_manager: TaskManager = test_app.state.task_manager
+        registry = test_app.state.registry
+        project = registry.list_projects()[0]
+        await sync_project_tasks(project.id, task_manager, registry)
+
+        tasks = await task_manager.list_tasks(project_id=project.id)
+        task = tasks[0]
+
+        resp = await client.get(f"/api/tasks/{task.id}")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert "plan_status" in data
+        assert data["plan_status"] == "none"
+
 
 # ------------------------------------------------------------------
 # Config tests: enrichment_timeout_minutes

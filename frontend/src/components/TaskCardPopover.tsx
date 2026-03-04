@@ -96,7 +96,9 @@ export default function TaskCardPopover({ task, anchorRect, onTaskUpdated }: Tas
 
   const hasNoPlan = !task.description || !task.description.trim();
   const isDone = task.status === "done" || task.status === "failed" || task.status === "blocked";
-  const showGenerateButton = hasNoPlan && !isDone;
+  const planFailed = task.plan_status === "failed";
+  const planGenerating = task.plan_status === "generating" || generating;
+  const showGenerateButton = (hasNoPlan || planFailed) && !isDone;
 
   const handleGeneratePlan = async (e: React.MouseEvent) => {
     e.stopPropagation();
@@ -143,12 +145,21 @@ export default function TaskCardPopover({ task, anchorRect, onTaskUpdated }: Tas
       {/* Generate Plan button */}
       {showGenerateButton && (
         <div className="mb-3">
+          {planFailed && !generating && (
+            <p className="mb-1 text-xs text-red-600">Plan generation failed</p>
+          )}
           <button
             onClick={handleGeneratePlan}
-            disabled={generating}
-            className="w-full rounded-md bg-blue-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+            disabled={planGenerating}
+            className="w-full rounded-md bg-blue-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center justify-center gap-1.5"
           >
-            {generating ? "Generating..." : "Generate Plan"}
+            {planGenerating && (
+              <svg className="animate-spin h-3.5 w-3.5" viewBox="0 0 24 24" fill="none">
+                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+              </svg>
+            )}
+            {planGenerating ? "Generating plan..." : planFailed ? "Retry Plan" : "Generate Plan"}
           </button>
           {genError && (
             <p className="mt-1 text-xs text-red-600">{genError}</p>
