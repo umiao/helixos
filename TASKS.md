@@ -45,24 +45,6 @@
 
 ### P1-UX -- Polish
 
-#### T-P0-54: Fix review panel header -- left-align task info, natural wrapping
-- **Priority**: P1
-- **Complexity**: S
-- **Depends on**: None
-- **Description**: In ReviewPanel header, the currently-focused task's ID and title are
-  right-aligned, truncated at 192px (max-w-48), and hard to see. Move task info to
-  left side, replace hard truncation with natural container-width wrapping
-  (overflow-wrap: break-word). Clear visual separation from "Plan Under Review" content.
-- **Acceptance Criteria**:
-  1. Task ID and title displayed left-aligned in ReviewPanel header
-  2. Title wraps naturally within container width (remove max-w-48 truncate,
-     use overflow-wrap: break-word) -- no hard pixel truncation
-  3. Task ID styled distinctly (mono font, muted color) to separate from title
-  4. Title uses text-sm (not text-xs) for readability
-  5. Clear visual separation between task identity (header) and plan content
-     section (e.g., subtle border or background strip)
-  6. Manually verify: select a task with a long title -> title wraps naturally,
-     left-aligned, clearly readable, does not break layout
 
 #### T-P0-55: Execution log visual markers for review activity
 - **Priority**: P1
@@ -97,3 +79,6 @@
 
 #### [x] T-P0-51: TASKS.md lifecycle model + archive separation -- 2026-03-04
 - Archived 78 completed tasks to archive/completed_tasks.md. Relocated dependency graph to docs/architecture/dependency-graph-history.md. Added task schema template with required fields. TASKS.md reduced from 474 to 97 lines (under 300 invariant). 1000 tests passing.
+
+#### [x] T-P0-54: Fix review panel header -- left-align task info, natural wrapping -- 2026-03-04
+- Restructured ReviewPanel header: task info left-aligned in a bg-gray-50 identity strip, title wraps naturally (overflow-wrap: break-word, no truncate/max-w-48), task ID in mono/muted style, title text-sm, clear visual separation via border-t + background.

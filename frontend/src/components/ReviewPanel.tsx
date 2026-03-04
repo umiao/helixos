@@ -524,16 +524,22 @@ export default function ReviewPanel({
   return (
     <div className="flex flex-col h-full bg-white rounded-lg border border-gray-200 overflow-hidden">
       {/* Header */}
-      <div className="px-3 py-2 border-b border-gray-200 flex items-center justify-between">
-        <h3 className="text-xs font-bold uppercase tracking-wide text-gray-600">
-          Review Panel
-        </h3>
-        <div className="flex items-center gap-2">
+      <div className="border-b border-gray-200">
+        <div className="px-3 py-2 flex items-center justify-between">
+          <h3 className="text-xs font-bold uppercase tracking-wide text-gray-600">
+            Review Panel
+          </h3>
           {lifecycleBadge()}
-          <span className="text-xs text-gray-500 font-mono">
+        </div>
+        {/* Task identity strip -- left-aligned, natural wrapping */}
+        <div
+          className="px-3 py-1.5 bg-gray-50 border-t border-gray-100"
+          style={{ overflowWrap: "break-word" }}
+        >
+          <span className="text-xs font-mono text-gray-400">
             {task.local_task_id}
           </span>
-          <span className="text-xs font-medium text-gray-700 truncate max-w-48">
+          <span className="ml-1.5 text-sm font-medium text-gray-700">
             {task.title}
           </span>
         </div>

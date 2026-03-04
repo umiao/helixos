@@ -647,3 +647,10 @@
 - **Sanity check result**: TASKS.md is 100 lines (under 300 invariant). Archive has 79 entries (78 original + T-P0-51). 1000 tests passing.
 - **Status**: [DONE]
 - **Request**: Move T-P0-51 to Completed
+
+## 2026-03-04 03:30 -- [T-P0-54] Fix review panel header layout
+- **What I did**: Restructured ReviewPanel header to left-align task info with natural wrapping. Split header into two rows: top row has "Review Panel" title + lifecycle badge, bottom row is a task identity strip (bg-gray-50) with task ID (mono, muted) and title (text-sm, overflow-wrap: break-word). Removed truncate/max-w-48 hard truncation. Added subtle border-t/bg-gray-50 visual separation between task identity and plan content.
+- **Deliverables**: frontend/src/components/ReviewPanel.tsx (mod)
+- **Sanity check result**: TypeScript type-check clean. 1000 backend tests passing.
+- **Status**: [DONE]
+- **Request**: Move T-P0-54 to Completed
