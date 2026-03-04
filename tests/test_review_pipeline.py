@@ -1891,7 +1891,7 @@ async def test_on_log_receives_cli_output_lines(mock_exec: AsyncMock) -> None:
 
     # CLI output JSON should appear as a line in the on_log stream
     # (the JSON blob emitted by the mock subprocess)
-    cli_output_lines = [l for l in log_lines if "approve" in l and "Looks good" in l]
+    cli_output_lines = [line for line in log_lines if "approve" in line and "Looks good" in line]
     assert len(cli_output_lines) >= 1
 
 
