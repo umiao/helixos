@@ -153,6 +153,7 @@ class ReviewState(BaseModel):
     human_decision_needed: bool = False
     decision_points: list[str] = Field(default_factory=list)
     human_choice: str | None = None
+    lifecycle_state: str = ReviewLifecycleState.NOT_STARTED
 
 
 class ExecutionState(BaseModel):

@@ -542,3 +542,10 @@
 - **Sanity check result**: 930 tests passing (24 new). Ruff clean. Frontend builds clean.
 - **Status**: [DONE]
 - **Request**: Move T-P0-40 to Completed
+
+## 2026-03-03 11:30 -- [T-P0-41] Refactor review_pipeline to emit ReviewLifecycleState
+- **What I did**: Refactored `review_pipeline.py` to compute and emit `ReviewLifecycleState` at every stage. Added `_compute_lifecycle_state()` static method that maps review outcomes to terminal lifecycle states (APPROVED, REJECTED_SINGLE, REJECTED_CONSENSUS, PARTIAL). Changed single-reviewer rejection score from misleading `0.3` to clear `0.0`. Pipeline now passes lifecycle_state to `HistoryWriter.write_review()` for each entry (RUNNING for non-final, terminal state for final). Added `lifecycle_state` field to `ReviewState` model. Updated `_enqueue_review_pipeline` in api.py to set RUNNING at pipeline start and terminal state on completion. Updated `_set_review_failed` to set FAILED lifecycle state. Audited and corrected `_extract_cost_usd()` pricing: Opus 4.6 from $15/$75 to $5/$25, Haiku 4.5 from $0.80/$4 to $1/$5, added Opus 4.5 and 4.1 entries.
+- **Deliverables**: src/review_pipeline.py (mod -- lifecycle state computation, pricing fix, score fix), src/models.py (mod -- lifecycle_state on ReviewState), src/api.py (mod -- lifecycle state in pipeline orchestration), tests/test_review_pipeline.py (mod -- 14 new tests, updated score assertions), tests/integration/test_review_flow.py (mod -- updated score assertion)
+- **Sanity check result**: 944 tests passing (14 new). Ruff clean.
+- **Status**: [DONE]
+- **Request**: Move T-P0-41 to Completed

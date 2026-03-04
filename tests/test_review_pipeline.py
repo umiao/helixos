@@ -10,12 +10,13 @@ from __future__ import annotations
 import asyncio
 import json
 import sys
+from datetime import UTC, datetime
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
 from src.config import ReviewerConfig, ReviewPipelineConfig
-from src.models import ExecutorType, Task, TaskStatus
+from src.models import ExecutorType, ReviewLifecycleState, Task, TaskStatus
 from src.review_pipeline import (
     MAX_RAW_RESPONSE_BYTES,
     ReviewPipeline,
@@ -136,6 +137,7 @@ async def test_single_reviewer_approve(mock_exec: AsyncMock) -> None:
     assert result.reviews[0].verdict == "approve"
     assert result.rounds_total == 1
     assert result.rounds_completed == 1
+    assert result.lifecycle_state == ReviewLifecycleState.APPROVED
     # Only required reviewer called for S complexity
     assert mock_exec.call_count == 1
 
@@ -143,7 +145,7 @@ async def test_single_reviewer_approve(mock_exec: AsyncMock) -> None:
 @pytest.mark.asyncio
 @patch("src.review_pipeline.asyncio.create_subprocess_exec")
 async def test_single_reviewer_reject(mock_exec: AsyncMock) -> None:
-    """Single required reviewer rejects -> score 0.3, human decision needed."""
+    """Single required reviewer rejects -> score 0.0, REJECTED_SINGLE lifecycle."""
     mock_exec.return_value = _mock_proc(
         _make_review_output("reject", "Plan has issues", ["Fix error handling", "Add tests"])
     )
@@ -154,11 +156,12 @@ async def test_single_reviewer_reject(mock_exec: AsyncMock) -> None:
         _sample_task(), "Build the thing", lambda c, t, p: None, complexity="S"
     )
 
-    assert result.consensus_score == 0.3
+    assert result.consensus_score == 0.0
     assert result.human_decision_needed is True
     assert len(result.reviews) == 1
     assert result.reviews[0].verdict == "reject"
     assert result.decision_points == ["Fix error handling", "Add tests"]
+    assert result.lifecycle_state == "rejected_single"
 
 
 # ------------------------------------------------------------------
@@ -186,6 +189,7 @@ async def test_multi_reviewer_disagree(mock_exec: AsyncMock) -> None:
     assert result.human_decision_needed is True
     assert len(result.reviews) == 2
     assert result.decision_points == ["Security concerns"]
+    assert result.lifecycle_state == ReviewLifecycleState.REJECTED_CONSENSUS
     # 2 review calls + 1 synthesis call = 3 total
     assert mock_exec.call_count == 3
 
@@ -210,6 +214,7 @@ async def test_multi_reviewer_agree(mock_exec: AsyncMock) -> None:
     assert result.human_decision_needed is False
     assert len(result.reviews) == 2
     assert result.decision_points == []
+    assert result.lifecycle_state == ReviewLifecycleState.APPROVED
 
 
 # ------------------------------------------------------------------
@@ -341,7 +346,7 @@ async def test_l_complexity_includes_optional(mock_exec: AsyncMock) -> None:
 @pytest.mark.asyncio
 @patch("src.review_pipeline.asyncio.create_subprocess_exec")
 async def test_parse_failure_treated_as_reject(mock_exec: AsyncMock) -> None:
-    """Invalid JSON from reviewer -> treated as reject."""
+    """Invalid JSON from reviewer -> treated as reject with REJECTED_SINGLE lifecycle."""
     mock_exec.return_value = _mock_proc(
         _make_cli_output("This is not valid JSON")
     )
@@ -352,10 +357,11 @@ async def test_parse_failure_treated_as_reject(mock_exec: AsyncMock) -> None:
         _sample_task(), "Plan", lambda c, t, p: None, complexity="S"
     )
 
-    assert result.consensus_score == 0.3
+    assert result.consensus_score == 0.0
     assert result.human_decision_needed is True
     assert result.reviews[0].verdict == "reject"
     assert result.reviews[0].summary == "This is not valid JSON"
+    assert result.lifecycle_state == "rejected_single"
 
 
 @pytest.mark.asyncio
@@ -491,6 +497,7 @@ async def test_no_active_reviewers_auto_approve() -> None:
     assert result.human_decision_needed is False
     assert len(result.reviews) == 0
     assert result.rounds_total == 0
+    assert result.lifecycle_state == ReviewLifecycleState.APPROVED
 
 
 @pytest.mark.asyncio
@@ -505,6 +512,7 @@ async def test_empty_reviewers_config() -> None:
 
     assert result.consensus_score == 1.0
     assert result.human_decision_needed is False
+    assert result.lifecycle_state == ReviewLifecycleState.APPROVED
 
 
 @pytest.mark.asyncio
@@ -697,17 +705,17 @@ def test_extract_cost_usd_with_usage() -> None:
 
 
 def test_extract_cost_usd_opus() -> None:
-    """Opus model uses higher pricing."""
+    """Opus model uses its pricing tier."""
     cli_output = {
         "type": "result",
         "result": "...",
         "usage": {"input_tokens": 1000, "output_tokens": 500},
     }
-    # claude-opus-4-6: input=$15/1M, output=$75/1M
-    # cost = (1000/1M)*15 + (500/1M)*75 = 0.015 + 0.0375 = 0.0525
+    # claude-opus-4-6: input=$5/1M, output=$25/1M
+    # cost = (1000/1M)*5 + (500/1M)*25 = 0.005 + 0.0125 = 0.0175
     cost = _extract_cost_usd(cli_output, "claude-opus-4-6")
     assert cost is not None
-    assert abs(cost - 0.0525) < 0.0001
+    assert abs(cost - 0.0175) < 0.0001
 
 
 def test_extract_cost_usd_no_usage() -> None:
@@ -1541,3 +1549,225 @@ async def test_feedback_without_reason(mock_exec: AsyncMock) -> None:
     prompt = captured_args[0][2]
     assert "Previous human feedback" in prompt
     assert "[Attempt 1] REJECT" in prompt
+
+
+# ------------------------------------------------------------------
+# ReviewLifecycleState emission tests (T-P0-41)
+# ------------------------------------------------------------------
+
+
+class TestLifecycleStateComputation:
+    """Test _compute_lifecycle_state static method."""
+
+    def test_single_reviewer_approve(self) -> None:
+        """Single reviewer approve -> APPROVED."""
+        from src.models import LLMReview
+
+        reviews = [LLMReview(
+            model="test", focus="test", verdict="approve",
+            summary="ok", timestamp=datetime.now(UTC),
+        )]
+        state = ReviewPipeline._compute_lifecycle_state(reviews, 1.0, 1)
+        assert state == ReviewLifecycleState.APPROVED
+
+    def test_single_reviewer_reject(self) -> None:
+        """Single reviewer reject -> REJECTED_SINGLE."""
+        from src.models import LLMReview
+
+        reviews = [LLMReview(
+            model="test", focus="test", verdict="reject",
+            summary="bad", timestamp=datetime.now(UTC),
+        )]
+        state = ReviewPipeline._compute_lifecycle_state(reviews, 0.0, 1)
+        assert state == ReviewLifecycleState.REJECTED_SINGLE
+
+    def test_multi_reviewer_above_threshold(self) -> None:
+        """Multi-reviewer score >= threshold -> APPROVED."""
+        from src.models import LLMReview
+
+        reviews = [
+            LLMReview(model="a", focus="a", verdict="approve",
+                      summary="ok", timestamp=datetime.now(UTC)),
+            LLMReview(model="b", focus="b", verdict="approve",
+                      summary="ok", timestamp=datetime.now(UTC)),
+        ]
+        state = ReviewPipeline._compute_lifecycle_state(reviews, 0.9, 2, 0.8)
+        assert state == ReviewLifecycleState.APPROVED
+
+    def test_multi_reviewer_below_threshold(self) -> None:
+        """Multi-reviewer score < threshold -> REJECTED_CONSENSUS."""
+        from src.models import LLMReview
+
+        reviews = [
+            LLMReview(model="a", focus="a", verdict="approve",
+                      summary="ok", timestamp=datetime.now(UTC)),
+            LLMReview(model="b", focus="b", verdict="reject",
+                      summary="bad", timestamp=datetime.now(UTC)),
+        ]
+        state = ReviewPipeline._compute_lifecycle_state(reviews, 0.5, 2, 0.8)
+        assert state == ReviewLifecycleState.REJECTED_CONSENSUS
+
+    def test_multi_reviewer_at_threshold(self) -> None:
+        """Multi-reviewer score exactly at threshold -> APPROVED."""
+        from src.models import LLMReview
+
+        reviews = [
+            LLMReview(model="a", focus="a", verdict="approve",
+                      summary="ok", timestamp=datetime.now(UTC)),
+            LLMReview(model="b", focus="b", verdict="approve",
+                      summary="ok", timestamp=datetime.now(UTC)),
+        ]
+        state = ReviewPipeline._compute_lifecycle_state(reviews, 0.8, 2, 0.8)
+        assert state == ReviewLifecycleState.APPROVED
+
+    def test_partial_reviews(self) -> None:
+        """Fewer reviews than expected -> PARTIAL."""
+        from src.models import LLMReview
+
+        reviews = [LLMReview(
+            model="a", focus="a", verdict="approve",
+            summary="ok", timestamp=datetime.now(UTC),
+        )]
+        state = ReviewPipeline._compute_lifecycle_state(reviews, 1.0, 2, 0.8)
+        assert state == ReviewLifecycleState.PARTIAL
+
+
+@pytest.mark.asyncio
+@patch("src.review_pipeline.asyncio.create_subprocess_exec")
+async def test_lifecycle_state_on_review_state_approve(mock_exec: AsyncMock) -> None:
+    """ReviewState.lifecycle_state is APPROVED on approval."""
+    mock_exec.return_value = _mock_proc(
+        _make_review_output("approve", "OK")
+    )
+    pipeline = ReviewPipeline(_default_config(), threshold=0.8)
+    result = await pipeline.review_task(
+        _sample_task(), "Plan", lambda c, t, p: None, complexity="S",
+    )
+    assert result.lifecycle_state == ReviewLifecycleState.APPROVED
+
+
+@pytest.mark.asyncio
+@patch("src.review_pipeline.asyncio.create_subprocess_exec")
+async def test_lifecycle_state_on_review_state_rejected_single(mock_exec: AsyncMock) -> None:
+    """ReviewState.lifecycle_state is REJECTED_SINGLE on single reject."""
+    mock_exec.return_value = _mock_proc(
+        _make_review_output("reject", "Bad")
+    )
+    pipeline = ReviewPipeline(_default_config(), threshold=0.8)
+    result = await pipeline.review_task(
+        _sample_task(), "Plan", lambda c, t, p: None, complexity="S",
+    )
+    assert result.lifecycle_state == ReviewLifecycleState.REJECTED_SINGLE
+
+
+@pytest.mark.asyncio
+@patch("src.review_pipeline.asyncio.create_subprocess_exec")
+async def test_lifecycle_state_on_review_state_rejected_consensus(
+    mock_exec: AsyncMock,
+) -> None:
+    """ReviewState.lifecycle_state is REJECTED_CONSENSUS when multi-reviewer score < threshold."""
+    mock_exec.side_effect = [
+        _mock_proc(_make_review_output("approve", "OK")),
+        _mock_proc(_make_review_output("reject", "Bad")),
+        _mock_proc(_make_synthesis_output(0.4, ["major issues"])),
+    ]
+    pipeline = ReviewPipeline(_default_config(), threshold=0.8)
+    result = await pipeline.review_task(
+        _sample_task(), "Plan", lambda c, t, p: None, complexity="M",
+    )
+    assert result.lifecycle_state == ReviewLifecycleState.REJECTED_CONSENSUS
+
+
+@pytest.mark.asyncio
+@patch("src.review_pipeline.asyncio.create_subprocess_exec")
+async def test_lifecycle_state_passed_to_history_writer(mock_exec: AsyncMock) -> None:
+    """lifecycle_state is forwarded to HistoryWriter.write_review() for each entry."""
+    mock_exec.side_effect = [
+        _mock_proc(_make_review_output("approve", "OK")),
+        _mock_proc(_make_review_output("approve", "OK")),
+        _mock_proc(_make_synthesis_output(0.95, [])),
+    ]
+
+    mock_writer = AsyncMock()
+    mock_writer.write_review = AsyncMock()
+
+    pipeline = ReviewPipeline(
+        _default_config(), threshold=0.8, history_writer=mock_writer,
+    )
+
+    await pipeline.review_task(
+        _sample_task(), "Plan", lambda c, t, p: None, complexity="M",
+    )
+
+    assert mock_writer.write_review.call_count == 2
+    # First entry (non-final) should have RUNNING
+    first_kw = mock_writer.write_review.call_args_list[0].kwargs
+    assert first_kw["lifecycle_state"] == ReviewLifecycleState.RUNNING
+    # Second entry (final) should have the terminal state
+    second_kw = mock_writer.write_review.call_args_list[1].kwargs
+    assert second_kw["lifecycle_state"] == ReviewLifecycleState.APPROVED
+
+
+@pytest.mark.asyncio
+@patch("src.review_pipeline.asyncio.create_subprocess_exec")
+async def test_lifecycle_single_reviewer_history_writer(mock_exec: AsyncMock) -> None:
+    """Single reviewer: the only entry gets the terminal lifecycle state."""
+    mock_exec.return_value = _mock_proc(
+        _make_review_output("reject", "Issues found")
+    )
+
+    mock_writer = AsyncMock()
+    mock_writer.write_review = AsyncMock()
+
+    pipeline = ReviewPipeline(
+        _default_config(), threshold=0.8, history_writer=mock_writer,
+    )
+
+    await pipeline.review_task(
+        _sample_task(), "Plan", lambda c, t, p: None, complexity="S",
+    )
+
+    assert mock_writer.write_review.call_count == 1
+    kw = mock_writer.write_review.call_args.kwargs
+    assert kw["lifecycle_state"] == ReviewLifecycleState.REJECTED_SINGLE
+
+
+@pytest.mark.asyncio
+@patch("src.review_pipeline.asyncio.create_subprocess_exec")
+async def test_single_reviewer_reject_score_is_zero(mock_exec: AsyncMock) -> None:
+    """Single reviewer reject score is 0.0 (not legacy 0.3)."""
+    mock_exec.return_value = _mock_proc(
+        _make_review_output("reject", "Bad plan")
+    )
+    pipeline = ReviewPipeline(_default_config(), threshold=0.8)
+    result = await pipeline.review_task(
+        _sample_task(), "Plan", lambda c, t, p: None, complexity="S",
+    )
+    assert result.consensus_score == 0.0
+
+
+@pytest.mark.asyncio
+@patch("src.review_pipeline.asyncio.create_subprocess_exec")
+async def test_no_reviewers_lifecycle_is_approved(mock_exec: AsyncMock) -> None:
+    """No active reviewers -> auto-approve with APPROVED lifecycle state."""
+    config = ReviewPipelineConfig(reviewers=[])
+    pipeline = ReviewPipeline(config)
+    result = await pipeline.review_task(
+        _sample_task(), "Plan", lambda c, t, p: None, complexity="S",
+    )
+    assert result.lifecycle_state == ReviewLifecycleState.APPROVED
+    assert result.consensus_score == 1.0
+
+
+def test_extract_cost_usd_haiku_updated_pricing() -> None:
+    """Haiku 4.5 uses updated pricing ($1/$5 per million tokens)."""
+    cli_output = {
+        "type": "result",
+        "result": "...",
+        "usage": {"input_tokens": 1000, "output_tokens": 500},
+    }
+    # claude-haiku-4-5: input=$1/1M, output=$5/1M
+    # cost = (1000/1M)*1 + (500/1M)*5 = 0.001 + 0.0025 = 0.0035
+    cost = _extract_cost_usd(cli_output, "claude-haiku-4-5")
+    assert cost is not None
+    assert abs(cost - 0.0035) < 0.0001

@@ -74,21 +74,7 @@
 
 #### ~~T-P0-40: Define Canonical ReviewLifecycleState enum in backend~~ [DONE -- see Completed Tasks]
 
-#### T-P0-41: Refactor review_pipeline to emit ReviewLifecycleState
-- **Priority**: P0
-- **Complexity**: M
-- **Depends on**: T-P0-40
-- **Problem**: Pipeline outputs loose fields (consensus_score, verdict string, review_status) instead of canonical lifecycle state. Single-reviewer rejection uses `score=0.3` (line ~303 of review_pipeline.py), showing as confusing "30%" in UI.
-- **Acceptance Criteria**:
-  1. Refactor `review_pipeline.py` to output explicit `ReviewLifecycleState` values at each stage
-  2. Single-reviewer rejection emits `REJECTED_SINGLE` (not raw `score=0.3`)
-  3. Multi-reviewer consensus rejection emits `REJECTED_CONSENSUS`
-  4. Pipeline start emits `RUNNING`, partial completion emits `PARTIAL`
-  5. Pipeline failure emits `FAILED`
-  6. Each review history entry carries the lifecycle state, not loose fields
-  7. Audit `_extract_cost_usd()` pricing table accuracy against current Claude model pricing
-  8. **Journey AC**: Review pipeline runs -> history entries contain lifecycle state -> API returns lifecycle state -> frontend can render without guessing
-- **Files**: `src/review_pipeline.py`, `src/schemas.py`
+#### ~~T-P0-41: Refactor review_pipeline to emit ReviewLifecycleState~~ [DONE -- see Completed Tasks]
 
 #### T-P0-42: Make ReviewPanel purely state-driven (no field-guessing)
 - **Priority**: P0

@@ -31,7 +31,7 @@ from src.enrichment import (
 from src.env_loader import EnvLoader
 from src.events import EventBus, sse_router
 from src.history_writer import HistoryWriter
-from src.models import Project, ReviewState, Task, TaskStatus
+from src.models import Project, ReviewLifecycleState, ReviewState, Task, TaskStatus
 from src.port_registry import PortRegistry
 from src.process_manager import ProcessManager
 from src.project_settings import ProjectSettingsStore
@@ -1110,6 +1110,11 @@ def _enqueue_review_pipeline(
     async def _run_review_bg() -> None:
         """Background task to run the review pipeline."""
         try:
+            # Set lifecycle state to RUNNING at pipeline start
+            await task_manager.set_review_lifecycle_state(
+                task_id, ReviewLifecycleState.RUNNING,
+            )
+
             def on_progress(completed: int, total: int, phase: str) -> None:
                 event_bus.emit(
                     "review_progress",
@@ -1130,6 +1135,12 @@ def _enqueue_review_pipeline(
 
             # Mark review_status as "done"
             await task_manager.set_review_status(task_id, "done")
+
+            # Set lifecycle state to the terminal state computed by pipeline
+            await task_manager.set_review_lifecycle_state(
+                task_id,
+                ReviewLifecycleState(review_state.lifecycle_state),
+            )
 
             if review_state.human_decision_needed:
                 new_status = TaskStatus.REVIEW_NEEDS_HUMAN
@@ -1155,11 +1166,14 @@ async def _set_review_failed(
     task_id: str,
     error_msg: str,
 ) -> None:
-    """Mark review_status as failed and emit SSE alert."""
+    """Mark review_status as failed, set lifecycle state to FAILED, and emit SSE alert."""
     try:
         await task_manager.set_review_status(task_id, "failed")
+        await task_manager.set_review_lifecycle_state(
+            task_id, ReviewLifecycleState.FAILED,
+        )
     except Exception:
-        logger.exception("Failed to set review_status for task %s", task_id)
+        logger.exception("Failed to set review status for task %s", task_id)
     event_bus.emit("alert", task_id, {"error": error_msg})
     event_bus.emit("review_failed", task_id, {"error": error_msg})
 

@@ -150,8 +150,9 @@ async def test_review_reject_needs_human(
         on_progress=lambda c, t, p: None,
     )
 
-    assert review_state.consensus_score == 0.3
+    assert review_state.consensus_score == 0.0
     assert review_state.human_decision_needed is True
+    assert review_state.lifecycle_state == "rejected_single"
     assert len(review_state.decision_points) > 0
 
     # Persist review state

@@ -20,7 +20,7 @@ from pydantic import BaseModel
 
 from src.config import ReviewerConfig, ReviewPipelineConfig
 from src.history_writer import HistoryWriter
-from src.models import LLMReview, ReviewState, Task
+from src.models import LLMReview, ReviewLifecycleState, ReviewState, Task
 
 logger = logging.getLogger(__name__)
 
@@ -122,13 +122,15 @@ def _truncate_raw_response(text: str) -> str:
 # ------------------------------------------------------------------
 
 # Approximate pricing per million tokens (USD).
-# Updated for current Claude model pricing.
+# Updated 2026-03 from https://platform.claude.com/docs/en/about-claude/pricing
 _MODEL_PRICING: dict[str, tuple[float, float]] = {
     # (input_per_1m, output_per_1m)
-    "claude-opus-4-6": (15.0, 75.0),
-    "claude-sonnet-4-5": (3.0, 15.0),
+    "claude-opus-4-6": (5.0, 25.0),
+    "claude-opus-4-5": (5.0, 25.0),
+    "claude-opus-4-1": (15.0, 75.0),
     "claude-sonnet-4-6": (3.0, 15.0),
-    "claude-haiku-4-5": (0.80, 4.0),
+    "claude-sonnet-4-5": (3.0, 15.0),
+    "claude-haiku-4-5": (1.0, 5.0),
 }
 
 # Fallback pricing if model not recognized
@@ -277,6 +279,7 @@ class ReviewPipeline:
                 consensus_score=1.0,
                 human_decision_needed=False,
                 decision_points=[],
+                lifecycle_state=ReviewLifecycleState.APPROVED,
             )
 
         reviews: list[LLMReview] = []
@@ -299,17 +302,28 @@ class ReviewPipeline:
             score = synthesis.score
             disagreements = synthesis.disagreements
         else:
-            # Single reviewer: approve/reject is binary
-            score = 1.0 if reviews[0].verdict == "approve" else 0.3
+            # Single reviewer: approve=1.0, reject=0.0 (binary)
+            score = 1.0 if reviews[0].verdict == "approve" else 0.0
             disagreements = (
                 reviews[0].suggestions if score < self.threshold else []
             )
+
+        # Determine lifecycle state from outcome
+        lifecycle_state = self._compute_lifecycle_state(
+            reviews, score, len(active_reviewers), self.threshold,
+        )
 
         # DB-first: persist each review to history
         # Snapshot the plan at pipeline start (immutable per attempt)
         snapshot = plan_content
         if self._history_writer is not None:
             for i, review in enumerate(reviews):
+                # Non-final entries are RUNNING; final entry carries terminal state
+                entry_state = (
+                    lifecycle_state
+                    if i == len(reviews) - 1
+                    else ReviewLifecycleState.RUNNING
+                )
                 await self._history_writer.write_review(
                     task_id=task.id,
                     round_number=i + 1,
@@ -318,6 +332,7 @@ class ReviewPipeline:
                     cost_usd=review.cost_usd,
                     review_attempt=review_attempt,
                     plan_snapshot=snapshot if i == 0 else None,
+                    lifecycle_state=entry_state,
                 )
 
         return ReviewState(
@@ -327,7 +342,41 @@ class ReviewPipeline:
             consensus_score=score,
             human_decision_needed=(score < self.threshold),
             decision_points=disagreements,
+            lifecycle_state=lifecycle_state,
         )
+
+    @staticmethod
+    def _compute_lifecycle_state(
+        reviews: list[LLMReview],
+        score: float,
+        expected_count: int,
+        threshold: float = 0.8,
+    ) -> ReviewLifecycleState:
+        """Compute the terminal lifecycle state from review outcomes.
+
+        Args:
+            reviews: Completed reviews.
+            score: Consensus score (0.0-1.0).
+            expected_count: Number of reviewers that were supposed to run.
+            threshold: Consensus score threshold for approval.
+
+        Returns:
+            The appropriate terminal ReviewLifecycleState.
+        """
+        # Partial: fewer reviews completed than expected
+        if len(reviews) < expected_count:
+            return ReviewLifecycleState.PARTIAL
+
+        # Single reviewer path
+        if len(reviews) == 1:
+            if reviews[0].verdict == "approve":
+                return ReviewLifecycleState.APPROVED
+            return ReviewLifecycleState.REJECTED_SINGLE
+
+        # Multi-reviewer path: use consensus score vs threshold
+        if score >= threshold:
+            return ReviewLifecycleState.APPROVED
+        return ReviewLifecycleState.REJECTED_CONSENSUS
 
     async def _call_claude_cli(
         self,
