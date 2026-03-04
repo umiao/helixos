@@ -68,10 +68,29 @@ def _make_synthesis_output(
 
 
 def _mock_proc(stdout: bytes, returncode: int = 0) -> AsyncMock:
-    """Create a mock subprocess with given stdout and return code."""
+    """Create a mock subprocess with readline-based stdout.
+
+    Simulates line-by-line reading used by the streaming _call_claude_cli.
+    """
     proc = AsyncMock()
-    proc.communicate = AsyncMock(return_value=(stdout, b""))
     proc.returncode = returncode
+    proc.wait = AsyncMock()
+    proc.kill = MagicMock()
+
+    # Build a mock stdout that yields lines then EOF
+    lines = stdout.split(b"\n") if stdout else []
+    line_queue: list[bytes] = [line + b"\n" for line in lines if line]
+    line_queue.append(b"")  # EOF sentinel
+
+    mock_stdout = AsyncMock()
+    mock_stdout.readline = AsyncMock(side_effect=line_queue)
+
+    mock_stderr = AsyncMock()
+    mock_stderr.read = AsyncMock(return_value=b"")
+
+    proc.stdout = mock_stdout
+    proc.stderr = mock_stderr
+
     return proc
 
 
@@ -923,11 +942,26 @@ async def test_timeout_kills_process_group(
     mock_terminate: MagicMock,
     mock_kill: MagicMock,
 ) -> None:
-    """When communicate() times out, process group is terminated and RuntimeError raised."""
+    """When readline() hangs past timeout, process group is terminated and RuntimeError raised."""
     proc = AsyncMock()
-    proc.communicate = AsyncMock(side_effect=TimeoutError)
     proc.wait = AsyncMock(return_value=0)
     proc.pid = 12345
+    proc.kill = MagicMock()
+
+    # Mock stdout.readline that never returns (hangs forever)
+    mock_stdout = AsyncMock()
+
+    async def _hang_forever() -> bytes:
+        await asyncio.sleep(9999)
+        return b""
+
+    mock_stdout.readline = AsyncMock(side_effect=_hang_forever)
+    proc.stdout = mock_stdout
+
+    mock_stderr = AsyncMock()
+    mock_stderr.read = AsyncMock(return_value=b"")
+    proc.stderr = mock_stderr
+
     mock_exec.return_value = proc
 
     config = ReviewPipelineConfig(
@@ -942,6 +976,8 @@ async def test_timeout_kills_process_group(
         review_timeout_minutes=1,
     )
     pipeline = ReviewPipeline(config, threshold=0.8)
+    # Override to tiny value so test doesn't wait 60 seconds
+    pipeline._timeout_minutes = 0.001
 
     with pytest.raises(RuntimeError, match="timed out"):
         await pipeline.review_task(
@@ -962,10 +998,25 @@ async def test_timeout_force_kill_on_stubborn_process(
 ) -> None:
     """When process doesn't exit after SIGTERM, force-kill is used."""
     proc = AsyncMock()
-    proc.communicate = AsyncMock(side_effect=TimeoutError)
+    proc.pid = 12345
+    proc.kill = MagicMock()
     # wait() times out after terminate (grace period), then succeeds after kill
     proc.wait = AsyncMock(side_effect=[TimeoutError, 0])
-    proc.pid = 12345
+
+    # Mock stdout.readline that hangs forever
+    mock_stdout = AsyncMock()
+
+    async def _hang_forever() -> bytes:
+        await asyncio.sleep(9999)
+        return b""
+
+    mock_stdout.readline = AsyncMock(side_effect=_hang_forever)
+    proc.stdout = mock_stdout
+
+    mock_stderr = AsyncMock()
+    mock_stderr.read = AsyncMock(return_value=b"")
+    proc.stderr = mock_stderr
+
     mock_exec.return_value = proc
 
     config = ReviewPipelineConfig(
@@ -980,6 +1031,8 @@ async def test_timeout_force_kill_on_stubborn_process(
         review_timeout_minutes=1,
     )
     pipeline = ReviewPipeline(config, threshold=0.8)
+    # Override to tiny value so test doesn't wait 60 seconds
+    pipeline._timeout_minutes = 0.001
 
     with pytest.raises(RuntimeError, match="timed out"):
         await pipeline.review_task(
@@ -1056,15 +1109,29 @@ async def test_synthesis_timeout_also_covered(
     mock_terminate: MagicMock,
 ) -> None:
     """Timeout applies to synthesis step too, not just individual reviewers."""
-    review_proc = _mock_proc(_make_review_output("approve", "OK"))
+    review_proc_1 = _mock_proc(_make_review_output("approve", "OK"))
+    review_proc_2 = _mock_proc(_make_review_output("approve", "OK"))
 
-    # Synthesis subprocess times out
+    # Synthesis subprocess hangs (readline never returns)
     synthesis_proc = AsyncMock()
-    synthesis_proc.communicate = AsyncMock(side_effect=TimeoutError)
     synthesis_proc.wait = AsyncMock(return_value=0)
     synthesis_proc.pid = 99999
+    synthesis_proc.kill = MagicMock()
 
-    mock_exec.side_effect = [review_proc, review_proc, synthesis_proc]
+    mock_stdout = AsyncMock()
+
+    async def _hang_forever() -> bytes:
+        await asyncio.sleep(9999)
+        return b""
+
+    mock_stdout.readline = AsyncMock(side_effect=_hang_forever)
+    synthesis_proc.stdout = mock_stdout
+
+    mock_stderr = AsyncMock()
+    mock_stderr.read = AsyncMock(return_value=b"")
+    synthesis_proc.stderr = mock_stderr
+
+    mock_exec.side_effect = [review_proc_1, review_proc_2, synthesis_proc]
 
     config = ReviewPipelineConfig(
         reviewers=[
@@ -1084,6 +1151,8 @@ async def test_synthesis_timeout_also_covered(
         review_timeout_minutes=1,
     )
     pipeline = ReviewPipeline(config, threshold=0.8)
+    # Override to tiny value so test doesn't wait 60 seconds
+    pipeline._timeout_minutes = 0.001
 
     with pytest.raises(RuntimeError, match="timed out"):
         await pipeline.review_task(
@@ -1771,3 +1840,75 @@ def test_extract_cost_usd_haiku_updated_pricing() -> None:
     cost = _extract_cost_usd(cli_output, "claude-haiku-4-5")
     assert cost is not None
     assert abs(cost - 0.0035) < 0.0001
+
+
+# ------------------------------------------------------------------
+# on_log streaming callback (T-P0-64)
+# ------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+@patch("src.review_pipeline.asyncio.create_subprocess_exec")
+async def test_on_log_receives_lifecycle_messages(mock_exec: AsyncMock) -> None:
+    """on_log callback receives review lifecycle messages (started, phase, completed)."""
+    mock_exec.return_value = _mock_proc(
+        _make_review_output("approve", "OK")
+    )
+
+    pipeline = ReviewPipeline(_default_config(), threshold=0.8)
+
+    log_lines: list[str] = []
+    result = await pipeline.review_task(
+        _sample_task(), "Plan", lambda c, t, p: None,
+        complexity="S",
+        on_log=lambda line: log_lines.append(line),
+    )
+
+    assert result.consensus_score == 1.0
+    # Check lifecycle messages
+    assert any("Review started" in line for line in log_lines)
+    assert any("Starting feasibility_and_edge_cases review" in line for line in log_lines)
+    assert any("Completed feasibility_and_edge_cases review" in line for line in log_lines)
+    assert any("Review completed: approved" in line for line in log_lines)
+
+
+@pytest.mark.asyncio
+@patch("src.review_pipeline.asyncio.create_subprocess_exec")
+async def test_on_log_receives_cli_output_lines(mock_exec: AsyncMock) -> None:
+    """on_log callback receives individual stdout lines from CLI subprocess."""
+    mock_exec.return_value = _mock_proc(
+        _make_review_output("approve", "Looks good", ["Minor nit"])
+    )
+
+    pipeline = ReviewPipeline(_default_config(), threshold=0.8)
+
+    log_lines: list[str] = []
+    await pipeline.review_task(
+        _sample_task(), "Plan", lambda c, t, p: None,
+        complexity="S",
+        on_log=lambda line: log_lines.append(line),
+    )
+
+    # CLI output JSON should appear as a line in the on_log stream
+    # (the JSON blob emitted by the mock subprocess)
+    cli_output_lines = [l for l in log_lines if "approve" in l and "Looks good" in l]
+    assert len(cli_output_lines) >= 1
+
+
+@pytest.mark.asyncio
+@patch("src.review_pipeline.asyncio.create_subprocess_exec")
+async def test_on_log_none_does_not_crash(mock_exec: AsyncMock) -> None:
+    """Passing on_log=None (default) does not raise errors."""
+    mock_exec.return_value = _mock_proc(
+        _make_review_output("approve", "OK")
+    )
+
+    pipeline = ReviewPipeline(_default_config(), threshold=0.8)
+
+    # on_log=None is the default -- should work without errors
+    result = await pipeline.review_task(
+        _sample_task(), "Plan", lambda c, t, p: None,
+        complexity="S",
+    )
+
+    assert result.consensus_score == 1.0

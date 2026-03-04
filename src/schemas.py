@@ -384,6 +384,7 @@ class ExecutionLogEntry(BaseModel):
     level: str
     message: str
     source: str
+    metadata_json: str | None = None
 
 
 class ExecutionLogsResponse(BaseModel):

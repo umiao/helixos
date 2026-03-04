@@ -724,3 +724,10 @@
 - **Sanity check result**: TypeScript clean (tsc --noEmit). Vite production build succeeds. Ruff clean. All 1028 backend tests passing.
 - **Status**: [DONE]
 - **Request**: Move T-P0-63b to Completed in TASKS.md
+
+## 2026-03-04 21:00 -- [T-P0-64] Real-time log streaming for review pipeline
+- **What I did**: Refactored `_call_claude_cli()` in review_pipeline.py from `proc.communicate()` to `proc.stdout.readline()` loop with `on_log` callback, matching the T-P0-63a streaming pattern. Added `metadata_json` nullable Text column to `ExecutionLogRow` for structured reviewer context. Threaded `on_log` through `review_task` -> `_call_reviewer` -> `_call_claude_cli` for real-time per-line streaming. Wired SSE + DB dual-write in `_enqueue_review_pipeline` (api.py): `on_review_log` emits `log` SSE events with source="review" and writes to `execution_logs` via `history_writer.write_log()`. `on_progress` callbacks also write to `execution_logs`. Error handler emits failure log to both SSE and DB. Review pipeline emits lifecycle messages ("Review started", phase transitions, "Review completed: approved/rejected"). Updated all test mock helpers (`_mock_proc`) from `communicate()` to readline-based pattern. Added 3 new tests for on_log streaming behavior.
+- **Deliverables**: src/db.py (mod), src/history_writer.py (mod), src/review_pipeline.py (mod), src/api.py (mod), src/schemas.py (mod), tests/test_review_pipeline.py (mod), tests/integration/test_review_flow.py (mod)
+- **Sanity check result**: Ruff clean. All 1031 tests passing (3 new).
+- **Status**: [DONE]
+- **Request**: Move T-P0-64 to Completed in TASKS.md

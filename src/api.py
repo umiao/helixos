@@ -1205,6 +1205,7 @@ def _enqueue_review_pipeline(
     task_id: str,
     review_attempt: int = 1,
     human_feedback: list[dict] | None = None,
+    history_writer: HistoryWriter | None = None,
 ) -> None:
     """Enqueue the review pipeline as a background asyncio task.
 
@@ -1219,6 +1220,7 @@ def _enqueue_review_pipeline(
         task_id: Task ID string.
         review_attempt: Attempt number (1-based). Retries increment this.
         human_feedback: Optional list of previous human feedback for injection.
+        history_writer: Optional HistoryWriter for DB persistence of review logs.
     """
     if review_pipeline is None:
         # Pipeline unavailable -- fail immediately
@@ -1244,6 +1246,24 @@ def _enqueue_review_pipeline(
                     task_id,
                     {"completed": completed, "total": total, "phase": phase},
                 )
+                if history_writer is not None:
+                    asyncio.ensure_future(
+                        history_writer.write_log(
+                            task_id, phase, level="info", source="review",
+                        ),
+                    )
+
+            def on_review_log(line: str) -> None:
+                """Per-line callback: SSE emit + DB write (source=review)."""
+                event_bus.emit(
+                    "log", task_id, {"message": line, "source": "review"},
+                )
+                if history_writer is not None:
+                    asyncio.ensure_future(
+                        history_writer.write_log(
+                            task_id, line, level="info", source="review",
+                        ),
+                    )
 
             review_state = await review_pipeline.review_task(
                 task=task,
@@ -1251,6 +1271,7 @@ def _enqueue_review_pipeline(
                 on_progress=on_progress,
                 review_attempt=review_attempt,
                 human_feedback=human_feedback,
+                on_log=on_review_log,
             )
 
             updated_task = task.model_copy(update={"review": review_state})
@@ -1274,8 +1295,19 @@ def _enqueue_review_pipeline(
             event_bus.emit(
                 "status_change", task_id, {"status": new_status.value},
             )
-        except Exception:
+        except Exception as exc:
             logger.exception("Review failed for task %s", task_id)
+            error_msg = f"Review pipeline failed: {exc}"
+            event_bus.emit(
+                "log", task_id,
+                {"message": error_msg, "source": "review"},
+            )
+            if history_writer is not None:
+                asyncio.ensure_future(
+                    history_writer.write_log(
+                        task_id, error_msg, level="error", source="review",
+                    ),
+                )
             await _set_review_failed(
                 task_manager, event_bus, task_id, "Review pipeline failed",
             )
@@ -1374,8 +1406,10 @@ async def update_task_status(
         and body.status == TaskStatus.REVIEW
     ):
         review_pipeline: ReviewPipeline | None = request.app.state.review_pipeline
+        hw: HistoryWriter = request.app.state.history_writer
         _enqueue_review_pipeline(
             task_manager, review_pipeline, event_bus, updated, task_id,
+            history_writer=hw,
         )
 
     return _task_to_response(updated)
@@ -1441,6 +1475,7 @@ async def retry_review(task_id: str, request: Request) -> dict:
         task_manager, review_pipeline, event_bus, task, task_id,
         review_attempt=next_attempt,
         human_feedback=feedback if feedback else None,
+        history_writer=history_writer,
     )
 
     return {"detail": "Review retry started", "task_id": task_id}

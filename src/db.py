@@ -99,6 +99,7 @@ class ExecutionLogRow(Base):
     level: Mapped[str] = mapped_column(String(16), nullable=False, default="info")
     message: Mapped[str] = mapped_column(Text, nullable=False)
     source: Mapped[str] = mapped_column(String(32), nullable=False, default="executor")
+    metadata_json: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     __table_args__ = (
         Index("ix_exec_logs_task_ts", "task_id", "timestamp"),

@@ -6,7 +6,7 @@ Tests the review pipeline flow with subprocess mocking for Claude CLI.
 from __future__ import annotations
 
 import json
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -26,10 +26,25 @@ def _make_cli_output(inner_json: str) -> bytes:
 
 
 def _mock_proc(stdout: bytes) -> AsyncMock:
-    """Create a mock subprocess with given stdout."""
+    """Create a mock subprocess with readline-based stdout."""
     proc = AsyncMock()
-    proc.communicate = AsyncMock(return_value=(stdout, b""))
     proc.returncode = 0
+    proc.wait = AsyncMock()
+    proc.kill = MagicMock()
+
+    lines = stdout.split(b"\n") if stdout else []
+    line_queue: list[bytes] = [line + b"\n" for line in lines if line]
+    line_queue.append(b"")  # EOF sentinel
+
+    mock_stdout = AsyncMock()
+    mock_stdout.readline = AsyncMock(side_effect=line_queue)
+
+    mock_stderr = AsyncMock()
+    mock_stderr.read = AsyncMock(return_value=b"")
+
+    proc.stdout = mock_stdout
+    proc.stderr = mock_stderr
+
     return proc
 
 

@@ -50,6 +50,7 @@ class HistoryWriter:
         message: str,
         level: str = "info",
         source: str = "executor",
+        metadata_json: str | None = None,
     ) -> None:
         """Persist a single execution log entry.
 
@@ -58,6 +59,7 @@ class HistoryWriter:
             message: Log message (truncated to 2KB).
             level: Log level (info, warn, error).
             source: Source of the log (executor, scheduler, system).
+            metadata_json: Optional JSON string with structured context.
         """
         now = datetime.now(UTC).isoformat()
         async with get_session(self._sf) as session:
@@ -67,6 +69,7 @@ class HistoryWriter:
                 level=level,
                 message=_truncate(message),
                 source=source,
+                metadata_json=metadata_json,
             )
             session.add(row)
 
@@ -140,6 +143,7 @@ class HistoryWriter:
                     "level": r.level,
                     "message": r.message,
                     "source": r.source,
+                    "metadata_json": getattr(r, "metadata_json", None),
                 }
                 for r in rows
             ]

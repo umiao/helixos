@@ -28,21 +28,6 @@
 ### P0 -- Must Have (core functionality)
 
 
-#### T-P0-64: Real-time log streaming for review pipeline
-- **Priority**: P0
-- **Complexity**: S (< 1 session)
-- **Depends on**: T-P0-63a (uses same `on_log: Callable[[str], None]` callback interface for SSE + DB dual-write)
-- **Description**: Review pipeline currently emits SSE `review_progress` events but does NOT persist logs to `execution_logs` table. User cannot see review activity in the ExecutionLog panel after the fact. Also, individual reviewer Claude CLI calls (`_call_reviewer`) buffer all output via `proc.communicate()` -- no streaming during the review subprocess.
-  Fix: Apply the same streaming pattern from T-P0-63a to review subprocess calls. Write review progress to execution_logs with `source="review"`. Add `metadata_json` column for structured reviewer context. SSE events must follow the contract from 63a: `{type, task_id, data: {message?, source?}, timestamp}`.
-- **Acceptance Criteria**:
-  1. `execution_logs` table gets optional `metadata_json` column (Text, nullable) for structured context like `{"reviewer_focus": "feasibility", "reviewer_model": "claude-sonnet-4-5"}` -- avoids schema explosion; source="review" + metadata_json covers all reviewer-specific needs
-  2. `_call_claude_cli()` in review_pipeline.py refactored from `proc.communicate()` to `proc.stdout.readline()` loop, accepting `on_log` callback (same interface as 63a's `generate_task_plan`)
-  3. `review_pipeline.py` passes `on_log` to `_call_reviewer`, which emits SSE + DB dual-write per line via `event_bus.emit("log", ...) + history_writer.write_log(...)`
-  4. Review pipeline `on_progress` callbacks write to `execution_logs` via `history_writer` (source="review")
-  5. ExecutionLog component shows review logs interleaved with execution logs for the same task, with "REVIEW" source badge
-  6. **User journey**: User triggers review -> ExecutionLog shows "Review started" -> shows Claude CLI output from each reviewer in real-time -> shows "Review completed: approved/rejected"
-  7. **Inverse case**: If a reviewer subprocess fails mid-stream, partial review logs are preserved in DB, review status transitions to failed, error appears in ExecutionLog
-  8. **Manual smoke test**: Trigger review on a task with plan, watch ExecutionLog -- reviewer output lines must appear within 5 seconds, not only after all reviewers complete
 
 #### T-P0-65: Plan generation button discoverability + Kanban card visual feedback
 - **Priority**: P0
@@ -84,8 +69,6 @@
 > Full historical dependency graph relocated to [docs/architecture/dependency-graph-history.md](docs/architecture/dependency-graph-history.md).
 
 ### Current
-- T-P0-63b -> T-P0-63a (frontend wiring depends on backend streaming)
-- T-P0-64 -> T-P0-63a (review streaming uses same on_log interface)
 - T-P0-65 -> T-P0-63b (card visual feedback depends on frontend SSE wiring)
 
 ---
@@ -123,6 +106,9 @@
 
 #### [x] T-P0-63b: Frontend plan generation UX wiring -- 2026-03-04
 - Wired SSE plan_status_change events in App.tsx for real-time plan_status updates. Added "PLAN" badge in ExecutionLog for source="plan" logs. Added elapsed timer in ReviewPanel during generation. Updated API client and components for 202 async flow. TypeScript clean, Vite build clean, 1028 tests passing.
+
+#### [x] T-P0-64: Real-time log streaming for review pipeline -- 2026-03-04
+- Refactored _call_claude_cli() from communicate() to readline() loop with on_log callback. Added metadata_json column to execution_logs. Wired SSE + DB dual-write for review logs (source="review"). Review pipeline emits lifecycle messages. on_progress writes to execution_logs. Error handler preserves partial logs. 1031 tests passing.
 
 #### [x] T-P0-55: Execution log visual markers for review activity -- 2026-03-04
 - Added purple "REVIEW" badge on review-originated log entries. Extended LogEntry with source field, SSE handlers pass source="review" for review_started/review_progress events. Uses SSE event type for origin detection.

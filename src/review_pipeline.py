@@ -13,6 +13,7 @@ import logging
 import os
 import signal
 import sys
+import time
 from collections.abc import Callable
 from datetime import UTC, datetime
 
@@ -244,6 +245,7 @@ class ReviewPipeline:
         complexity: str = "S",
         review_attempt: int = 1,
         human_feedback: list[dict] | None = None,
+        on_log: Callable[[str], None] | None = None,
     ) -> ReviewState:
         """Run the review pipeline for a task plan.
 
@@ -260,6 +262,9 @@ class ReviewPipeline:
                 (from ``HistoryWriter.get_human_feedback``).  Each entry has
                 ``human_decision``, ``human_reason``, ``review_attempt``, and
                 ``timestamp``.  Injected into reviewer prompts as context.
+            on_log: Optional per-line callback for real-time streaming of
+                Claude CLI output.  Each line from every reviewer subprocess
+                is passed to this callback as it arrives.
 
         Returns:
             ReviewState with all reviews, consensus score, and human decision flag.
@@ -284,16 +289,25 @@ class ReviewPipeline:
 
         reviews: list[LLMReview] = []
 
+        def _emit_log(msg: str) -> None:
+            if on_log is not None:
+                on_log(msg)
+
+        _emit_log("Review started")
+
         for i, reviewer in enumerate(active_reviewers):
-            on_progress(i, len(active_reviewers),
-                        f"Starting {reviewer.focus} review...")
+            phase = f"Starting {reviewer.focus} review..."
+            on_progress(i, len(active_reviewers), phase)
+            _emit_log(phase)
             review = await self._call_reviewer(
                 reviewer, task, plan_content,
                 human_feedback=human_feedback,
+                on_log=on_log,
             )
             reviews.append(review)
-            on_progress(i + 1, len(active_reviewers),
-                        f"Completed {reviewer.focus} review")
+            completed_msg = f"Completed {reviewer.focus} review"
+            on_progress(i + 1, len(active_reviewers), completed_msg)
+            _emit_log(completed_msg)
 
         # Synthesize (only if multiple reviews)
         if len(reviews) > 1:
@@ -312,6 +326,8 @@ class ReviewPipeline:
         lifecycle_state = self._compute_lifecycle_state(
             reviews, score, len(active_reviewers), self.threshold,
         )
+
+        _emit_log(f"Review completed: {lifecycle_state.value}")
 
         # DB-first: persist each review to history
         # Snapshot the plan at pipeline start (immutable per attempt)
@@ -385,15 +401,17 @@ class ReviewPipeline:
         model: str,
         max_budget_usd: float = 0.50,
         json_schema: str | None = None,
+        on_log: Callable[[str], None] | None = None,
+        heartbeat_seconds: int = 30,
     ) -> dict:
         """Call the Claude CLI subprocess and return the parsed JSON output.
 
-        Invokes ``claude -p`` with ``--output-format json`` and parses the
-        outer JSON wrapper to extract the ``result`` and ``usage`` fields.
+        Invokes ``claude -p`` with ``--output-format json`` and streams
+        stdout line-by-line via *on_log* for real-time progress.  Parses
+        the assembled output as JSON to extract ``result`` and ``usage``.
 
         Uses process group isolation (same pattern as CodeExecutor / T-P0-30)
-        and wraps ``proc.communicate()`` with ``asyncio.wait_for`` to enforce
-        ``review_timeout_minutes``.
+        and ``asyncio.timeout`` to enforce ``review_timeout_minutes``.
 
         Args:
             prompt: The user prompt to send.
@@ -401,6 +419,9 @@ class ReviewPipeline:
             model: Model identifier (e.g., ``"claude-sonnet-4-5"``).
             max_budget_usd: Maximum budget for this CLI call.
             json_schema: Optional JSON schema for structured output.
+            on_log: Optional per-line callback for real-time streaming.
+            heartbeat_seconds: Seconds without output before emitting a
+                heartbeat via *on_log*.  Set to 0 to disable.
 
         Returns:
             Dict with ``result`` (str) and full CLI output for usage extraction.
@@ -439,15 +460,42 @@ class ReviewPipeline:
         )
 
         timeout_seconds = self._timeout_minutes * 60 if self._timeout_minutes > 0 else None
+        log_lines: list[str] = []
+        last_output_time = time.monotonic()
+
+        def _emit(line: str) -> None:
+            if on_log is not None:
+                on_log(line)
 
         try:
-            if timeout_seconds is not None:
-                stdout_bytes, stderr_bytes = await asyncio.wait_for(
-                    proc.communicate(),
-                    timeout=timeout_seconds,
-                )
-            else:
-                stdout_bytes, stderr_bytes = await proc.communicate()
+            async with asyncio.timeout(timeout_seconds):
+                assert proc.stdout is not None
+                while True:
+                    try:
+                        if heartbeat_seconds > 0:
+                            raw_line = await asyncio.wait_for(
+                                proc.stdout.readline(),
+                                timeout=heartbeat_seconds,
+                            )
+                        else:
+                            raw_line = await proc.stdout.readline()
+                    except TimeoutError:
+                        elapsed = int(time.monotonic() - last_output_time)
+                        _emit(
+                            f"[PROGRESS] heartbeat -- no output for {elapsed}s"
+                        )
+                        continue
+
+                    if not raw_line:  # EOF
+                        break
+
+                    decoded = raw_line.decode("utf-8", errors="replace").strip()
+                    if decoded:
+                        log_lines.append(decoded)
+                        _emit(decoded)
+                        last_output_time = time.monotonic()
+
+                await proc.wait()
         except TimeoutError:
             logger.warning(
                 "Review subprocess timed out after %d minutes (model=%s), "
@@ -466,12 +514,28 @@ class ReviewPipeline:
             ) from None
 
         if proc.returncode != 0:
+            stderr_bytes = b""
+            if proc.stderr is not None:
+                stderr_bytes = await proc.stderr.read()
             stderr_text = stderr_bytes.decode("utf-8", errors="replace")
             raise RuntimeError(
                 f"Claude CLI failed (exit {proc.returncode}): {stderr_text}"
             )
 
-        cli_output = json.loads(stdout_bytes.decode("utf-8"))
+        # Reassemble all stdout lines and parse the JSON result
+        full_output = "\n".join(log_lines)
+        try:
+            cli_output = json.loads(full_output)
+        except json.JSONDecodeError:
+            # Some CLIs emit progress text before the final JSON blob
+            cli_output = {}
+            for line in reversed(log_lines):
+                try:
+                    cli_output = json.loads(line)
+                    break
+                except json.JSONDecodeError:
+                    continue
+
         return cli_output
 
     async def _call_reviewer(
@@ -480,6 +544,7 @@ class ReviewPipeline:
         task: Task,
         plan_content: str,
         human_feedback: list[dict] | None = None,
+        on_log: Callable[[str], None] | None = None,
     ) -> LLMReview:
         """Call a reviewer via the Claude CLI.
 
@@ -488,6 +553,7 @@ class ReviewPipeline:
             task: The task being reviewed.
             plan_content: The plan to review.
             human_feedback: Optional list of previous human feedback entries.
+            on_log: Optional per-line callback for real-time streaming.
 
         Returns:
             LLMReview with parsed verdict, summary, suggestions, and cost_usd.
@@ -525,6 +591,7 @@ class ReviewPipeline:
             model=reviewer.model,
             max_budget_usd=reviewer.max_budget_usd,
             json_schema=_REVIEW_JSON_SCHEMA,
+            on_log=on_log,
         )
 
         result_text = cli_output.get("result", "")
