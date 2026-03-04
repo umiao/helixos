@@ -39,52 +39,7 @@
 
 ---
 
-#### T-P0-35: Inline plan editing + versioned review history
-- **Priority**: P0
-- **Complexity**: M
-- **Depends on**: T-P0-34
-
-**Problem**: No way to iterate on the plan itself before re-review.
-
-**AC**:
-
-1. **Inline plan editor in ReviewPanel**:
-   - "Edit Plan" button on "Plan Under Review" section (from T-P0-33)
-   - Toggles to textarea with Save/Cancel buttons
-   - Save calls PATCH /api/tasks/{id} (existing endpoint)
-   - When review_status=running: edit button disabled (keep simple)
-   - Journey AC: User reads plan -> clicks Edit -> modifies -> saves ->
-     clicks Re-review -> new review runs on updated plan
-
-2. **Plan snapshot per review attempt**:
-   - `db.py`: add `plan_snapshot TEXT NULL` column to ReviewHistoryRow
-   - Each review_attempt stores immutable copy of task.description at
-     pipeline start
-   - Never reconstruct from current task.description
-   - Snapshots are append-only, never updated
-
-3. **Review attempt grouping in UI**:
-   - ReviewPanel groups history entries by review_attempt
-   - Each group header: "Attempt N" with timestamp
-   - Human feedback entries shown between attempt groups
-   - Journey AC: User sees Attempt 1 (original plan, reject), human
-     feedback, Attempt 2 (edited plan, approve)
-
-4. **Simple text diff after plan edit**:
-   - When current plan differs from previous attempt's snapshot,
-     show "Plan was modified" banner with collapsible unified diff
-   - Pure text diff (no semantic diffing)
-   - Journey AC: After editing plan and re-reviewing, diff shows
-     what changed between attempts
-
-5. **Manual smoke test**: Create task -> review rejects -> edit plan
-   inline -> re-review -> verify attempt history with grouping and
-   diff visible -> approve.
-
-**Files**: `frontend/src/components/ReviewPanel.tsx` (editor + grouping),
-`frontend/src/components/PlanDiffView.tsx` (new, simple text diff),
-`src/db.py` (plan_snapshot column), `src/review_pipeline.py` (snapshot
-storage), `src/history_writer.py` (write snapshot), + tests
+#### ~~T-P0-35: Inline plan editing + versioned review history~~ [DONE -- see Completed Tasks]
 
 ---
 
@@ -244,7 +199,7 @@ T-P0-33 [M] Fix review panel data bugs [DONE] (no deps)
   |
   +--> T-P0-34 [M] Request Changes + feedback loop [DONE] (needs T-P0-33)
          |
-         +--> T-P0-35 [M] Inline plan editing + versioned history (needs T-P0-34)
+         +--> T-P0-35 [M] Inline plan editing + versioned history [DONE] (needs T-P0-34)
                 |
                 +--> T-P0-36 [M] Claude --plan integration [P1] (needs T-P0-35)
 ```
@@ -256,6 +211,9 @@ T-P0-33 [M] Fix review panel data bugs [DONE] (no deps)
 
 ## Completed Tasks
 <!-- Move finished tasks here with [x] and completion date -->
+
+#### [x] T-P0-35: Inline plan editing + versioned review history -- 2026-03-03
+- Added plan_snapshot TEXT NULL column to ReviewHistoryRow (auto-migrated). Review pipeline stores immutable snapshot of task.description at pipeline start (first round only). PlanDiffView component with LCS-based unified line diff. ReviewPanel groups history entries by review_attempt with "Attempt N" headers + timestamps. Inline plan editor (Edit Plan -> textarea + Save/Cancel) using existing PATCH endpoint. Plan diff banner between attempt groups when plan changed. App.tsx onTaskUpdated refreshes state after inline edit. 9 new tests, 882 total passing.
 
 #### [x] T-P0-34: Request Changes decision + human feedback loop -- 2026-03-03
 - Added "request_changes" as third decision type (requires non-empty reason, 400 if empty). REVIEW_NEEDS_HUMAN -> REVIEW transition with review_status=idle. get_human_feedback() in HistoryWriter fetches all previous human feedback. Re-review injects feedback into reviewer prompts. Frontend: 3-button decision area (Approve/Request Changes/Reject), amber styling for Request Changes, Re-review button after request_changes, disabled buttons during running review. 13 new tests, 873 total passing.

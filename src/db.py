@@ -127,6 +127,7 @@ class ReviewHistoryRow(Base):
     raw_response: Mapped[str] = mapped_column(Text, nullable=False, default="")
     cost_usd: Mapped[float | None] = mapped_column(Float, nullable=True)
     review_attempt: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    plan_snapshot: Mapped[str | None] = mapped_column(Text, nullable=True)
     timestamp: Mapped[str] = mapped_column(String(64), nullable=False)
 
     __table_args__ = (

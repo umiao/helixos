@@ -306,6 +306,8 @@ class ReviewPipeline:
             )
 
         # DB-first: persist each review to history
+        # Snapshot the plan at pipeline start (immutable per attempt)
+        snapshot = plan_content
         if self._history_writer is not None:
             for i, review in enumerate(reviews):
                 await self._history_writer.write_review(
@@ -315,6 +317,7 @@ class ReviewPipeline:
                     consensus_score=score if i == len(reviews) - 1 else None,
                     cost_usd=review.cost_usd,
                     review_attempt=review_attempt,
+                    plan_snapshot=snapshot if i == 0 else None,
                 )
 
         return ReviewState(

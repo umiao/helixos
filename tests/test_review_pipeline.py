@@ -1188,6 +1188,109 @@ def test_review_timeout_minutes_zero_disables() -> None:
     assert config.review_timeout_minutes == 0
 
 
+# ------------------------------------------------------------------
+# plan_snapshot storage (T-P0-35)
+# ------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+@patch("src.review_pipeline.asyncio.create_subprocess_exec")
+async def test_plan_snapshot_stored_on_first_round(mock_exec: AsyncMock) -> None:
+    """plan_snapshot is passed to write_review only on the first round (i==0)."""
+    mock_exec.return_value = _mock_proc(
+        _make_review_output("approve", "OK")
+    )
+
+    mock_writer = AsyncMock()
+    mock_writer.write_review = AsyncMock()
+
+    pipeline = ReviewPipeline(
+        _default_config(), threshold=0.8, history_writer=mock_writer,
+    )
+
+    plan_text = "## My Plan\n- Step 1"
+    await pipeline.review_task(
+        _sample_task(), plan_text, lambda c, t, p: None, complexity="S",
+    )
+
+    mock_writer.write_review.assert_called_once()
+    kw = mock_writer.write_review.call_args.kwargs
+    assert kw["plan_snapshot"] == plan_text
+
+
+@pytest.mark.asyncio
+@patch("src.review_pipeline.asyncio.create_subprocess_exec")
+async def test_plan_snapshot_none_on_subsequent_rounds(mock_exec: AsyncMock) -> None:
+    """plan_snapshot is None for the second reviewer (round 2) in multi-reviewer."""
+    mock_exec.side_effect = [
+        _mock_proc(_make_review_output("approve", "OK")),
+        _mock_proc(_make_review_output("approve", "OK")),
+        _mock_proc(_make_synthesis_output(0.95, [])),
+    ]
+
+    mock_writer = AsyncMock()
+    mock_writer.write_review = AsyncMock()
+
+    pipeline = ReviewPipeline(
+        _default_config(), threshold=0.8, history_writer=mock_writer,
+    )
+
+    plan_text = "Plan text here"
+    await pipeline.review_task(
+        _sample_task(), plan_text, lambda c, t, p: None, complexity="M",
+    )
+
+    assert mock_writer.write_review.call_count == 2
+    # First round gets the snapshot
+    first_kw = mock_writer.write_review.call_args_list[0].kwargs
+    assert first_kw["plan_snapshot"] == plan_text
+    # Second round gets None
+    second_kw = mock_writer.write_review.call_args_list[1].kwargs
+    assert second_kw["plan_snapshot"] is None
+
+
+@pytest.mark.asyncio
+@patch("src.review_pipeline.asyncio.create_subprocess_exec")
+async def test_plan_snapshot_empty_plan(mock_exec: AsyncMock) -> None:
+    """Empty plan text is stored as plan_snapshot (not converted to None)."""
+    mock_exec.return_value = _mock_proc(
+        _make_review_output("approve", "OK")
+    )
+
+    mock_writer = AsyncMock()
+    mock_writer.write_review = AsyncMock()
+
+    pipeline = ReviewPipeline(
+        _default_config(), threshold=0.8, history_writer=mock_writer,
+    )
+
+    await pipeline.review_task(
+        _sample_task(), "", lambda c, t, p: None, complexity="S",
+    )
+
+    kw = mock_writer.write_review.call_args.kwargs
+    assert kw["plan_snapshot"] == ""
+
+
+@pytest.mark.asyncio
+@patch("src.review_pipeline.asyncio.create_subprocess_exec")
+async def test_plan_snapshot_no_history_writer(mock_exec: AsyncMock) -> None:
+    """When no history_writer is configured, pipeline runs without error."""
+    mock_exec.return_value = _mock_proc(
+        _make_review_output("approve", "OK")
+    )
+
+    pipeline = ReviewPipeline(
+        _default_config(), threshold=0.8, history_writer=None,
+    )
+
+    result = await pipeline.review_task(
+        _sample_task(), "Plan", lambda c, t, p: None, complexity="S",
+    )
+
+    assert result.consensus_score == 1.0
+
+
 def test_review_timeout_minutes_stored_on_pipeline() -> None:
     """ReviewPipeline stores _timeout_minutes from config."""
     config = ReviewPipelineConfig(review_timeout_minutes=15)

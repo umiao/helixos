@@ -758,6 +758,11 @@ function App() {
               reviewPhase={reviewPhase}
               onDecisionSubmitted={handleReviewDecision}
               onError={(msg) => addToast(msg, "error")}
+              onTaskUpdated={(updated) => {
+                setTasks((prev) =>
+                  prev.map((t) => (t.id === updated.id ? updated : t)),
+                );
+              }}
             />
           )}
         </div>

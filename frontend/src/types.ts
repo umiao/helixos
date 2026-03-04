@@ -217,6 +217,7 @@ export interface ReviewHistoryEntry {
   raw_response: string;
   cost_usd: number | null;
   review_attempt: number;
+  plan_snapshot: string | null;
   timestamp: string;
 }
 

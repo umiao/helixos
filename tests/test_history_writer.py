@@ -532,3 +532,75 @@ class TestReviewHistory:
         assert fb1[0]["human_decision"] == "approve"
         assert len(fb2) == 1
         assert fb2[0]["human_decision"] == "reject"
+
+    # ------------------------------------------------------------------
+    # plan_snapshot (T-P0-35)
+    # ------------------------------------------------------------------
+
+    async def test_plan_snapshot_persisted(self, session_factory):
+        """plan_snapshot is persisted and returned by get_reviews."""
+        hw = HistoryWriter(session_factory)
+        await hw.write_review(
+            "task-1", 1, _make_review(),
+            plan_snapshot="## My Plan\n- Step 1\n- Step 2",
+        )
+
+        reviews = await hw.get_reviews("task-1")
+        assert reviews[0]["plan_snapshot"] == "## My Plan\n- Step 1\n- Step 2"
+
+    async def test_plan_snapshot_defaults_to_none(self, session_factory):
+        """plan_snapshot defaults to None when not provided."""
+        hw = HistoryWriter(session_factory)
+        await hw.write_review("task-1", 1, _make_review())
+
+        reviews = await hw.get_reviews("task-1")
+        assert reviews[0]["plan_snapshot"] is None
+
+    async def test_plan_snapshot_only_on_first_round(self, session_factory):
+        """plan_snapshot stored on first round, None on subsequent rounds."""
+        hw = HistoryWriter(session_factory)
+        await hw.write_review(
+            "task-1", 1, _make_review(),
+            review_attempt=1,
+            plan_snapshot="Plan v1",
+        )
+        await hw.write_review(
+            "task-1", 2, _make_review(),
+            review_attempt=1,
+            plan_snapshot=None,
+        )
+
+        reviews = await hw.get_reviews("task-1")
+        assert reviews[0]["plan_snapshot"] == "Plan v1"
+        assert reviews[1]["plan_snapshot"] is None
+
+    async def test_plan_snapshot_per_attempt(self, session_factory):
+        """Different attempts can have different plan snapshots."""
+        hw = HistoryWriter(session_factory)
+        # Attempt 1
+        await hw.write_review(
+            "task-1", 1, _make_review(),
+            review_attempt=1,
+            plan_snapshot="Plan v1",
+        )
+        # Attempt 2 (edited plan)
+        await hw.write_review(
+            "task-1", 1, _make_review(),
+            review_attempt=2,
+            plan_snapshot="Plan v2 (edited)",
+        )
+
+        reviews = await hw.get_reviews("task-1")
+        assert reviews[0]["plan_snapshot"] == "Plan v1"
+        assert reviews[1]["plan_snapshot"] == "Plan v2 (edited)"
+
+    async def test_plan_snapshot_empty_string(self, session_factory):
+        """Empty string plan_snapshot is stored as-is (not converted to None)."""
+        hw = HistoryWriter(session_factory)
+        await hw.write_review(
+            "task-1", 1, _make_review(),
+            plan_snapshot="",
+        )
+
+        reviews = await hw.get_reviews("task-1")
+        assert reviews[0]["plan_snapshot"] == ""

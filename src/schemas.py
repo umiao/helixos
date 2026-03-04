@@ -371,6 +371,7 @@ class ReviewHistoryEntry(BaseModel):
     raw_response: str = ""
     cost_usd: float | None = None
     review_attempt: int = 1
+    plan_snapshot: str | None = None
     timestamp: str
 
 

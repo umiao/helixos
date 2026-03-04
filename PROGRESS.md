@@ -514,3 +514,10 @@
 - **Sanity check result**: 873 tests passing (13 new). Ruff clean. Frontend builds clean.
 - **Status**: [DONE]
 - **Request**: Move T-P0-34 to Completed
+
+## 2026-03-03 07:30 -- [T-P0-35] Inline plan editing + versioned review history
+- **What I did**: Added plan_snapshot column to ReviewHistoryRow (auto-migrated, TEXT NULL). Review pipeline stores immutable snapshot of task.description at pipeline start (first round only). Created PlanDiffView component with LCS-based line diff. ReviewPanel now groups history entries by review_attempt with "Attempt N" headers. Added inline plan editor (Edit Plan -> textarea with Save/Cancel) using existing PATCH endpoint. Plan diff banner shown between attempt groups when plan changed. App.tsx wires onTaskUpdated to refresh task state after inline edit.
+- **Deliverables**: src/db.py (mod -- plan_snapshot column), src/history_writer.py (mod -- plan_snapshot param on write_review, returned in get_reviews), src/review_pipeline.py (mod -- snapshot capture, plan_snapshot passed to write_review), src/schemas.py (mod -- plan_snapshot on ReviewHistoryEntry), frontend/src/types.ts (mod -- plan_snapshot on ReviewHistoryEntry), frontend/src/components/ReviewPanel.tsx (mod -- inline editor, attempt grouping, PlanDiffView integration), frontend/src/components/PlanDiffView.tsx (new -- unified text diff), frontend/src/App.tsx (mod -- onTaskUpdated prop), tests/test_history_writer.py (mod -- 5 new plan_snapshot tests), tests/test_review_pipeline.py (mod -- 4 new plan_snapshot tests)
+- **Sanity check result**: 882 tests passing (9 new). Ruff clean. Frontend builds clean.
+- **Status**: [DONE]
+- **Request**: Move T-P0-35 to Completed

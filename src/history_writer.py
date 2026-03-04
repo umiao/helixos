@@ -166,6 +166,7 @@ class HistoryWriter:
         human_decision: str | None = None,
         cost_usd: float | None = None,
         review_attempt: int = 1,
+        plan_snapshot: str | None = None,
     ) -> None:
         """Persist a single review history entry.
 
@@ -177,6 +178,7 @@ class HistoryWriter:
             human_decision: Human decision if applicable.
             cost_usd: Approximate cost in USD for this reviewer call.
             review_attempt: Attempt number (1-based). Retries increment this.
+            plan_snapshot: Immutable copy of task.description at pipeline start.
         """
         async with get_session(self._sf) as session:
             row = ReviewHistoryRow(
@@ -192,6 +194,7 @@ class HistoryWriter:
                 raw_response=getattr(review, "raw_response", ""),
                 cost_usd=cost_usd,
                 review_attempt=review_attempt,
+                plan_snapshot=plan_snapshot,
                 timestamp=review.timestamp.isoformat(),
             )
             session.add(row)
@@ -265,6 +268,7 @@ class HistoryWriter:
                     "raw_response": getattr(r, "raw_response", ""),
                     "cost_usd": getattr(r, "cost_usd", None),
                     "review_attempt": getattr(r, "review_attempt", 1),
+                    "plan_snapshot": getattr(r, "plan_snapshot", None),
                     "timestamp": r.timestamp,
                 }
                 for r in rows
