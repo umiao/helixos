@@ -88,6 +88,7 @@ import TaskCard from "./TaskCard";
 import TaskContextMenu from "./TaskContextMenu";
 import InlineTaskCreator from "./InlineTaskCreator";
 import SkeletonCard from "./SkeletonCard";
+import BackwardDragModal from "./BackwardDragModal";
 
 interface KanbanBoardProps {
   tasks: Task[];
@@ -274,6 +275,16 @@ export default function KanbanBoard({
     position: { x: number; y: number };
   } | null>(null);
 
+  // Backward-drag modal state
+  const [backwardDrag, setBackwardDrag] = useState<{
+    taskId: string;
+    taskTitle: string;
+    taskLocalId: string;
+    sourceColumn: KanbanColumn;
+    targetColumn: KanbanColumn;
+    newStatus: TaskStatus;
+  } | null>(null);
+
   // DONE column sort + sub-status filter (persisted in localStorage)
   const [doneSortOrder, setDoneSortOrder] = useState<DoneSortOrder>(loadDoneSort);
   const [doneFilter, setDoneFilter] = useState<SubStatusFilter>(loadDoneFilter);
@@ -336,15 +347,17 @@ export default function KanbanBoard({
 
     const newStatus = COLUMN_TO_STATUS[targetColumn];
 
-    // Detect backward drag and prompt for optional reason
+    // Detect backward drag -- show styled confirmation modal
     const isBackward = COLUMN_ORDER[targetColumn] < COLUMN_ORDER[currentColumn];
     if (isBackward) {
-      const reason = window.prompt(
-        `Moving "${task.title}" back to ${targetColumn}.\nReason (optional):`,
-      );
-      // null = user cancelled the prompt
-      if (reason === null) return;
-      onMoveTask(taskId, newStatus, { reason });
+      setBackwardDrag({
+        taskId,
+        taskTitle: task.title,
+        taskLocalId: task.local_task_id,
+        sourceColumn: currentColumn,
+        targetColumn,
+        newStatus,
+      });
     } else {
       onMoveTask(taskId, newStatus);
     }
@@ -462,6 +475,21 @@ export default function KanbanBoard({
           onTaskDeleted={onTaskDeleted}
           onError={onError}
           onSendToReview={onSendToReview}
+        />
+      )}
+
+      {/* Backward-drag confirmation modal */}
+      {backwardDrag && (
+        <BackwardDragModal
+          taskTitle={backwardDrag.taskTitle}
+          taskId={backwardDrag.taskLocalId}
+          sourceColumn={backwardDrag.sourceColumn}
+          targetColumn={backwardDrag.targetColumn}
+          onConfirm={(reason) => {
+            onMoveTask(backwardDrag.taskId, backwardDrag.newStatus, { reason });
+            setBackwardDrag(null);
+          }}
+          onCancel={() => setBackwardDrag(null)}
         />
       )}
     </DndContext>

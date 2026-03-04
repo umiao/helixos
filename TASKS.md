@@ -88,18 +88,7 @@
 
 #### ~~T-P0-45: Generic default project selection via `is_primary` field~~ [DONE -- see Completed Tasks]
 
-#### T-P0-38: Backward-drag confirmation dialog redesign
-- **Priority**: P0
-- **Complexity**: S
-- **Depends on**: None
-- **Problem**: (Chinese: column中的task向前拖拽时弹出确认框信息意义不明 样式不美观) Current backward-drag confirmation uses browser `confirm()` with unclear message text and poor styling.
-- **Acceptance Criteria**:
-  1. Replace browser `confirm()` with styled modal matching app design language (consistent with ReviewSubmitModal)
-  2. Dialog content: task title, source column name, target column name, clear description of consequences
-  3. Two buttons: "Confirm Move" (primary) and "Cancel" (secondary)
-  4. Only triggers on backward drags (later column -> earlier column), not forward moves
-  5. **Inverse case**: forward drags proceed without confirmation (existing behavior preserved)
-  6. **Manual smoke test**: Drag task from QUEUED to BACKLOG -> styled modal appears with clear info -> confirm -> task moves
+#### ~~T-P0-38: Backward-drag confirmation dialog redesign~~ [DONE -- see Completed Tasks]
 
 #### T-P0-39: Block review without plan [subsumed by T-P0-44]
 - **Priority**: P0
@@ -292,6 +281,9 @@ T-P0-47 [M] No Plan badges + visual guidance (no deps, pairs with T-P0-44)
 
 ## Completed Tasks
 <!-- Move finished tasks here with [x] and completion date -->
+
+#### [x] T-P0-38: Backward-drag confirmation dialog redesign -- 2026-03-03
+- Replaced browser `window.prompt()` with styled BackwardDragModal component. Displays task title, ID, source/target columns with arrow visualization, consequence text, and optional reason input. Amber color scheme, consistent with ReviewSubmitModal design. Enter/Escape keyboard support. Forward drags unaffected. 992 tests passing.
 
 #### [x] T-P0-45: Generic default project selection via `is_primary` field -- 2026-03-03
 - Added `is_primary: bool` (default False) to ProjectConfig, Project model, and API schemas. First-time load defaults to primary project(s); falls back to first project if none marked. Existing localStorage selections respected. Set helixos as `is_primary: true` in config. 14 new tests, 992 total passing.

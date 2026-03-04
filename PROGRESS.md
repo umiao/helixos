@@ -577,3 +577,10 @@
 - **Sanity check result**: 992 tests passing (14 new). Ruff clean. Frontend builds clean.
 - **Status**: [DONE]
 - **Request**: Move T-P0-45 to Completed
+
+## 2026-03-03 16:00 -- [T-P0-38] Backward-drag confirmation dialog redesign
+- **What I did**: Replaced browser `window.prompt()` with a styled BackwardDragModal component for backward-drag operations. Modal displays task title, task ID, source/target column with arrow visualization, consequence description, and optional reason input. Styled consistently with ReviewSubmitModal (same overlay, rounded container, header/body/footer layout). Amber color scheme signals caution. Enter key confirms, Escape cancels. Forward drags remain unaffected (no confirmation).
+- **Deliverables**: frontend/src/components/BackwardDragModal.tsx (new -- styled modal component), frontend/src/components/KanbanBoard.tsx (mod -- replaced window.prompt with modal state)
+- **Sanity check result**: 992 tests passing. Ruff clean. Frontend builds clean.
+- **Status**: [DONE]
+- **Request**: Move T-P0-38 to Completed
