@@ -10,10 +10,44 @@
 ## Active Tasks
 
 ### P0 -- Must Have (core functionality)
-<!-- All P0 tasks completed. See Completed Tasks below. -->
+
+#### T-P0-25: Token usage limit bar in UI top-right corner [NEEDS-INPUT]
+- **Priority**: P0
+- **Complexity**: M
+- **Depends on**: None
+- **Status**: Blocked -- requires research on reliable usage API endpoint (non-public internal API may change)
+
+#### ~~T-P0-26: Fix drag-to-REVIEW workflow~~ [DONE -- see Completed Tasks]
+
+#### ~~T-P0-27: Add planning quality rules to CLAUDE.md + LESSONS.md postmortem~~ [DONE -- see Completed Tasks]
+
+#### ~~T-P0-28: Store full reviewer raw_response + surface in ReviewPanel~~ [DONE -- see Completed Tasks]
+
+#### ~~T-P0-29: Upgrade primary reviewer to Opus + per-reviewer budget config + cost tracking~~ [DONE -- see Completed Tasks]
+
+#### ~~T-P0-30: Subprocess inactivity timeout + process group cleanup for execution pipeline~~ [DONE -- see Completed Tasks]
+
+#### ~~T-P0-31: Apply timeout to review pipeline subprocess calls~~ [DONE -- see Completed Tasks]
+
+#### ~~T-P0-32: Review + execution progress phase reporting via SSE~~ [DONE -- see Completed Tasks]
+
+#### ~~T-P0-33: Fix review panel data bugs (T-P0-28 regressions)~~ [DONE -- see Completed Tasks]
+
+---
+
+#### ~~T-P0-34: Request Changes decision + human feedback loop~~ [DONE -- see Completed Tasks]
+
+---
+
+#### ~~T-P0-35: Inline plan editing + versioned review history~~ [DONE -- see Completed Tasks]
+
+---
 
 ### P1 -- Should Have (important features)
-<!-- All 7 P1 tasks completed. See Completed Tasks below. -->
+
+#### ~~T-P0-36: Structured plan generation via Claude CLI~~ [DONE -- see Completed Tasks]
+
+<!-- All 7 P1 tasks completed (pre-T-P0-36). See Completed Tasks below. -->
 
 ### P2 -- Nice to Have (polish, optimization)
 <!-- All 8 P2 tasks completed. See Completed Tasks below. -->
@@ -22,11 +56,19 @@
 <!-- All P3 tasks completed. See Completed Tasks below. -->
 
 ### Tech Debt (tracked, not blocking current work)
+- [ ] T-P0-28 postmortem: integration test asserting raw_response contains fields not present in summary/suggestions
 - [ ] Log retention/purge policy for execution_logs + review_history tables
-- [ ] Unified timeout policy for enrichment and review CLI subprocess calls
+- [ ] Unified timeout policy for enrichment CLI subprocess calls (review covered by T-P0-31)
+- [ ] Unify subprocess management into shared `SubprocessRunner` abstraction (T-P0-30/T-P0-31 tech debt)
 - [ ] Review state machine diagram documentation
 - [ ] (from web UI) Done column: investigate random ordering, add sort/filter.
       Self-editing workflow: test changes then restart (queued stage only?).
+- [ ] Audit completed UX tasks (T-P0-8a through T-P3-11) for scenario-matrix gaps
+- [ ] Clarify Pause/Gate/Launch semantic boundaries in PRD (does Pause affect review pipeline?)
+
+#### ~~T-P0-37: Fix sync crash on soft-deleted tasks + task creation feedback~~ [DONE -- see Completed Tasks]
+
+#### T-P0-38: column中的task向前拖拽时弹出确认框信息意义不明 样式不美观 调研改进
 
 ## Dependency Graph
 
@@ -114,6 +156,37 @@ T-P0-22 [M] Soft-delete tasks [DONE]
 --- P3 (new) ---
 
 T-P3-12 [M] Resizable divider [DONE]
+
+--- P0 (new -- review workflow fix + process rules) ---
+
+T-P0-24 [M] Review gate UX modal [DONE]
+  |
+  +--> T-P0-26 [L] Fix drag-to-REVIEW [DONE]
+
+T-P0-25 [M] Token usage limit bar [NEEDS-INPUT]
+
+T-P0-27 [S] Planning quality rules [DONE] (no deps)
+
+--- P0 (new -- review context + monitoring + liveness) ---
+
+T-P0-28 [M] Full reviewer raw_response [DONE] (no deps)
+T-P0-29 [S] Opus upgrade + cost tracking [DONE] (no deps)
+
+T-P0-30 [M] Inactivity timeout + process groups [DONE] (no deps)
+  |
+  +--> T-P0-31 [S] Review pipeline timeout + retry semantics [DONE] (needs T-P0-30)
+  |
+  +--> T-P0-32 [M] Progress phase SSE (needs T-P0-28 + T-P0-30)
+
+--- P0 (new -- review panel overhaul) ---
+
+T-P0-33 [M] Fix review panel data bugs [DONE] (no deps)
+  |
+  +--> T-P0-34 [M] Request Changes + feedback loop [DONE] (needs T-P0-33)
+         |
+         +--> T-P0-35 [M] Inline plan editing + versioned history [DONE] (needs T-P0-34)
+                |
+                +--> T-P0-36 [M] Claude --plan integration [P1] (needs T-P0-35)
 ```
 
 ---
@@ -123,6 +196,42 @@ T-P3-12 [M] Resizable divider [DONE]
 
 ## Completed Tasks
 <!-- Move finished tasks here with [x] and completion date -->
+
+#### [x] T-P0-37: Fix sync crash on soft-deleted tasks + task creation feedback -- 2026-03-03
+- Added UpsertResult StrEnum and upsert_task() to TaskManager: handles create/resurrect/update/unchanged without exceptions. Simplified sync_project_tasks() to single upsert_task() call per parsed task, removing existing_map query and create-or-update branches. Added sync_error field to CreateTaskResponse schema. Frontend: onCreated callbacks now pass synced boolean, App.tsx shows warning toast on sync failure. Added *.md.bak to .gitignore. 6 new tests (4 upsert + 2 sync resilience), 906 total passing.
+
+#### [x] T-P0-36: Structured plan generation via Claude CLI -- 2026-03-03
+- Feasibility: no `--plan` flag exists in Claude CLI. Implemented using stable features: `claude -p` + `--system-prompt` + `--json-schema` + `--add-dir` (codebase context) + `--permission-mode plan`. generate_task_plan() produces structured plan (summary, steps with files, acceptance criteria). format_plan_as_text() converts to readable markdown. POST /api/tasks/{id}/generate-plan auto-saves to task.description. Frontend: "Generate Plan" button in ReviewPanel. Graceful degradation: 503 when CLI unavailable, raw text fallback on parse failure. 18 new tests, 900 total passing.
+
+#### [x] T-P0-35: Inline plan editing + versioned review history -- 2026-03-03
+- Added plan_snapshot TEXT NULL column to ReviewHistoryRow (auto-migrated). Review pipeline stores immutable snapshot of task.description at pipeline start (first round only). PlanDiffView component with LCS-based unified line diff. ReviewPanel groups history entries by review_attempt with "Attempt N" headers + timestamps. Inline plan editor (Edit Plan -> textarea + Save/Cancel) using existing PATCH endpoint. Plan diff banner between attempt groups when plan changed. App.tsx onTaskUpdated refreshes state after inline edit. 9 new tests, 882 total passing.
+
+#### [x] T-P0-34: Request Changes decision + human feedback loop -- 2026-03-03
+- Added "request_changes" as third decision type (requires non-empty reason, 400 if empty). REVIEW_NEEDS_HUMAN -> REVIEW transition with review_status=idle. get_human_feedback() in HistoryWriter fetches all previous human feedback. Re-review injects feedback into reviewer prompts. Frontend: 3-button decision area (Approve/Request Changes/Reject), amber styling for Request Changes, Re-review button after request_changes, disabled buttons during running review. 13 new tests, 873 total passing.
+
+#### [x] T-P0-33: Fix review panel data bugs (T-P0-28 regressions) -- 2026-03-03
+- Fixed 3 data-path bugs: (1) raw_response now stores explicit CLI fields (model, usage, result, session_id) as structured JSON, decoupling DB from CLI contract. (2) Collapsible "Plan Under Review" section in ReviewPanel shows task.description (or explicit empty message). (3) human_reason column on ReviewHistoryRow, persisted E2E through write_review_decision->API->frontend with display below decision label. 6 new tests, 860 total passing.
+
+#### [x] T-P0-32: Review + execution progress phase reporting via SSE -- 2026-03-03
+- Extended on_progress to (completed, total, phase) with "Starting {focus} review...", "Completed {focus} review", "Synthesizing..." phase strings. API forwards phase in SSE review_progress events. CodeExecutor emits [PROGRESS] log entries every 60s (elapsed, line count, since last output) via background task. Frontend: ReviewPanel shows live phase label, ExecutionLog shows live M:SS elapsed counter. SSE task_id guard: reviewPhase only updates for selected task, cleared on task switch. 11 new tests, 854 total passing.
+
+#### [x] T-P0-31: Apply timeout to review pipeline subprocess calls -- 2026-03-03
+- Process group isolation in _call_claude_cli (start_new_session / CREATE_NEW_PROCESS_GROUP). Timeout via asyncio.wait_for on proc.communicate() (review_timeout_minutes, default 10, 0=disabled). On timeout: SIGTERM -> 5s grace -> SIGKILL -> RuntimeError -> review_status=failed + SSE alert + Retry. Retry semantics: review_attempt column on ReviewHistoryRow (auto-migrated, default 1), get_max_review_attempt() query, next attempt = max+1. Synthesis step covered by same timeout. 23 new tests, 843 total passing.
+
+#### [x] T-P0-30: Subprocess inactivity timeout + process group cleanup for execution pipeline -- 2026-03-03
+- Process group isolation: start_new_session=True (Unix) / CREATE_NEW_PROCESS_GROUP (Windows) matching ProcessManager pattern. On timeout/cancel, entire process group killed via os.killpg/CTRL_BREAK_EVENT with SIGKILL fallback. Inactivity detection: per-line asyncio.wait_for(readline(), timeout) replaces async-for iteration. No output for inactivity_timeout_minutes (default 20, 0=disabled) -> INACTIVITY_TIMEOUT error type, process group terminated. Config: inactivity_timeout_minutes on OrchestratorSettings. 13 new tests, 820 total passing.
+
+#### [x] T-P0-29: Upgrade primary reviewer to Opus + per-reviewer budget config + cost tracking -- 2026-03-03
+- Primary reviewer upgraded to claude-opus-4-6 with max_budget_usd:2.00. Adversarial stays claude-sonnet-4-5 at 0.50. Per-reviewer max_budget_usd config field (default 0.50, backward compatible). _extract_cost_usd() computes approximate cost from CLI usage data with model-specific pricing table. cost_usd nullable column on ReviewHistoryRow (auto-migrated), persisted in HistoryWriter, returned via API. Frontend shows ~$X.XX cost badge per review entry (hidden when NULL). Synthesis stays claude-sonnet-4-5. 15 new tests, 807 total passing.
+
+#### [x] T-P0-28: Store full reviewer raw_response + surface in ReviewPanel -- 2026-03-03
+- Added raw_response TEXT column to ReviewHistoryRow (auto-migrated, 200KB truncation limit). Capture raw CLI result text in review_pipeline.py, persist in HistoryWriter, return via API. Frontend: collapsible "Show Full Response (debug)" section in ReviewPanel with amber warning banner, collapsed by default, hidden for legacy/empty entries. 8 new tests, 792 total passing.
+
+#### [x] T-P0-27: Add planning quality rules to CLAUDE.md + LESSONS.md postmortem -- 2026-03-03
+- Added 6 actionable rules to CLAUDE.md: Task Planning Rules (5 rules: scenario matrix, journey-first ACs, cross-boundary integration, "other case" gate, manual smoke test AC) and State Machine Rules (1 rule: document states/triggers/side-effects, backend owns side-effects). Added LESSONS.md entry #12 with T-P0-24 root cause analysis (missing scenario matrix, no journey-first AC, cross-boundary gap, no manual smoke test).
+
+#### [x] T-P0-26: Fix drag-to-REVIEW workflow -- transition-driven pipeline + review_status -- 2026-03-03
+- Transition-driven review pipeline: status transition to REVIEW auto-enqueues pipeline (sets review_status=running). Pipeline success -> review_status=done + transition to REVIEW_AUTO_APPROVED/REVIEW_NEEDS_HUMAN. Pipeline failure -> review_status=failed + SSE alert. Backward transitions reset to idle. POST /api/tasks/{id}/review repurposed as retry-only (409 if running). Frontend: auto-focus ReviewPanel on drag-to-REVIEW, review_status-based rendering (idle/running/done/failed), retry button. 25 new tests, 784 total passing.
 
 #### [x] T-P0-24: Review gate UX -- edit modal + preview before review submission -- 2026-03-03
 - PATCH /api/tasks/{id} endpoint for title/description updates. Frontend 428 detection opens ReviewSubmitModal with edit fields + live preview. PATCH-if-changed then BACKLOG->REVIEW transition. "Send to Review" context menu for BACKLOG/QUEUED tasks. Auto-focus in ReviewPanel on submit. Gate OFF = direct transition, no modal. 15 new tests, 759 total passing.

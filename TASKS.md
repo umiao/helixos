@@ -68,6 +68,160 @@
 
 #### ~~T-P0-37: Fix sync crash on soft-deleted tasks + task creation feedback~~ [DONE -- see Completed Tasks]
 
+---
+
+### P0-CORE -- Correctness (must do first)
+
+#### T-P0-40: Define Canonical ReviewLifecycleState enum in backend
+- **Priority**: P0
+- **Complexity**: M
+- **Depends on**: None (foundational -- T-P0-41, T-P0-42 depend on this)
+- **Problem**: UI guesses state by combining `review_status` string + `consensus` float + `verdict` string. This produces ambiguous states (e.g., 30% consensus and "reject" badge when no meaningful review has happened).
+- **Acceptance Criteria**:
+  1. Create `ReviewLifecycleState(str, Enum)` in backend with values: `NOT_STARTED`, `RUNNING`, `PARTIAL`, `FAILED`, `REJECTED_SINGLE`, `REJECTED_CONSENSUS`, `APPROVED`
+  2. Define explicit state machine transitions: all valid states, trigger for each transition, side-effects attached to each transition
+  3. Backend drives the state; frontend only renders it
+  4. Document the lifecycle diagram in code comments
+  5. **Inverse case**: when lifecycle state is `NOT_STARTED`, no consensus/verdict/cost data should be exposed
+- **Files**: `src/schemas.py` (or new state machine module), `src/review_pipeline.py`
+
+#### T-P0-41: Refactor review_pipeline to emit ReviewLifecycleState
+- **Priority**: P0
+- **Complexity**: M
+- **Depends on**: T-P0-40
+- **Problem**: Pipeline outputs loose fields (consensus_score, verdict string, review_status) instead of canonical lifecycle state. Single-reviewer rejection uses `score=0.3` (line ~303 of review_pipeline.py), showing as confusing "30%" in UI.
+- **Acceptance Criteria**:
+  1. Refactor `review_pipeline.py` to output explicit `ReviewLifecycleState` values at each stage
+  2. Single-reviewer rejection emits `REJECTED_SINGLE` (not raw `score=0.3`)
+  3. Multi-reviewer consensus rejection emits `REJECTED_CONSENSUS`
+  4. Pipeline start emits `RUNNING`, partial completion emits `PARTIAL`
+  5. Pipeline failure emits `FAILED`
+  6. Each review history entry carries the lifecycle state, not loose fields
+  7. Audit `_extract_cost_usd()` pricing table accuracy against current Claude model pricing
+  8. **Journey AC**: Review pipeline runs -> history entries contain lifecycle state -> API returns lifecycle state -> frontend can render without guessing
+- **Files**: `src/review_pipeline.py`, `src/schemas.py`
+
+#### T-P0-42: Make ReviewPanel purely state-driven (no field-guessing)
+- **Priority**: P0
+- **Complexity**: M
+- **Depends on**: T-P0-40, T-P0-41
+- **Problem**: Frontend ReviewPanel guesses state from multiple fields. Feasibility/edge_cases reviewers show 30% consensus and "reject" badge when review hasn't meaningfully started.
+- **Acceptance Criteria**:
+  1. **Verdict badge**: When lifecycle state is `NOT_STARTED`, show "Not Reviewed" instead of "reject"
+  2. **Consensus display**: Individual non-final review entries do NOT show consensus bar; only show on synthesis/final entries
+  3. **Cost display**: Only show when cost data is meaningful and accurate
+  4. **Idle state**: When `review_status` is idle and no history entries exist, show "Review not started" (not blank or confusing defaults)
+  5. When entries exist from single-reviewer rejection, show contextual label "Single reviewer rejected" (not raw 30%)
+  6. Remove ALL frontend state-guessing logic -- drive entirely from backend `ReviewLifecycleState`
+  7. **Manual smoke test**: Open ReviewPanel for task with no reviews -> shows "Not Reviewed". Run review -> shows progress. Complete -> shows correct verdict with no confusing percentages
+- **Files**: `frontend/src/components/ReviewPanel.tsx`
+
+#### T-P0-43: Fix soft-delete sync with `deleted_source` tracking
+- **Priority**: P0
+- **Complexity**: S
+- **Depends on**: None
+- **Problem**: `upsert_task()` unconditionally resurrects soft-deleted tasks when sync finds them in TASKS.md. User deletes a task via UI, next sync brings it back. Simply skipping `is_deleted=True` creates inverse problem: file-removed tasks can never be restored.
+- **Acceptance Criteria**:
+  1. Add `deleted_source` column to task model: `user` (deleted via UI) | `sync` (deleted because removed from TASKS.md) | NULL (not deleted)
+  2. `upsert_task()`: when `row.is_deleted == True` and `deleted_source == "user"`, skip (return new `UpsertResult.SKIPPED_DELETED`)
+  3. When `deleted_source == "sync"`, allow resurrection if file re-adds the task
+  4. `delete_task()` API sets `deleted_source = "user"`
+  5. Add `SKIPPED_DELETED` to `UpsertResult` enum
+  6. `sync_project_tasks()`: count skipped-deleted in SyncResult (new `skipped` field)
+  7. Log warning when encountering user-deleted task during sync
+  8. **Schema migration**: `deleted_source` column added with `init_db()` migration handling (per CLAUDE.md rules)
+  9. **Journey AC**: User deletes task via UI -> sync runs -> task stays deleted. User removes task from TASKS.md -> sync marks as sync-deleted -> user re-adds to TASKS.md -> task resurrects
+- **Files**: `src/task_manager.py`, `src/sync/tasks_parser.py`, `src/schemas.py`
+
+---
+
+### P0-BEHAVIOR -- Gating + Selection Correctness
+
+#### T-P0-44: Define plan validity model + enforce in review gate (subsumes T-P0-39)
+- **Priority**: P0
+- **Complexity**: M
+- **Depends on**: None
+- **Problem**: No definition of what makes a plan "valid" beyond `description` being non-empty. Users could write one word and bypass the review gate.
+- **Acceptance Criteria**:
+  1. Define formal plan validity check in backend (minimum: `description` is non-empty and non-whitespace, length > some threshold)
+  2. Backend validates plan on BACKLOG->REVIEW transition; returns 428 with `plan_invalid` error when plan fails validation
+  3. Frontend: gate check in both drag-drop AND context menu "Send to Review" paths
+  4. When gate blocks: toast/banner explaining "Generate or write a plan before sending to review"
+  5. **Gate ON** (plan invalid): modal appears with guidance to generate/write plan
+  6. **Gate OFF** (plan valid): direct transition to REVIEW + pipeline starts automatically
+  7. After plan generation, review does NOT auto-trigger -- user confirms explicitly by dragging to REVIEW
+  8. **Inverse case**: if gate is disabled project-wide (review_gate_enabled=false), plan validity is NOT checked
+  9. **Journey AC**: User drags planless task to REVIEW -> blocked with message -> generates plan -> drags again -> succeeds -> pipeline starts
+  10. **Deadlock prevention**: ensure generate-plan -> validate -> review flow has no circular blocks
+- **Files**: Backend validation logic, `frontend/src/App.tsx`, `frontend/src/components/ReviewSubmitModal.tsx`
+
+#### T-P0-45: Generic default project selection via `is_primary` field
+- **Priority**: P0
+- **Complexity**: S
+- **Depends on**: None
+- **Problem**: First-time load selects ALL projects. User expects their main project selected by default. Hardcoding project name is brittle.
+- **Acceptance Criteria**:
+  1. Add `is_primary: bool` field to ProjectConfig (default false) and expose via API
+  2. `loadData()` in App.tsx: when no saved selection (`loadSelectedProjects()` returns null/empty), default to project(s) with `is_primary=True`
+  3. If no project has `is_primary`, fall back to selecting the first project
+  4. Respect existing localStorage selections on subsequent loads (no override)
+  5. No hardcoded project name matching
+  6. **Manual smoke test**: Clear localStorage -> reload -> only primary project visible in swim lanes
+- **Files**: `frontend/src/App.tsx`, `src/models.py`, `orchestrator_config.yaml`
+
+#### T-P0-38: Backward-drag confirmation dialog redesign
+- **Priority**: P0
+- **Complexity**: S
+- **Depends on**: None
+- **Problem**: (Chinese: column中的task向前拖拽时弹出确认框信息意义不明 样式不美观) Current backward-drag confirmation uses browser `confirm()` with unclear message text and poor styling.
+- **Acceptance Criteria**:
+  1. Replace browser `confirm()` with styled modal matching app design language (consistent with ReviewSubmitModal)
+  2. Dialog content: task title, source column name, target column name, clear description of consequences
+  3. Two buttons: "Confirm Move" (primary) and "Cancel" (secondary)
+  4. Only triggers on backward drags (later column -> earlier column), not forward moves
+  5. **Inverse case**: forward drags proceed without confirmation (existing behavior preserved)
+  6. **Manual smoke test**: Drag task from QUEUED to BACKLOG -> styled modal appears with clear info -> confirm -> task moves
+
+#### T-P0-39: Block review without plan [subsumed by T-P0-44]
+- **Priority**: P0
+- **Complexity**: S
+- **Depends on**: T-P0-44
+- **Status**: Subsumed -- T-P0-44 defines the plan validity model and enforcement. T-P0-39's requirements are fully covered by T-P0-44's acceptance criteria. No separate implementation needed.
+
+---
+
+### P1-UX -- Polish
+
+#### T-P0-46: Unified MarkdownRenderer abstraction layer
+- **Priority**: P1
+- **Complexity**: M
+- **Depends on**: None
+- **Problem**: Plan text in "Plan Under Review" renders as plain `<pre>` text with no markdown formatting. Introducing `react-markdown` as a point fix without a unified abstraction creates tech debt.
+- **Acceptance Criteria**:
+  1. Create `MarkdownRenderer.tsx` component with unified styling tokens
+  2. Install lightweight markdown renderer (react-markdown or marked)
+  3. Unified scroll behavior (max-height with overflow-y-auto)
+  4. Font size toggle (S/M/L) with localStorage persistence
+  5. Apply to: plan content in ReviewPanel, plan_snapshot diffs in PlanDiffView, reviewer raw output
+  6. Container: better padding, max-height with scroll, subtle background
+  7. Apply markdown rendering in both edit-preview and view modes
+  8. **Manual smoke test**: Open ReviewPanel -> plan section shows formatted markdown (headings, lists, code blocks) instead of raw text
+- **Files**: `frontend/src/components/MarkdownRenderer.tsx` (new), `frontend/src/components/ReviewPanel.tsx`, `frontend/package.json`
+
+#### T-P0-47: No Plan badges + visual guidance in swim lanes
+- **Priority**: P1
+- **Complexity**: M
+- **Depends on**: None (pairs with T-P0-44 for enforcement)
+- **Problem**: No visual indication in swim lanes that a task lacks a plan. After generating a plan, the preview doesn't refresh properly.
+- **Acceptance Criteria**:
+  1. Add "No Plan" badge on TaskCard when `task.description` is empty/whitespace (amber or gray badge)
+  2. In BACKLOG/REVIEW columns, add subtle indicator counting planless tasks
+  3. After successful `generate-plan` call, ReviewPanel plan section auto-expands and shows new content (verify refresh)
+  4. "Generate Plan" button more prominent for planless tasks (larger, colored CTA)
+  5. **Inverse case**: tasks with plans do NOT show the badge; generate-plan button is less prominent (already has plan)
+  6. **Manual smoke test**: Create task with no description -> amber "No Plan" badge visible on card -> generate plan -> badge disappears, plan section shows content
+- **Files**: `frontend/src/components/TaskCard.tsx`, `frontend/src/components/ReviewPanel.tsx`
+
 ## Dependency Graph
 
 ```
@@ -185,6 +339,31 @@ T-P0-33 [M] Fix review panel data bugs [DONE] (no deps)
          +--> T-P0-35 [M] Inline plan editing + versioned history [DONE] (needs T-P0-34)
                 |
                 +--> T-P0-36 [M] Claude --plan integration [P1] (needs T-P0-35)
+
+--- P0-CORE (review state machine) ---
+
+T-P0-40 [M] ReviewLifecycleState enum (no deps)
+  |
+  +--> T-P0-41 [M] Pipeline emits lifecycle state (needs T-P0-40)
+         |
+         +--> T-P0-42 [M] ReviewPanel state-driven (needs T-P0-40 + T-P0-41)
+
+T-P0-43 [S] Soft-delete sync deleted_source (no deps)
+
+--- P0-BEHAVIOR (gating + selection) ---
+
+T-P0-44 [M] Plan validity model + review gate (no deps)
+  |
+  +--> T-P0-39 [S] Block review without plan [subsumed] (needs T-P0-44)
+
+T-P0-45 [S] Default project selection is_primary (no deps)
+
+T-P0-38 [S] Backward-drag confirmation dialog (no deps)
+
+--- P1-UX (polish) ---
+
+T-P0-46 [M] MarkdownRenderer abstraction (no deps)
+T-P0-47 [M] No Plan badges + visual guidance (no deps, pairs with T-P0-44)
 ```
 
 ---
