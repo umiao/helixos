@@ -279,6 +279,19 @@ class CodeExecutor(BaseExecutor):
             except Exception:
                 logger.debug("Failed to read stderr for task %s", task.id)
 
+        # -- Race condition guard: timeout fired but process already exited 0 --
+        # If we killed the process group but returncode is 0, the task completed
+        # successfully before the kill took effect.  Override the timeout flag
+        # so the result is reported as success with a warning.
+        if (timed_out or inactivity_detected) and returncode == 0:
+            tag = "[INACTIVITY]" if inactivity_detected else "[TIMEOUT]"
+            on_log(
+                f"{tag} Timeout fired but process exited 0 "
+                f"-- treating as successful completion"
+            )
+            timed_out = False
+            inactivity_detected = False
+
         # -- Classify error type --
         error_type: ErrorType | None = None
         error_summary: str | None = None

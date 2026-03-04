@@ -1522,3 +1522,126 @@ class TestSchedulerPauseResume:
             assert scheduler2.is_project_paused("proj") is True
         finally:
             await scheduler2.stop()
+
+
+# ---------------------------------------------------------------------------
+# Regression: T-P0-49 -- scheduler state guards
+# ---------------------------------------------------------------------------
+
+
+class TestTimeoutRaceGuards:
+    """Regression tests for T-P0-49: scheduler state guards."""
+
+    async def test_success_path_idempotent_when_already_done(
+        self, scheduler_env,
+    ) -> None:
+        """Task already DONE -> scheduler success path fires -> no ValueError.
+
+        Regression: T-P0-49 AC #8 -- if completion fires twice (e.g., timeout
+        fires after success), the duplicate DONE transition must be skipped.
+        """
+        scheduler, task_manager, _event_bus, emitted = scheduler_env
+        mock_exec = MockExecutor()
+        scheduler._get_executor = lambda _: mock_exec
+
+        task = _make_task()
+        await task_manager.create_task(task)
+
+        await scheduler.tick()
+
+        running_tasks = list(scheduler.running.values())
+        if running_tasks:
+            await asyncio.gather(*running_tasks)
+
+        # Task should be DONE
+        updated = await task_manager.get_task("proj:t1")
+        assert updated is not None
+        assert updated.status == TaskStatus.DONE
+
+        # Now simulate the success path firing again by calling _execute_task
+        # directly with a mock that returns success -- should NOT raise
+        task2 = await task_manager.get_task("proj:t1")
+        assert task2 is not None
+        # Manually set back to RUNNING for the test setup, then call
+        # update_status(DONE) to put it back.  But the point is: if the task
+        # is already DONE, the success path should be idempotent.
+        # We test this by directly invoking the guarded code path:
+        # Re-fetch, confirm DONE, ensure no crash.
+        current = await task_manager.get_task("proj:t1")
+        assert current is not None
+        assert current.status == TaskStatus.DONE
+
+        # Simulate: the guard in the success path should detect DONE
+        # and skip the transition.  We verify this by checking that a second
+        # execution with success=True doesn't crash.
+        task_for_exec = _make_task(task_id="proj:t2", local_task_id="t2")
+        await task_manager.create_task(task_for_exec)
+
+        # Pre-transition to DONE manually to simulate the race
+        await task_manager.update_status("proj:t2", TaskStatus.RUNNING)
+        await task_manager.update_status("proj:t2", TaskStatus.DONE)
+
+        # Now run _execute_task with a successful executor
+        # The guard should see it's already DONE and skip
+        from src.models import Project
+        proj = Project(
+            id="proj",
+            name="Test Project",
+            repo_path="/tmp/test-repo",
+            executor_type=ExecutorType.CODE,
+        )
+        scheduler._executors["proj:t2"] = mock_exec
+        scheduler.running["proj:t2"] = asyncio.current_task()  # placeholder
+        await scheduler._execute_task(mock_exec, task_for_exec, proj)
+
+        # Should still be DONE, no ValueError raised
+        final = await task_manager.get_task("proj:t2")
+        assert final is not None
+        assert final.status == TaskStatus.DONE
+
+    async def test_failure_path_skips_when_task_not_running(
+        self, scheduler_env,
+    ) -> None:
+        """Failure path skips FAILED transition when task already left RUNNING.
+
+        Regression: T-P0-49 AC #2 -- verify task is still RUNNING before
+        RUNNING->FAILED transition.
+        """
+        scheduler, task_manager, _event_bus, emitted = scheduler_env
+
+        # Create task that will fail
+        fail_result = ExecutorResult(
+            success=False,
+            exit_code=1,
+            log_lines=["error"],
+            error_summary="Execution failed",
+            duration_seconds=1.0,
+        )
+        mock_exec = MockExecutor(result=fail_result)
+        scheduler._get_executor = lambda _: mock_exec
+
+        task = _make_task(task_id="proj:t3", local_task_id="t3")
+        await task_manager.create_task(task)
+
+        # Transition to RUNNING, then immediately to DONE (simulating
+        # the completion path winning the race)
+        await task_manager.update_status("proj:t3", TaskStatus.RUNNING)
+        await task_manager.update_status("proj:t3", TaskStatus.DONE)
+
+        # Now run _execute_task with the failing executor
+        # The guard should see it's DONE (not RUNNING) and skip FAILED
+        from src.models import Project
+        proj = Project(
+            id="proj",
+            name="Test Project",
+            repo_path="/tmp/test-repo",
+            executor_type=ExecutorType.CODE,
+        )
+        scheduler._executors["proj:t3"] = mock_exec
+        scheduler.running["proj:t3"] = asyncio.current_task()
+        await scheduler._execute_task(mock_exec, task, proj)
+
+        # Should still be DONE -- NOT FAILED or BLOCKED
+        final = await task_manager.get_task("proj:t3")
+        assert final is not None
+        assert final.status == TaskStatus.DONE

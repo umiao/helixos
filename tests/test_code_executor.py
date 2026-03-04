@@ -1640,3 +1640,154 @@ def test_progress_log_interval_constant() -> None:
     from src.executors import code_executor
     # The actual default (not patched)
     assert code_executor.PROGRESS_LOG_INTERVAL_SECONDS == 60
+
+
+# ------------------------------------------------------------------
+# Regression: T-P0-49 -- inactivity timeout vs successful completion
+# ------------------------------------------------------------------
+
+
+class TestTimeoutRaceCondition:
+    """Regression tests for T-P0-49: timeout fires but process exited 0."""
+
+    @patch("src.executors.code_executor._kill_process_group")
+    @patch("src.executors.code_executor._terminate_process_group")
+    @patch("src.executors.code_executor.asyncio.create_subprocess_exec")
+    async def test_inactivity_timeout_with_returncode_zero_is_success(
+        self,
+        mock_exec: AsyncMock,
+        mock_term_group: MagicMock,
+        mock_kill_group: MagicMock,
+        project: Project,
+        task: Task,
+    ) -> None:
+        """Inactivity timeout fires but process already exited 0 -> success.
+
+        Regression: T-P0-49 AC #3 -- simulate task completing (returncode=0)
+        with concurrent timeout fire -> assert final result is success.
+        """
+        proc = MagicMock()
+        proc.pid = 400
+        proc.returncode = None
+        proc.stderr = AsyncMock(read=AsyncMock(return_value=b""))
+
+        # Stdout yields one line then hangs (triggers inactivity)
+        never_event = asyncio.Event()
+        proc.stdout = _HangingStdout([b"output line\n"], never_event)
+
+        def _term_side_effect(p: object) -> None:
+            # Process had already completed successfully before SIGTERM
+            proc.returncode = 0
+            never_event.set()
+
+        mock_term_group.side_effect = _term_side_effect
+
+        async def _wait() -> int:
+            return proc.returncode
+
+        proc.wait = _wait
+        mock_exec.return_value = proc
+
+        # Patch wait_for to trigger inactivity on second readline
+        original_wait_for = asyncio.wait_for
+        readline_call_count = 0
+        inactivity_fired = False
+
+        async def patched_wait_for(coro, timeout=None):  # noqa: ANN001, ANN201
+            nonlocal readline_call_count, inactivity_fired
+            if not inactivity_fired:
+                readline_call_count += 1
+                if readline_call_count <= 1:
+                    return await original_wait_for(coro, timeout=5.0)
+                coro.close()
+                inactivity_fired = True
+                raise TimeoutError
+            return await original_wait_for(coro, timeout=timeout)
+
+        with patch("src.executors.code_executor.asyncio.wait_for", patched_wait_for):
+            cfg = OrchestratorSettings(
+                session_timeout_minutes=60,
+                subprocess_terminate_grace_seconds=5,
+                inactivity_timeout_minutes=20,
+            )
+            executor = CodeExecutor(cfg)
+            logs: list[str] = []
+            result = await executor.execute(task, project, {}, logs.append)
+
+        # Key assertion: success despite timeout firing
+        assert result.success is True
+        assert result.exit_code == 0
+        assert result.error_type is None
+        assert result.error_summary is None
+
+        # Should log the override message
+        override_logs = [ln for ln in logs if "treating as successful" in ln]
+        assert len(override_logs) == 1
+        assert "[INACTIVITY]" in override_logs[0]
+
+    @patch("src.executors.code_executor._kill_process_group")
+    @patch("src.executors.code_executor._terminate_process_group")
+    @patch("src.executors.code_executor.asyncio.create_subprocess_exec")
+    async def test_genuine_inactivity_timeout_still_fails(
+        self,
+        mock_exec: AsyncMock,
+        mock_term_group: MagicMock,
+        mock_kill_group: MagicMock,
+        project: Project,
+        task: Task,
+    ) -> None:
+        """Genuine inactivity timeout (hung process, returncode != 0) -> FAILED.
+
+        Regression: T-P0-49 AC #4 -- process is genuinely hung, killed with
+        non-zero returncode -> assert failure is preserved.
+        """
+        proc = MagicMock()
+        proc.pid = 401
+        proc.returncode = None
+        proc.stderr = AsyncMock(read=AsyncMock(return_value=b""))
+
+        never_event = asyncio.Event()
+        proc.stdout = _HangingStdout([b"initial\n"], never_event)
+
+        def _term_side_effect(p: object) -> None:
+            # Process was genuinely hung, killed with SIGTERM
+            proc.returncode = -15
+            never_event.set()
+
+        mock_term_group.side_effect = _term_side_effect
+
+        async def _wait() -> int:
+            return proc.returncode
+
+        proc.wait = _wait
+        mock_exec.return_value = proc
+
+        original_wait_for = asyncio.wait_for
+        readline_call_count = 0
+        inactivity_fired = False
+
+        async def patched_wait_for(coro, timeout=None):  # noqa: ANN001, ANN201
+            nonlocal readline_call_count, inactivity_fired
+            if not inactivity_fired:
+                readline_call_count += 1
+                if readline_call_count <= 1:
+                    return await original_wait_for(coro, timeout=5.0)
+                coro.close()
+                inactivity_fired = True
+                raise TimeoutError
+            return await original_wait_for(coro, timeout=timeout)
+
+        with patch("src.executors.code_executor.asyncio.wait_for", patched_wait_for):
+            cfg = OrchestratorSettings(
+                session_timeout_minutes=60,
+                subprocess_terminate_grace_seconds=5,
+                inactivity_timeout_minutes=20,
+            )
+            executor = CodeExecutor(cfg)
+            logs: list[str] = []
+            result = await executor.execute(task, project, {}, logs.append)
+
+        # Key assertion: genuine timeout stays as failure
+        assert result.success is False
+        assert result.error_type == ErrorType.INACTIVITY_TIMEOUT
+        assert result.exit_code == -15

@@ -527,9 +527,19 @@ class Scheduler:
                         task.id, "Execution completed successfully",
                         level="info", source="scheduler",
                     )
-                await self._task_manager.update_status(
-                    task.id, TaskStatus.DONE,
-                )
+                # Idempotent guard: re-fetch status before transitioning.
+                # If timeout path already moved to DONE, skip the duplicate
+                # transition instead of crashing with ValueError.
+                current = await self._task_manager.get_task(task.id)
+                if current is not None and current.status != TaskStatus.DONE:
+                    await self._task_manager.update_status(
+                        task.id, TaskStatus.DONE,
+                    )
+                elif current is not None:
+                    logger.warning(
+                        "Task %s already DONE, skipping duplicate transition",
+                        task.id,
+                    )
                 self._event_bus.emit(
                     "status_change", task.id, {"status": "done"},
                 )
@@ -571,21 +581,33 @@ class Scheduler:
                             level="error", source="executor",
                         )
 
-                # All retries exhausted -> FAILED -> BLOCKED
-                await self._task_manager.update_status(
-                    task.id, TaskStatus.FAILED,
-                )
-                self._event_bus.emit(
-                    "alert",
-                    task.id,
-                    alert_data,
-                )
-                await self._task_manager.update_status(
-                    task.id, TaskStatus.BLOCKED,
-                )
-                self._event_bus.emit(
-                    "status_change", task.id, {"status": "blocked"},
-                )
+                # State guard: verify task is still RUNNING before
+                # transitioning to FAILED.  If the completion path already
+                # moved it to DONE, skip the failure transition.
+                current = await self._task_manager.get_task(task.id)
+                if current is None or current.status != TaskStatus.RUNNING:
+                    logger.warning(
+                        "Task %s no longer RUNNING (status=%s), "
+                        "skipping FAILED transition",
+                        task.id,
+                        current.status if current else "deleted",
+                    )
+                else:
+                    # All retries exhausted -> FAILED -> BLOCKED
+                    await self._task_manager.update_status(
+                        task.id, TaskStatus.FAILED,
+                    )
+                    self._event_bus.emit(
+                        "alert",
+                        task.id,
+                        alert_data,
+                    )
+                    await self._task_manager.update_status(
+                        task.id, TaskStatus.BLOCKED,
+                    )
+                    self._event_bus.emit(
+                        "status_change", task.id, {"status": "blocked"},
+                    )
         except Exception as exc:
             exc_type = type(exc).__name__
             exc_msg = str(exc)

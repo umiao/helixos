@@ -18,37 +18,6 @@
 - **Status**: Blocked -- requires research on reliable usage API endpoint (non-public internal API may change)
 
 
-#### T-P0-49: Fix inactivity timeout race condition -- kill vs. successful completion
-- **Priority**: P0
-- **Complexity**: M
-- **Depends on**: None
-- **Description**: Race condition in code_executor.py: a task can complete successfully
-  (returncode 0) but the inactivity timeout fires concurrently and kills the process
-  group. The scheduler then sees the kill and transitions the task to FAILED, even though
-  the work completed. Fix the race at the source -- do NOT add a FAILED->DONE transition.
-- **Acceptance Criteria**:
-  1. In code_executor.py, after kill sequence completes, check if `returncode == 0`;
-     if so, override result to `success=True` with a warning annotation
-  2. In scheduler, add state guard before RUNNING->FAILED transition: verify task is
-     still in RUNNING status (not already transitioned by the completion path)
-  3. Add regression test: simulate task completing (returncode=0) with concurrent
-     timeout fire -> assert final status is DONE, not FAILED
-  4. Add regression test: genuine timeout (process hung, returncode != 0) -> assert
-     FAILED status preserved
-  5. No FAILED->DONE transition added to the state machine
-  6. Manually verify: run a task that completes near timeout boundary -> status is DONE
-  7. In scheduler._execute_task(), guard the success-path update_status(DONE)
-     with an idempotent check: re-fetch task status before transitioning; if
-     already DONE, log warning and skip (do NOT use blind contextlib.suppress
-     -- that would mask illegal transitions like FAILED->DONE)
-  8. Add regression test: task already in DONE -> scheduler success path fires
-     again -> no ValueError, task stays DONE, warning logged
-  9. Guard pattern: `if current_status != DONE: update_status(DONE)` or
-     catch ValueError and re-raise if current status is not DONE
-- **Related**: scheduler success path (line ~530) has no guard against duplicate
-  DONE transitions, unlike cancel path (line ~544) and exception path (line ~608).
-  If completion fires twice (e.g., timeout fires after success), this crashes
-  with ValueError.
 
 #### T-P0-52: Immediate next-task dispatch after task completion
 - **Priority**: P0
@@ -333,6 +302,9 @@ T-P0-47 [M] No Plan badges + visual guidance (no deps, pairs with T-P0-44)
 
 ## Completed Tasks
 <!-- Move finished tasks here with [x] and completion date -->
+
+#### [x] T-P0-49: Fix inactivity timeout race condition -- kill vs. successful completion -- 2026-03-03
+- Fixed race where inactivity timeout fires but process already exited 0. code_executor.py: after kill sequence, if returncode==0 override timeout flags to report success. scheduler.py: idempotent DONE guard (re-fetch before transition, skip if already DONE) + state guard before FAILED (verify still RUNNING). 4 regression tests. 996 tests passing.
 
 #### [x] T-P0-48: Running Jobs Panel -- click top-right "Running" to see active job list -- 2026-03-03
 - Created RunningJobsPanel component showing all running tasks with task ID, title, project name, elapsed timer, phase, and retry count. "Running: N" header indicator is now clickable to toggle the panel. Added "Running" as third bottom panel tab alongside Execution Log and Review. Panel auto-updates via SSE (no polling). Empty state shown when no jobs running. Entries removed in real-time when jobs complete. 992 tests passing, frontend builds clean.

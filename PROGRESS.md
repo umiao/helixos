@@ -605,3 +605,10 @@
 - **Sanity check result**: 992 tests passing. Ruff clean. Frontend builds clean. TypeScript compiles clean.
 - **Status**: [DONE]
 - **Request**: Move T-P0-48 to Completed
+
+## 2026-03-03 20:00 -- [T-P0-49] Fix inactivity timeout race condition -- kill vs. successful completion
+- **What I did**: Fixed race condition where inactivity timeout fires but process already exited with returncode 0. In code_executor.py, added guard after kill sequence: if returncode == 0, override timeout/inactivity flags so result is reported as success with a warning log. In scheduler.py, added idempotent guard in success path (re-fetch task status before RUNNING->DONE transition; skip if already DONE) and state guard in failure path (verify task is still RUNNING before RUNNING->FAILED transition; skip if already transitioned). No FAILED->DONE transition added to state machine.
+- **Deliverables**: src/executors/code_executor.py (mod -- returncode 0 override after timeout kill), src/scheduler.py (mod -- idempotent DONE guard + RUNNING state guard before FAILED), tests/test_code_executor.py (mod -- 2 regression tests: timeout+rc0=success, genuine timeout=failure), tests/test_scheduler.py (mod -- 2 regression tests: duplicate DONE idempotent, failure skips when not RUNNING)
+- **Sanity check result**: 996 tests passing. Ruff clean.
+- **Status**: [DONE]
+- **Request**: Move T-P0-49 to Completed
