@@ -27,6 +27,8 @@
 
 ### P0 -- Must Have (core functionality)
 
+
+
 ### Tech Debt (tracked, not blocking current work)
 - [ ] T-P0-28 postmortem: integration test asserting raw_response contains fields not present in summary/suggestions
 - [ ] Log retention/purge policy for execution_logs + review_history tables
@@ -40,7 +42,9 @@
 - [ ] Scheduler single finalization point / execution epoch ID (prevent race conditions where concurrent paths both try to finalize a task; from T-P0-49)
 - [ ] State machine transition audit -- enumerate all race condition windows in status transitions (timeout vs completion, SSE vs DB, concurrent drag vs scheduler)
 - [ ] SSE event payload structure: add explicit `origin` field (execution/review/scheduler) for clean log categorization (from T-P0-55)
+- [ ] Unified TaskEvent model: formalize the SSE event contract `{type, task_id, data: {...}, timestamp}` into a shared Pydantic model. Currently defined as a convention in T-P0-63a; should become enforced schema after 63a/64 are complete.
 - [ ] Deduplicate `_is_process_alive()` -- currently copy-pasted in port_registry.py, process_manager.py, subprocess_registry.py. Extract to shared module (e.g. `src/platform_utils.py`) and import everywhere. (from os.kill CTRL_C_EVENT bug)
+- [ ] Post-mortem: T-P0-57/T-P0-59 were marked DONE without manual smoke test. Lesson: any task touching subprocess + UX must have a real invocation test (not just mocked unit tests). Add to CLAUDE.md as enforcement rule.
 
 
 
@@ -82,6 +86,24 @@
 
 #### [x] T-P0-60: Process failure detection via hard timeout + exit code -- 2026-03-04
 - ProcessMonitor background task scans SubprocessRegistry every 5s, detects dead PIDs, emits `process_failed` SSE events. Health-check endpoint `GET /api/processes/status`. Frontend toast+log on crash. No activity-based stall detection. 1021 tests passing.
+
+#### [x] T-P0-63a: Backend plan generation streaming + SSE events -- 2026-03-04
+- Refactored generate_task_plan() to readline() loop with on_log callback. POST returns 202 with background task. SSE plan_status_change + log events with source="plan". Per-line DB writes. 409 idempotency guard, startup zombie cleanup, 30s heartbeat. 1028 tests passing.
+
+#### [x] T-P0-63b: Frontend plan generation UX wiring -- 2026-03-04
+- Wired SSE plan_status_change events in App.tsx for real-time plan_status updates. Added "PLAN" badge in ExecutionLog for source="plan" logs. Added elapsed timer in ReviewPanel during generation. Updated API client and components for 202 async flow. TypeScript clean, Vite build clean, 1028 tests passing.
+
+#### [x] T-P0-64: Real-time log streaming for review pipeline -- 2026-03-04
+- Refactored _call_claude_cli() from communicate() to readline() loop with on_log callback. Added metadata_json column to execution_logs. Wired SSE + DB dual-write for review logs (source="review"). Review pipeline emits lifecycle messages. on_progress writes to execution_logs. Error handler preserves partial logs. 1031 tests passing.
+
+#### [x] T-P0-65: Plan generation button discoverability + Kanban card visual feedback -- 2026-03-04
+- Persistent "Plan" button on TaskCard face for tasks needing plans. Pulsing blue border animation during generation. "Planning" spinner badge replaces "No Plan" during generation. Double-click prevention + backend 409 guard. TypeScript clean, Vite build clean, 1031 tests passing.
+
+#### [x] T-P0-66: Fix three critical plan generation bugs -- 2026-03-04
+- Fixed hasNoPlan using description proxy instead of plan_status field (TaskCard, TaskCardPopover, KanbanBoard). Raised budget caps ($0.10->$1.00 enrichment, $0.50->$5.00 plan gen). Plan generation now visible in Running indicator and RunningJobsPanel (blue "Planning" theme). TypeScript clean, Vite build clean, 1031 tests passing.
+
+#### [x] T-P0-67: Harden plan generation pipeline -- result-first persistence -- 2026-03-04
+- Persist raw CLI output before parsing (write_raw_artifact, no truncation). plan_json column for structured data. Structural validation rejects empty plans. Atomic update_plan() method. Removed --permission-mode plan (conflicts with --json-schema). 1040 tests passing (9 new).
 
 #### [x] T-P0-55: Execution log visual markers for review activity -- 2026-03-04
 - Added purple "REVIEW" badge on review-originated log entries. Extended LogEntry with source field, SSE handlers pass source="review" for review_started/review_progress events. Uses SSE event type for origin detection.
