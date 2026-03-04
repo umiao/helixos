@@ -263,7 +263,7 @@ function App() {
       setProjects(p);
       setTasks(t);
 
-      // Initialize selected projects from localStorage, or select all
+      // Initialize selected projects from localStorage, or default to primary
       const saved = loadSelectedProjects();
       if (saved !== null) {
         // Keep only IDs that still exist
@@ -274,8 +274,15 @@ function App() {
           .map((proj) => proj.id);
         setSelectedProjects([...validIds, ...newIds]);
       } else {
-        // First time: select all
-        setSelectedProjects(p.map((proj) => proj.id));
+        // First time: default to primary project(s), or first project if none marked
+        const primaryIds = p.filter((proj) => proj.is_primary).map((proj) => proj.id);
+        if (primaryIds.length > 0) {
+          setSelectedProjects(primaryIds);
+        } else if (p.length > 0) {
+          setSelectedProjects([p[0].id]);
+        } else {
+          setSelectedProjects([]);
+        }
       }
     } catch (err) {
       const msg =

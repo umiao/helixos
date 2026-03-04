@@ -27,6 +27,7 @@ export interface Project {
   claude_md_path: string | null;
   execution_paused: boolean;
   review_gate_enabled: boolean;
+  is_primary: boolean;
 }
 
 export interface ReviewState {

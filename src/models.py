@@ -124,6 +124,7 @@ class Project(BaseModel):
     max_concurrency: int = 1
     env_keys: list[str] = Field(default_factory=list)
     claude_md_path: Path | None = None
+    is_primary: bool = False
 
 
 class LLMReview(BaseModel):

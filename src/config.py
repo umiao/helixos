@@ -83,6 +83,7 @@ class ProjectConfig(BaseModel):
     launch_command: str | None = None
     project_type: Literal["frontend", "backend", "other"] = "other"
     preferred_port: int | None = Field(default=None, ge=1024, le=65535)
+    is_primary: bool = False
 
     @model_validator(mode="after")
     def _expand_paths(self) -> ProjectConfig:
@@ -256,6 +257,7 @@ class ProjectRegistry:
                 max_concurrency=pc.max_concurrency,
                 env_keys=pc.env_keys,
                 claude_md_path=claude_md_path,
+                is_primary=pc.is_primary,
             )
             self._projects[project_id] = project
 

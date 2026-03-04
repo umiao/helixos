@@ -30,6 +30,7 @@ class ProjectResponse(BaseModel):
     claude_md_path: str | None = None
     execution_paused: bool = False
     review_gate_enabled: bool = True
+    is_primary: bool = False
 
 
 class ProjectDetailResponse(BaseModel):
@@ -44,6 +45,7 @@ class ProjectDetailResponse(BaseModel):
     claude_md_path: str | None = None
     execution_paused: bool = False
     review_gate_enabled: bool = True
+    is_primary: bool = False
     tasks: list[TaskResponse] = Field(default_factory=list)
 
 

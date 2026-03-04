@@ -570,3 +570,10 @@
 - **Sanity check result**: 978 tests passing (20 new). Ruff clean. Frontend builds clean.
 - **Status**: [DONE]
 - **Request**: Move T-P0-44 to Completed
+
+## 2026-03-03 15:00 -- [T-P0-45] Generic default project selection via is_primary field
+- **What I did**: Added `is_primary: bool` field (default False) to ProjectConfig, Project model, and API response schemas (ProjectResponse, ProjectDetailResponse). ProjectRegistry propagates is_primary from config to domain model. API `_project_to_response` and `get_project` detail endpoint include the field. Frontend `Project` interface updated. `loadData()` in App.tsx now defaults to primary project(s) on first load (no localStorage), falling back to first project if none marked primary. Set `is_primary: true` on helixos in orchestrator_config.yaml.
+- **Deliverables**: src/config.py (mod -- is_primary on ProjectConfig, propagated in _build), src/models.py (mod -- is_primary on Project), src/schemas.py (mod -- is_primary on ProjectResponse, ProjectDetailResponse), src/api.py (mod -- is_primary in _project_to_response and get_project), frontend/src/types.ts (mod -- is_primary on Project), frontend/src/App.tsx (mod -- loadData default selection logic), orchestrator_config.yaml (mod -- is_primary: true on helixos), tests/test_is_primary.py (new -- 14 tests)
+- **Sanity check result**: 992 tests passing (14 new). Ruff clean. Frontend builds clean.
+- **Status**: [DONE]
+- **Request**: Move T-P0-45 to Completed

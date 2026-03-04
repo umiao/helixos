@@ -114,6 +114,7 @@ def _project_to_response(
         claude_md_path=str(project.claude_md_path) if project.claude_md_path else None,
         execution_paused=execution_paused,
         review_gate_enabled=review_gate_enabled,
+        is_primary=project.is_primary,
     )
 
 
@@ -370,6 +371,7 @@ async def get_project(project_id: str, request: Request) -> ProjectDetailRespons
         claude_md_path=str(project.claude_md_path) if project.claude_md_path else None,
         execution_paused=scheduler.is_project_paused(project_id),
         review_gate_enabled=scheduler.is_review_gate_enabled(project_id),
+        is_primary=project.is_primary,
         tasks=[_task_to_response(t) for t in tasks],
     )
 

@@ -18,6 +18,7 @@ projects:
     executor_type: "code"
     tasks_file: "TASKS.md"
     max_concurrency: 1
+    is_primary: true
 
   homestead:
     name: homestead_asset_management_system

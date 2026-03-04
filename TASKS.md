@@ -86,19 +86,7 @@
 
 #### ~~T-P0-44: Define plan validity model + enforce in review gate (subsumes T-P0-39)~~ [DONE -- see Completed Tasks]
 
-#### T-P0-45: Generic default project selection via `is_primary` field
-- **Priority**: P0
-- **Complexity**: S
-- **Depends on**: None
-- **Problem**: First-time load selects ALL projects. User expects their main project selected by default. Hardcoding project name is brittle.
-- **Acceptance Criteria**:
-  1. Add `is_primary: bool` field to ProjectConfig (default false) and expose via API
-  2. `loadData()` in App.tsx: when no saved selection (`loadSelectedProjects()` returns null/empty), default to project(s) with `is_primary=True`
-  3. If no project has `is_primary`, fall back to selecting the first project
-  4. Respect existing localStorage selections on subsequent loads (no override)
-  5. No hardcoded project name matching
-  6. **Manual smoke test**: Clear localStorage -> reload -> only primary project visible in swim lanes
-- **Files**: `frontend/src/App.tsx`, `src/models.py`, `orchestrator_config.yaml`
+#### ~~T-P0-45: Generic default project selection via `is_primary` field~~ [DONE -- see Completed Tasks]
 
 #### T-P0-38: Backward-drag confirmation dialog redesign
 - **Priority**: P0
@@ -304,6 +292,9 @@ T-P0-47 [M] No Plan badges + visual guidance (no deps, pairs with T-P0-44)
 
 ## Completed Tasks
 <!-- Move finished tasks here with [x] and completion date -->
+
+#### [x] T-P0-45: Generic default project selection via `is_primary` field -- 2026-03-03
+- Added `is_primary: bool` (default False) to ProjectConfig, Project model, and API schemas. First-time load defaults to primary project(s); falls back to first project if none marked. Existing localStorage selections respected. Set helixos as `is_primary: true` in config. 14 new tests, 992 total passing.
 
 #### [x] T-P0-44: Define plan validity model + enforce in review gate -- 2026-03-03
 - Added `is_plan_valid()` function (>= 20 chars after stripping) and `PlanInvalidError` exception. `update_status()` enforces plan validity on BACKLOG->REVIEW when gate enabled (Layer 2). API returns 428 with `gate_action: "plan_invalid"`. Frontend opens ReviewSubmitModal for both `review_required` and `plan_invalid`. Modal shows plan validity warning, character counter, disables submit when plan too short. 20 new tests, 978 total passing.
