@@ -29,19 +29,6 @@
 
 
 
-#### T-P0-65: Plan generation button discoverability + Kanban card visual feedback
-- **Priority**: P0
-- **Complexity**: S (< 1 session)
-- **Depends on**: T-P0-63b (needs SSE plan_status events wired in frontend)
-- **Description**: The "Generate Plan" button in TaskCardPopover is nearly invisible (requires precise 300ms hover on small card). The Kanban card itself shows no visual indicator during plan generation. Fix: (A) Add persistent "Generate Plan" button directly on TaskCard face (not just in popover) for tasks with `plan_status=none/failed`. (B) Add pulsing/animated border on TaskCard when `plan_status=generating` (like the "running" animation pattern). (C) Backend 409 guard from 63a prevents concurrent generation -- frontend disables button but does NOT solely rely on client-side state for protection.
-- **Acceptance Criteria**:
-  1. TaskCard shows a small "Plan" action button on the card face for tasks needing plans (plan_status=none or failed), without requiring hover
-  2. TaskCard shows pulsing/glowing border animation when plan_status=generating (similar to running task animation)
-  3. Frontend double-click prevention (disable button on click) + backend 409 guard from T-P0-63a (defense in depth)
-  4. **Inverse case**: Cards with plan_status=ready show no plan button (already has plan). Cards in done/failed/blocked show no plan button.
-  5. **User journey**: User sees card in Queued column with visible "Plan" chip -> clicks it -> card starts pulsing -> ExecutionLog shows progress -> pulsing stops when plan ready -> "Plan" chip disappears
-  6. **Manual smoke test**: Open Kanban, find task without plan -- "Plan" button must be visible WITHOUT hovering. Click it, card must visually pulse within 1 second.
-
 ### Tech Debt (tracked, not blocking current work)
 - [ ] T-P0-28 postmortem: integration test asserting raw_response contains fields not present in summary/suggestions
 - [ ] Log retention/purge policy for execution_logs + review_history tables
@@ -69,7 +56,7 @@
 > Full historical dependency graph relocated to [docs/architecture/dependency-graph-history.md](docs/architecture/dependency-graph-history.md).
 
 ### Current
-- T-P0-65 -> T-P0-63b (card visual feedback depends on frontend SSE wiring)
+(no active dependencies)
 
 ---
 
@@ -109,6 +96,9 @@
 
 #### [x] T-P0-64: Real-time log streaming for review pipeline -- 2026-03-04
 - Refactored _call_claude_cli() from communicate() to readline() loop with on_log callback. Added metadata_json column to execution_logs. Wired SSE + DB dual-write for review logs (source="review"). Review pipeline emits lifecycle messages. on_progress writes to execution_logs. Error handler preserves partial logs. 1031 tests passing.
+
+#### [x] T-P0-65: Plan generation button discoverability + Kanban card visual feedback -- 2026-03-04
+- Persistent "Plan" button on TaskCard face for tasks needing plans. Pulsing blue border animation during generation. "Planning" spinner badge replaces "No Plan" during generation. Double-click prevention + backend 409 guard. TypeScript clean, Vite build clean, 1031 tests passing.
 
 #### [x] T-P0-55: Execution log visual markers for review activity -- 2026-03-04
 - Added purple "REVIEW" badge on review-originated log entries. Extended LogEntry with source field, SSE handlers pass source="review" for review_started/review_progress events. Uses SSE event type for origin detection.

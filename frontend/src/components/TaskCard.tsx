@@ -8,7 +8,8 @@
 import { useDraggable } from "@dnd-kit/core";
 import { CSS } from "@dnd-kit/utilities";
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { Task, TaskStatus } from "../types";
+import type { Task, TaskStatus, PlanStatus } from "../types";
+import { generatePlan } from "../api";
 import TaskCardPopover from "./TaskCardPopover";
 
 interface TaskCardProps {
@@ -88,8 +89,31 @@ export default function TaskCard({ task, onClick, onContextMenu, onTaskUpdated }
   // Centralized active-state check: pulse for running tasks OR active review
   const isActive =
     task.status === "running" || task.review_status === "running";
+  const isGeneratingPlan = task.plan_status === "generating";
   const startedAt = task.execution?.started_at;
   const hasNoPlan = !task.description || !task.description.trim();
+  const isDoneOrTerminal = task.status === "done" || task.status === "failed" || task.status === "blocked";
+  const showPlanButton = (hasNoPlan || task.plan_status === "failed") && !isDoneOrTerminal && !isGeneratingPlan;
+
+  // Plan generation from card face
+  const [generatingLocal, setGeneratingLocal] = useState(false);
+
+  const handleGeneratePlan = useCallback(async (e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (generatingLocal || isGeneratingPlan) return;
+    setGeneratingLocal(true);
+    try {
+      await generatePlan(task.id);
+      onTaskUpdated?.({
+        ...task,
+        plan_status: "generating" as PlanStatus,
+      });
+    } catch {
+      // Error handling deferred to popover; card button is a quick-action shortcut
+    } finally {
+      setGeneratingLocal(false);
+    }
+  }, [task, generatingLocal, isGeneratingPlan, onTaskUpdated]);
 
   // Hover popover state: 300ms delay before showing
   const [showPopover, setShowPopover] = useState(false);
@@ -168,7 +192,7 @@ export default function TaskCard({ task, onClick, onContextMenu, onTaskUpdated }
       onContextMenu={handleContextMenu}
       onMouseEnter={handleMouseEnter}
       onMouseLeave={handleMouseLeave}
-      className="rounded-lg border border-gray-200 bg-white p-3 shadow-sm hover:shadow-md transition-shadow cursor-grab active:cursor-grabbing"
+      className={`rounded-lg border bg-white p-3 shadow-sm hover:shadow-md transition-shadow cursor-grab active:cursor-grabbing ${isGeneratingPlan ? "border-blue-400 animate-pulse shadow-blue-100" : "border-gray-200"}`}
     >
       {/* Header: project + task ID */}
       <div className="flex items-center justify-between text-xs text-gray-500 mb-1">
@@ -191,7 +215,7 @@ export default function TaskCard({ task, onClick, onContextMenu, onTaskUpdated }
           >
             {label}
           </span>
-          {hasNoPlan && (
+          {hasNoPlan && !isGeneratingPlan && (
             <span
               className="inline-block rounded-full px-2 py-0.5 text-xs font-semibold bg-amber-100 text-amber-700"
               title="This task has no plan"
@@ -199,36 +223,57 @@ export default function TaskCard({ task, onClick, onContextMenu, onTaskUpdated }
               No Plan
             </span>
           )}
+          {isGeneratingPlan && (
+            <span className="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-semibold bg-blue-100 text-blue-700">
+              <svg className="animate-spin h-3 w-3" viewBox="0 0 24 24" fill="none">
+                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+              </svg>
+              Planning
+            </span>
+          )}
           {isRunning && startedAt && <ElapsedTimer startedAt={startedAt} />}
         </div>
 
-        {hasDeps && (
-          <span
-            className="text-xs text-gray-400 flex items-center gap-0.5"
-            title={`Depends on: ${task.depends_on.join(", ")}`}
-          >
-            <svg
-              className="w-3.5 h-3.5"
-              fill="none"
-              stroke="currentColor"
-              viewBox="0 0 24 24"
+        <div className="flex items-center gap-1.5">
+          {showPlanButton && (
+            <button
+              onClick={handleGeneratePlan}
+              disabled={generatingLocal}
+              className="rounded-full px-2 py-0.5 text-xs font-semibold bg-blue-50 text-blue-600 hover:bg-blue-100 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+              title="Generate plan for this task"
             >
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                strokeWidth={2}
-                d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101"
-              />
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                strokeWidth={2}
-                d="M10.172 13.828a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.102 1.101"
-              />
-            </svg>
-            {task.depends_on.length}
-          </span>
-        )}
+              Plan
+            </button>
+          )}
+          {hasDeps && (
+            <span
+              className="text-xs text-gray-400 flex items-center gap-0.5"
+              title={`Depends on: ${task.depends_on.join(", ")}`}
+            >
+              <svg
+                className="w-3.5 h-3.5"
+                fill="none"
+                stroke="currentColor"
+                viewBox="0 0 24 24"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={2}
+                  d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101"
+                />
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={2}
+                  d="M10.172 13.828a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.102 1.101"
+                />
+              </svg>
+              {task.depends_on.length}
+            </span>
+          )}
+        </div>
       </div>
 
       {/* Hover popover via portal */}

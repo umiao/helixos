@@ -731,3 +731,10 @@
 - **Sanity check result**: Ruff clean. All 1031 tests passing (3 new).
 - **Status**: [DONE]
 - **Request**: Move T-P0-64 to Completed in TASKS.md
+
+## 2026-03-04 22:00 -- [T-P0-65] Plan generation button discoverability + Kanban card visual feedback
+- **What I did**: Added persistent "Plan" action button directly on TaskCard face (right side of footer) for tasks needing plans (plan_status=none/failed, excluding done/failed/blocked). Added pulsing blue border + shadow animation on TaskCard when plan_status=generating. Added "Planning" badge with spinner replacing "No Plan" badge during generation. Button calls generatePlan API with double-click prevention (local state guard + backend 409 idempotency). Cards with plan_status=ready show no plan button. Inverse cases handled: done/failed/blocked cards show no plan button, generating cards show pulsing border instead of plan button.
+- **Deliverables**: frontend/src/components/TaskCard.tsx (mod)
+- **Sanity check result**: TypeScript clean. Vite build clean. All 1031 backend tests passing.
+- **Status**: [DONE]
+- **Request**: Move T-P0-65 to Completed in TASKS.md
