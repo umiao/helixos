@@ -29,24 +29,149 @@
 
 
 
-### Tech Debt (tracked, not blocking current work)
-- [ ] T-P0-28 postmortem: integration test asserting raw_response contains fields not present in summary/suggestions
-- [ ] Log retention/purge policy for execution_logs + review_history tables
-- [ ] Unify subprocess management into shared `SubprocessRunner` abstraction (T-P0-30/T-P0-31 tech debt)
-- [ ] Review state machine diagram documentation
-- [ ] (from web UI) Done column: investigate random ordering, add sort/filter.
-      Self-editing workflow: test changes then restart (queued stage only?).
-- [ ] Audit completed UX tasks (T-P0-8a through T-P3-11) for scenario-matrix gaps
-- [ ] Clarify Pause/Gate/Launch semantic boundaries in PRD (does Pause affect review pipeline?)
-- [ ] Plan generation 503 error taxonomy + retry strategy (structured error types for CLI unavailable, timeout, parse failure)
-- [ ] Scheduler single finalization point / execution epoch ID (prevent race conditions where concurrent paths both try to finalize a task; from T-P0-49)
-- [ ] State machine transition audit -- enumerate all race condition windows in status transitions (timeout vs completion, SSE vs DB, concurrent drag vs scheduler)
-- [ ] SSE event payload structure: add explicit `origin` field (execution/review/scheduler) for clean log categorization (from T-P0-55)
-- [ ] Unified TaskEvent model: formalize the SSE event contract `{type, task_id, data: {...}, timestamp}` into a shared Pydantic model. Currently defined as a convention in T-P0-63a; should become enforced schema after 63a/64 are complete.
-- [ ] Deduplicate `_is_process_alive()` -- currently copy-pasted in port_registry.py, process_manager.py, subprocess_registry.py. Extract to shared module (e.g. `src/platform_utils.py`) and import everywhere. (from os.kill CTRL_C_EVENT bug)
-- [ ] Post-mortem: T-P0-57/T-P0-59 were marked DONE without manual smoke test. Lesson: any task touching subprocess + UX must have a real invocation test (not just mocked unit tests). Add to CLAUDE.md as enforcement rule.
+### Tech Debt -- Phase 1: Type Safety & Shared Utils (enables later phases)
 
+#### T-TD-01: Extract `_is_process_alive()` to shared module
+- **Priority**: P1
+- **Complexity**: S
+- **Depends on**: None
+- **Description**: Deduplicate `_is_process_alive()` from port_registry.py, process_manager.py, subprocess_registry.py. Extract to `src/platform_utils.py` with proper `sys.platform` guard.
+- **Acceptance Criteria**:
+  1. Single implementation in `src/platform_utils.py`
+  2. All 3 callsites import from shared module
+  3. Existing tests pass unchanged
 
+#### T-TD-02: Unified TaskEvent Pydantic model for SSE contract
+- **Priority**: P1
+- **Complexity**: S
+- **Depends on**: None
+- **Description**: Formalize the SSE event contract `{type, task_id, data, timestamp}` into a shared Pydantic model. Currently just a convention from T-P0-63a.
+- **Acceptance Criteria**:
+  1. Pydantic model in `src/models.py` or `src/events.py`
+  2. EventBus.emit() uses the model for validation
+  3. Tests verify schema enforcement
+
+#### T-TD-03: SSE origin field for log categorization
+- **Priority**: P1
+- **Complexity**: S
+- **Depends on**: T-TD-02
+- **Description**: Add explicit `origin` field (execution/review/scheduler/plan) to SSE event payloads for clean log categorization (from T-P0-55).
+- **Acceptance Criteria**:
+  1. All SSE events include `origin` field
+  2. Frontend uses `origin` instead of inferring from event type
+
+### Tech Debt -- Phase 2: Operational Reliability
+
+#### T-TD-04: Log retention/purge policy
+- **Priority**: P1
+- **Complexity**: S
+- **Depends on**: None
+- **Description**: Add retention/purge policy for execution_logs + review_history tables. Prevent unbounded DB growth.
+- **Acceptance Criteria**:
+  1. Configurable retention period (default 30 days)
+  2. Purge runs on app startup or scheduled interval
+  3. Test verifies old entries are cleaned
+
+#### T-TD-05: Plan generation error taxonomy + retry strategy
+- **Priority**: P1
+- **Complexity**: S
+- **Depends on**: None
+- **Description**: Structured error types for plan gen failures: CLI unavailable, timeout, parse failure, budget exceeded. Enable smart retry decisions.
+- **Acceptance Criteria**:
+  1. Error enum/classes in `src/enrichment.py`
+  2. API returns structured error type in 503 response
+  3. Frontend shows actionable error message per type
+
+#### T-TD-06: T-P0-28 postmortem integration test
+- **Priority**: P2
+- **Complexity**: S
+- **Depends on**: None
+- **Description**: Integration test asserting raw_response contains fields (model, usage, session_id) not present in summary/suggestions. Validates decoupled raw_response design.
+- **Acceptance Criteria**:
+  1. Test in `tests/test_review_pipeline.py` with mocked CLI
+  2. Asserts raw_response dict keys are distinct from parsed review fields
+
+### Tech Debt -- Phase 3: Race Condition Hardening
+
+#### T-TD-07: State machine transition race condition audit
+- **Priority**: P1
+- **Complexity**: M
+- **Depends on**: None
+- **Description**: Enumerate all race condition windows in status transitions: timeout vs completion, SSE vs DB, concurrent drag vs scheduler, review vs plan generation.
+- **Acceptance Criteria**:
+  1. Written audit doc in `docs/architecture/`
+  2. Each race window has mitigation strategy (optimistic lock, epoch ID, etc.)
+  3. Critical races have test coverage
+
+#### T-TD-08: Scheduler finalization epoch ID
+- **Priority**: P1
+- **Complexity**: M
+- **Depends on**: T-TD-07
+- **Description**: Prevent race conditions where concurrent paths both try to finalize a task. Add execution epoch ID to scheduler (from T-P0-49).
+- **Acceptance Criteria**:
+  1. Epoch ID column on task model
+  2. Finalization checks epoch match before state transition
+  3. Test for concurrent finalization attempt
+
+### Tech Debt -- Phase 4: Subprocess Abstraction
+
+#### T-TD-09: SubprocessRunner design doc
+- **Priority**: P2
+- **Complexity**: S
+- **Depends on**: T-TD-01
+- **Description**: Design shared `SubprocessRunner` abstraction unifying subprocess management patterns across enrichment.py, review_pipeline.py, code_executor.py, process_manager.py.
+- **Acceptance Criteria**:
+  1. Design doc in `docs/architecture/subprocess-runner.md`
+  2. Covers: process group isolation, timeout, readline streaming, persist-first, platform guards
+
+#### T-TD-10: SubprocessRunner implementation + refactor
+- **Priority**: P2
+- **Complexity**: M
+- **Depends on**: T-TD-09
+- **Description**: Implement SubprocessRunner and refactor 4 callsites to use it.
+- **Acceptance Criteria**:
+  1. `src/subprocess_runner.py` with shared abstraction
+  2. All 4 callsites refactored
+  3. Existing tests pass unchanged
+
+### Tech Debt -- Phase 5: Documentation & Polish
+
+#### T-TD-11: State machine diagram documentation
+- **Priority**: P2
+- **Complexity**: S
+- **Depends on**: T-TD-07
+- **Description**: Document all valid states, triggers, and side-effects in review state machine.
+- **Acceptance Criteria**:
+  1. Diagram in `docs/architecture/state-machine.md`
+  2. All transitions from ReviewLifecycleState enum covered
+
+#### T-TD-12: PRD clarification (Pause/Gate/Launch semantics)
+- **Priority**: P2
+- **Complexity**: S
+- **Depends on**: None
+- **Description**: Clarify Pause/Gate/Launch semantic boundaries in PRD. Does Pause affect review pipeline?
+- **Acceptance Criteria**:
+  1. Updated PRD section with clear definitions
+  2. Edge cases documented
+
+#### T-TD-13: UX audit + smoke test enforcement
+- **Priority**: P2
+- **Complexity**: S
+- **Depends on**: None
+- **Description**: Audit completed UX tasks (T-P0-8a through T-P3-11) for scenario-matrix gaps. Add smoke test enforcement rule to CLAUDE.md (post-mortem from T-P0-57/T-P0-59).
+- **Acceptance Criteria**:
+  1. Audit results documented
+  2. CLAUDE.md enforcement rule added
+  3. Gap list for any missing coverage
+
+#### T-TD-14: Done column ordering investigation
+- **Priority**: P3
+- **Complexity**: S
+- **Depends on**: None
+- **Description**: Investigate random ordering in Done column. Add sort/filter capability.
+- **Acceptance Criteria**:
+  1. Root cause identified (missing ORDER BY or frontend sort)
+  2. Fix applied or task spec written for fix
 
 ### P1-UX -- Polish
 
@@ -104,6 +229,9 @@
 
 #### [x] T-P0-67: Harden plan generation pipeline -- result-first persistence -- 2026-03-04
 - Persist raw CLI output before parsing (write_raw_artifact, no truncation). plan_json column for structured data. Structural validation rejects empty plans. Atomic update_plan() method. Removed --permission-mode plan (conflicts with --json-schema). 1040 tests passing (9 new).
+
+#### [x] T-P0-68: Investigate and design fix for tech debts -- 2026-03-04
+- Investigated all 14 tech debt items, designed 5-phase remediation plan (type safety, operational reliability, race condition hardening, subprocess abstraction, documentation). Broke into 14 prioritized sub-tasks (T-TD-01 through T-TD-14) with dependencies, acceptance criteria, and complexity estimates.
 
 #### [x] T-P0-55: Execution log visual markers for review activity -- 2026-03-04
 - Added purple "REVIEW" badge on review-originated log entries. Extended LogEntry with source field, SSE handlers pass source="review" for review_started/review_progress events. Uses SSE event type for origin detection.

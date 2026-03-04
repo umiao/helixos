@@ -14,7 +14,7 @@ import os
 import signal
 import sys
 import time
-from collections.abc import Callable
+from collections.abc import Awaitable, Callable
 from datetime import UTC, datetime
 
 from pydantic import BaseModel
@@ -246,6 +246,7 @@ class ReviewPipeline:
         review_attempt: int = 1,
         human_feedback: list[dict] | None = None,
         on_log: Callable[[str], None] | None = None,
+        on_raw_artifact: Callable[[str], Awaitable[None]] | None = None,
     ) -> ReviewState:
         """Run the review pipeline for a task plan.
 
@@ -303,6 +304,7 @@ class ReviewPipeline:
                 reviewer, task, plan_content,
                 human_feedback=human_feedback,
                 on_log=on_log,
+                on_raw_artifact=on_raw_artifact,
             )
             reviews.append(review)
             completed_msg = f"Completed {reviewer.focus} review"
@@ -403,6 +405,7 @@ class ReviewPipeline:
         json_schema: str | None = None,
         on_log: Callable[[str], None] | None = None,
         heartbeat_seconds: int = 30,
+        on_raw_artifact: Callable[[str], Awaitable[None]] | None = None,
     ) -> dict:
         """Call the Claude CLI subprocess and return the parsed JSON output.
 
@@ -489,9 +492,9 @@ class ReviewPipeline:
                     if not raw_line:  # EOF
                         break
 
-                    decoded = raw_line.decode("utf-8", errors="replace").strip()
-                    if decoded:
-                        log_lines.append(decoded)
+                    decoded = raw_line.decode("utf-8", errors="replace").rstrip("\r\n")
+                    log_lines.append(decoded)  # always preserve for JSON reassembly
+                    if decoded.strip():  # only emit non-blank for progress
                         _emit(decoded)
                         last_output_time = time.monotonic()
 
@@ -513,6 +516,18 @@ class ReviewPipeline:
                 f"minutes (model={model})"
             ) from None
 
+        # PERSIST-FIRST: assemble and save raw output BEFORE returncode check.
+        # Even if process failed (non-zero exit), the raw output is recoverable.
+        full_output = "\n".join(log_lines)
+        if on_raw_artifact is not None:
+            try:
+                await on_raw_artifact(full_output)
+            except Exception:
+                logger.warning(
+                    "Failed to persist raw artifact for review, continuing",
+                    exc_info=True,
+                )
+
         if proc.returncode != 0:
             stderr_bytes = b""
             if proc.stderr is not None:
@@ -522,8 +537,7 @@ class ReviewPipeline:
                 f"Claude CLI failed (exit {proc.returncode}): {stderr_text}"
             )
 
-        # Reassemble all stdout lines and parse the JSON result
-        full_output = "\n".join(log_lines)
+        # Parse the JSON result
         try:
             cli_output = json.loads(full_output)
         except json.JSONDecodeError:
@@ -545,6 +559,7 @@ class ReviewPipeline:
         plan_content: str,
         human_feedback: list[dict] | None = None,
         on_log: Callable[[str], None] | None = None,
+        on_raw_artifact: Callable[[str], Awaitable[None]] | None = None,
     ) -> LLMReview:
         """Call a reviewer via the Claude CLI.
 
@@ -592,6 +607,7 @@ class ReviewPipeline:
             max_budget_usd=reviewer.max_budget_usd,
             json_schema=_REVIEW_JSON_SCHEMA,
             on_log=on_log,
+            on_raw_artifact=on_raw_artifact,
         )
 
         result_text = cli_output.get("result", "")

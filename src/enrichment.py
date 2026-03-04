@@ -277,9 +277,9 @@ async def generate_task_plan(
                 if not raw_line:  # EOF: subprocess closed stdout
                     break
 
-                decoded = raw_line.decode("utf-8", errors="replace").strip()
-                if decoded:
-                    log_lines.append(decoded)
+                decoded = raw_line.decode("utf-8", errors="replace").rstrip("\r\n")
+                log_lines.append(decoded)  # always preserve for JSON reassembly
+                if decoded.strip():  # only emit non-blank for progress
                     _emit(decoded)
                     last_output_time = time.monotonic()
 
@@ -295,7 +295,13 @@ async def generate_task_plan(
     # Even if returncode != 0 or JSON parsing fails, the raw output is recoverable.
     full_output = "\n".join(log_lines)
     if on_raw_artifact is not None:
-        await on_raw_artifact(full_output)
+        try:
+            await on_raw_artifact(full_output)
+        except Exception:
+            logger.warning(
+                "Failed to persist raw artifact for plan, continuing",
+                exc_info=True,
+            )
 
     if proc.returncode != 0:
         stderr_bytes = b""

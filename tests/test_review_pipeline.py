@@ -1912,3 +1912,141 @@ async def test_on_log_none_does_not_crash(mock_exec: AsyncMock) -> None:
     )
 
     assert result.consensus_score == 1.0
+
+
+# ------------------------------------------------------------------
+# Blank-line preservation and persist-first tests
+# ------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+@patch("src.review_pipeline.asyncio.create_subprocess_exec")
+async def test_call_claude_cli_preserves_blank_lines(mock_exec: AsyncMock) -> None:
+    """Blank lines in CLI output are preserved for JSON reassembly."""
+    review_json = _make_review_output("approve", "Looks good")
+
+    # Build raw lines with blank lines interspersed
+    raw_lines = [
+        review_json[:20] + b"\n",
+        b"\n",  # blank line
+        review_json[20:] + b"\n",
+        b"",  # EOF
+    ]
+    proc = AsyncMock()
+    proc.returncode = 0
+    proc.wait = AsyncMock()
+    proc.kill = MagicMock()
+    mock_stdout = AsyncMock()
+    mock_stdout.readline = AsyncMock(side_effect=raw_lines)
+    mock_stderr = AsyncMock()
+    mock_stderr.read = AsyncMock(return_value=b"")
+    proc.stdout = mock_stdout
+    proc.stderr = mock_stderr
+    mock_exec.return_value = proc
+
+    artifact_content: list[str] = []
+
+    async def capture_artifact(content: str) -> None:
+        artifact_content.append(content)
+
+    pipeline = ReviewPipeline(_default_config(), threshold=0.8)
+    cli_output = await pipeline._call_claude_cli(
+        prompt="test",
+        system_prompt="test",
+        model="claude-sonnet-4-5",
+        on_raw_artifact=capture_artifact,
+    )
+
+    # Raw artifact should contain blank lines
+    assert len(artifact_content) == 1
+    assert "\n\n" in artifact_content[0]  # blank line preserved
+
+    # Should still parse (last-line fallback may kick in)
+    assert isinstance(cli_output, dict)
+
+
+@pytest.mark.asyncio
+@patch("src.review_pipeline.asyncio.create_subprocess_exec")
+async def test_raw_artifact_persisted_even_on_json_failure(
+    mock_exec: AsyncMock,
+) -> None:
+    """on_raw_artifact is called even when CLI returns garbage (non-JSON)."""
+    # CLI returns garbage text, not valid JSON
+    raw_lines = [
+        b"Some random garbage output\n",
+        b"More garbage\n",
+        b"",  # EOF
+    ]
+    proc = AsyncMock()
+    proc.returncode = 0
+    proc.wait = AsyncMock()
+    proc.kill = MagicMock()
+    mock_stdout = AsyncMock()
+    mock_stdout.readline = AsyncMock(side_effect=raw_lines)
+    mock_stderr = AsyncMock()
+    mock_stderr.read = AsyncMock(return_value=b"")
+    proc.stdout = mock_stdout
+    proc.stderr = mock_stderr
+    mock_exec.return_value = proc
+
+    artifact_content: list[str] = []
+
+    async def capture_artifact(content: str) -> None:
+        artifact_content.append(content)
+
+    pipeline = ReviewPipeline(_default_config(), threshold=0.8)
+    cli_output = await pipeline._call_claude_cli(
+        prompt="test",
+        system_prompt="test",
+        model="claude-sonnet-4-5",
+        on_raw_artifact=capture_artifact,
+    )
+
+    # on_raw_artifact MUST have been called even though output is garbage
+    assert len(artifact_content) == 1
+    assert "Some random garbage output" in artifact_content[0]
+
+    # cli_output should be empty dict (fallback)
+    assert cli_output == {}
+
+
+@pytest.mark.asyncio
+@patch("src.review_pipeline.asyncio.create_subprocess_exec")
+async def test_raw_artifact_persisted_on_nonzero_exit(
+    mock_exec: AsyncMock,
+) -> None:
+    """on_raw_artifact is called BEFORE RuntimeError is raised on non-zero exit."""
+    raw_lines = [
+        b"partial output before crash\n",
+        b"",  # EOF
+    ]
+    proc = AsyncMock()
+    proc.returncode = 1  # non-zero exit
+    proc.wait = AsyncMock()
+    proc.kill = MagicMock()
+    mock_stdout = AsyncMock()
+    mock_stdout.readline = AsyncMock(side_effect=raw_lines)
+    mock_stderr = AsyncMock()
+    mock_stderr.read = AsyncMock(return_value=b"CLI crashed")
+    proc.stdout = mock_stdout
+    proc.stderr = mock_stderr
+    mock_exec.return_value = proc
+
+    artifact_content: list[str] = []
+
+    async def capture_artifact(content: str) -> None:
+        artifact_content.append(content)
+
+    pipeline = ReviewPipeline(_default_config(), threshold=0.8)
+
+    with pytest.raises(RuntimeError, match="Claude CLI failed"):
+        await pipeline._call_claude_cli(
+            prompt="test",
+            system_prompt="test",
+            model="claude-sonnet-4-5",
+            on_raw_artifact=capture_artifact,
+        )
+
+    # on_raw_artifact MUST have been called BEFORE the RuntimeError
+    assert len(artifact_content) == 1
+    assert "partial output before crash" in artifact_content[0]

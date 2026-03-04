@@ -1231,3 +1231,103 @@ class TestZombiePlanStatusCleanup:
         task_manager: TaskManager = test_app.state.task_manager
         count = await _reset_zombie_plan_status(task_manager)
         assert count == 0
+
+
+# ------------------------------------------------------------------
+# Data integrity tests
+# ------------------------------------------------------------------
+
+
+class TestPlanDataRoundTripIntegrity:
+    """All steps/files/ACs survive _parse_plan -> format_plan_as_text."""
+
+    def test_plan_data_round_trip_integrity(self) -> None:
+        """Structured plan data survives parse -> format round-trip."""
+        inner = json.dumps({
+            "plan": "Implement user auth with JWT tokens.",
+            "steps": [
+                {"step": "Add login endpoint", "files": ["src/auth.py", "src/api.py"]},
+                {"step": "Add middleware", "files": ["src/middleware.py"]},
+                {"step": "Write tests", "files": ["tests/test_auth.py"]},
+            ],
+            "acceptance_criteria": [
+                "Login returns JWT",
+                "Middleware validates token",
+                "Tests pass",
+            ],
+        })
+        plan_data = _parse_plan(inner)
+
+        assert plan_data["plan"] == "Implement user auth with JWT tokens."
+        assert len(plan_data["steps"]) == 3
+        assert plan_data["steps"][0]["files"] == ["src/auth.py", "src/api.py"]
+        assert len(plan_data["acceptance_criteria"]) == 3
+
+        formatted = format_plan_as_text(plan_data)
+        assert "Implement user auth with JWT tokens." in formatted
+        assert "Add login endpoint" in formatted
+        assert "src/auth.py" in formatted
+        assert "Login returns JWT" in formatted
+        assert "Tests pass" in formatted
+
+
+class TestBlankLinePreservation:
+    """Blank lines in CLI output must not corrupt JSON reassembly."""
+
+    @pytest.mark.asyncio
+    @patch("src.enrichment.asyncio.create_subprocess_exec")
+    async def test_generate_plan_preserves_blank_lines_in_json(
+        self, mock_exec: AsyncMock,
+    ) -> None:
+        """Blank lines in CLI output are preserved in raw artifact and don't break parsing.
+
+        The CLI outputs JSON on a single line, but may emit blank lines
+        before/after.  The old ``if decoded:`` filter dropped blank lines
+        entirely; the fix preserves them for reassembly.  Parsing succeeds
+        via the last-line fallback.
+        """
+        inner = json.dumps({
+            "plan": "Do the thing",
+            "steps": [{"step": "Step 1", "files": []}],
+            "acceptance_criteria": ["AC1"],
+        })
+        cli_json = json.dumps({"type": "result", "result": inner})
+
+        # Simulate CLI output: blank lines before/after the JSON blob
+        raw_lines = [
+            b"\n",  # blank line (progress output gap)
+            b"\n",  # another blank line
+            cli_json.encode("utf-8") + b"\n",  # the actual JSON
+            b"\n",  # trailing blank
+            b"",  # EOF
+        ]
+
+        proc = AsyncMock()
+        proc.returncode = 0
+        proc.wait = AsyncMock()
+        proc.kill = MagicMock()
+        mock_stdout = AsyncMock()
+        mock_stdout.readline = AsyncMock(side_effect=raw_lines)
+        mock_stderr = AsyncMock()
+        mock_stderr.read = AsyncMock(return_value=b"")
+        proc.stdout = mock_stdout
+        proc.stderr = mock_stderr
+        mock_exec.return_value = proc
+
+        artifact_content: list[str] = []
+
+        async def capture_artifact(content: str) -> None:
+            artifact_content.append(content)
+
+        result = await generate_task_plan(
+            "Test", description="desc",
+            on_raw_artifact=capture_artifact,
+        )
+
+        # The blank lines should be preserved in the raw artifact
+        assert len(artifact_content) == 1
+        assert "\n\n" in artifact_content[0]  # blank lines preserved
+
+        # The plan should still parse correctly (last-line fallback)
+        assert result["plan"] == "Do the thing"
+        assert len(result["steps"]) == 1

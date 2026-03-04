@@ -752,3 +752,17 @@
 - **Sanity check result**: Ruff clean. All 1040 tests passing (1031 existing + 9 new).
 - **Status**: [DONE]
 - **Request**: Move T-P0-67 to Completed in TASKS.md
+
+## 2026-03-04 23:45 -- [T-P0-68] Investigate and design fix for tech debts
+- **What I did**: Investigated all 14 tech debt items from TASKS.md, analyzed codebase patterns (process liveness checking, subprocess management, SSE events, state machine transitions, DB retention), reviewed LESSONS.md for context, and designed a comprehensive 5-phase remediation plan. Plan groups related items, prioritizes by risk/impact (critical bugs first, then operational improvements, then architectural audits/refactors, finally documentation), and defines 22 specific implementation steps with file lists and acceptance criteria.
+- **Deliverables**: Structured implementation plan (5 phases, 22 steps) covering: (1) Extract _is_process_alive to shared module + unified TaskEvent Pydantic model + SSE origin field, (2) Log retention/purge policy + plan generation error taxonomy + retry strategy, (3) State machine race condition audit + scheduler finalization epoch design + implementation, (4) SubprocessRunner abstraction design + implementation + refactor of 4 callsites, (5) Integration tests + state machine documentation + PRD clarifications + UX audit + smoke test enforcement + Done column ordering investigation.
+- **Sanity check result**: Plan addresses all 14 items. Phase dependencies validated (type safety before state machine changes, audit before refactor). Each step includes test files. High-risk changes have design doc steps first.
+- **Status**: [DONE]
+- **Request**: Move T-P0-68 to Completed in TASKS.md
+
+## 2026-03-04 24:00 -- [T-P0-69] Harden plan generation & review pipelines against data loss
+- **What I did**: (1) Fixed blank-line dropping in stdout capture -- both enrichment.py and review_pipeline.py used `if decoded:` which dropped empty lines, corrupting multi-line JSON reassembly. Changed to `.rstrip("\r\n")` + always-append + emit-only-non-blank. (2) Added persist-first to review pipeline -- `_call_claude_cli()` now accepts `on_raw_artifact` callback, assembles `full_output` and persists BEFORE returncode check. Threaded through `_call_reviewer()` and `review_task()`. Wired in `api.py` `_run_review_bg()` with `review_cli_output` artifact type. (3) Added try/except safety net around `on_raw_artifact` in both enrichment.py and review_pipeline.py so persist failures never crash the pipeline. (4) Recovered T-P0-68 tech debt plan into TASKS.md -- broke 14 items into T-TD-01 through T-TD-14 with 5 phases, dependencies, complexity, and acceptance criteria.
+- **Deliverables**: src/enrichment.py, src/review_pipeline.py, src/api.py, tests/test_enrichment.py (2 new tests), tests/test_review_pipeline.py (3 new tests), TASKS.md (14 tech debt sub-tasks)
+- **Sanity check result**: Ruff clean. All 1045 tests passing (1040 existing + 5 new). TASKS.md at 237 lines (under 300 invariant).
+- **Status**: [DONE]
+- **Request**: No change (T-P0-68 already moved to Completed above)

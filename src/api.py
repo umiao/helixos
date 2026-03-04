@@ -1277,6 +1277,16 @@ def _enqueue_review_pipeline(
                         ),
                     )
 
+            async def on_review_raw_artifact(content: str) -> None:
+                """Persist full raw CLI output before any parsing."""
+                if history_writer is not None:
+                    await history_writer.write_raw_artifact(
+                        task_id=task_id,
+                        artifact_type="review_cli_output",
+                        content=content,
+                        metadata_json=json.dumps({"chars": len(content)}),
+                    )
+
             review_state = await review_pipeline.review_task(
                 task=task,
                 plan_content=task.description,
@@ -1284,6 +1294,7 @@ def _enqueue_review_pipeline(
                 review_attempt=review_attempt,
                 human_feedback=human_feedback,
                 on_log=on_review_log,
+                on_raw_artifact=on_review_raw_artifact,
             )
 
             updated_task = task.model_copy(update={"review": review_state})
