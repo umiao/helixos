@@ -37,6 +37,62 @@
      FAILED status preserved
   5. No FAILED->DONE transition added to the state machine
   6. Manually verify: run a task that completes near timeout boundary -> status is DONE
+  7. In scheduler._execute_task(), guard the success-path update_status(DONE)
+     with an idempotent check: re-fetch task status before transitioning; if
+     already DONE, log warning and skip (do NOT use blind contextlib.suppress
+     -- that would mask illegal transitions like FAILED->DONE)
+  8. Add regression test: task already in DONE -> scheduler success path fires
+     again -> no ValueError, task stays DONE, warning logged
+  9. Guard pattern: `if current_status != DONE: update_status(DONE)` or
+     catch ValueError and re-raise if current status is not DONE
+- **Related**: scheduler success path (line ~530) has no guard against duplicate
+  DONE transitions, unlike cancel path (line ~544) and exception path (line ~608).
+  If completion fires twice (e.g., timeout fires after success), this crashes
+  with ValueError.
+
+#### T-P0-52: Immediate next-task dispatch after task completion
+- **Priority**: P0
+- **Complexity**: S
+- **Depends on**: None
+- **Description**: After a RUNNING task finishes (DONE/FAILED/BLOCKED), the scheduler
+  waits up to 5 seconds (TICK_INTERVAL) before picking the next QUEUED task. This makes
+  the pipeline feel sluggish. After task completion, trigger an immediate tick() to
+  dispatch the next eligible task without waiting for the periodic interval.
+- **Acceptance Criteria**:
+  1. In scheduler._execute_task() finally block (after removing from self.running),
+     schedule an immediate tick via asyncio.create_task(self.tick())
+  2. tick() must use `asyncio.Lock` (NOT a boolean flag) for re-entrancy safety;
+     acquire via `async with self._tick_lock:` to guarantee release on exception
+  3. Regression test: complete task A -> task B (QUEUED, unblocked) dispatched within
+     <1 second (not waiting for next 5s tick)
+  4. Regression test: all concurrency slots full -> completion of one task immediately
+     dispatches next queued task
+  5. Regression test: two tasks complete nearly simultaneously -> only valid dispatches
+     occur (no duplicate execution of same task)
+  6. Regression test: tick() throws exception -> lock is released, subsequent ticks
+     still execute normally
+  7. Manually verify: run two QUEUED tasks with concurrency=1 -> second starts
+     immediately after first completes, no visible delay
+
+#### T-P0-53: Active process pulsing badges on task cards (RUNNING + review)
+- **Priority**: P0
+- **Complexity**: S
+- **Depends on**: None
+- **Description**: Task cards for tasks in active processes (RUNNING status or under
+  active review) need animated/pulsing badges as visual feedback. Currently only REVIEW
+  status cards have animate-pulse on the status badge. RUNNING cards show an elapsed
+  timer but no pulsing badge. Match existing review pulse style for consistency.
+- **Acceptance Criteria**:
+  1. RUNNING status badge pulses (animate-pulse) on TaskCard -- consistent with
+     existing review pulse style
+  2. Tasks under active review (review_status === "running") show pulsing indicator
+     regardless of which column they are in
+  3. Centralize active-state check: `isActive = status === "running" ||
+     review_status === "running"` -- pulse driven purely by store state, not
+     local timers
+  4. Pulse stops when task exits active state (DONE, FAILED, review complete)
+  5. Manually verify: drag task to QUEUED -> watch it move to RUNNING -> badge pulses
+     -> task completes -> pulse stops
 
 ### Tech Debt (tracked, not blocking current work)
 - [ ] T-P0-28 postmortem: integration test asserting raw_response contains fields not present in summary/suggestions
@@ -51,6 +107,7 @@
 - [ ] Plan generation 503 error taxonomy + retry strategy (structured error types for CLI unavailable, timeout, parse failure)
 - [ ] Scheduler single finalization point / execution epoch ID (prevent race conditions where concurrent paths both try to finalize a task; from T-P0-49)
 - [ ] State machine transition audit -- enumerate all race condition windows in status transitions (timeout vs completion, SSE vs DB, concurrent drag vs scheduler)
+- [ ] SSE event payload structure: add explicit `origin` field (execution/review/scheduler) for clean log categorization (from T-P0-55)
 
 ### P1-UX -- Polish
 
@@ -86,6 +143,43 @@
   5. Dependency graph relocated to `docs/architecture/dependency-graph-history.md`
   6. TASKS.md references the relocated graph with a link
   7. Manually verify: TASKS.md < 300 lines, archive contains all 58 completed entries
+
+#### T-P0-54: Fix review panel header -- left-align task info, natural wrapping
+- **Priority**: P1
+- **Complexity**: S
+- **Depends on**: None
+- **Description**: In ReviewPanel header, the currently-focused task's ID and title are
+  right-aligned, truncated at 192px (max-w-48), and hard to see. Move task info to
+  left side, replace hard truncation with natural container-width wrapping
+  (overflow-wrap: break-word). Clear visual separation from "Plan Under Review" content.
+- **Acceptance Criteria**:
+  1. Task ID and title displayed left-aligned in ReviewPanel header
+  2. Title wraps naturally within container width (remove max-w-48 truncate,
+     use overflow-wrap: break-word) -- no hard pixel truncation
+  3. Task ID styled distinctly (mono font, muted color) to separate from title
+  4. Title uses text-sm (not text-xs) for readability
+  5. Clear visual separation between task identity (header) and plan content
+     section (e.g., subtle border or background strip)
+  6. Manually verify: select a task with a long title -> title wraps naturally,
+     left-aligned, clearly readable, does not break layout
+
+#### T-P0-55: Execution log visual markers for review activity
+- **Priority**: P1
+- **Complexity**: S
+- **Depends on**: None
+- **Description**: Review progress entries in the execution log are visually
+  indistinguishable from execution logs. Add a visual marker to review-originated
+  log entries. Use existing SSE event type field if available to distinguish origin;
+  if not, use pragmatic prefix detection for now and add SSE structure improvement
+  to tech debt.
+- **Acceptance Criteria**:
+  1. Log entries from review progress SSE events have a distinct visual marker
+     (e.g., colored "REVIEW" prefix badge or different background tint)
+  2. Review log entries are distinguishable from execution log entries at a glance
+  3. Implementation uses existing SSE event type/structure for origin detection
+     (avoid fragile string parsing of message content)
+  4. Manually verify: trigger a review for a task -> watch execution log -> review
+     entries are visually distinct from execution entries
 
 <!-- TODO: Move Dependency Graph to docs/architecture/dependency-graph-history.md (part of T-P0-51) -->
 ## Dependency Graph
