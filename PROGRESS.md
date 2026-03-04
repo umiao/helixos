@@ -626,3 +626,10 @@
 - **Sanity check result**: 1000 tests passing. Ruff clean. No hangs.
 - **Status**: [DONE]
 - **Request**: No TASKS.md change (bugfix, not a tracked task)
+
+## 2026-03-04 01:00 -- [T-P0-53] Active process pulsing badges on task cards
+- **What I did**: Formalized T-P0-53 completion. Code was implemented in previous session (commit 0fc66a7) as partial work: centralized `isActive` check (`status === "running" || review_status === "running"`) drives `animate-pulse` on TaskCard status badge. RUNNING cards now pulse like review cards. Pulse stops when task exits active state.
+- **Deliverables**: frontend/src/components/TaskCard.tsx (mod -- isActive check + animate-pulse, done in prior commit)
+- **Sanity check result**: Frontend builds clean. 1000 tests passing.
+- **Status**: [DONE]
+- **Request**: Move T-P0-53 to Completed

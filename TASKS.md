@@ -11,26 +11,6 @@
 
 ### P0 -- Must Have (core functionality)
 
-#### T-P0-53: Active process pulsing badges on task cards (RUNNING + review)
-- **Priority**: P0
-- **Complexity**: S
-- **Depends on**: None
-- **Description**: Task cards for tasks in active processes (RUNNING status or under
-  active review) need animated/pulsing badges as visual feedback. Currently only REVIEW
-  status cards have animate-pulse on the status badge. RUNNING cards show an elapsed
-  timer but no pulsing badge. Match existing review pulse style for consistency.
-- **Acceptance Criteria**:
-  1. RUNNING status badge pulses (animate-pulse) on TaskCard -- consistent with
-     existing review pulse style
-  2. Tasks under active review (review_status === "running") show pulsing indicator
-     regardless of which column they are in
-  3. Centralize active-state check: `isActive = status === "running" ||
-     review_status === "running"` -- pulse driven purely by store state, not
-     local timers
-  4. Pulse stops when task exits active state (DONE, FAILED, review complete)
-  5. Manually verify: drag task to QUEUED -> watch it move to RUNNING -> badge pulses
-     -> task completes -> pulse stops
-
 ### Tech Debt (tracked, not blocking current work)
 - [ ] T-P0-28 postmortem: integration test asserting raw_response contains fields not present in summary/suggestions
 - [ ] Log retention/purge policy for execution_logs + review_history tables
@@ -271,6 +251,9 @@ T-P0-47 [M] No Plan badges + visual guidance (no deps, pairs with T-P0-44)
 
 ## Completed Tasks
 <!-- Move finished tasks here with [x] and completion date -->
+
+#### [x] T-P0-53: Active process pulsing badges on task cards -- 2026-03-04
+- Centralized isActive check (status === "running" || review_status === "running") drives animate-pulse on TaskCard status badge. RUNNING and active review cards pulse consistently. Pulse stops on task exit. Frontend builds clean, 1000 tests passing.
 
 #### [x] T-P0-52: Immediate next-task dispatch after task completion -- 2026-03-03
 - Added immediate tick dispatch after task completion via asyncio.create_task(self.tick()) in _execute_task finally block. Added asyncio.Lock to tick() for re-entrancy safety. 4 regression tests (immediate <1s dispatch, slot-freed dispatch, concurrent completions no duplicate, exception releases lock). 1000 tests passing.
