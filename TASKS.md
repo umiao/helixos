@@ -75,18 +75,6 @@
   6. Health-check endpoint: GET /api/processes/status returns list of active subprocesses (PID, start_time, task_id)
   7. Manual smoke test: kill a subprocess -> UI shows failure notification within 10s
 
-#### T-P0-61: Timeout normalization to 60min
-- **Priority**: P0
-- **Complexity**: S (< 1 session)
-- **Depends on**: None
-- **Description**: Normalize timeouts: review_timeout_minutes 10->60, add enrichment CLI timeout at 60min (currently none). Keep ProcessManager dev server timeout at 10s (different concern -- fast-fail for dev server startup).
-- **Acceptance Criteria**:
-  1. review_timeout_minutes changed from 10 to 60
-  2. Enrichment CLI subprocess has 60min timeout (was unlimited)
-  3. ProcessManager dev server timeout remains at 10s (unchanged)
-  4. All timeout values use consistent units (minutes) in config
-  5. Tests pass with updated timeout values
-
 ### P1-UX -- Polish
 
 ## Dependency Graph
@@ -111,6 +99,9 @@
 
 #### [x] T-P0-54: Fix review panel header -- left-align task info, natural wrapping -- 2026-03-04
 - Restructured ReviewPanel header: task info left-aligned in a bg-gray-50 identity strip, title wraps naturally (overflow-wrap: break-word, no truncate/max-w-48), task ID in mono/muted style, title text-sm, clear visual separation via border-t + background.
+
+#### [x] T-P0-61: Timeout normalization to 60min -- 2026-03-04
+- review_timeout_minutes default 10->60, enrichment_timeout_minutes added (default 60), enrichment CLI subprocess calls use asyncio.wait_for with configurable timeout. ProcessManager dev server timeout unchanged at 10s. 1006 tests passing.
 
 #### [x] T-P0-58: Done tasks show green completion in ReviewPanel -- 2026-03-04
 - Green "completed" badge in ReviewPanel header for done tasks. Done+no-plan shows "Task completed" instead of "No plan" error. Edit/Generate Plan buttons hidden for done tasks. Non-done tasks unaffected.

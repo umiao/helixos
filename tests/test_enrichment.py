@@ -13,6 +13,7 @@ Tests cover:
 
 from __future__ import annotations
 
+import asyncio
 import json
 from collections.abc import AsyncGenerator
 from pathlib import Path
@@ -755,3 +756,96 @@ class TestGeneratePlanEndpoint:
             )
             assert resp.status_code == 503
             assert "failed" in resp.json()["detail"].lower()
+
+
+# ------------------------------------------------------------------
+# Config tests: enrichment_timeout_minutes
+# ------------------------------------------------------------------
+
+
+class TestEnrichmentTimeoutConfig:
+    """Tests for ReviewPipelineConfig.enrichment_timeout_minutes."""
+
+    def test_default_is_60(self) -> None:
+        """enrichment_timeout_minutes defaults to 60."""
+        config = ReviewPipelineConfig()
+        assert config.enrichment_timeout_minutes == 60
+
+    def test_custom_value(self) -> None:
+        """enrichment_timeout_minutes can be customized."""
+        config = ReviewPipelineConfig(enrichment_timeout_minutes=30)
+        assert config.enrichment_timeout_minutes == 30
+
+    def test_zero_disables(self) -> None:
+        """enrichment_timeout_minutes=0 is valid (disables timeout)."""
+        config = ReviewPipelineConfig(enrichment_timeout_minutes=0)
+        assert config.enrichment_timeout_minutes == 0
+
+
+# ------------------------------------------------------------------
+# Unit tests: enrichment timeout behavior
+# ------------------------------------------------------------------
+
+
+class TestEnrichmentTimeout:
+    """Tests for timeout behavior in enrichment subprocess calls."""
+
+    @pytest.mark.asyncio
+    async def test_enrich_task_title_timeout(self) -> None:
+        """enrich_task_title raises RuntimeError on timeout."""
+        proc = AsyncMock()
+        proc.communicate = AsyncMock(
+            side_effect=TimeoutError(),
+        )
+        proc.kill = MagicMock()
+        proc.wait = AsyncMock()
+
+        with (
+            patch(
+                "src.enrichment.asyncio.create_subprocess_exec",
+                return_value=proc,
+            ),
+            pytest.raises(RuntimeError, match="timed out"),
+        ):
+            await enrich_task_title("Title", timeout_minutes=1)
+
+        proc.kill.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_generate_task_plan_timeout(self) -> None:
+        """generate_task_plan raises RuntimeError on timeout."""
+        proc = AsyncMock()
+        proc.communicate = AsyncMock(
+            side_effect=TimeoutError(),
+        )
+        proc.kill = MagicMock()
+        proc.wait = AsyncMock()
+
+        with (
+            patch(
+                "src.enrichment.asyncio.create_subprocess_exec",
+                return_value=proc,
+            ),
+            pytest.raises(RuntimeError, match="timed out"),
+        ):
+            await generate_task_plan("Title", timeout_minutes=1)
+
+        proc.kill.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_zero_timeout_disables(self) -> None:
+        """timeout_minutes=0 passes timeout=None (no timeout)."""
+        stdout = _make_enrichment_output("desc", "P0")
+        mock_proc = _mock_proc(stdout)
+
+        with patch(
+            "src.enrichment.asyncio.create_subprocess_exec",
+            return_value=mock_proc,
+        ), patch(
+            "src.enrichment.asyncio.wait_for",
+            wraps=asyncio.wait_for,
+        ) as mock_wait_for:
+            await enrich_task_title("Title", timeout_minutes=0)
+            # timeout=None means no timeout
+            _, kwargs = mock_wait_for.call_args
+            assert kwargs.get("timeout") is None

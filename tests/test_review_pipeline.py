@@ -1179,9 +1179,9 @@ async def test_review_attempt_on_multi_reviewer(mock_exec: AsyncMock) -> None:
 
 
 def test_review_timeout_minutes_default() -> None:
-    """ReviewPipelineConfig defaults review_timeout_minutes to 10."""
+    """ReviewPipelineConfig defaults review_timeout_minutes to 60."""
     config = ReviewPipelineConfig()
-    assert config.review_timeout_minutes == 10
+    assert config.review_timeout_minutes == 60
 
 
 def test_review_timeout_minutes_custom() -> None:

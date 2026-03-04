@@ -19,7 +19,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 
-from src.config import ProjectRegistry, load_config
+from src.config import OrchestratorConfig, ProjectRegistry, load_config
 from src.config_writer import add_project_to_config, suggest_next_project_id
 from src.db import create_engine, create_session_factory, init_db
 from src.enrichment import (
@@ -627,7 +627,7 @@ async def import_project(
         503: {"model": ErrorResponse},
     },
 )
-async def enrich_task(body: EnrichTaskRequest) -> EnrichTaskResponse:
+async def enrich_task(body: EnrichTaskRequest, request: Request) -> EnrichTaskResponse:
     """Enrich a task title with AI-suggested description and priority.
 
     Uses Claude CLI (``claude -p``) to generate structured suggestions.
@@ -639,8 +639,13 @@ async def enrich_task(body: EnrichTaskRequest) -> EnrichTaskResponse:
             detail="Claude CLI not available -- enrichment disabled",
         )
 
+    config: OrchestratorConfig = request.app.state.config
+    enrichment_timeout = config.review_pipeline.enrichment_timeout_minutes
+
     try:
-        result = await enrich_task_title(body.title)
+        result = await enrich_task_title(
+            body.title, timeout_minutes=enrichment_timeout,
+        )
     except RuntimeError as exc:
         logger.warning("Task enrichment failed: %s", exc)
         raise HTTPException(
@@ -701,11 +706,15 @@ async def generate_plan(task_id: str, request: Request) -> GeneratePlanResponse:
             task.project_id,
         )
 
+    config: OrchestratorConfig = request.app.state.config
+    enrichment_timeout = config.review_pipeline.enrichment_timeout_minutes
+
     try:
         plan_data = await generate_task_plan(
             title=task.title,
             description=task.description,
             repo_path=repo_path,
+            timeout_minutes=enrichment_timeout,
         )
     except RuntimeError as exc:
         logger.warning("Plan generation failed: %s", exc)

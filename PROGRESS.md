@@ -682,3 +682,10 @@
 - **Sanity check result**: TypeScript type-check clean. Ruff clean. 1000 backend tests passing.
 - **Status**: [DONE]
 - **Request**: Move T-P0-58 to Completed
+
+## 2026-03-04 07:00 -- [T-P0-61] Timeout normalization to 60min
+- **What I did**: Changed review_timeout_minutes default from 10 to 60 in config and orchestrator_config.yaml. Added enrichment_timeout_minutes field (default 60) to ReviewPipelineConfig. Added asyncio.wait_for timeout to both enrich_task_title and generate_task_plan subprocess calls, with configurable timeout passed from API endpoints. ProcessManager dev server timeout left at 10s.
+- **Deliverables**: src/config.py (mod), src/enrichment.py (mod), src/api.py (mod), orchestrator_config.yaml (mod), tests/test_enrichment.py (mod), tests/test_review_pipeline.py (mod)
+- **Sanity check result**: Ruff clean. 1006 tests passing.
+- **Status**: [DONE]
+- **Request**: Move T-P0-61 to Completed

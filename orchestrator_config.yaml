@@ -35,7 +35,7 @@ git:
     max_total_size_mb: 10
 
 review_pipeline:
-  review_timeout_minutes: 10
+  review_timeout_minutes: 60
   reviewers:
   - model: "claude-opus-4-6"
     focus: "feasibility_and_edge_cases"

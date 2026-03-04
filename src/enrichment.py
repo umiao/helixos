@@ -55,17 +55,22 @@ def is_claude_cli_available() -> bool:
     return shutil.which("claude") is not None
 
 
-async def enrich_task_title(title: str) -> dict[str, str]:
+async def enrich_task_title(
+    title: str,
+    timeout_minutes: int = 60,
+) -> dict[str, str]:
     """Call Claude CLI to generate a description and priority for a task title.
 
     Args:
         title: The raw task title to enrich.
+        timeout_minutes: Maximum time in minutes before the subprocess is
+            killed. 0 disables the timeout.
 
     Returns:
         Dict with ``description`` (str) and ``priority`` (str, e.g. "P0").
 
     Raises:
-        RuntimeError: If the Claude CLI subprocess fails.
+        RuntimeError: If the Claude CLI subprocess fails or times out.
     """
     args = [
         "claude", "-p", f"Task title: {title}",
@@ -82,7 +87,17 @@ async def enrich_task_title(title: str) -> dict[str, str]:
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE,
     )
-    stdout_bytes, stderr_bytes = await proc.communicate()
+    timeout_seconds = timeout_minutes * 60 if timeout_minutes > 0 else None
+    try:
+        stdout_bytes, stderr_bytes = await asyncio.wait_for(
+            proc.communicate(), timeout=timeout_seconds,
+        )
+    except TimeoutError:
+        proc.kill()
+        await proc.wait()
+        raise RuntimeError(
+            f"Enrichment subprocess timed out after {timeout_minutes} minutes"
+        ) from None
 
     if proc.returncode != 0:
         stderr_text = stderr_bytes.decode("utf-8", errors="replace")
@@ -170,6 +185,7 @@ async def generate_task_plan(
     title: str,
     description: str = "",
     repo_path: Path | None = None,
+    timeout_minutes: int = 60,
 ) -> dict:
     """Call Claude CLI to generate a structured implementation plan.
 
@@ -182,13 +198,15 @@ async def generate_task_plan(
         description: Existing task description (may be empty).
         repo_path: Optional path to the project repository for codebase
             context via ``--add-dir``.
+        timeout_minutes: Maximum time in minutes before the subprocess is
+            killed. 0 disables the timeout.
 
     Returns:
         Dict with ``plan`` (str), ``steps`` (list of dicts), and
         ``acceptance_criteria`` (list of str).
 
     Raises:
-        RuntimeError: If the Claude CLI subprocess fails.
+        RuntimeError: If the Claude CLI subprocess fails or times out.
     """
     user_prompt = f"Task: {title}"
     if description.strip():
@@ -214,7 +232,17 @@ async def generate_task_plan(
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE,
     )
-    stdout_bytes, stderr_bytes = await proc.communicate()
+    timeout_seconds = timeout_minutes * 60 if timeout_minutes > 0 else None
+    try:
+        stdout_bytes, stderr_bytes = await asyncio.wait_for(
+            proc.communicate(), timeout=timeout_seconds,
+        )
+    except TimeoutError:
+        proc.kill()
+        await proc.wait()
+        raise RuntimeError(
+            f"Plan generation subprocess timed out after {timeout_minutes} minutes"
+        ) from None
 
     if proc.returncode != 0:
         stderr_text = stderr_bytes.decode("utf-8", errors="replace")
