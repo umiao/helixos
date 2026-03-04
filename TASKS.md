@@ -27,6 +27,68 @@
 
 ### P0 -- Must Have (core functionality)
 
+#### T-P0-63a: Backend plan generation streaming + SSE events
+- **Priority**: P0
+- **Complexity**: M (1-2 sessions)
+- **Depends on**: None
+- **Description**: Plan generation backend is broken: `enrichment.py:generate_task_plan()` uses `proc.communicate()` which buffers ALL stdout until process exits (zero real-time feedback during 1-5 min CLI run), and `api.py:generate_plan()` sets `plan_status="generating"` in DB but never emits SSE events. Fix: refactor to line-by-line streaming with SSE + DB dual-write per line, convert sync POST to background task with 202 response, add crash safety and idempotency guards.
+  **SSE event contract** (63b and 64 must follow this): `{type, task_id, data: {plan_status?, message?, source?}, timestamp}`.
+- **Acceptance Criteria**:
+  1. `generate_task_plan()` accepts `on_log: Callable[[str], None]` callback, refactored from `proc.communicate()` to `proc.stdout.readline()` loop (like CodeExecutor pattern)
+  2. API endpoint converts sync POST to background task -- POST returns 202 immediately, plan runs in background with SSE streaming (same as execution model)
+  3. `api.py` emits SSE `plan_status_change` event on each transition (generating/ready/failed) AND SSE `log` events with `source="plan"` per stdout line
+  4. DB writes are per-line via `history_writer` (NOT batched) for crash safety -- if server dies mid-generation, all lines up to crash point are in DB
+  5. `finally:` block in API handler guarantees plan_status terminates to `ready` or `failed` -- never leaves `generating` on crash
+  6. Startup cleanup: on server boot, scan for tasks with `plan_status="generating"` and reset to `failed` (zombie protection)
+  7. Backend idempotency guard: if task already has `plan_status="generating"`, return 409 Conflict
+  8. If `proc.stdout.readline()` produces no output for 30s, emit a synthetic `[PROGRESS] heartbeat` line (same pattern as CodeExecutor)
+  9. **User journey (backend-only)**: POST to generate plan -> 202 response -> SSE stream shows log lines appearing per-second -> plan_status_change event fires on completion -> DB contains all log lines with source="plan"
+  10. **Inverse case**: If CLI fails mid-stream, plan_status transitions to `failed`, SSE emits failure event, partial logs are preserved in DB
+  11. **Manual smoke test**: `curl -X POST .../generate_plan`, then `curl .../events` -- must see SSE log events within 5 seconds, plan_status_change at end
+
+#### T-P0-63b: Frontend plan generation UX wiring
+- **Priority**: P0
+- **Complexity**: S (< 1 session)
+- **Depends on**: T-P0-63a
+- **Description**: Wire frontend components to consume SSE plan_status_change events and plan log stream from 63a. App.tsx subscribes to events, ExecutionLog shows plan logs with "PLAN" badge, ReviewPanel shows elapsed timer during generation.
+- **Acceptance Criteria**:
+  1. App.tsx SSE handler subscribes to `plan_status_change` events, updates task state -- card transitions happen automatically without manual refresh
+  2. ExecutionLog shows plan logs with purple "PLAN" badge (source="plan"), same pattern as "REVIEW" badge from T-P0-55
+  3. ReviewPanel shows elapsed timer during generation (like execution timer)
+  4. SSE reconnection recovery: on page refresh or SSE reconnect, ExecutionLog loads historical plan logs from DB via existing `/api/tasks/{id}/logs` endpoint (verify it returns source="plan" logs)
+  5. **User journey**: User clicks "Generate Plan" -> sees "Generating..." state immediately -> ExecutionLog shows Claude CLI output streaming in real-time -> after 1-5 min plan appears in ReviewPanel -> plan_status badge updates on Kanban card
+  6. **Inverse case**: If CLI fails, user sees error in both ReviewPanel (red error msg) AND ExecutionLog (error-level log entry) AND Kanban card shows "failed" badge
+  7. **Manual smoke test**: Start server, create task, click Generate Plan, watch ExecutionLog panel -- must see log lines appearing within 5 seconds of clicking button, not only after completion
+
+#### T-P0-64: Real-time log streaming for review pipeline
+- **Priority**: P0
+- **Complexity**: S (< 1 session)
+- **Depends on**: T-P0-63a (uses same `on_log: Callable[[str], None]` callback interface for SSE + DB dual-write)
+- **Description**: Review pipeline currently emits SSE `review_progress` events but does NOT persist logs to `execution_logs` table. User cannot see review activity in the ExecutionLog panel after the fact. Also, individual reviewer Claude CLI calls (`_call_reviewer`) buffer all output via `proc.communicate()` -- no streaming during the review subprocess.
+  Fix: Apply the same streaming pattern from T-P0-63a to review subprocess calls. Write review progress to execution_logs with `source="review"`. Add `metadata_json` column for structured reviewer context. SSE events must follow the contract from 63a: `{type, task_id, data: {message?, source?}, timestamp}`.
+- **Acceptance Criteria**:
+  1. `execution_logs` table gets optional `metadata_json` column (Text, nullable) for structured context like `{"reviewer_focus": "feasibility", "reviewer_model": "claude-sonnet-4-5"}` -- avoids schema explosion; source="review" + metadata_json covers all reviewer-specific needs
+  2. `_call_claude_cli()` in review_pipeline.py refactored from `proc.communicate()` to `proc.stdout.readline()` loop, accepting `on_log` callback (same interface as 63a's `generate_task_plan`)
+  3. `review_pipeline.py` passes `on_log` to `_call_reviewer`, which emits SSE + DB dual-write per line via `event_bus.emit("log", ...) + history_writer.write_log(...)`
+  4. Review pipeline `on_progress` callbacks write to `execution_logs` via `history_writer` (source="review")
+  5. ExecutionLog component shows review logs interleaved with execution logs for the same task, with "REVIEW" source badge
+  6. **User journey**: User triggers review -> ExecutionLog shows "Review started" -> shows Claude CLI output from each reviewer in real-time -> shows "Review completed: approved/rejected"
+  7. **Inverse case**: If a reviewer subprocess fails mid-stream, partial review logs are preserved in DB, review status transitions to failed, error appears in ExecutionLog
+  8. **Manual smoke test**: Trigger review on a task with plan, watch ExecutionLog -- reviewer output lines must appear within 5 seconds, not only after all reviewers complete
+
+#### T-P0-65: Plan generation button discoverability + Kanban card visual feedback
+- **Priority**: P0
+- **Complexity**: S (< 1 session)
+- **Depends on**: T-P0-63b (needs SSE plan_status events wired in frontend)
+- **Description**: The "Generate Plan" button in TaskCardPopover is nearly invisible (requires precise 300ms hover on small card). The Kanban card itself shows no visual indicator during plan generation. Fix: (A) Add persistent "Generate Plan" button directly on TaskCard face (not just in popover) for tasks with `plan_status=none/failed`. (B) Add pulsing/animated border on TaskCard when `plan_status=generating` (like the "running" animation pattern). (C) Backend 409 guard from 63a prevents concurrent generation -- frontend disables button but does NOT solely rely on client-side state for protection.
+- **Acceptance Criteria**:
+  1. TaskCard shows a small "Plan" action button on the card face for tasks needing plans (plan_status=none or failed), without requiring hover
+  2. TaskCard shows pulsing/glowing border animation when plan_status=generating (similar to running task animation)
+  3. Frontend double-click prevention (disable button on click) + backend 409 guard from T-P0-63a (defense in depth)
+  4. **Inverse case**: Cards with plan_status=ready show no plan button (already has plan). Cards in done/failed/blocked show no plan button.
+  5. **User journey**: User sees card in Queued column with visible "Plan" chip -> clicks it -> card starts pulsing -> ExecutionLog shows progress -> pulsing stops when plan ready -> "Plan" chip disappears
+  6. **Manual smoke test**: Open Kanban, find task without plan -- "Plan" button must be visible WITHOUT hovering. Click it, card must visually pulse within 1 second.
+
 ### Tech Debt (tracked, not blocking current work)
 - [ ] T-P0-28 postmortem: integration test asserting raw_response contains fields not present in summary/suggestions
 - [ ] Log retention/purge policy for execution_logs + review_history tables
@@ -40,18 +102,23 @@
 - [ ] Scheduler single finalization point / execution epoch ID (prevent race conditions where concurrent paths both try to finalize a task; from T-P0-49)
 - [ ] State machine transition audit -- enumerate all race condition windows in status transitions (timeout vs completion, SSE vs DB, concurrent drag vs scheduler)
 - [ ] SSE event payload structure: add explicit `origin` field (execution/review/scheduler) for clean log categorization (from T-P0-55)
+- [ ] Unified TaskEvent model: formalize the SSE event contract `{type, task_id, data: {...}, timestamp}` into a shared Pydantic model. Currently defined as a convention in T-P0-63a; should become enforced schema after 63a/64 are complete.
 - [ ] Deduplicate `_is_process_alive()` -- currently copy-pasted in port_registry.py, process_manager.py, subprocess_registry.py. Extract to shared module (e.g. `src/platform_utils.py`) and import everywhere. (from os.kill CTRL_C_EVENT bug)
+- [ ] Post-mortem: T-P0-57/T-P0-59 were marked DONE without manual smoke test. Lesson: any task touching subprocess + UX must have a real invocation test (not just mocked unit tests). Add to CLAUDE.md as enforcement rule.
 
 
 
 ### P1-UX -- Polish
+
 
 ## Dependency Graph
 
 > Full historical dependency graph relocated to [docs/architecture/dependency-graph-history.md](docs/architecture/dependency-graph-history.md).
 
 ### Current
-(no active dependencies)
+- T-P0-63b -> T-P0-63a (frontend wiring depends on backend streaming)
+- T-P0-64 -> T-P0-63a (review streaming uses same on_log interface)
+- T-P0-65 -> T-P0-63b (card visual feedback depends on frontend SSE wiring)
 
 ---
 
