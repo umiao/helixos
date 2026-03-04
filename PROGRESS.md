@@ -612,3 +612,10 @@
 - **Sanity check result**: 996 tests passing. Ruff clean.
 - **Status**: [DONE]
 - **Request**: Move T-P0-49 to Completed
+
+## 2026-03-03 21:00 -- [T-P0-52] Immediate next-task dispatch after task completion
+- **What I did**: Added immediate tick dispatch after task completion so the scheduler no longer waits up to 5s (TICK_INTERVAL) before picking the next QUEUED task. Added `asyncio.Lock` (`_tick_lock`) to `tick()` for re-entrancy safety so concurrent tick calls (periodic + immediate post-completion) do not race. In `_execute_task()` finally block, added `asyncio.create_task(self.tick())` to trigger immediate dispatch after cleanup.
+- **Deliverables**: src/scheduler.py (mod -- _tick_lock in __init__, async with _tick_lock in tick(), asyncio.create_task(self.tick()) in _execute_task finally), tests/test_scheduler.py (mod -- 4 regression tests: immediate dispatch <1s, slot-freed dispatch, concurrent completions no duplicate, tick exception releases lock)
+- **Sanity check result**: 1000 tests passing. Ruff clean.
+- **Status**: [DONE]
+- **Request**: Move T-P0-52 to Completed

@@ -1645,3 +1645,238 @@ class TestTimeoutRaceGuards:
         final = await task_manager.get_task("proj:t3")
         assert final is not None
         assert final.status == TaskStatus.DONE
+
+
+# ---------------------------------------------------------------------------
+# Tests -- Immediate next-task dispatch (T-P0-52)
+# ---------------------------------------------------------------------------
+
+
+class TestImmediateDispatch:
+    """Tests for immediate tick dispatch after task completion."""
+
+    async def test_next_task_dispatched_immediately(
+        self, scheduler_env,
+    ) -> None:
+        """After task A completes, queued task B should be dispatched
+        within <1 second (not waiting for the 5s periodic tick)."""
+        scheduler, task_manager, _event_bus, emitted = scheduler_env
+
+        # Track execution order and timing
+        executed: list[tuple[str, float]] = []
+        import time
+
+        class TimingExecutor(BaseExecutor):
+            """Executor that records execution times."""
+
+            async def execute(
+                self, task: Task, project: Project,
+                env: dict[str, str],
+                on_log: Callable[[str], None],
+            ) -> ExecutorResult:
+                """Record task execution time."""
+                executed.append((task.id, time.monotonic()))
+                on_log("done")
+                return ExecutorResult(
+                    success=True, exit_code=0,
+                    log_lines=["done"], duration_seconds=0.01,
+                )
+
+            async def cancel(self) -> None:
+                """No-op."""
+
+        scheduler._get_executor = lambda _: TimingExecutor()
+
+        # concurrency=1 for the project, so only one at a time
+        task_a = _make_task(task_id="proj:a", local_task_id="a", title="Task A")
+        task_b = _make_task(task_id="proj:b", local_task_id="b", title="Task B")
+        await task_manager.create_task(task_a)
+        await task_manager.create_task(task_b)
+
+        # Dispatch first task via tick
+        await scheduler.tick()
+
+        # Wait for both tasks to complete (task B should be dispatched
+        # immediately after task A finishes via the finally-block tick)
+        for _ in range(50):
+            await asyncio.sleep(0.05)
+            if len(executed) >= 2:
+                break
+
+        assert len(executed) == 2, (
+            f"Expected 2 executions but got {len(executed)}"
+        )
+        assert executed[0][0] == "proj:a"
+        assert executed[1][0] == "proj:b"
+
+        # Task B should start within 1 second of task A
+        gap = executed[1][1] - executed[0][1]
+        assert gap < 1.0, (
+            f"Task B started {gap:.2f}s after A -- should be <1s"
+        )
+
+    async def test_slot_freed_dispatches_next(
+        self, scheduler_env,
+    ) -> None:
+        """When all slots are full and one task completes, the next queued
+        task should be dispatched immediately."""
+        scheduler, task_manager, _event_bus, emitted = scheduler_env
+
+        release_event = asyncio.Event()
+        dispatched: list[str] = []
+
+        class SlotExecutor(BaseExecutor):
+            """Executor that blocks task A until released."""
+
+            async def execute(
+                self, task: Task, project: Project,
+                env: dict[str, str],
+                on_log: Callable[[str], None],
+            ) -> ExecutorResult:
+                """Block on task A, return immediately for others."""
+                dispatched.append(task.id)
+                on_log("started")
+                if task.id == "proj:a":
+                    await release_event.wait()
+                return ExecutorResult(
+                    success=True, exit_code=0,
+                    log_lines=["done"], duration_seconds=0.01,
+                )
+
+            async def cancel(self) -> None:
+                """No-op."""
+
+        scheduler._get_executor = lambda _: SlotExecutor()
+
+        # Project max_concurrency=1, so only one task at a time
+        task_a = _make_task(task_id="proj:a", local_task_id="a", title="Task A")
+        task_b = _make_task(task_id="proj:b", local_task_id="b", title="Task B")
+        await task_manager.create_task(task_a)
+        await task_manager.create_task(task_b)
+
+        # Tick dispatches task A (blocks)
+        await scheduler.tick()
+        await asyncio.sleep(0.05)
+
+        assert "proj:a" in dispatched
+        assert "proj:b" not in dispatched
+
+        # Release task A -> should immediately dispatch task B
+        release_event.set()
+
+        for _ in range(50):
+            await asyncio.sleep(0.05)
+            if "proj:b" in dispatched:
+                break
+
+        assert "proj:b" in dispatched, (
+            "Task B should have been dispatched after task A completed"
+        )
+
+    async def test_concurrent_completions_no_duplicate_dispatch(
+        self, scheduler_env,
+    ) -> None:
+        """Two tasks completing nearly simultaneously should not cause
+        duplicate execution of the same queued task."""
+        # Use global_limit=2 so two tasks run concurrently
+        scheduler, task_manager, _event_bus, emitted = scheduler_env
+        config = _make_config(global_limit=3)
+        registry = ProjectRegistry(config)
+
+        # Override project concurrency to allow 2
+        proj_config = config.projects["proj"]
+        proj_config.max_concurrency = 2
+
+        scheduler._config = config
+        scheduler._registry = registry
+
+        execution_count: dict[str, int] = {}
+        release_event = asyncio.Event()
+
+        class CountingExecutor(BaseExecutor):
+            """Executor that counts how many times each task is executed."""
+
+            async def execute(
+                self, task: Task, project: Project,
+                env: dict[str, str],
+                on_log: Callable[[str], None],
+            ) -> ExecutorResult:
+                """Count execution per task."""
+                execution_count[task.id] = execution_count.get(task.id, 0) + 1
+                on_log("done")
+                if task.id in ("proj:a", "proj:b"):
+                    await release_event.wait()
+                return ExecutorResult(
+                    success=True, exit_code=0,
+                    log_lines=["done"], duration_seconds=0.01,
+                )
+
+            async def cancel(self) -> None:
+                """No-op."""
+
+        scheduler._get_executor = lambda _: CountingExecutor()
+
+        # Create 3 tasks: a and b run concurrently, c waits
+        for tid in ("a", "b", "c"):
+            t = _make_task(task_id=f"proj:{tid}", local_task_id=tid, title=f"Task {tid}")
+            await task_manager.create_task(t)
+
+        # Dispatch a and b
+        await scheduler.tick()
+        await asyncio.sleep(0.05)
+
+        # Release both simultaneously -> both trigger immediate ticks
+        release_event.set()
+
+        for _ in range(50):
+            await asyncio.sleep(0.05)
+            if execution_count.get("proj:c", 0) >= 1:
+                break
+
+        # Task c should be executed exactly once (lock prevents double dispatch)
+        assert execution_count.get("proj:c", 0) == 1, (
+            f"Task C executed {execution_count.get('proj:c', 0)} times, expected 1"
+        )
+
+    async def test_tick_exception_releases_lock(
+        self, scheduler_env,
+    ) -> None:
+        """If tick() throws an exception, the lock should be released
+        and subsequent ticks should still execute normally."""
+        scheduler, task_manager, _event_bus, emitted = scheduler_env
+
+        call_count = 0
+        original_get_ready = task_manager.get_ready_tasks
+
+        async def exploding_get_ready(limit: int = 10) -> list[Task]:
+            """Raise on first call, then work normally."""
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1:
+                raise RuntimeError("Simulated DB error")
+            return await original_get_ready(limit=limit)
+
+        task_manager.get_ready_tasks = exploding_get_ready
+
+        mock_exec = MockExecutor()
+        scheduler._get_executor = lambda _: mock_exec
+
+        task = _make_task()
+        await task_manager.create_task(task)
+
+        # First tick should raise inside the lock
+        with pytest.raises(RuntimeError, match="Simulated DB error"):
+            await scheduler.tick()
+
+        # Lock should be released -- second tick should work
+        await scheduler.tick()
+
+        # Wait for execution to complete
+        running_tasks = list(scheduler.running.values())
+        if running_tasks:
+            await asyncio.gather(*running_tasks)
+
+        assert len(mock_exec.calls) == 1
+        updated = await task_manager.get_task("proj:t1")
+        assert updated is not None
+        assert updated.status == TaskStatus.DONE

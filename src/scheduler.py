@@ -72,6 +72,7 @@ class Scheduler:
         self._executors: dict[str, BaseExecutor] = {}
         self._cancelled: set[str] = set()
         self._tick_task: asyncio.Task[None] | None = None
+        self._tick_lock = asyncio.Lock()
         self._paused_projects: set[str] = set()
         # Projects where review gate is disabled (default: enabled for all)
         self._review_gate_disabled: set[str] = set()
@@ -315,53 +316,56 @@ class Scheduler:
     # ------------------------------------------------------------------
 
     async def tick(self) -> None:
-        """Main scheduling loop iteration (called every 5s).
+        """Main scheduling loop iteration (called every 5s or on task completion).
 
         Checks available concurrency slots, fetches QUEUED tasks, verifies
         per-project concurrency and dependency constraints, and dispatches
-        executions.
+        executions.  Uses ``_tick_lock`` for re-entrancy safety so that
+        concurrent tick calls (periodic + immediate post-completion) do not
+        race.
         """
-        slots = self.available_slots
-        if slots <= 0:
-            return
+        async with self._tick_lock:
+            slots = self.available_slots
+            if slots <= 0:
+                return
 
-        candidates = await self._task_manager.get_ready_tasks(limit=slots)
+            candidates = await self._task_manager.get_ready_tasks(limit=slots)
 
-        for task in candidates:
-            if self.available_slots <= 0:
-                break
+            for task in candidates:
+                if self.available_slots <= 0:
+                    break
 
-            if task.project_id in self._paused_projects:
-                continue
+                if task.project_id in self._paused_projects:
+                    continue
 
-            if await self._project_is_busy(task.project_id):
-                continue
+                if await self._project_is_busy(task.project_id):
+                    continue
 
-            if not await self._deps_fulfilled(task):
-                continue
+                if not await self._deps_fulfilled(task):
+                    continue
 
-            # Layer 2: review gate -- refuse to execute unreviewed tasks
-            if not await self._can_execute(task):
-                continue
+                # Layer 2: review gate -- refuse to execute unreviewed tasks
+                if not await self._can_execute(task):
+                    continue
 
-            try:
-                project = self._registry.get_project(task.project_id)
-            except KeyError:
-                logger.warning(
-                    "Unknown project %s for task %s", task.project_id, task.id
+                try:
+                    project = self._registry.get_project(task.project_id)
+                except KeyError:
+                    logger.warning(
+                        "Unknown project %s for task %s", task.project_id, task.id
+                    )
+                    continue
+
+                executor = self._get_executor(project.executor_type)
+
+                await self._task_manager.update_status(task.id, TaskStatus.RUNNING)
+                self._event_bus.emit(
+                    "status_change", task.id, {"status": "running"}
                 )
-                continue
 
-            executor = self._get_executor(project.executor_type)
-
-            await self._task_manager.update_status(task.id, TaskStatus.RUNNING)
-            self._event_bus.emit(
-                "status_change", task.id, {"status": "running"}
-            )
-
-            self.running[task.id] = asyncio.create_task(
-                self._execute_task(executor, task, project)
-            )
+                self.running[task.id] = asyncio.create_task(
+                    self._execute_task(executor, task, project)
+                )
 
     # ------------------------------------------------------------------
     # Concurrency control
@@ -641,6 +645,9 @@ class Scheduler:
             self.running.pop(task.id, None)
             self._executors.pop(task.id, None)
             self._cancelled.discard(task.id)
+            # Immediate next-task dispatch: trigger a tick right away
+            # instead of waiting for the next periodic interval.
+            asyncio.create_task(self.tick())
 
     async def _run_with_retry(
         self,

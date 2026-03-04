@@ -19,29 +19,6 @@
 
 
 
-#### T-P0-52: Immediate next-task dispatch after task completion
-- **Priority**: P0
-- **Complexity**: S
-- **Depends on**: None
-- **Description**: After a RUNNING task finishes (DONE/FAILED/BLOCKED), the scheduler
-  waits up to 5 seconds (TICK_INTERVAL) before picking the next QUEUED task. This makes
-  the pipeline feel sluggish. After task completion, trigger an immediate tick() to
-  dispatch the next eligible task without waiting for the periodic interval.
-- **Acceptance Criteria**:
-  1. In scheduler._execute_task() finally block (after removing from self.running),
-     schedule an immediate tick via asyncio.create_task(self.tick())
-  2. tick() must use `asyncio.Lock` (NOT a boolean flag) for re-entrancy safety;
-     acquire via `async with self._tick_lock:` to guarantee release on exception
-  3. Regression test: complete task A -> task B (QUEUED, unblocked) dispatched within
-     <1 second (not waiting for next 5s tick)
-  4. Regression test: all concurrency slots full -> completion of one task immediately
-     dispatches next queued task
-  5. Regression test: two tasks complete nearly simultaneously -> only valid dispatches
-     occur (no duplicate execution of same task)
-  6. Regression test: tick() throws exception -> lock is released, subsequent ticks
-     still execute normally
-  7. Manually verify: run two QUEUED tasks with concurrency=1 -> second starts
-     immediately after first completes, no visible delay
 
 #### T-P0-53: Active process pulsing badges on task cards (RUNNING + review)
 - **Priority**: P0
@@ -302,6 +279,9 @@ T-P0-47 [M] No Plan badges + visual guidance (no deps, pairs with T-P0-44)
 
 ## Completed Tasks
 <!-- Move finished tasks here with [x] and completion date -->
+
+#### [x] T-P0-52: Immediate next-task dispatch after task completion -- 2026-03-03
+- Added immediate tick dispatch after task completion via asyncio.create_task(self.tick()) in _execute_task finally block. Added asyncio.Lock to tick() for re-entrancy safety. 4 regression tests (immediate <1s dispatch, slot-freed dispatch, concurrent completions no duplicate, exception releases lock). 1000 tests passing.
 
 #### [x] T-P0-49: Fix inactivity timeout race condition -- kill vs. successful completion -- 2026-03-03
 - Fixed race where inactivity timeout fires but process already exited 0. code_executor.py: after kill sequence, if returncode==0 override timeout flags to report success. scheduler.py: idempotent DONE guard (re-fetch before transition, skip if already DONE) + state guard before FAILED (verify still RUNNING). 4 regression tests. 996 tests passing.
