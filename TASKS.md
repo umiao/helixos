@@ -17,28 +17,6 @@
 - **Depends on**: None
 - **Status**: Blocked -- requires research on reliable usage API endpoint (non-public internal API may change)
 
-#### T-P0-48: Running Jobs Panel -- click top-right "Running" to see active job list
-- **Priority**: P0
-- **Complexity**: M
-- **Depends on**: None
-- **Description**: When user clicks the "Running: N" indicator in the top-right header,
-  display a panel showing all currently executing jobs across projects. Can be implemented
-  as an additional column/section beside the existing review status bar at the bottom.
-- **Design questions**:
-  - Source of truth: scheduler in-memory state vs DB query (TaskRow WHERE status=RUNNING)?
-  - Polling interval vs SSE-driven updates?
-  - How to handle crash recovery (stale RUNNING entries)?
-- **Acceptance Criteria**:
-  1. Clicking "Running: N" in header toggles a running-jobs panel
-  2. Panel lists each running task: task ID, title, project, elapsed time, phase
-  3. User journey: drag task to QUEUED -> scheduler picks up -> "Running: 1" appears ->
-     click indicator -> panel shows task with elapsed timer -> task completes -> panel
-     updates to "Running: 0"
-  4. Panel auto-updates via SSE (no manual refresh needed)
-  5. When no jobs are running, panel shows empty state message
-  6. When panel is open and a job finishes, the entry is removed in real-time
-  7. Manually verify: click "Running: N" -> panel opens with correct job list -> wait for
-     completion -> entry disappears
 
 #### T-P0-49: Fix inactivity timeout race condition -- kill vs. successful completion
 - **Priority**: P0
@@ -261,6 +239,9 @@ T-P0-47 [M] No Plan badges + visual guidance (no deps, pairs with T-P0-44)
 
 ## Completed Tasks
 <!-- Move finished tasks here with [x] and completion date -->
+
+#### [x] T-P0-48: Running Jobs Panel -- click top-right "Running" to see active job list -- 2026-03-03
+- Created RunningJobsPanel component showing all running tasks with task ID, title, project name, elapsed timer, phase, and retry count. "Running: N" header indicator is now clickable to toggle the panel. Added "Running" as third bottom panel tab alongside Execution Log and Review. Panel auto-updates via SSE (no polling). Empty state shown when no jobs running. Entries removed in real-time when jobs complete. 992 tests passing, frontend builds clean.
 
 #### [x] T-P0-47: No Plan badges + visual guidance in swim lanes -- 2026-03-03
 - Added amber "No Plan" badge on TaskCard when `task.description` is empty/whitespace. Added planless task count indicator in BACKLOG/REVIEW column headers. Generate Plan button is now a prominent CTA for planless tasks (indigo-600 with shadow) and subtle for tasks with plans. Plan section auto-expands after successful generate-plan call. 992 tests passing, frontend builds clean.

@@ -598,3 +598,10 @@
 - **Sanity check result**: 992 tests passing. Ruff clean. Frontend builds clean. TypeScript compiles clean.
 - **Status**: [DONE]
 - **Request**: Move T-P0-47 to Completed
+
+## 2026-03-03 19:00 -- [T-P0-48] Running Jobs Panel -- click top-right "Running" to see active job list
+- **What I did**: Created RunningJobsPanel component that displays all currently running tasks across projects. Each entry shows task ID, title, project name, elapsed timer (h:m:s), execution phase, and retry count. Made the "Running: N" header indicator clickable to toggle the panel (highlighted when active). Added "Running" as a third bottom panel tab alongside Execution Log and Review, showing running count badge. Panel auto-updates in real-time via existing SSE-driven task state (no polling needed). Empty state with descriptive message when no jobs running. Entries appear/disappear in real-time as tasks start/complete. Clicking a running task focuses it in the bottom panel.
+- **Deliverables**: frontend/src/components/RunningJobsPanel.tsx (new -- panel component), frontend/src/App.tsx (mod -- clickable Running indicator, third bottom panel tab, RunningJobsPanel wiring)
+- **Sanity check result**: 992 tests passing. Ruff clean. Frontend builds clean. TypeScript compiles clean.
+- **Status**: [DONE]
+- **Request**: Move T-P0-48 to Completed

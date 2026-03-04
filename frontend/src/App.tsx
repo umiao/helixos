@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import SwimLane from "./components/SwimLane";
 import ExecutionLog, { type LogEntry } from "./components/ExecutionLog";
 import ReviewPanel from "./components/ReviewPanel";
+import RunningJobsPanel from "./components/RunningJobsPanel";
 import ResizableDivider, {
   loadPanelHeight,
 } from "./components/ResizableDivider";
@@ -42,7 +43,7 @@ function App() {
   const [toasts, setToasts] = useState<ToastMessage[]>([]);
   const [logEntries, setLogEntries] = useState<LogEntry[]>([]);
   const [selectedTask, setSelectedTask] = useState<Task | null>(null);
-  const [bottomPanel, setBottomPanel] = useState<"log" | "review">("log");
+  const [bottomPanel, setBottomPanel] = useState<"log" | "review" | "running">("log");
   const [showImportModal, setShowImportModal] = useState(false);
   const [newTaskProject, setNewTaskProject] = useState<Project | null>(null);
   const [enrichTitle, setEnrichTitle] = useState("");
@@ -582,12 +583,22 @@ function App() {
             </span>
           </span>
 
-          <span className="text-sm text-gray-500">
+          <button
+            onClick={() =>
+              setBottomPanel((prev) => (prev === "running" ? "log" : "running"))
+            }
+            className={`text-sm cursor-pointer rounded-md px-2 py-1 transition-colors ${
+              bottomPanel === "running"
+                ? "bg-indigo-100 text-indigo-700"
+                : "text-gray-500 hover:bg-gray-100"
+            }`}
+            title="Toggle running jobs panel"
+          >
             Running:{" "}
             <span className="font-semibold text-indigo-600">
               {runningCount}
             </span>
-          </span>
+          </button>
           <button
             onClick={() => setShowImportModal(true)}
             className="rounded-md bg-gray-100 border border-gray-300 px-3 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-200 transition-colors"
@@ -734,6 +745,17 @@ function App() {
           >
             Review
           </button>
+          <button
+            onClick={() => setBottomPanel("running")}
+            className={`px-3 py-1.5 text-xs font-medium border-b-2 transition-colors ${
+              bottomPanel === "running"
+                ? "border-indigo-500 text-indigo-700"
+                : "border-transparent text-gray-500 hover:text-gray-700"
+            }`}
+            title="View currently running jobs across all projects"
+          >
+            Running{runningCount > 0 ? ` (${runningCount})` : ""}
+          </button>
 
           {/* Selected task indicator with clear button */}
           {selectedTask && (
@@ -763,7 +785,7 @@ function App() {
               selectedTaskStatus={selectedTask?.status}
               executionStartedAt={selectedTask?.execution?.started_at}
             />
-          ) : (
+          ) : bottomPanel === "review" ? (
             <ReviewPanel
               task={selectedTask}
               reviewPhase={reviewPhase}
@@ -774,6 +796,12 @@ function App() {
                   prev.map((t) => (t.id === updated.id ? updated : t)),
                 );
               }}
+            />
+          ) : (
+            <RunningJobsPanel
+              tasks={tasks}
+              projects={projects}
+              onSelectTask={handleSelectTask}
             />
           )}
         </div>
