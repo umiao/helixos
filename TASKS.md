@@ -100,21 +100,7 @@
 
 ### P1-UX -- Polish
 
-#### T-P0-46: Unified MarkdownRenderer abstraction layer
-- **Priority**: P1
-- **Complexity**: M
-- **Depends on**: None
-- **Problem**: Plan text in "Plan Under Review" renders as plain `<pre>` text with no markdown formatting. Introducing `react-markdown` as a point fix without a unified abstraction creates tech debt.
-- **Acceptance Criteria**:
-  1. Create `MarkdownRenderer.tsx` component with unified styling tokens
-  2. Install lightweight markdown renderer (react-markdown or marked)
-  3. Unified scroll behavior (max-height with overflow-y-auto)
-  4. Font size toggle (S/M/L) with localStorage persistence
-  5. Apply to: plan content in ReviewPanel, plan_snapshot diffs in PlanDiffView, reviewer raw output
-  6. Container: better padding, max-height with scroll, subtle background
-  7. Apply markdown rendering in both edit-preview and view modes
-  8. **Manual smoke test**: Open ReviewPanel -> plan section shows formatted markdown (headings, lists, code blocks) instead of raw text
-- **Files**: `frontend/src/components/MarkdownRenderer.tsx` (new), `frontend/src/components/ReviewPanel.tsx`, `frontend/package.json`
+#### ~~T-P0-46: Unified MarkdownRenderer abstraction layer~~ [DONE -- see Completed Tasks]
 
 #### T-P0-47: No Plan badges + visual guidance in swim lanes
 - **Priority**: P1
@@ -270,7 +256,7 @@ T-P0-38 [S] Backward-drag confirmation dialog (no deps)
 
 --- P1-UX (polish) ---
 
-T-P0-46 [M] MarkdownRenderer abstraction (no deps)
+T-P0-46 [M] MarkdownRenderer abstraction (no deps) [DONE]
 T-P0-47 [M] No Plan badges + visual guidance (no deps, pairs with T-P0-44)
 ```
 
@@ -281,6 +267,9 @@ T-P0-47 [M] No Plan badges + visual guidance (no deps, pairs with T-P0-44)
 
 ## Completed Tasks
 <!-- Move finished tasks here with [x] and completion date -->
+
+#### [x] T-P0-46: Unified MarkdownRenderer abstraction layer -- 2026-03-03
+- Created MarkdownRenderer.tsx using react-markdown with unified styling tokens (headings, lists, code blocks, tables, blockquotes). Font size toggle (S/M/L) with localStorage persistence. Applied to plan content (view mode), reviewer raw output, and new edit-preview mode in inline plan editor. Scroll container with max-height. 992 tests passing.
 
 #### [x] T-P0-38: Backward-drag confirmation dialog redesign -- 2026-03-03
 - Replaced browser `window.prompt()` with styled BackwardDragModal component. Displays task title, ID, source/target columns with arrow visualization, consequence text, and optional reason input. Amber color scheme, consistent with ReviewSubmitModal design. Enter/Escape keyboard support. Forward drags unaffected. 992 tests passing.

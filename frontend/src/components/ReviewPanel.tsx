@@ -31,6 +31,7 @@ import {
   ApiError,
 } from "../api";
 import PlanDiffView from "./PlanDiffView";
+import MarkdownRenderer from "./MarkdownRenderer";
 
 type DecisionType = "approve" | "reject" | "request_changes";
 
@@ -79,6 +80,7 @@ export default function ReviewPanel({
   const [editDraft, setEditDraft] = useState("");
   const [saving, setSaving] = useState(false);
   const [generating, setGenerating] = useState(false);
+  const [editPreview, setEditPreview] = useState(false);
 
   const toggleRawResponse = useCallback((entryId: number) => {
     setExpandedRaw((prev) => ({ ...prev, [entryId]: !prev[entryId] }));
@@ -225,11 +227,13 @@ export default function ReviewPanel({
   const handleEditPlan = () => {
     setEditDraft(task.description || "");
     setEditing(true);
+    setEditPreview(false);
   };
 
   const handleCancelEdit = () => {
     setEditing(false);
     setEditDraft("");
+    setEditPreview(false);
   };
 
   const handleSavePlan = async () => {
@@ -503,9 +507,11 @@ export default function ReviewPanel({
                   This is the raw LLM output for debugging. Use the structured summary above for decision-making.
                 </p>
               </div>
-              <pre className="text-[10px] text-gray-600 bg-gray-100 rounded p-2 overflow-x-auto max-h-64 overflow-y-auto whitespace-pre-wrap break-words font-mono leading-relaxed">
-                {entry.raw_response}
-              </pre>
+              <MarkdownRenderer
+                content={entry.raw_response!}
+                maxHeight="16rem"
+                showSizeToggle={false}
+              />
             </div>
           )}
         </div>
@@ -632,13 +638,44 @@ export default function ReviewPanel({
             <div className="px-2.5 pb-2.5">
               {editing ? (
                 <div className="space-y-2">
-                  <textarea
-                    value={editDraft}
-                    onChange={(e) => setEditDraft(e.target.value)}
-                    rows={8}
-                    disabled={saving}
-                    className="w-full rounded-md border border-indigo-300 bg-white px-2 py-1.5 text-xs text-gray-700 font-mono focus:outline-none focus:ring-1 focus:ring-indigo-400 focus:border-indigo-400 disabled:opacity-50 resize-y"
-                  />
+                  {/* Edit / Preview tabs */}
+                  <div className="flex gap-1 border-b border-gray-200 pb-1">
+                    <button
+                      onClick={() => setEditPreview(false)}
+                      className={`px-2 py-0.5 text-[10px] font-medium rounded-t transition-colors ${
+                        !editPreview
+                          ? "bg-indigo-100 text-indigo-700 border-b-2 border-indigo-500"
+                          : "text-gray-500 hover:text-gray-700"
+                      }`}
+                    >
+                      Edit
+                    </button>
+                    <button
+                      onClick={() => setEditPreview(true)}
+                      className={`px-2 py-0.5 text-[10px] font-medium rounded-t transition-colors ${
+                        editPreview
+                          ? "bg-indigo-100 text-indigo-700 border-b-2 border-indigo-500"
+                          : "text-gray-500 hover:text-gray-700"
+                      }`}
+                    >
+                      Preview
+                    </button>
+                  </div>
+                  {editPreview ? (
+                    <MarkdownRenderer
+                      content={editDraft}
+                      maxHeight="14rem"
+                      showSizeToggle={false}
+                    />
+                  ) : (
+                    <textarea
+                      value={editDraft}
+                      onChange={(e) => setEditDraft(e.target.value)}
+                      rows={8}
+                      disabled={saving}
+                      className="w-full rounded-md border border-indigo-300 bg-white px-2 py-1.5 text-xs text-gray-700 font-mono focus:outline-none focus:ring-1 focus:ring-indigo-400 focus:border-indigo-400 disabled:opacity-50 resize-y"
+                    />
+                  )}
                   <div className="flex gap-2">
                     <button
                       onClick={handleSavePlan}
@@ -659,9 +696,10 @@ export default function ReviewPanel({
               ) : (
                 <>
                   {task.description && task.description.trim() ? (
-                    <pre className="text-xs text-gray-700 whitespace-pre-wrap break-words font-sans leading-relaxed">
-                      {task.description}
-                    </pre>
+                    <MarkdownRenderer
+                      content={task.description}
+                      maxHeight="20rem"
+                    />
                   ) : (
                     <p className="text-xs text-gray-400 italic">
                       (No plan content provided to reviewer)

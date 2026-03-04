@@ -584,3 +584,10 @@
 - **Sanity check result**: 992 tests passing. Ruff clean. Frontend builds clean.
 - **Status**: [DONE]
 - **Request**: Move T-P0-38 to Completed
+
+## 2026-03-03 17:00 -- [T-P0-46] Unified MarkdownRenderer abstraction layer
+- **What I did**: Created MarkdownRenderer.tsx component using react-markdown for unified markdown rendering across the app. Replaces raw `<pre>` text display with formatted markdown (headings, lists, code blocks, bold, italic, links, tables, blockquotes). Applied to: plan content in ReviewPanel (view mode), reviewer raw output (debug section), and edit-preview mode (new Edit/Preview tabs in inline plan editor). Font size toggle (S/M/L) with localStorage persistence. Unified scroll container with max-height and overflow. PlanDiffView kept as-is since it has specialized diff rendering that markdown doesn't apply to.
+- **Deliverables**: frontend/src/components/MarkdownRenderer.tsx (new), frontend/src/components/ReviewPanel.tsx (mod -- uses MarkdownRenderer for plan and raw output, added edit-preview tabs), frontend/package.json (mod -- added react-markdown dependency)
+- **Sanity check result**: 992 tests passing. Ruff clean. Frontend builds clean.
+- **Status**: [DONE]
+- **Request**: Move T-P0-46 to Completed
