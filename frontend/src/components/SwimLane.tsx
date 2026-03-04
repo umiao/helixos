@@ -28,6 +28,8 @@ interface SwimLaneProps {
   onTaskDeleted?: () => void;
   /** Called to open the review submit modal for a task. */
   onSendToReview?: (task: Task) => void;
+  /** Called to open the edit modal for a task. */
+  onEditTask?: (task: Task) => void;
 }
 
 export default function SwimLane({
@@ -46,6 +48,7 @@ export default function SwimLane({
   onEnrichExpand,
   onTaskDeleted,
   onSendToReview,
+  onEditTask,
 }: SwimLaneProps) {
   return (
     <div
@@ -76,6 +79,7 @@ export default function SwimLane({
           onEnrichExpand={onEnrichExpand}
           onTaskDeleted={onTaskDeleted}
           onSendToReview={onSendToReview}
+          onEditTask={onEditTask}
         />
       </div>
     </div>

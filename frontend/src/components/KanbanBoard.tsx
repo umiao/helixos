@@ -104,6 +104,8 @@ interface KanbanBoardProps {
   onTaskDeleted?: () => void;
   /** Called to open the review submit modal for a task. */
   onSendToReview?: (task: Task) => void;
+  /** Called to open the edit modal for a task. */
+  onEditTask?: (task: Task) => void;
 }
 
 /** Column index for detecting backward drags. */
@@ -267,6 +269,7 @@ export default function KanbanBoard({
   onEnrichExpand,
   onTaskDeleted,
   onSendToReview,
+  onEditTask,
 }: KanbanBoardProps) {
   const columns = groupByColumn(tasks);
   const [activeTask, setActiveTask] = useState<Task | null>(null);
@@ -491,6 +494,7 @@ export default function KanbanBoard({
           onTaskDeleted={onTaskDeleted}
           onError={onError}
           onSendToReview={onSendToReview}
+          onEditTask={onEditTask}
         />
       )}
 

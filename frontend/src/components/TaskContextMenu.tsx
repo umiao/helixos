@@ -19,6 +19,8 @@ interface TaskContextMenuProps {
   onError?: (msg: string) => void;
   /** Open the review submit modal for this task. */
   onSendToReview?: (task: Task) => void;
+  /** Open the edit modal for this task. */
+  onEditTask?: (task: Task) => void;
 }
 
 const COLUMN_LABELS: Record<KanbanColumn, string> = {
@@ -38,6 +40,7 @@ export default function TaskContextMenu({
   onTaskDeleted,
   onError,
   onSendToReview,
+  onEditTask,
 }: TaskContextMenuProps) {
   const menuRef = useRef<HTMLDivElement>(null);
   const [confirmingDelete, setConfirmingDelete] = useState(false);
@@ -98,6 +101,11 @@ export default function TaskContextMenu({
     onSendToReview?.(task);
     onClose();
   }, [task, onSendToReview, onClose]);
+
+  const handleEdit = useCallback(() => {
+    onEditTask?.(task);
+    onClose();
+  }, [task, onEditTask, onClose]);
 
   // Show "Send to Review" for BACKLOG and QUEUED tasks
   const canSendToReview =
@@ -165,6 +173,16 @@ export default function TaskContextMenu({
               className="w-full text-left px-3 py-1.5 text-sm text-gray-700 hover:bg-gray-100 transition-colors"
             >
               View details
+            </button>
+          )}
+
+          {/* Edit */}
+          {onEditTask && (
+            <button
+              onClick={handleEdit}
+              className="w-full text-left px-3 py-1.5 text-sm text-gray-700 hover:bg-gray-100 transition-colors"
+            >
+              Edit
             </button>
           )}
 

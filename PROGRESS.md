@@ -633,3 +633,10 @@
 - **Sanity check result**: Frontend builds clean. 1000 tests passing.
 - **Status**: [DONE]
 - **Request**: Move T-P0-53 to Completed
+
+## 2026-03-04 02:00 -- [T-P0-50] Right-click context menu Edit (inline title/description editing)
+- **What I did**: Added "Edit" option to TaskContextMenu. Created EditTaskModal component with title and description fields, auto-focus, Escape to close, backdrop click to close. Wired onEditTask callback through KanbanBoard -> SwimLane -> App.tsx. Save calls PATCH /api/tasks/{id} via existing updateTask() API. Updated task in local state + selectedTask on save. Toast notification on success.
+- **Deliverables**: frontend/src/components/EditTaskModal.tsx (new), frontend/src/components/TaskContextMenu.tsx (mod), frontend/src/components/KanbanBoard.tsx (mod), frontend/src/components/SwimLane.tsx (mod), frontend/src/App.tsx (mod)
+- **Sanity check result**: Frontend builds clean. 1000 tests passing.
+- **Status**: [DONE]
+- **Request**: Move T-P0-50 to Completed

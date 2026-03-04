@@ -15,6 +15,7 @@ import ImportProjectModal from "./components/ImportProjectModal";
 import NewTaskModal from "./components/NewTaskModal";
 import useSSE, { type SSEEvent } from "./hooks/useSSE";
 import ReviewSubmitModal from "./components/ReviewSubmitModal";
+import EditTaskModal from "./components/EditTaskModal";
 import {
   fetchProjects,
   fetchTasks,
@@ -50,6 +51,7 @@ function App() {
   const [autoEnrich, setAutoEnrich] = useState(false);
   const [bottomPanelHeight, setBottomPanelHeight] = useState(loadPanelHeight);
   const [reviewSubmitTask, setReviewSubmitTask] = useState<Task | null>(null);
+  const [editTask, setEditTask] = useState<Task | null>(null);
   const [reviewPhase, setReviewPhase] = useState("");
 
   // Keep a ref to tasks for SSE handler (avoid stale closure)
@@ -544,6 +546,26 @@ function App() {
     [],
   );
 
+  const handleEditTask = useCallback(
+    (task: Task) => {
+      setEditTask(task);
+    },
+    [],
+  );
+
+  const handleEditSaved = useCallback(
+    (updated: Task) => {
+      setEditTask(null);
+      setTasks((prev) => prev.map((t) => (t.id === updated.id ? updated : t)));
+      // Update selected task if it matches
+      setSelectedTask((sel) =>
+        sel && sel.id === updated.id ? updated : sel,
+      );
+      addToast("Task updated", "success");
+    },
+    [addToast],
+  );
+
   const handleTaskDeleted = useCallback(async () => {
     // Refresh tasks after deletion
     try {
@@ -705,6 +727,7 @@ function App() {
                     }}
                     onTaskDeleted={handleTaskDeleted}
                     onSendToReview={handleSendToReview}
+                    onEditTask={handleEditTask}
                   />
                 </div>
               );
@@ -835,6 +858,14 @@ function App() {
           task={reviewSubmitTask}
           onClose={() => setReviewSubmitTask(null)}
           onSubmitted={handleReviewSubmitted}
+          onError={(msg) => addToast(msg, "error")}
+        />
+      )}
+      {editTask && (
+        <EditTaskModal
+          task={editTask}
+          onClose={() => setEditTask(null)}
+          onSaved={handleEditSaved}
           onError={(msg) => addToast(msg, "error")}
         />
       )}

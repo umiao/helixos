@@ -29,22 +29,6 @@
 
 ### P1-UX -- Polish
 
-#### T-P0-50: Right-click context menu Edit (inline title/description editing)
-- **Priority**: P1
-- **Complexity**: S
-- **Depends on**: None
-- **Description**: Add "Edit" option to the existing TaskContextMenu. Opens an inline
-  edit mode (or modal) for title and description. Reuses existing PATCH /api/tasks/{id}
-  endpoint and frontend updateTask() function.
-- **Acceptance Criteria**:
-  1. Right-click task card -> context menu shows "Edit" option
-  2. Selecting "Edit" opens editable fields for title and description
-  3. Save calls PATCH /api/tasks/{id} with updated fields
-  4. Cancel discards changes without API call
-  5. User journey: right-click task -> Edit -> change title -> Save -> card updates
-     with new title immediately
-  6. Manually verify: right-click -> Edit -> modify -> Save -> card reflects change
-
 #### T-P0-51: TASKS.md lifecycle model + archive separation
 - **Priority**: P1
 - **Complexity**: M
@@ -251,6 +235,9 @@ T-P0-47 [M] No Plan badges + visual guidance (no deps, pairs with T-P0-44)
 
 ## Completed Tasks
 <!-- Move finished tasks here with [x] and completion date -->
+
+#### [x] T-P0-50: Right-click context menu Edit (inline title/description editing) -- 2026-03-04
+- Added "Edit" option to TaskContextMenu. EditTaskModal component with title/description editing, auto-focus, Escape/backdrop-click to close. Saves via PATCH /api/tasks/{id} using existing updateTask() API. Card updates immediately on save. Frontend builds clean, 1000 tests passing.
 
 #### [x] T-P0-53: Active process pulsing badges on task cards -- 2026-03-04
 - Centralized isActive check (status === "running" || review_status === "running") drives animate-pulse on TaskCard status badge. RUNNING and active review cards pulse consistently. Pulse stops on task exit. Frontend builds clean, 1000 tests passing.
