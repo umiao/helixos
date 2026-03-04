@@ -15,6 +15,8 @@ interface TaskCardProps {
   task: Task;
   onClick?: () => void;
   onContextMenu?: (task: Task, position: { x: number; y: number }) => void;
+  /** Bubbled from popover after plan generation succeeds. */
+  onTaskUpdated?: (task: Task) => void;
 }
 
 const STATUS_COLORS: Record<TaskStatus, string> = {
@@ -67,7 +69,7 @@ function ElapsedTimer({ startedAt }: { startedAt: string }) {
   );
 }
 
-export default function TaskCard({ task, onClick, onContextMenu }: TaskCardProps) {
+export default function TaskCard({ task, onClick, onContextMenu, onTaskUpdated }: TaskCardProps) {
   const { attributes, listeners, setNodeRef, transform, isDragging } =
     useDraggable({
       id: task.id,
@@ -231,7 +233,7 @@ export default function TaskCard({ task, onClick, onContextMenu }: TaskCardProps
 
       {/* Hover popover via portal */}
       {showPopover && anchorRect && !isDragging && (
-        <TaskCardPopover task={task} anchorRect={anchorRect} />
+        <TaskCardPopover task={task} anchorRect={anchorRect} onTaskUpdated={onTaskUpdated} />
       )}
     </div>
   );

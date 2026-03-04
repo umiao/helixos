@@ -106,6 +106,8 @@ interface KanbanBoardProps {
   onSendToReview?: (task: Task) => void;
   /** Called to open the edit modal for a task. */
   onEditTask?: (task: Task) => void;
+  /** Called when a task is updated (e.g., plan generated from popover). */
+  onTaskUpdated?: (task: Task) => void;
 }
 
 /** Column index for detecting backward drags. */
@@ -270,6 +272,7 @@ export default function KanbanBoard({
   onTaskDeleted,
   onSendToReview,
   onEditTask,
+  onTaskUpdated,
 }: KanbanBoardProps) {
   const columns = groupByColumn(tasks);
   const [activeTask, setActiveTask] = useState<Task | null>(null);
@@ -456,6 +459,7 @@ export default function KanbanBoard({
                           : undefined
                       }
                       onContextMenu={handleContextMenu}
+                      onTaskUpdated={onTaskUpdated}
                     />
                   ))
                 )}

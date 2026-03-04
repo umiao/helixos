@@ -42,18 +42,6 @@
 - [ ] SSE event payload structure: add explicit `origin` field (execution/review/scheduler) for clean log categorization (from T-P0-55)
 - [ ] Deduplicate `_is_process_alive()` -- currently copy-pasted in port_registry.py, process_manager.py, subprocess_registry.py. Extract to shared module (e.g. `src/platform_utils.py`) and import everywhere. (from os.kill CTRL_C_EVENT bug)
 
-#### T-P0-57: Hover-to-generate-plan UX on TaskCard
-- **Priority**: P0
-- **Complexity**: S (< 1 session)
-- **Depends on**: None
-- **Description**: Add a "Generate Plan" button in TaskCardPopover for tasks that have no plan. Wire it to the existing `generatePlan()` API call. Provides discoverability for plan generation directly from the board view.
-- **Acceptance Criteria**:
-  1. TaskCardPopover shows "Generate Plan" button when task has no plan (`task.plan` is null/empty)
-  2. Button is hidden when task already has a plan
-  3. Clicking the button calls `generatePlan(taskId)` API
-  4. Button shows loading state while API call is in flight, prevents double-click
-  5. Manual smoke test: hover over a backlog task with no plan -> popover shows Generate Plan button -> click -> API fires
-
 #### T-P0-58: Done tasks show green completion in ReviewPanel
 - **Priority**: P0
 - **Complexity**: S (< 1 session)
@@ -136,6 +124,9 @@
 
 #### [x] T-P0-54: Fix review panel header -- left-align task info, natural wrapping -- 2026-03-04
 - Restructured ReviewPanel header: task info left-aligned in a bg-gray-50 identity strip, title wraps naturally (overflow-wrap: break-word, no truncate/max-w-48), task ID in mono/muted style, title text-sm, clear visual separation via border-t + background.
+
+#### [x] T-P0-57: Hover-to-generate-plan UX on TaskCard -- 2026-03-04
+- Added "Generate Plan" button to TaskCardPopover for tasks with no plan (hidden when plan exists or task is done/failed/blocked). Button calls generatePlan API with loading state and double-click prevention. Error display on failure. onTaskUpdated callback threaded through SwimLane -> KanbanBoard -> TaskCard -> TaskCardPopover for immediate UI refresh.
 
 #### [x] T-P0-55: Execution log visual markers for review activity -- 2026-03-04
 - Added purple "REVIEW" badge on review-originated log entries. Extended LogEntry with source field, SSE handlers pass source="review" for review_started/review_progress events. Uses SSE event type for origin detection.

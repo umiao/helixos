@@ -30,6 +30,8 @@ interface SwimLaneProps {
   onSendToReview?: (task: Task) => void;
   /** Called to open the edit modal for a task. */
   onEditTask?: (task: Task) => void;
+  /** Called when a task is updated (e.g., plan generated from popover). */
+  onTaskUpdated?: (task: Task) => void;
 }
 
 export default function SwimLane({
@@ -49,6 +51,7 @@ export default function SwimLane({
   onTaskDeleted,
   onSendToReview,
   onEditTask,
+  onTaskUpdated,
 }: SwimLaneProps) {
   return (
     <div
@@ -80,6 +83,7 @@ export default function SwimLane({
           onTaskDeleted={onTaskDeleted}
           onSendToReview={onSendToReview}
           onEditTask={onEditTask}
+          onTaskUpdated={onTaskUpdated}
         />
       </div>
     </div>

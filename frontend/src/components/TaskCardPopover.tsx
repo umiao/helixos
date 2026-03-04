@@ -7,10 +7,13 @@
 import { createPortal } from "react-dom";
 import { useLayoutEffect, useRef, useState } from "react";
 import type { Task, TaskStatus } from "../types";
+import { generatePlan, fetchTask, ApiError } from "../api";
 
 interface TaskCardPopoverProps {
   task: Task;
   anchorRect: DOMRect;
+  /** Called after plan generation succeeds with the refreshed task. */
+  onTaskUpdated?: (task: Task) => void;
 }
 
 const STATUS_COLORS: Record<TaskStatus, string> = {
@@ -57,9 +60,11 @@ function Section({ label, children }: { label: string; children: React.ReactNode
   );
 }
 
-export default function TaskCardPopover({ task, anchorRect }: TaskCardPopoverProps) {
+export default function TaskCardPopover({ task, anchorRect, onTaskUpdated }: TaskCardPopoverProps) {
   const popoverRef = useRef<HTMLDivElement>(null);
   const [pos, setPos] = useState<{ top: number; left: number }>({ top: 0, left: 0 });
+  const [generating, setGenerating] = useState(false);
+  const [genError, setGenError] = useState<string | null>(null);
 
   useLayoutEffect(() => {
     const el = popoverRef.current;
@@ -89,6 +94,27 @@ export default function TaskCardPopover({ task, anchorRect }: TaskCardPopoverPro
     setPos({ top, left });
   }, [anchorRect]);
 
+  const hasNoPlan = !task.description || !task.description.trim();
+  const isDone = task.status === "done" || task.status === "failed" || task.status === "blocked";
+  const showGenerateButton = hasNoPlan && !isDone;
+
+  const handleGeneratePlan = async (e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (generating) return;
+    setGenerating(true);
+    setGenError(null);
+    try {
+      await generatePlan(task.id);
+      const updated = await fetchTask(task.id);
+      onTaskUpdated?.(updated);
+    } catch (err) {
+      const msg = err instanceof ApiError ? err.detail : "Failed to generate plan";
+      setGenError(msg);
+    } finally {
+      setGenerating(false);
+    }
+  };
+
   const badgeClass = STATUS_COLORS[task.status];
   const label = STATUS_LABELS[task.status];
 
@@ -113,6 +139,22 @@ export default function TaskCardPopover({ task, anchorRect }: TaskCardPopoverPro
           {label}
         </span>
       </div>
+
+      {/* Generate Plan button */}
+      {showGenerateButton && (
+        <div className="mb-3">
+          <button
+            onClick={handleGeneratePlan}
+            disabled={generating}
+            className="w-full rounded-md bg-blue-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+          >
+            {generating ? "Generating..." : "Generate Plan"}
+          </button>
+          {genError && (
+            <p className="mt-1 text-xs text-red-600">{genError}</p>
+          )}
+        </div>
+      )}
 
       {/* Description */}
       {task.description && (

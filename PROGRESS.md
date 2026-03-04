@@ -668,3 +668,10 @@
 - **Sanity check result**: TASKS.md at 142 lines (under 300 invariant). All 5 tasks have full schema with ACs, complexity, dependencies.
 - **Status**: [DONE]
 - **Request**: Move T-P0-56 to Completed (already removed from Active, no completed entry needed since it was a meta-planning task replaced by concrete tasks)
+
+## 2026-03-04 05:15 -- [T-P0-57] Hover-to-generate-plan UX on TaskCard
+- **What I did**: Added "Generate Plan" button to TaskCardPopover. Button appears for tasks with no plan (empty/null description) and hides for tasks that already have a plan or are in terminal states (done/failed/blocked). Calls generatePlan API with loading state ("Generating..."), double-click prevention, and error display. Threaded onTaskUpdated callback through App -> SwimLane -> KanbanBoard -> TaskCard -> TaskCardPopover for immediate UI refresh after plan generation.
+- **Deliverables**: frontend/src/components/TaskCardPopover.tsx (mod), frontend/src/components/TaskCard.tsx (mod), frontend/src/components/KanbanBoard.tsx (mod), frontend/src/components/SwimLane.tsx (mod), frontend/src/App.tsx (mod), TASKS.md (mod)
+- **Sanity check result**: TypeScript type-check clean. Ruff clean. 1000 backend tests passing.
+- **Status**: [DONE]
+- **Request**: Move T-P0-57 to Completed

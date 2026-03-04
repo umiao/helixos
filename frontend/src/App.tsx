@@ -731,6 +731,11 @@ function App() {
                     onTaskDeleted={handleTaskDeleted}
                     onSendToReview={handleSendToReview}
                     onEditTask={handleEditTask}
+                    onTaskUpdated={(updated) =>
+                      setTasks((prev) =>
+                        prev.map((t) => (t.id === updated.id ? updated : t)),
+                      )
+                    }
                   />
                 </div>
               );
