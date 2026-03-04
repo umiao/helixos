@@ -675,3 +675,10 @@
 - **Sanity check result**: TypeScript type-check clean. Ruff clean. 1000 backend tests passing.
 - **Status**: [DONE]
 - **Request**: Move T-P0-57 to Completed
+
+## 2026-03-04 06:00 -- [T-P0-58] Done tasks show green completion in ReviewPanel
+- **What I did**: Added green "completed" badge in ReviewPanel header for done tasks (overrides lifecycle state badge). Done tasks with no plan show "Task completed" instead of "No plan" error state. Edit Plan and Generate Plan buttons are hidden for done tasks. Non-done tasks without a plan still show "No plan" as before.
+- **Deliverables**: frontend/src/components/ReviewPanel.tsx (mod), TASKS.md (mod)
+- **Sanity check result**: TypeScript type-check clean. Ruff clean. 1000 backend tests passing.
+- **Status**: [DONE]
+- **Request**: Move T-P0-58 to Completed

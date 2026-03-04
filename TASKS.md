@@ -42,18 +42,6 @@
 - [ ] SSE event payload structure: add explicit `origin` field (execution/review/scheduler) for clean log categorization (from T-P0-55)
 - [ ] Deduplicate `_is_process_alive()` -- currently copy-pasted in port_registry.py, process_manager.py, subprocess_registry.py. Extract to shared module (e.g. `src/platform_utils.py`) and import everywhere. (from os.kill CTRL_C_EVENT bug)
 
-#### T-P0-58: Done tasks show green completion in ReviewPanel
-- **Priority**: P0
-- **Complexity**: S (< 1 session)
-- **Depends on**: None
-- **Description**: Done tasks should show a green completion badge in ReviewPanel. Define invariant: done+no-plan is valid (task completed without formal plan) -- show "Completed" not "No plan". Hide Generate Plan button for done tasks.
-- **Acceptance Criteria**:
-  1. ReviewPanel shows green "Completed" badge for tasks with status=done
-  2. Done tasks with no plan show "Completed" badge, NOT "No plan" error state
-  3. Generate Plan button is hidden for done tasks (regardless of plan status)
-  4. Non-done tasks without a plan still show "No plan" state as before
-  5. Manual smoke test: drag a task to Done column -> open ReviewPanel -> green completion badge visible, no Generate Plan button
-
 #### T-P0-59: Plan generation progress feedback
 - **Priority**: P0
 - **Complexity**: M (1-2 sessions)
@@ -106,9 +94,8 @@
 > Full historical dependency graph relocated to [docs/architecture/dependency-graph-history.md](docs/architecture/dependency-graph-history.md).
 
 ### Current
-- T-P0-57, T-P0-58, T-P0-61: independent, can run in parallel
+- T-P0-61, T-P0-60: independent, can run in parallel
 - T-P0-59: blocked until timing investigation (sub-task 1) done; if async path chosen, also blocked on tech debt "SSE event payload structure" unification
-- T-P0-60: independent
 
 ---
 
@@ -124,6 +111,9 @@
 
 #### [x] T-P0-54: Fix review panel header -- left-align task info, natural wrapping -- 2026-03-04
 - Restructured ReviewPanel header: task info left-aligned in a bg-gray-50 identity strip, title wraps naturally (overflow-wrap: break-word, no truncate/max-w-48), task ID in mono/muted style, title text-sm, clear visual separation via border-t + background.
+
+#### [x] T-P0-58: Done tasks show green completion in ReviewPanel -- 2026-03-04
+- Green "completed" badge in ReviewPanel header for done tasks. Done+no-plan shows "Task completed" instead of "No plan" error. Edit/Generate Plan buttons hidden for done tasks. Non-done tasks unaffected.
 
 #### [x] T-P0-57: Hover-to-generate-plan UX on TaskCard -- 2026-03-04
 - Added "Generate Plan" button to TaskCardPopover for tasks with no plan (hidden when plan exists or task is done/failed/blocked). Button calls generatePlan API with loading state and double-click prevention. Error display on failure. onTaskUpdated callback threaded through SwimLane -> KanbanBoard -> TaskCard -> TaskCardPopover for immediate UI refresh.

@@ -338,7 +338,16 @@ export default function ReviewPanel({
     historyEntries.some((e) => e.human_decision === "request_changes");
 
   // Review lifecycle badge for the header -- driven by backend ReviewLifecycleState
+  const isDone = task.status === "done";
+
   const lifecycleBadge = () => {
+    if (isDone) {
+      return (
+        <span className="px-1.5 py-0.5 rounded text-[10px] font-semibold uppercase bg-green-100 text-green-700">
+          completed
+        </span>
+      );
+    }
     switch (lifecycleState) {
       case "running":
         return (
@@ -708,12 +717,16 @@ export default function ReviewPanel({
                       content={task.description}
                       maxHeight="20rem"
                     />
+                  ) : isDone ? (
+                    <p className="text-xs text-green-600 font-medium">
+                      Task completed
+                    </p>
                   ) : (
                     <p className="text-xs text-gray-400 italic">
                       (No plan content provided to reviewer)
                     </p>
                   )}
-                  {!isRunning && (
+                  {!isRunning && !isDone && (
                     <div className="mt-2 flex gap-2">
                       <button
                         onClick={handleEditPlan}
