@@ -20,6 +20,8 @@ import asyncio
 import json
 import logging
 import shutil
+import time
+from collections.abc import Callable
 from pathlib import Path
 
 logger = logging.getLogger(__name__)
@@ -186,12 +188,14 @@ async def generate_task_plan(
     description: str = "",
     repo_path: Path | None = None,
     timeout_minutes: int = 60,
+    on_log: Callable[[str], None] | None = None,
+    heartbeat_seconds: int = 30,
 ) -> dict:
     """Call Claude CLI to generate a structured implementation plan.
 
     Uses ``claude -p`` with ``--add-dir`` for codebase context when
-    *repo_path* is provided. Falls back to title+description only if
-    the codebase is unavailable.
+    *repo_path* is provided.  Streams stdout line-by-line via *on_log*
+    callback for real-time feedback (same pattern as CodeExecutor).
 
     Args:
         title: The task title.
@@ -200,6 +204,11 @@ async def generate_task_plan(
             context via ``--add-dir``.
         timeout_minutes: Maximum time in minutes before the subprocess is
             killed. 0 disables the timeout.
+        on_log: Optional callback invoked per stdout line for real-time
+            streaming.  Signature: ``(line: str) -> None``.
+        heartbeat_seconds: If no stdout line arrives within this many
+            seconds, emit a synthetic ``[PROGRESS] heartbeat`` line via
+            *on_log*.  Set to 0 to disable.
 
     Returns:
         Dict with ``plan`` (str), ``steps`` (list of dicts), and
@@ -232,11 +241,46 @@ async def generate_task_plan(
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE,
     )
+
     timeout_seconds = timeout_minutes * 60 if timeout_minutes > 0 else None
+    log_lines: list[str] = []
+    last_output_time = time.monotonic()
+
+    def _emit(line: str) -> None:
+        if on_log is not None:
+            on_log(line)
+
     try:
-        stdout_bytes, stderr_bytes = await asyncio.wait_for(
-            proc.communicate(), timeout=timeout_seconds,
-        )
+        async with asyncio.timeout(timeout_seconds):
+            assert proc.stdout is not None
+            while True:
+                # Per-line read with heartbeat timeout
+                try:
+                    if heartbeat_seconds > 0:
+                        raw_line = await asyncio.wait_for(
+                            proc.stdout.readline(),
+                            timeout=heartbeat_seconds,
+                        )
+                    else:
+                        raw_line = await proc.stdout.readline()
+                except TimeoutError:
+                    # No output for heartbeat_seconds -- emit heartbeat
+                    elapsed = int(time.monotonic() - last_output_time)
+                    _emit(
+                        f"[PROGRESS] heartbeat -- no output for {elapsed}s"
+                    )
+                    continue
+
+                if not raw_line:  # EOF: subprocess closed stdout
+                    break
+
+                decoded = raw_line.decode("utf-8", errors="replace").strip()
+                if decoded:
+                    log_lines.append(decoded)
+                    _emit(decoded)
+                    last_output_time = time.monotonic()
+
+            await proc.wait()
     except TimeoutError:
         proc.kill()
         await proc.wait()
@@ -245,14 +289,30 @@ async def generate_task_plan(
         ) from None
 
     if proc.returncode != 0:
+        stderr_bytes = b""
+        if proc.stderr is not None:
+            stderr_bytes = await proc.stderr.read()
         stderr_text = stderr_bytes.decode("utf-8", errors="replace")
         raise RuntimeError(
             f"Claude CLI failed (exit {proc.returncode}): {stderr_text}"
         )
 
-    cli_output = json.loads(stdout_bytes.decode("utf-8"))
-    result_text = cli_output.get("result", "")
+    # Reassemble all stdout lines and parse the JSON result
+    full_output = "\n".join(log_lines)
+    try:
+        cli_output = json.loads(full_output)
+    except json.JSONDecodeError:
+        # If the output isn't valid JSON, try the last line (some CLIs
+        # emit progress text before the final JSON blob)
+        cli_output = {}
+        for line in reversed(log_lines):
+            try:
+                cli_output = json.loads(line)
+                break
+            except json.JSONDecodeError:
+                continue
 
+    result_text = cli_output.get("result", "")
     return _parse_plan(result_text)
 
 

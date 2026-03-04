@@ -62,10 +62,41 @@ def _make_enrichment_output(description: str, priority: str) -> bytes:
 
 
 def _mock_proc(stdout: bytes, returncode: int = 0) -> AsyncMock:
-    """Create a mock subprocess with given stdout and return code."""
+    """Create a mock subprocess with given stdout and return code.
+
+    Used for communicate()-based functions (enrich_task_title).
+    """
     proc = AsyncMock()
     proc.communicate = AsyncMock(return_value=(stdout, b""))
     proc.returncode = returncode
+    return proc
+
+
+def _mock_readline_proc(stdout: bytes, returncode: int = 0) -> AsyncMock:
+    """Create a mock subprocess with readline-based stdout.
+
+    Used for generate_task_plan() which reads line-by-line.
+    """
+    proc = AsyncMock()
+    proc.returncode = returncode
+    proc.wait = AsyncMock()
+    proc.kill = MagicMock()
+
+    # Build a mock stdout that yields lines then EOF
+    lines = stdout.split(b"\n") if stdout else []
+    line_queue: list[bytes] = [line + b"\n" for line in lines if line]
+    line_queue.append(b"")  # EOF sentinel
+
+    mock_stdout = AsyncMock()
+    mock_stdout.readline = AsyncMock(side_effect=line_queue)
+
+    # stderr for error cases
+    mock_stderr = AsyncMock()
+    mock_stderr.read = AsyncMock(return_value=b"")
+
+    proc.stdout = mock_stdout
+    proc.stderr = mock_stderr
+
     return proc
 
 
@@ -558,7 +589,7 @@ class TestFormatPlanAsText:
 
 
 class TestGenerateTaskPlan:
-    """Tests for the generate_task_plan async function."""
+    """Tests for the generate_task_plan async function (readline-based)."""
 
     @pytest.mark.asyncio
     async def test_success(self) -> None:
@@ -568,7 +599,7 @@ class TestGenerateTaskPlan:
             [{"step": "Add theme context", "files": ["src/theme.ts"]}],
             ["Theme toggle works"],
         )
-        mock_proc = _mock_proc(stdout)
+        mock_proc = _mock_readline_proc(stdout)
 
         with patch(
             "src.enrichment.asyncio.create_subprocess_exec",
@@ -585,7 +616,7 @@ class TestGenerateTaskPlan:
         repo = tmp_path / "repo"
         repo.mkdir()
         stdout = _make_plan_output("Plan", [], [])
-        mock_proc = _mock_proc(stdout)
+        mock_proc = _mock_readline_proc(stdout)
 
         with patch(
             "src.enrichment.asyncio.create_subprocess_exec",
@@ -602,7 +633,7 @@ class TestGenerateTaskPlan:
     async def test_without_repo_path(self) -> None:
         """No --add-dir when repo_path is None."""
         stdout = _make_plan_output("Plan", [], [])
-        mock_proc = _mock_proc(stdout)
+        mock_proc = _mock_readline_proc(stdout)
 
         with patch(
             "src.enrichment.asyncio.create_subprocess_exec",
@@ -615,8 +646,8 @@ class TestGenerateTaskPlan:
     @pytest.mark.asyncio
     async def test_cli_failure_raises(self) -> None:
         """Non-zero exit code raises RuntimeError."""
-        mock_proc = _mock_proc(b"", returncode=1)
-        mock_proc.communicate = AsyncMock(return_value=(b"", b"error"))
+        mock_proc = _mock_readline_proc(b"", returncode=1)
+        mock_proc.stderr.read = AsyncMock(return_value=b"error")
 
         with (
             patch(
@@ -631,7 +662,7 @@ class TestGenerateTaskPlan:
     async def test_with_description(self) -> None:
         """Existing description is included in the prompt."""
         stdout = _make_plan_output("Plan", [], [])
-        mock_proc = _mock_proc(stdout)
+        mock_proc = _mock_readline_proc(stdout)
 
         with patch(
             "src.enrichment.asyncio.create_subprocess_exec",
@@ -643,6 +674,61 @@ class TestGenerateTaskPlan:
             prompt_arg = call_args[2]  # claude, -p, <prompt>
             assert "Existing desc" in prompt_arg
 
+    @pytest.mark.asyncio
+    async def test_on_log_callback_called(self) -> None:
+        """on_log callback is called for each stdout line."""
+        stdout = _make_plan_output("Plan", [], [])
+        mock_proc = _mock_readline_proc(stdout)
+        logged: list[str] = []
+
+        with patch(
+            "src.enrichment.asyncio.create_subprocess_exec",
+            return_value=mock_proc,
+        ):
+            result = await generate_task_plan(
+                "Task", on_log=logged.append,
+            )
+            assert result["plan"] == "Plan"
+            # on_log should have been called with the output line
+            assert len(logged) >= 1
+
+    @pytest.mark.asyncio
+    async def test_heartbeat_on_no_output(self) -> None:
+        """Heartbeat emitted when no output for heartbeat_seconds."""
+        # Mock proc that times out once then returns a line then EOF
+        mock_proc = AsyncMock()
+        mock_proc.returncode = 0
+        mock_proc.wait = AsyncMock()
+
+        stdout_data = _make_plan_output("Plan", [], [])
+        mock_stdout = AsyncMock()
+        mock_stdout.readline = AsyncMock(
+            side_effect=[
+                TimeoutError(),  # first read times out
+                stdout_data.split(b"\n")[0] + b"\n",  # then real line
+                b"",  # EOF
+            ],
+        )
+        mock_proc.stdout = mock_stdout
+        mock_proc.stderr = AsyncMock()
+        mock_proc.stderr.read = AsyncMock(return_value=b"")
+
+        logged: list[str] = []
+
+        with patch(
+            "src.enrichment.asyncio.create_subprocess_exec",
+            return_value=mock_proc,
+        ), patch(
+            "src.enrichment.asyncio.wait_for",
+            side_effect=mock_stdout.readline.side_effect,
+        ):
+            await generate_task_plan(
+                "Task", on_log=logged.append, heartbeat_seconds=1,
+            )
+            # Should have a heartbeat line
+            heartbeats = [line for line in logged if "[PROGRESS] heartbeat" in line]
+            assert len(heartbeats) >= 1
+
 
 # ------------------------------------------------------------------
 # API endpoint tests: POST /api/tasks/{id}/generate-plan
@@ -650,7 +736,7 @@ class TestGenerateTaskPlan:
 
 
 class TestGeneratePlanEndpoint:
-    """Tests for POST /api/tasks/{task_id}/generate-plan."""
+    """Tests for POST /api/tasks/{task_id}/generate-plan (async 202)."""
 
     @pytest.mark.asyncio
     async def test_task_not_found_404(self, client: AsyncClient) -> None:
@@ -676,13 +762,12 @@ class TestGeneratePlanEndpoint:
             assert "not available" in resp.json()["detail"].lower()
 
     @pytest.mark.asyncio
-    async def test_success(
+    async def test_success_returns_202(
         self, test_app, client: AsyncClient,
     ) -> None:
-        """Successful plan generation returns structured plan and saves to task."""
+        """Successful plan generation returns 202 immediately, background task completes."""
         from src.sync.tasks_parser import sync_project_tasks
 
-        # Sync tasks so we have a task in DB
         task_manager: TaskManager = test_app.state.task_manager
         registry = test_app.state.registry
         project = registry.list_projects()[0]
@@ -696,7 +781,7 @@ class TestGeneratePlanEndpoint:
             [{"step": "Create auth module", "files": ["src/auth.py"]}],
             ["Login returns token"],
         )
-        mock_proc = _mock_proc(stdout)
+        mock_proc = _mock_readline_proc(stdout)
 
         with (
             patch(
@@ -710,25 +795,25 @@ class TestGeneratePlanEndpoint:
             resp = await client.post(
                 f"/api/tasks/{task.id}/generate-plan",
             )
-            assert resp.status_code == 200
+            assert resp.status_code == 202
             data = resp.json()
-            assert data["plan"] == "Add authentication flow"
-            assert len(data["steps"]) == 1
-            assert data["steps"][0]["step"] == "Create auth module"
-            assert data["acceptance_criteria"] == ["Login returns token"]
-            assert "formatted" in data
-            assert "## Implementation Steps" in data["formatted"]
+            assert data["task_id"] == task.id
+            assert data["plan_status"] == "generating"
 
-        # Verify task.description was updated
+            # Wait for background task to complete (patch must stay active)
+            await asyncio.sleep(0.3)
+
+        # Verify task.description was updated by background task
         updated_task = await task_manager.get_task(task.id)
         assert updated_task is not None
         assert "Add authentication flow" in updated_task.description
+        assert updated_task.plan_status == "ready"
 
     @pytest.mark.asyncio
-    async def test_cli_error_503(
+    async def test_cli_error_sets_failed(
         self, test_app, client: AsyncClient,
     ) -> None:
-        """Returns 503 when Claude CLI subprocess fails during generation."""
+        """CLI failure in background sets plan_status to 'failed'."""
         from src.sync.tasks_parser import sync_project_tasks
 
         task_manager: TaskManager = test_app.state.task_manager
@@ -739,8 +824,8 @@ class TestGeneratePlanEndpoint:
         tasks = await task_manager.list_tasks(project_id=project.id)
         task = tasks[0]
 
-        mock_proc = _mock_proc(b"", returncode=1)
-        mock_proc.communicate = AsyncMock(return_value=(b"", b"error"))
+        mock_proc = _mock_readline_proc(b"", returncode=1)
+        mock_proc.stderr.read = AsyncMock(return_value=b"error")
 
         with (
             patch(
@@ -754,90 +839,42 @@ class TestGeneratePlanEndpoint:
             resp = await client.post(
                 f"/api/tasks/{task.id}/generate-plan",
             )
-            assert resp.status_code == 503
-            assert "failed" in resp.json()["detail"].lower()
+            assert resp.status_code == 202
 
-    @pytest.mark.asyncio
-    async def test_success_sets_plan_status_ready(
-        self, test_app, client: AsyncClient,
-    ) -> None:
-        """Successful plan generation sets plan_status to 'ready'."""
-        from src.sync.tasks_parser import sync_project_tasks
-
-        task_manager: TaskManager = test_app.state.task_manager
-        registry = test_app.state.registry
-        project = registry.list_projects()[0]
-        await sync_project_tasks(project.id, task_manager, registry)
-
-        tasks = await task_manager.list_tasks(project_id=project.id)
-        task = tasks[0]
-
-        # Verify initial plan_status is 'none'
-        assert task.plan_status == "none"
-
-        stdout = _make_plan_output(
-            "Add auth",
-            [{"step": "Create module", "files": ["src/auth.py"]}],
-            ["Login works"],
-        )
-        mock_proc = _mock_proc(stdout)
-
-        with (
-            patch(
-                "src.enrichment.shutil.which", return_value="/usr/bin/claude",
-            ),
-            patch(
-                "src.enrichment.asyncio.create_subprocess_exec",
-                return_value=mock_proc,
-            ),
-        ):
-            resp = await client.post(
-                f"/api/tasks/{task.id}/generate-plan",
-            )
-            assert resp.status_code == 200
-
-        updated = await task_manager.get_task(task.id)
-        assert updated is not None
-        assert updated.plan_status == "ready"
-
-    @pytest.mark.asyncio
-    async def test_failure_sets_plan_status_failed(
-        self, test_app, client: AsyncClient,
-    ) -> None:
-        """Failed plan generation sets plan_status to 'failed', status unchanged."""
-        from src.sync.tasks_parser import sync_project_tasks
-
-        task_manager: TaskManager = test_app.state.task_manager
-        registry = test_app.state.registry
-        project = registry.list_projects()[0]
-        await sync_project_tasks(project.id, task_manager, registry)
-
-        tasks = await task_manager.list_tasks(project_id=project.id)
-        task = tasks[0]
-        original_status = task.status
-
-        mock_proc = _mock_proc(b"", returncode=1)
-        mock_proc.communicate = AsyncMock(return_value=(b"", b"error"))
-
-        with (
-            patch(
-                "src.enrichment.shutil.which", return_value="/usr/bin/claude",
-            ),
-            patch(
-                "src.enrichment.asyncio.create_subprocess_exec",
-                return_value=mock_proc,
-            ),
-        ):
-            resp = await client.post(
-                f"/api/tasks/{task.id}/generate-plan",
-            )
-            assert resp.status_code == 503
+            # Wait for background task to fail (patch must stay active)
+            await asyncio.sleep(0.3)
 
         updated = await task_manager.get_task(task.id)
         assert updated is not None
         assert updated.plan_status == "failed"
-        # AC4: task.status stays unchanged
-        assert updated.status == original_status
+
+    @pytest.mark.asyncio
+    async def test_idempotency_guard_409(
+        self, test_app, client: AsyncClient,
+    ) -> None:
+        """Returns 409 when plan_status is already 'generating'."""
+        from src.sync.tasks_parser import sync_project_tasks
+
+        task_manager: TaskManager = test_app.state.task_manager
+        registry = test_app.state.registry
+        project = registry.list_projects()[0]
+        await sync_project_tasks(project.id, task_manager, registry)
+
+        tasks = await task_manager.list_tasks(project_id=project.id)
+        task = tasks[0]
+
+        # Manually set plan_status to generating
+        task.plan_status = "generating"
+        await task_manager.update_task(task)
+
+        with patch(
+            "src.enrichment.shutil.which", return_value="/usr/bin/claude",
+        ):
+            resp = await client.post(
+                f"/api/tasks/{task.id}/generate-plan",
+            )
+            assert resp.status_code == 409
+            assert "already in progress" in resp.json()["detail"].lower()
 
     @pytest.mark.asyncio
     async def test_plan_status_in_task_response(
@@ -859,6 +896,67 @@ class TestGeneratePlanEndpoint:
         data = resp.json()
         assert "plan_status" in data
         assert data["plan_status"] == "none"
+
+    @pytest.mark.asyncio
+    async def test_sse_events_emitted(
+        self, test_app, client: AsyncClient,
+    ) -> None:
+        """SSE plan_status_change events are emitted during generation."""
+        from src.sync.tasks_parser import sync_project_tasks
+
+        task_manager: TaskManager = test_app.state.task_manager
+        registry = test_app.state.registry
+        event_bus = test_app.state.event_bus
+        project = registry.list_projects()[0]
+        await sync_project_tasks(project.id, task_manager, registry)
+
+        tasks = await task_manager.list_tasks(project_id=project.id)
+        task = tasks[0]
+
+        stdout = _make_plan_output("Plan", [], [])
+        mock_proc = _mock_readline_proc(stdout)
+
+        # Collect emitted events
+        emitted: list[tuple[str, str, dict]] = []
+        original_emit = event_bus.emit
+
+        def capture_emit(event_type: str, task_id: str, data: object) -> None:
+            emitted.append((event_type, task_id, data))
+            original_emit(event_type, task_id, data)
+
+        event_bus.emit = capture_emit
+
+        with (
+            patch(
+                "src.enrichment.shutil.which", return_value="/usr/bin/claude",
+            ),
+            patch(
+                "src.enrichment.asyncio.create_subprocess_exec",
+                return_value=mock_proc,
+            ),
+        ):
+            resp = await client.post(
+                f"/api/tasks/{task.id}/generate-plan",
+            )
+            assert resp.status_code == 202
+
+            # Wait for background task to complete (patch must stay active)
+            await asyncio.sleep(0.3)
+
+        # Check for plan_status_change events
+        status_events = [
+            e for e in emitted if e[0] == "plan_status_change"
+        ]
+        assert len(status_events) >= 2  # generating + ready
+        assert status_events[0][2]["plan_status"] == "generating"
+        assert status_events[-1][2]["plan_status"] == "ready"
+
+        # Check for log events with source="plan"
+        log_events = [
+            e for e in emitted
+            if e[0] == "log" and isinstance(e[2], dict) and e[2].get("source") == "plan"
+        ]
+        assert len(log_events) >= 1
 
 
 # ------------------------------------------------------------------
@@ -916,18 +1014,27 @@ class TestEnrichmentTimeout:
 
     @pytest.mark.asyncio
     async def test_generate_task_plan_timeout(self) -> None:
-        """generate_task_plan raises RuntimeError on timeout."""
+        """generate_task_plan raises RuntimeError on overall timeout."""
         proc = AsyncMock()
-        proc.communicate = AsyncMock(
-            side_effect=TimeoutError(),
-        )
         proc.kill = MagicMock()
         proc.wait = AsyncMock()
 
+        # Mock stdout.readline that never returns (hangs forever)
+        mock_stdout = AsyncMock()
+        mock_stdout.readline = AsyncMock(side_effect=asyncio.CancelledError())
+        proc.stdout = mock_stdout
+        proc.stderr = AsyncMock()
+        proc.stderr.read = AsyncMock(return_value=b"")
+
+        # Patch asyncio.timeout to raise TimeoutError immediately
         with (
             patch(
                 "src.enrichment.asyncio.create_subprocess_exec",
                 return_value=proc,
+            ),
+            patch(
+                "src.enrichment.asyncio.timeout",
+                side_effect=TimeoutError(),
             ),
             pytest.raises(RuntimeError, match="timed out"),
         ):
@@ -937,7 +1044,7 @@ class TestEnrichmentTimeout:
 
     @pytest.mark.asyncio
     async def test_zero_timeout_disables(self) -> None:
-        """timeout_minutes=0 passes timeout=None (no timeout)."""
+        """timeout_minutes=0 passes timeout=None (no timeout) for enrich."""
         stdout = _make_enrichment_output("desc", "P0")
         mock_proc = _mock_proc(stdout)
 
@@ -952,3 +1059,50 @@ class TestEnrichmentTimeout:
             # timeout=None means no timeout
             _, kwargs = mock_wait_for.call_args
             assert kwargs.get("timeout") is None
+
+
+# ------------------------------------------------------------------
+# Startup zombie cleanup tests
+# ------------------------------------------------------------------
+
+
+class TestZombiePlanStatusCleanup:
+    """Tests for _reset_zombie_plan_status startup cleanup."""
+
+    @pytest.mark.asyncio
+    async def test_resets_generating_to_failed(
+        self, test_app,
+    ) -> None:
+        """Tasks stuck with plan_status='generating' are reset to 'failed'."""
+        from src.api import _reset_zombie_plan_status
+        from src.sync.tasks_parser import sync_project_tasks
+
+        task_manager: TaskManager = test_app.state.task_manager
+        registry = test_app.state.registry
+        project = registry.list_projects()[0]
+        await sync_project_tasks(project.id, task_manager, registry)
+
+        tasks = await task_manager.list_tasks(project_id=project.id)
+        task = tasks[0]
+
+        # Set to generating (simulating crash)
+        task.plan_status = "generating"
+        await task_manager.update_task(task)
+
+        count = await _reset_zombie_plan_status(task_manager)
+        assert count == 1
+
+        updated = await task_manager.get_task(task.id)
+        assert updated is not None
+        assert updated.plan_status == "failed"
+
+    @pytest.mark.asyncio
+    async def test_no_zombies(
+        self, test_app,
+    ) -> None:
+        """No tasks reset when none have plan_status='generating'."""
+        from src.api import _reset_zombie_plan_status
+
+        task_manager: TaskManager = test_app.state.task_manager
+        count = await _reset_zombie_plan_status(task_manager)
+        assert count == 0

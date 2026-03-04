@@ -710,3 +710,10 @@
 - **Sanity check result**: Ruff clean. All 69 tests in test_code_executor.py passing.
 - **Status**: [DONE]
 - **Request**: No TASKS.md change (not a tracked task)
+
+## 2026-03-04 19:30 -- [T-P0-63a] Backend plan generation streaming + SSE events
+- **What I did**: Refactored `generate_task_plan()` from `proc.communicate()` to `proc.stdout.readline()` loop with `on_log: Callable[[str], None]` callback for per-line streaming. Converted sync POST `/api/tasks/{id}/generate-plan` to background task returning 202 immediately. Added SSE `plan_status_change` events on each transition (generating/ready/failed) and `log` events with `source="plan"` per stdout line. DB writes are per-line via `history_writer` for crash safety. Added idempotency guard (409 if already generating), startup zombie cleanup (reset stuck `plan_status="generating"` to `"failed"` on boot), heartbeat emission when no output for 30s, and `finally` block guaranteeing terminal state.
+- **Deliverables**: src/enrichment.py (mod), src/api.py (mod), tests/test_enrichment.py (mod)
+- **Sanity check result**: Ruff clean. All 1028 tests passing (50 in test_enrichment.py including new tests for 202 response, 409 idempotency, SSE events, heartbeat, zombie cleanup).
+- **Status**: [DONE]
+- **Request**: Move T-P0-63a to Completed in TASKS.md

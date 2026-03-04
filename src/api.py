@@ -52,7 +52,6 @@ from src.schemas import (
     ExecutionLogEntry,
     ExecutionLogsResponse,
     ExecutionStateResponse,
-    GeneratePlanResponse,
     ImportProjectRequest,
     ImportProjectResponse,
     ProcessStatusResponse,
@@ -166,6 +165,28 @@ def _task_to_response(task: Task) -> TaskResponse:
 
 
 # ------------------------------------------------------------------
+# Startup helpers
+# ------------------------------------------------------------------
+
+
+async def _reset_zombie_plan_status(task_manager: TaskManager) -> int:
+    """Reset tasks stuck with plan_status='generating' to 'failed'.
+
+    Called at startup to clean up zombies from a previous crash.
+    Returns the number of tasks reset.
+    """
+    count = 0
+    # Check all projects -- list_tasks returns all when no project filter
+    all_tasks = await task_manager.list_tasks()
+    for t in all_tasks:
+        if t.plan_status == "generating":
+            t.plan_status = "failed"
+            await task_manager.update_task(t)
+            count += 1
+    return count
+
+
+# ------------------------------------------------------------------
 # Lifespan
 # ------------------------------------------------------------------
 
@@ -274,6 +295,11 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     recovered = await scheduler.startup_recovery()
     if recovered > 0:
         logger.info("Recovered %d orphaned tasks", recovered)
+
+    # AC6: Reset zombie plan_status="generating" to "failed" on startup
+    zombie_count = await _reset_zombie_plan_status(task_manager)
+    if zombie_count > 0:
+        logger.info("Reset %d zombie plan_status=generating tasks to failed", zombie_count)
 
     # Orphan cleanup for subprocesses and ports
     subprocess_orphans = subprocess_registry.cleanup_dead()
@@ -678,20 +704,23 @@ async def enrich_task(body: EnrichTaskRequest, request: Request) -> EnrichTaskRe
 
 @api_router.post(
     "/api/tasks/{task_id}/generate-plan",
+    status_code=202,
     responses={
         404: {"model": ErrorResponse},
+        409: {"model": ErrorResponse},
         503: {"model": ErrorResponse},
     },
 )
-async def generate_plan(task_id: str, request: Request) -> GeneratePlanResponse:
-    """Generate a structured implementation plan for a task.
+async def generate_plan(task_id: str, request: Request) -> JSONResponse:
+    """Generate a structured implementation plan for a task (async).
 
-    Uses Claude CLI with codebase context (via ``--add-dir``) to produce
-    a structured plan with implementation steps and acceptance criteria.
-    The generated plan is automatically saved to ``task.description``.
+    Launches plan generation as a background task and returns 202
+    immediately.  Real-time progress is streamed via SSE ``log`` events
+    (source="plan") and lifecycle transitions via ``plan_status_change``.
 
     Returns 503 if Claude CLI is not available.
     Returns 404 if the task does not exist.
+    Returns 409 if the task already has plan_status="generating".
     """
     if not is_claude_cli_available():
         raise HTTPException(
@@ -703,6 +732,13 @@ async def generate_plan(task_id: str, request: Request) -> GeneratePlanResponse:
     task = await task_manager.get_task(task_id)
     if task is None:
         raise HTTPException(status_code=404, detail=f"Task not found: {task_id}")
+
+    # AC7: Idempotency guard -- reject if already generating
+    if task.plan_status == "generating":
+        raise HTTPException(
+            status_code=409,
+            detail="Plan generation already in progress for this task",
+        )
 
     # Get repo_path from project registry for codebase context
     repo_path = None
@@ -720,40 +756,73 @@ async def generate_plan(task_id: str, request: Request) -> GeneratePlanResponse:
 
     config: OrchestratorConfig = request.app.state.config
     enrichment_timeout = config.review_pipeline.enrichment_timeout_minutes
+    event_bus: EventBus = request.app.state.event_bus
+    history_writer: HistoryWriter = request.app.state.history_writer
 
-    # Mark plan as generating (persisted so other clients see the status)
+    # Mark plan as generating + emit SSE event
     task.plan_status = "generating"
     await task_manager.update_task(task)
+    event_bus.emit("plan_status_change", task_id, {"plan_status": "generating"})
 
-    try:
-        plan_data = await generate_task_plan(
-            title=task.title,
-            description=task.description,
-            repo_path=repo_path,
-            timeout_minutes=enrichment_timeout,
-        )
-    except RuntimeError as exc:
-        logger.warning("Plan generation failed: %s", exc)
-        # AC4: task.status stays unchanged; only plan_status set to "failed"
-        task.plan_status = "failed"
-        await task_manager.update_task(task)
-        raise HTTPException(
-            status_code=503,
-            detail=f"Plan generation failed: {exc}",
-        ) from exc
+    # Launch background task (fire-and-forget, like review pipeline pattern)
+    async def _run_plan_generation() -> None:
+        try:
+            def on_log(line: str) -> None:
+                """Per-line callback: SSE emit + DB write."""
+                event_bus.emit("log", task_id, {"message": line, "source": "plan"})
+                asyncio.ensure_future(
+                    history_writer.write_log(
+                        task_id, line, level="info", source="plan",
+                    ),
+                )
 
-    formatted = format_plan_as_text(plan_data)
+            plan_data = await generate_task_plan(
+                title=task.title,
+                description=task.description,
+                repo_path=repo_path,
+                timeout_minutes=enrichment_timeout,
+                on_log=on_log,
+            )
 
-    # Auto-save generated plan as task description + mark ready
-    task.description = formatted
-    task.plan_status = "ready"
-    await task_manager.update_task(task)
+            formatted = format_plan_as_text(plan_data)
 
-    return GeneratePlanResponse(
-        plan=plan_data["plan"],
-        steps=plan_data["steps"],
-        acceptance_criteria=plan_data["acceptance_criteria"],
-        formatted=formatted,
+            # Re-fetch task to avoid stale-state overwrites
+            current = await task_manager.get_task(task_id)
+            if current is not None:
+                current.description = formatted
+                current.plan_status = "ready"
+                await task_manager.update_task(current)
+            event_bus.emit(
+                "plan_status_change", task_id, {"plan_status": "ready"},
+            )
+        except Exception as exc:
+            logger.warning("Plan generation failed for %s: %s", task_id, exc)
+            event_bus.emit("log", task_id, {
+                "message": f"Plan generation failed: {exc}",
+                "source": "plan",
+            })
+            asyncio.ensure_future(
+                history_writer.write_log(
+                    task_id,
+                    f"Plan generation failed: {exc}",
+                    level="error",
+                    source="plan",
+                ),
+            )
+            # AC5: finally guarantees terminal state -- set failed
+            current = await task_manager.get_task(task_id)
+            if current is not None and current.plan_status == "generating":
+                current.plan_status = "failed"
+                await task_manager.update_task(current)
+            event_bus.emit(
+                "plan_status_change", task_id, {"plan_status": "failed"},
+            )
+
+    asyncio.create_task(_run_plan_generation())
+
+    return JSONResponse(
+        status_code=202,
+        content={"task_id": task_id, "plan_status": "generating"},
     )
 
 

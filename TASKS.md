@@ -27,25 +27,6 @@
 
 ### P0 -- Must Have (core functionality)
 
-#### T-P0-63a: Backend plan generation streaming + SSE events
-- **Priority**: P0
-- **Complexity**: M (1-2 sessions)
-- **Depends on**: None
-- **Description**: Plan generation backend is broken: `enrichment.py:generate_task_plan()` uses `proc.communicate()` which buffers ALL stdout until process exits (zero real-time feedback during 1-5 min CLI run), and `api.py:generate_plan()` sets `plan_status="generating"` in DB but never emits SSE events. Fix: refactor to line-by-line streaming with SSE + DB dual-write per line, convert sync POST to background task with 202 response, add crash safety and idempotency guards.
-  **SSE event contract** (63b and 64 must follow this): `{type, task_id, data: {plan_status?, message?, source?}, timestamp}`.
-- **Acceptance Criteria**:
-  1. `generate_task_plan()` accepts `on_log: Callable[[str], None]` callback, refactored from `proc.communicate()` to `proc.stdout.readline()` loop (like CodeExecutor pattern)
-  2. API endpoint converts sync POST to background task -- POST returns 202 immediately, plan runs in background with SSE streaming (same as execution model)
-  3. `api.py` emits SSE `plan_status_change` event on each transition (generating/ready/failed) AND SSE `log` events with `source="plan"` per stdout line
-  4. DB writes are per-line via `history_writer` (NOT batched) for crash safety -- if server dies mid-generation, all lines up to crash point are in DB
-  5. `finally:` block in API handler guarantees plan_status terminates to `ready` or `failed` -- never leaves `generating` on crash
-  6. Startup cleanup: on server boot, scan for tasks with `plan_status="generating"` and reset to `failed` (zombie protection)
-  7. Backend idempotency guard: if task already has `plan_status="generating"`, return 409 Conflict
-  8. If `proc.stdout.readline()` produces no output for 30s, emit a synthetic `[PROGRESS] heartbeat` line (same pattern as CodeExecutor)
-  9. **User journey (backend-only)**: POST to generate plan -> 202 response -> SSE stream shows log lines appearing per-second -> plan_status_change event fires on completion -> DB contains all log lines with source="plan"
-  10. **Inverse case**: If CLI fails mid-stream, plan_status transitions to `failed`, SSE emits failure event, partial logs are preserved in DB
-  11. **Manual smoke test**: `curl -X POST .../generate_plan`, then `curl .../events` -- must see SSE log events within 5 seconds, plan_status_change at end
-
 #### T-P0-63b: Frontend plan generation UX wiring
 - **Priority**: P0
 - **Complexity**: S (< 1 session)
@@ -149,6 +130,9 @@
 
 #### [x] T-P0-60: Process failure detection via hard timeout + exit code -- 2026-03-04
 - ProcessMonitor background task scans SubprocessRegistry every 5s, detects dead PIDs, emits `process_failed` SSE events. Health-check endpoint `GET /api/processes/status`. Frontend toast+log on crash. No activity-based stall detection. 1021 tests passing.
+
+#### [x] T-P0-63a: Backend plan generation streaming + SSE events -- 2026-03-04
+- Refactored generate_task_plan() to readline() loop with on_log callback. POST returns 202 with background task. SSE plan_status_change + log events with source="plan". Per-line DB writes. 409 idempotency guard, startup zombie cleanup, 30s heartbeat. 1028 tests passing.
 
 #### [x] T-P0-55: Execution log visual markers for review activity -- 2026-03-04
 - Added purple "REVIEW" badge on review-originated log entries. Extended LogEntry with source field, SSE handlers pass source="review" for review_started/review_progress events. Uses SSE event type for origin detection.
