@@ -68,7 +68,53 @@
 
 #### ~~T-P0-37: Fix sync crash on soft-deleted tasks + task creation feedback~~ [DONE -- see Completed Tasks]
 
-#### T-P0-38: column中的task向前拖拽时弹出确认框信息意义不明 样式不美观 调研改进
+---
+
+### P0-CORE -- Correctness (must do first)
+
+#### ~~T-P0-40: Define Canonical ReviewLifecycleState enum in backend~~ [DONE -- see Completed Tasks]
+
+#### ~~T-P0-41: Refactor review_pipeline to emit ReviewLifecycleState~~ [DONE -- see Completed Tasks]
+
+#### ~~T-P0-42: Make ReviewPanel purely state-driven (no field-guessing)~~ [DONE -- see Completed Tasks]
+
+#### ~~T-P0-43: Fix soft-delete sync with `deleted_source` tracking~~ [DONE -- see Completed Tasks]
+
+---
+
+### P0-BEHAVIOR -- Gating + Selection Correctness
+
+#### ~~T-P0-44: Define plan validity model + enforce in review gate (subsumes T-P0-39)~~ [DONE -- see Completed Tasks]
+
+#### ~~T-P0-45: Generic default project selection via `is_primary` field~~ [DONE -- see Completed Tasks]
+
+#### ~~T-P0-38: Backward-drag confirmation dialog redesign~~ [DONE -- see Completed Tasks]
+
+#### T-P0-39: Block review without plan [subsumed by T-P0-44]
+- **Priority**: P0
+- **Complexity**: S
+- **Depends on**: T-P0-44
+- **Status**: Subsumed -- T-P0-44 defines the plan validity model and enforcement. T-P0-39's requirements are fully covered by T-P0-44's acceptance criteria. No separate implementation needed.
+
+---
+
+### P1-UX -- Polish
+
+#### ~~T-P0-46: Unified MarkdownRenderer abstraction layer~~ [DONE -- see Completed Tasks]
+
+#### T-P0-47: No Plan badges + visual guidance in swim lanes
+- **Priority**: P1
+- **Complexity**: M
+- **Depends on**: None (pairs with T-P0-44 for enforcement)
+- **Problem**: No visual indication in swim lanes that a task lacks a plan. After generating a plan, the preview doesn't refresh properly.
+- **Acceptance Criteria**:
+  1. Add "No Plan" badge on TaskCard when `task.description` is empty/whitespace (amber or gray badge)
+  2. In BACKLOG/REVIEW columns, add subtle indicator counting planless tasks
+  3. After successful `generate-plan` call, ReviewPanel plan section auto-expands and shows new content (verify refresh)
+  4. "Generate Plan" button more prominent for planless tasks (larger, colored CTA)
+  5. **Inverse case**: tasks with plans do NOT show the badge; generate-plan button is less prominent (already has plan)
+  6. **Manual smoke test**: Create task with no description -> amber "No Plan" badge visible on card -> generate plan -> badge disappears, plan section shows content
+- **Files**: `frontend/src/components/TaskCard.tsx`, `frontend/src/components/ReviewPanel.tsx`
 
 ## Dependency Graph
 
@@ -187,6 +233,31 @@ T-P0-33 [M] Fix review panel data bugs [DONE] (no deps)
          +--> T-P0-35 [M] Inline plan editing + versioned history [DONE] (needs T-P0-34)
                 |
                 +--> T-P0-36 [M] Claude --plan integration [P1] (needs T-P0-35)
+
+--- P0-CORE (review state machine) ---
+
+T-P0-40 [M] ReviewLifecycleState enum (no deps)
+  |
+  +--> T-P0-41 [M] Pipeline emits lifecycle state (needs T-P0-40)
+         |
+         +--> T-P0-42 [M] ReviewPanel state-driven (needs T-P0-40 + T-P0-41)
+
+T-P0-43 [S] Soft-delete sync deleted_source (no deps)
+
+--- P0-BEHAVIOR (gating + selection) ---
+
+T-P0-44 [M] Plan validity model + review gate (no deps)
+  |
+  +--> T-P0-39 [S] Block review without plan [subsumed] (needs T-P0-44)
+
+T-P0-45 [S] Default project selection is_primary (no deps)
+
+T-P0-38 [S] Backward-drag confirmation dialog (no deps)
+
+--- P1-UX (polish) ---
+
+T-P0-46 [M] MarkdownRenderer abstraction (no deps) [DONE]
+T-P0-47 [M] No Plan badges + visual guidance (no deps, pairs with T-P0-44)
 ```
 
 ---
@@ -196,6 +267,24 @@ T-P0-33 [M] Fix review panel data bugs [DONE] (no deps)
 
 ## Completed Tasks
 <!-- Move finished tasks here with [x] and completion date -->
+
+#### [x] T-P0-46: Unified MarkdownRenderer abstraction layer -- 2026-03-03
+- Created MarkdownRenderer.tsx using react-markdown with unified styling tokens (headings, lists, code blocks, tables, blockquotes). Font size toggle (S/M/L) with localStorage persistence. Applied to plan content (view mode), reviewer raw output, and new edit-preview mode in inline plan editor. Scroll container with max-height. 992 tests passing.
+
+#### [x] T-P0-38: Backward-drag confirmation dialog redesign -- 2026-03-03
+- Replaced browser `window.prompt()` with styled BackwardDragModal component. Displays task title, ID, source/target columns with arrow visualization, consequence text, and optional reason input. Amber color scheme, consistent with ReviewSubmitModal design. Enter/Escape keyboard support. Forward drags unaffected. 992 tests passing.
+
+#### [x] T-P0-45: Generic default project selection via `is_primary` field -- 2026-03-03
+- Added `is_primary: bool` (default False) to ProjectConfig, Project model, and API schemas. First-time load defaults to primary project(s); falls back to first project if none marked. Existing localStorage selections respected. Set helixos as `is_primary: true` in config. 14 new tests, 992 total passing.
+
+#### [x] T-P0-44: Define plan validity model + enforce in review gate -- 2026-03-03
+- Added `is_plan_valid()` function (>= 20 chars after stripping) and `PlanInvalidError` exception. `update_status()` enforces plan validity on BACKLOG->REVIEW when gate enabled (Layer 2). API returns 428 with `gate_action: "plan_invalid"`. Frontend opens ReviewSubmitModal for both `review_required` and `plan_invalid`. Modal shows plan validity warning, character counter, disables submit when plan too short. 20 new tests, 978 total passing.
+
+#### [x] T-P0-43: Fix soft-delete sync with deleted_source tracking -- 2026-03-03
+- Added `deleted_source` column to TaskRow (`"user"` | `"sync"` | NULL). `delete_task()` sets `deleted_source="user"`. `upsert_task()` skips user-deleted tasks (SKIPPED_DELETED) but allows resurrection for sync-deleted/legacy tasks. `sync_mark_removed()` marks tasks removed from TASKS.md as sync-deleted. `SyncResult`/`SyncResponse` gain `skipped` field. Schema auto-migrated. 13 new tests, 958 total passing.
+
+#### [x] T-P0-40: Define Canonical ReviewLifecycleState enum in backend -- 2026-03-03
+- Created ReviewLifecycleState(StrEnum) with 7 values (NOT_STARTED, RUNNING, PARTIAL, FAILED, REJECTED_SINGLE, REJECTED_CONSENSUS, APPROVED) and REVIEW_LIFECYCLE_TRANSITIONS state machine map. Added lifecycle_state column to ReviewHistoryRow and review_lifecycle_state column to TaskRow (auto-migrated). Exposed in API schemas (TaskResponse, ReviewHistoryEntry). Added set_review_lifecycle_state() to TaskManager. Updated HistoryWriter and frontend types. Full state machine diagram documented in code comments. 24 new tests, 930 total passing.
 
 #### [x] T-P0-37: Fix sync crash on soft-deleted tasks + task creation feedback -- 2026-03-03
 - Added UpsertResult StrEnum and upsert_task() to TaskManager: handles create/resurrect/update/unchanged without exceptions. Simplified sync_project_tasks() to single upsert_task() call per parsed task, removing existing_map query and create-or-update branches. Added sync_error field to CreateTaskResponse schema. Frontend: onCreated callbacks now pass synced boolean, App.tsx shows warning toast on sync failure. Added *.md.bak to .gitignore. 6 new tests (4 upsert + 2 sync resilience), 906 total passing.

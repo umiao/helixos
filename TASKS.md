@@ -17,43 +17,48 @@
 - **Depends on**: None
 - **Status**: Blocked -- requires research on reliable usage API endpoint (non-public internal API may change)
 
-#### ~~T-P0-26: Fix drag-to-REVIEW workflow~~ [DONE -- see Completed Tasks]
+#### T-P0-48: Running Jobs Panel -- click top-right "Running" to see active job list
+- **Priority**: P0
+- **Complexity**: M
+- **Depends on**: None
+- **Description**: When user clicks the "Running: N" indicator in the top-right header,
+  display a panel showing all currently executing jobs across projects. Can be implemented
+  as an additional column/section beside the existing review status bar at the bottom.
+- **Design questions**:
+  - Source of truth: scheduler in-memory state vs DB query (TaskRow WHERE status=RUNNING)?
+  - Polling interval vs SSE-driven updates?
+  - How to handle crash recovery (stale RUNNING entries)?
+- **Acceptance Criteria**:
+  1. Clicking "Running: N" in header toggles a running-jobs panel
+  2. Panel lists each running task: task ID, title, project, elapsed time, phase
+  3. User journey: drag task to QUEUED -> scheduler picks up -> "Running: 1" appears ->
+     click indicator -> panel shows task with elapsed timer -> task completes -> panel
+     updates to "Running: 0"
+  4. Panel auto-updates via SSE (no manual refresh needed)
+  5. When no jobs are running, panel shows empty state message
+  6. When panel is open and a job finishes, the entry is removed in real-time
+  7. Manually verify: click "Running: N" -> panel opens with correct job list -> wait for
+     completion -> entry disappears
 
-#### ~~T-P0-27: Add planning quality rules to CLAUDE.md + LESSONS.md postmortem~~ [DONE -- see Completed Tasks]
-
-#### ~~T-P0-28: Store full reviewer raw_response + surface in ReviewPanel~~ [DONE -- see Completed Tasks]
-
-#### ~~T-P0-29: Upgrade primary reviewer to Opus + per-reviewer budget config + cost tracking~~ [DONE -- see Completed Tasks]
-
-#### ~~T-P0-30: Subprocess inactivity timeout + process group cleanup for execution pipeline~~ [DONE -- see Completed Tasks]
-
-#### ~~T-P0-31: Apply timeout to review pipeline subprocess calls~~ [DONE -- see Completed Tasks]
-
-#### ~~T-P0-32: Review + execution progress phase reporting via SSE~~ [DONE -- see Completed Tasks]
-
-#### ~~T-P0-33: Fix review panel data bugs (T-P0-28 regressions)~~ [DONE -- see Completed Tasks]
-
----
-
-#### ~~T-P0-34: Request Changes decision + human feedback loop~~ [DONE -- see Completed Tasks]
-
----
-
-#### ~~T-P0-35: Inline plan editing + versioned review history~~ [DONE -- see Completed Tasks]
-
----
-
-### P1 -- Should Have (important features)
-
-#### ~~T-P0-36: Structured plan generation via Claude CLI~~ [DONE -- see Completed Tasks]
-
-<!-- All 7 P1 tasks completed (pre-T-P0-36). See Completed Tasks below. -->
-
-### P2 -- Nice to Have (polish, optimization)
-<!-- All 8 P2 tasks completed. See Completed Tasks below. -->
-
-### P3 -- Phase 3: UX + Polish
-<!-- All P3 tasks completed. See Completed Tasks below. -->
+#### T-P0-49: Fix inactivity timeout race condition -- kill vs. successful completion
+- **Priority**: P0
+- **Complexity**: M
+- **Depends on**: None
+- **Description**: Race condition in code_executor.py: a task can complete successfully
+  (returncode 0) but the inactivity timeout fires concurrently and kills the process
+  group. The scheduler then sees the kill and transitions the task to FAILED, even though
+  the work completed. Fix the race at the source -- do NOT add a FAILED->DONE transition.
+- **Acceptance Criteria**:
+  1. In code_executor.py, after kill sequence completes, check if `returncode == 0`;
+     if so, override result to `success=True` with a warning annotation
+  2. In scheduler, add state guard before RUNNING->FAILED transition: verify task is
+     still in RUNNING status (not already transitioned by the completion path)
+  3. Add regression test: simulate task completing (returncode=0) with concurrent
+     timeout fire -> assert final status is DONE, not FAILED
+  4. Add regression test: genuine timeout (process hung, returncode != 0) -> assert
+     FAILED status preserved
+  5. No FAILED->DONE transition added to the state machine
+  6. Manually verify: run a task that completes near timeout boundary -> status is DONE
 
 ### Tech Debt (tracked, not blocking current work)
 - [ ] T-P0-28 postmortem: integration test asserting raw_response contains fields not present in summary/suggestions
@@ -65,47 +70,46 @@
       Self-editing workflow: test changes then restart (queued stage only?).
 - [ ] Audit completed UX tasks (T-P0-8a through T-P3-11) for scenario-matrix gaps
 - [ ] Clarify Pause/Gate/Launch semantic boundaries in PRD (does Pause affect review pipeline?)
-
-#### ~~T-P0-37: Fix sync crash on soft-deleted tasks + task creation feedback~~ [DONE -- see Completed Tasks]
-
----
-
-### P0-CORE -- Correctness (must do first)
-
-#### ~~T-P0-40: Define Canonical ReviewLifecycleState enum in backend~~ [DONE -- see Completed Tasks]
-
-#### ~~T-P0-41: Refactor review_pipeline to emit ReviewLifecycleState~~ [DONE -- see Completed Tasks]
-
-#### ~~T-P0-42: Make ReviewPanel purely state-driven (no field-guessing)~~ [DONE -- see Completed Tasks]
-
-#### ~~T-P0-43: Fix soft-delete sync with `deleted_source` tracking~~ [DONE -- see Completed Tasks]
-
----
-
-### P0-BEHAVIOR -- Gating + Selection Correctness
-
-#### ~~T-P0-44: Define plan validity model + enforce in review gate (subsumes T-P0-39)~~ [DONE -- see Completed Tasks]
-
-#### ~~T-P0-45: Generic default project selection via `is_primary` field~~ [DONE -- see Completed Tasks]
-
-#### ~~T-P0-38: Backward-drag confirmation dialog redesign~~ [DONE -- see Completed Tasks]
-
-#### T-P0-39: Block review without plan [subsumed by T-P0-44]
-- **Priority**: P0
-- **Complexity**: S
-- **Depends on**: T-P0-44
-- **Status**: Subsumed -- T-P0-44 defines the plan validity model and enforcement. T-P0-39's requirements are fully covered by T-P0-44's acceptance criteria. No separate implementation needed.
-
----
+- [ ] Plan generation 503 error taxonomy + retry strategy (structured error types for CLI unavailable, timeout, parse failure)
+- [ ] Scheduler single finalization point / execution epoch ID (prevent race conditions where concurrent paths both try to finalize a task; from T-P0-49)
+- [ ] State machine transition audit -- enumerate all race condition windows in status transitions (timeout vs completion, SSE vs DB, concurrent drag vs scheduler)
 
 ### P1-UX -- Polish
 
-#### ~~T-P0-46: Unified MarkdownRenderer abstraction layer~~ [DONE -- see Completed Tasks]
+#### T-P0-50: Right-click context menu Edit (inline title/description editing)
+- **Priority**: P1
+- **Complexity**: S
+- **Depends on**: None
+- **Description**: Add "Edit" option to the existing TaskContextMenu. Opens an inline
+  edit mode (or modal) for title and description. Reuses existing PATCH /api/tasks/{id}
+  endpoint and frontend updateTask() function.
+- **Acceptance Criteria**:
+  1. Right-click task card -> context menu shows "Edit" option
+  2. Selecting "Edit" opens editable fields for title and description
+  3. Save calls PATCH /api/tasks/{id} with updated fields
+  4. Cancel discards changes without API call
+  5. User journey: right-click task -> Edit -> change title -> Save -> card updates
+     with new title immediately
+  6. Manually verify: right-click -> Edit -> modify -> Save -> card reflects change
 
-#### ~~T-P0-47: No Plan badges + visual guidance in swim lanes~~ [DONE -- see Completed Tasks]
+#### T-P0-51: TASKS.md lifecycle model + archive separation
+- **Priority**: P1
+- **Complexity**: M
+- **Depends on**: None
+- **Description**: Define a sustainable lifecycle for TASKS.md as the project grows.
+  Active tasks stay in TASKS.md; completed tasks move to an archive file. Enforce
+  a size invariant and task schema template. Relocate the dependency graph to docs/.
+- **Acceptance Criteria**:
+  1. Create `archive/completed_tasks.md` with all entries from Completed Tasks section
+  2. TASKS.md Completed section replaced with a link: "See archive/completed_tasks.md"
+  3. Active TASKS.md stays under 300 lines
+  4. Task schema template documented (required fields: Priority, Complexity, Depends on,
+     Description, Acceptance Criteria)
+  5. Dependency graph relocated to `docs/architecture/dependency-graph-history.md`
+  6. TASKS.md references the relocated graph with a link
+  7. Manually verify: TASKS.md < 300 lines, archive contains all 58 completed entries
 
-#### T-P0-48: 1. 点击右上角的running需要能够看到正在执行的job list。可以在下方的review状态栏右侧增加一列。
-
+<!-- TODO: Move Dependency Graph to docs/architecture/dependency-graph-history.md (part of T-P0-51) -->
 ## Dependency Graph
 
 ```
