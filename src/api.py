@@ -34,11 +34,13 @@ from src.history_writer import HistoryWriter
 from src.models import Project, ReviewLifecycleState, ReviewState, Task, TaskStatus
 from src.port_registry import PortRegistry
 from src.process_manager import ProcessManager
+from src.process_monitor import ProcessMonitor
 from src.project_settings import ProjectSettingsStore
 from src.project_validator import validate_project_directory
 from src.review_pipeline import ReviewPipeline
 from src.scheduler import Scheduler
 from src.schemas import (
+    ActiveProcessesResponse,
     BrowseEntry,
     BrowseResponse,
     CreateTaskRequest,
@@ -284,8 +286,16 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     if pm_orphans:
         logger.info("Cleaned up %d orphaned dev servers", len(pm_orphans))
 
-    # Start scheduler
+    # Process monitor (background failure detection)
+    process_monitor = ProcessMonitor(
+        subprocess_registry=subprocess_registry,
+        process_manager=process_manager,
+        event_bus=event_bus,
+    )
+
+    # Start scheduler and process monitor
     await scheduler.start()
+    await process_monitor.start()
 
     # Store on app.state for endpoint access
     app.state._config_path = CONFIG_PATH
@@ -300,13 +310,15 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     app.state.port_registry = port_registry
     app.state.subprocess_registry = subprocess_registry
     app.state.process_manager = process_manager
+    app.state.process_monitor = process_monitor
     app.state.settings_store = settings_store
     app.state.engine = engine
 
     logger.info("HelixOS API started")
     yield
 
-    # Shutdown order: ProcessManager -> Scheduler -> EventBus -> DB
+    # Shutdown order: ProcessMonitor -> ProcessManager -> Scheduler -> DB
+    await process_monitor.stop()
     await process_manager.stop_all()
     await scheduler.stop()
     await engine.dispose()
@@ -928,6 +940,23 @@ async def get_process_status(
         pid=status.pid,
         port=status.port,
         uptime_seconds=status.uptime_seconds,
+    )
+
+
+@api_router.get("/api/processes/status")
+async def list_active_processes(
+    request: Request,
+) -> ActiveProcessesResponse:
+    """Health-check endpoint: list all active subprocesses.
+
+    Returns PID, start_time, elapsed time, subprocess type, and project ID
+    for every tracked subprocess.
+    """
+    monitor: ProcessMonitor = request.app.state.process_monitor
+    processes = monitor.get_active_processes()
+    return ActiveProcessesResponse(
+        processes=processes,  # type: ignore[arg-type]
+        total=len(processes),
     )
 
 

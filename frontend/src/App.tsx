@@ -256,6 +256,24 @@ function App() {
             .catch(() => { /* ignore */ });
           break;
         }
+        case "process_failed": {
+          const failError =
+            typeof event.data.error === "string"
+              ? event.data.error
+              : "Process crashed";
+          const failType = event.data.subprocess_type as string;
+          const failPid = event.data.pid as number;
+          addToast(
+            `[${event.task_id}] ${failError}`,
+            "error",
+          );
+          addLogEntry(
+            event.task_id,
+            `PROCESS FAILED: ${failType} pid=${failPid} -- ${failError}`,
+            event.timestamp,
+          );
+          break;
+        }
       }
     },
     [addToast, addLogEntry],

@@ -689,3 +689,10 @@
 - **Sanity check result**: Ruff clean. 1006 tests passing.
 - **Status**: [DONE]
 - **Request**: Move T-P0-61 to Completed
+
+## 2026-03-04 08:00 -- [T-P0-60] Process failure detection via hard timeout + exit code
+- **What I did**: Created ProcessMonitor background task that scans SubprocessRegistry every 5s to detect crashed/dead processes. Emits `process_failed` SSE events for both dev server and executor crashes. Added `GET /api/processes/status` health-check endpoint returning all active subprocesses (PID, start_time, type, project_id, elapsed_seconds, alive status). Wired ProcessMonitor into app lifespan (start/stop). Added frontend `process_failed` event handler with toast + log entry. No activity-based stall detection (AC 4 enforced).
+- **Deliverables**: src/process_monitor.py (new), src/api.py (mod), src/schemas.py (mod), frontend/src/App.tsx (mod), tests/test_process_monitor.py (new), tests/test_api.py (mod)
+- **Sanity check result**: Ruff clean. 1021 tests passing (14 new process monitor tests + 1 new API test).
+- **Status**: [DONE]
+- **Request**: Move T-P0-60 to Completed

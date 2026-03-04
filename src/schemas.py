@@ -350,6 +350,25 @@ class ProcessStatusResponse(BaseModel):
     uptime_seconds: float | None = None
 
 
+class ActiveProcessEntry(BaseModel):
+    """A single active subprocess in the health-check response."""
+
+    key: str
+    pid: int
+    project_id: str
+    subprocess_type: str
+    start_time: str
+    elapsed_seconds: float
+    alive: bool
+
+
+class ActiveProcessesResponse(BaseModel):
+    """Response for GET /api/processes/status health-check endpoint."""
+
+    processes: list[ActiveProcessEntry] = Field(default_factory=list)
+    total: int = 0
+
+
 # ------------------------------------------------------------------
 # Execution log + review history schemas
 # ------------------------------------------------------------------

@@ -33,6 +33,7 @@ from src.models import (
     TaskStatus,
 )
 from src.process_manager import ProcessStatus
+from src.process_monitor import ProcessMonitor
 from src.scheduler import Scheduler
 from src.task_manager import TaskManager
 
@@ -181,6 +182,11 @@ async def test_app(tmp_path: Path, test_session_factory):
     mock_pm = MagicMock()
     mock_pm.status.return_value = ProcessStatus(running=False)
     app.state.process_manager = mock_pm
+
+    # Mock ProcessMonitor -- get_active_processes returns empty list
+    mock_monitor = MagicMock(spec=ProcessMonitor)
+    mock_monitor.get_active_processes.return_value = []
+    app.state.process_monitor = mock_monitor
 
     yield app
 
@@ -744,6 +750,23 @@ class TestDashboardSummary:
         assert data["by_status"]["backlog"] == 1
         assert data["by_status"]["queued"] == 1
         assert data["running_count"] == 0
+
+
+# ---------------------------------------------------------------------------
+# Process health-check endpoint
+# ---------------------------------------------------------------------------
+
+
+class TestProcessHealthCheck:
+    """Tests for GET /api/processes/status."""
+
+    async def test_empty_processes(self, client: AsyncClient):
+        """Should return empty list when no subprocesses tracked."""
+        resp = await client.get("/api/processes/status")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["processes"] == []
+        assert data["total"] == 0
 
 
 # ---------------------------------------------------------------------------

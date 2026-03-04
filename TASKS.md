@@ -61,19 +61,6 @@
   6. User journey: click Generate Plan -> see progress feedback -> plan appears (or error with retry)
   7. Manual smoke test: trigger plan generation -> observe feedback -> verify task status unchanged on failure
 
-#### T-P0-60: Process failure detection via hard timeout + exit code
-- **Priority**: P0
-- **Complexity**: M (1-2 sessions)
-- **Depends on**: None
-- **Description**: Implement process failure detection using ONLY hard timeout expiry, non-zero exit code, and process-not-alive checks. NO activity-based stall detection (LLM silence is normal, false positives destroy trust). Surface timeout/crash events to UI via existing SSE channels.
-- **Acceptance Criteria**:
-  1. Hard timeout triggers process termination and error event
-  2. Non-zero exit code detected and surfaced as failure
-  3. Process-not-alive (crashed) detected and surfaced as failure
-  4. NO activity-based stall detection (no "idle for X seconds" logic)
-  5. Timeout/crash events sent to UI via existing SSE event types
-  6. Health-check endpoint: GET /api/processes/status returns list of active subprocesses (PID, start_time, task_id)
-  7. Manual smoke test: kill a subprocess -> UI shows failure notification within 10s
 
 ### P1-UX -- Polish
 
@@ -82,7 +69,6 @@
 > Full historical dependency graph relocated to [docs/architecture/dependency-graph-history.md](docs/architecture/dependency-graph-history.md).
 
 ### Current
-- T-P0-61, T-P0-60: independent, can run in parallel
 - T-P0-59: blocked until timing investigation (sub-task 1) done; if async path chosen, also blocked on tech debt "SSE event payload structure" unification
 
 ---
@@ -108,6 +94,9 @@
 
 #### [x] T-P0-57: Hover-to-generate-plan UX on TaskCard -- 2026-03-04
 - Added "Generate Plan" button to TaskCardPopover for tasks with no plan (hidden when plan exists or task is done/failed/blocked). Button calls generatePlan API with loading state and double-click prevention. Error display on failure. onTaskUpdated callback threaded through SwimLane -> KanbanBoard -> TaskCard -> TaskCardPopover for immediate UI refresh.
+
+#### [x] T-P0-60: Process failure detection via hard timeout + exit code -- 2026-03-04
+- ProcessMonitor background task scans SubprocessRegistry every 5s, detects dead PIDs, emits `process_failed` SSE events. Health-check endpoint `GET /api/processes/status`. Frontend toast+log on crash. No activity-based stall detection. 1021 tests passing.
 
 #### [x] T-P0-55: Execution log visual markers for review activity -- 2026-03-04
 - Added purple "REVIEW" badge on review-originated log entries. Extended LogEntry with source field, SSE handlers pass source="review" for review_started/review_progress events. Uses SSE event type for origin detection.
