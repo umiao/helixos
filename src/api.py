@@ -997,6 +997,7 @@ def _enqueue_review_pipeline(
     task: Task,
     task_id: str,
     review_attempt: int = 1,
+    human_feedback: list[dict] | None = None,
 ) -> None:
     """Enqueue the review pipeline as a background asyncio task.
 
@@ -1010,6 +1011,7 @@ def _enqueue_review_pipeline(
         task: The task to review.
         task_id: Task ID string.
         review_attempt: Attempt number (1-based). Retries increment this.
+        human_feedback: Optional list of previous human feedback for injection.
     """
     if review_pipeline is None:
         # Pipeline unavailable -- fail immediately
@@ -1036,6 +1038,7 @@ def _enqueue_review_pipeline(
                 plan_content=task.description,
                 on_progress=on_progress,
                 review_attempt=review_attempt,
+                human_feedback=human_feedback,
             )
 
             updated_task = task.model_copy(update={"review": review_state})
@@ -1190,6 +1193,9 @@ async def retry_review(task_id: str, request: Request) -> dict:
     max_attempt = await history_writer.get_max_review_attempt(task_id)
     next_attempt = max_attempt + 1
 
+    # Fetch all previous human feedback for injection into re-review
+    feedback = await history_writer.get_human_feedback(task_id)
+
     # Ensure task is in REVIEW status; if not, transition it
     if task.status != TaskStatus.REVIEW:
         try:
@@ -1204,6 +1210,7 @@ async def retry_review(task_id: str, request: Request) -> dict:
     _enqueue_review_pipeline(
         task_manager, review_pipeline, event_bus, task, task_id,
         review_attempt=next_attempt,
+        human_feedback=feedback if feedback else None,
     )
 
     return {"detail": "Review retry started", "task_id": task_id}
@@ -1221,10 +1228,30 @@ async def submit_review_decision(
     body: ReviewDecisionRequest,
     request: Request,
 ) -> TaskResponse:
-    """Submit a human review decision for a task."""
+    """Submit a human review decision for a task.
+
+    Supported decisions:
+    - ``approve`` -> QUEUED (reason optional)
+    - ``reject`` -> BACKLOG (reason optional)
+    - ``request_changes`` -> REVIEW with review_status=idle (reason REQUIRED)
+    """
     task_manager: TaskManager = request.app.state.task_manager
     scheduler: Scheduler = request.app.state.scheduler
     event_bus: EventBus = request.app.state.event_bus
+
+    if body.decision not in ("approve", "reject", "request_changes"):
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid decision: '{body.decision}'. "
+                   "Must be 'approve', 'reject', or 'request_changes'.",
+        )
+
+    # request_changes requires a non-empty reason
+    if body.decision == "request_changes" and not body.reason.strip():
+        raise HTTPException(
+            status_code=400,
+            detail="Reason is required when requesting changes.",
+        )
 
     task = await task_manager.get_task(task_id)
     if task is None:
@@ -1245,7 +1272,13 @@ async def submit_review_decision(
     history_writer: HistoryWriter = request.app.state.history_writer
     await history_writer.write_review_decision(task_id, body.decision, reason=body.reason)
 
-    new_status = TaskStatus.QUEUED if body.decision == "approve" else TaskStatus.BACKLOG
+    # Determine target status based on decision
+    if body.decision == "approve":
+        new_status = TaskStatus.QUEUED
+    elif body.decision == "request_changes":
+        new_status = TaskStatus.REVIEW  # stays in REVIEW with idle review_status
+    else:
+        new_status = TaskStatus.BACKLOG
 
     # Pass review gate for defense-in-depth (REVIEW_NEEDS_HUMAN -> QUEUED
     # is allowed even with gate on, since the task already went through review)
@@ -1266,7 +1299,19 @@ async def submit_review_decision(
     except ValueError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from None
 
+    # For request_changes: set review_status to idle (not running)
+    # The state machine sets it to "running" when entering REVIEW,
+    # but request_changes means the user wants to edit before re-review.
+    if body.decision == "request_changes":
+        await task_manager.set_review_status(task_id, "idle")
+
     event_bus.emit("status_change", task_id, {"status": new_status.value})
+
+    # Re-fetch to get the updated review_status
+    if body.decision == "request_changes":
+        updated = await task_manager.get_task(task_id)
+        if updated is None:
+            raise HTTPException(status_code=404, detail=f"Task not found: {task_id}")
 
     return _task_to_response(updated)
 

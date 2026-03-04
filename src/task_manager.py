@@ -60,7 +60,7 @@ VALID_TRANSITIONS: dict[TaskStatus, set[TaskStatus]] = {
         TaskStatus.BACKLOG,
     },
     TaskStatus.REVIEW_AUTO_APPROVED: {TaskStatus.QUEUED, TaskStatus.BACKLOG},
-    TaskStatus.REVIEW_NEEDS_HUMAN: {TaskStatus.QUEUED, TaskStatus.BACKLOG},
+    TaskStatus.REVIEW_NEEDS_HUMAN: {TaskStatus.QUEUED, TaskStatus.BACKLOG, TaskStatus.REVIEW},
     TaskStatus.QUEUED: {
         TaskStatus.RUNNING,
         TaskStatus.BLOCKED,

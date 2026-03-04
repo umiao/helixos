@@ -3,7 +3,7 @@
  * review progress, consensus score, and human decision buttons.
  *
  * Renders based on task.review_status:
- *   idle    -- "No review requested"
+ *   idle    -- "No review requested" or "Re-review" button after request_changes
  *   running -- spinner + "Review in progress..."
  *   done    -- existing review results / history
  *   failed  -- error message + "Retry Review" button
@@ -17,6 +17,8 @@ import {
   retryReview,
   ApiError,
 } from "../api";
+
+type DecisionType = "approve" | "reject" | "request_changes";
 
 interface ReviewPanelProps {
   task: Task | null;
@@ -37,6 +39,7 @@ export default function ReviewPanel({
   const [submitting, setSubmitting] = useState(false);
   const [retrying, setRetrying] = useState(false);
   const [reason, setReason] = useState("");
+  const [selectedDecision, setSelectedDecision] = useState<DecisionType | null>(null);
   const [historyEntries, setHistoryEntries] = useState<ReviewHistoryEntry[]>(
     [],
   );
@@ -53,10 +56,13 @@ export default function ReviewPanel({
     if (!task) {
       setHistoryEntries([]);
       setReason("");
+      setSelectedDecision(null);
       setExpandedRaw({});
       return;
     }
     setExpandedRaw({});
+    setSelectedDecision(null);
+    setReason("");
 
     let cancelled = false;
     const load = async () => {
@@ -120,12 +126,14 @@ export default function ReviewPanel({
   const review = task.review;
   const hasReview = review !== null && review !== undefined;
   const reviewStatus = task.review_status ?? "idle";
+  const isRunning = reviewStatus === "running";
 
-  const handleDecision = async (decision: "approve" | "reject") => {
+  const handleDecision = async (decision: DecisionType) => {
     setSubmitting(true);
     try {
       await submitReviewDecision(task.id, decision, reason);
       setReason("");
+      setSelectedDecision(null);
       onDecisionSubmitted(task.id, decision);
     } catch (err) {
       const msg =
@@ -148,6 +156,12 @@ export default function ReviewPanel({
       setRetrying(false);
     }
   };
+
+  // Can submit: for request_changes, reason is required
+  const canSubmitDecision =
+    selectedDecision !== null &&
+    !submitting &&
+    (selectedDecision !== "request_changes" || reason.trim().length > 0);
 
   const progressPct =
     hasReview && review.rounds_total > 0
@@ -177,6 +191,12 @@ export default function ReviewPanel({
     );
   };
 
+  const humanDecisionColor = (decision: string) => {
+    if (decision === "approve") return "text-green-700";
+    if (decision === "request_changes") return "text-amber-700";
+    return "text-red-700";
+  };
+
   const formatTime = (ts: string) => {
     try {
       return new Date(ts).toLocaleTimeString([], {
@@ -188,6 +208,12 @@ export default function ReviewPanel({
       return ts;
     }
   };
+
+  // Check if task is in REVIEW with idle status (i.e., after request_changes)
+  const showReReviewButton =
+    task.status === "review" &&
+    reviewStatus === "idle" &&
+    historyEntries.some((e) => e.human_decision === "request_changes");
 
   // Review status badge for the header
   const reviewStatusBadge = () => {
@@ -277,6 +303,25 @@ export default function ReviewPanel({
           </div>
         )}
 
+        {/* Re-review button (shown after request_changes when idle) */}
+        {showReReviewButton && (
+          <div className="py-3 px-3 rounded-lg bg-amber-50 border border-amber-200 space-y-2">
+            <p className="text-sm font-medium text-amber-700">
+              Changes requested -- ready for re-review
+            </p>
+            <p className="text-xs text-amber-600">
+              Edit the plan if needed, then click Re-review to run the pipeline again with your feedback.
+            </p>
+            <button
+              onClick={handleRetryReview}
+              disabled={retrying}
+              className="rounded-md bg-amber-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-amber-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+            >
+              {retrying ? "Starting..." : "Re-review"}
+            </button>
+          </div>
+        )}
+
         {/* Progress bar (shown when review data exists) */}
         {hasReview && (
           <div className="pb-2 border-b border-gray-100">
@@ -350,6 +395,9 @@ export default function ReviewPanel({
                     <span className="text-[10px] text-gray-400">
                       Round {entry.round_number}
                     </span>
+                    <span className="text-[10px] text-gray-400">
+                      Attempt {entry.review_attempt}
+                    </span>
                   </div>
                   <div className="flex items-center gap-1.5">
                     {verdictBadge(entry.verdict)}
@@ -416,13 +464,11 @@ export default function ReviewPanel({
                       Human decision:{" "}
                     </span>
                     <span
-                      className={`text-[10px] font-semibold ${
-                        entry.human_decision === "approve"
-                          ? "text-green-700"
-                          : "text-red-700"
-                      }`}
+                      className={`text-[10px] font-semibold ${humanDecisionColor(entry.human_decision)}`}
                     >
-                      {entry.human_decision.toUpperCase()}
+                      {entry.human_decision === "request_changes"
+                        ? "REQUEST CHANGES"
+                        : entry.human_decision.toUpperCase()}
                     </span>
                     {entry.human_reason && entry.human_reason.trim() && (
                       <p className="text-[10px] text-gray-500 mt-0.5 italic">
@@ -469,36 +515,109 @@ export default function ReviewPanel({
           </p>
         ) : reviewStatus !== "idle" ? null : null}
 
-        {/* Decision area: reason + buttons */}
+        {/* Decision area: 3-button selection + reason + submit */}
         {hasReview && review.human_decision_needed && !review.human_choice && (
           <div className="pt-2 border-t border-gray-200 space-y-2">
             <p className="text-xs text-orange-600 font-medium">
               Human decision required
             </p>
-            <textarea
-              value={reason}
-              onChange={(e) => setReason(e.target.value)}
-              placeholder="Reason for your decision (optional)"
-              rows={2}
-              disabled={submitting}
-              className="w-full rounded-md border border-gray-300 px-2 py-1.5 text-xs text-gray-700 bg-white placeholder-gray-400 focus:outline-none focus:ring-1 focus:ring-indigo-400 focus:border-indigo-400 disabled:opacity-50 resize-none"
-            />
+
+            {/* Disabled tooltip when review is running */}
+            {isRunning && (
+              <p className="text-[10px] text-blue-500 italic">
+                Review in progress, please wait
+              </p>
+            )}
+
+            {/* 3-button selection row */}
             <div className="flex gap-2">
               <button
-                onClick={() => handleDecision("approve")}
-                disabled={submitting}
-                className="flex-1 rounded-md bg-green-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                onClick={() => setSelectedDecision("approve")}
+                disabled={submitting || isRunning}
+                title={isRunning ? "Review in progress, please wait" : "Approve this plan"}
+                className={`flex-1 rounded-md px-3 py-1.5 text-sm font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${
+                  selectedDecision === "approve"
+                    ? "bg-green-600 text-white ring-2 ring-green-400"
+                    : "bg-green-50 text-green-700 border border-green-300 hover:bg-green-100"
+                }`}
               >
-                {submitting ? "..." : "Approve"}
+                Approve
               </button>
               <button
-                onClick={() => handleDecision("reject")}
-                disabled={submitting}
-                className="flex-1 rounded-md bg-red-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                onClick={() => setSelectedDecision("request_changes")}
+                disabled={submitting || isRunning}
+                title={isRunning ? "Review in progress, please wait" : "Request changes to this plan"}
+                className={`flex-1 rounded-md px-3 py-1.5 text-sm font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${
+                  selectedDecision === "request_changes"
+                    ? "bg-amber-600 text-white ring-2 ring-amber-400"
+                    : "bg-amber-50 text-amber-700 border border-amber-300 hover:bg-amber-100"
+                }`}
               >
-                {submitting ? "..." : "Reject"}
+                Request Changes
+              </button>
+              <button
+                onClick={() => setSelectedDecision("reject")}
+                disabled={submitting || isRunning}
+                title={isRunning ? "Review in progress, please wait" : "Reject this plan"}
+                className={`flex-1 rounded-md px-3 py-1.5 text-sm font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${
+                  selectedDecision === "reject"
+                    ? "bg-red-600 text-white ring-2 ring-red-400"
+                    : "bg-red-50 text-red-700 border border-red-300 hover:bg-red-100"
+                }`}
+              >
+                Reject
               </button>
             </div>
+
+            {/* Reason textarea -- border color matches selected decision */}
+            {selectedDecision && (
+              <>
+                <textarea
+                  value={reason}
+                  onChange={(e) => setReason(e.target.value)}
+                  placeholder={
+                    selectedDecision === "request_changes"
+                      ? "Describe the changes needed (required)"
+                      : "Reason for your decision (optional)"
+                  }
+                  rows={2}
+                  disabled={submitting || isRunning}
+                  className={`w-full rounded-md px-2 py-1.5 text-xs text-gray-700 bg-white placeholder-gray-400 focus:outline-none focus:ring-1 disabled:opacity-50 resize-none border ${
+                    selectedDecision === "approve"
+                      ? "border-green-300 focus:ring-green-400 focus:border-green-400"
+                      : selectedDecision === "request_changes"
+                        ? "border-amber-300 focus:ring-amber-400 focus:border-amber-400"
+                        : "border-red-300 focus:ring-red-400 focus:border-red-400"
+                  }`}
+                />
+                <button
+                  onClick={() => handleDecision(selectedDecision)}
+                  disabled={!canSubmitDecision || isRunning}
+                  title={
+                    isRunning
+                      ? "Review in progress, please wait"
+                      : selectedDecision === "request_changes" && !reason.trim()
+                        ? "Reason is required for Request Changes"
+                        : undefined
+                  }
+                  className={`w-full rounded-md px-3 py-1.5 text-sm font-medium text-white transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${
+                    selectedDecision === "approve"
+                      ? "bg-green-600 hover:bg-green-700"
+                      : selectedDecision === "request_changes"
+                        ? "bg-amber-600 hover:bg-amber-700"
+                        : "bg-red-600 hover:bg-red-700"
+                  }`}
+                >
+                  {submitting
+                    ? "Submitting..."
+                    : selectedDecision === "approve"
+                      ? "Confirm Approve"
+                      : selectedDecision === "request_changes"
+                        ? "Submit Changes Request"
+                        : "Confirm Reject"}
+                </button>
+              </>
+            )}
           </div>
         )}
 
@@ -507,13 +626,11 @@ export default function ReviewPanel({
           <div className="text-xs pt-2 border-t border-gray-200">
             <span className="text-gray-500">Human decision: </span>
             <span
-              className={`font-semibold ${
-                review.human_choice === "approve"
-                  ? "text-green-700"
-                  : "text-red-700"
-              }`}
+              className={`font-semibold ${humanDecisionColor(review.human_choice)}`}
             >
-              {review.human_choice.toUpperCase()}
+              {review.human_choice === "request_changes"
+                ? "REQUEST CHANGES"
+                : review.human_choice.toUpperCase()}
             </span>
           </div>
         )}

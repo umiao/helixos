@@ -129,7 +129,8 @@ class ReviewDecisionRequest(BaseModel):
     """Request to submit a human review decision."""
 
     decision: str = Field(
-        ..., description="Human decision: 'approve' or 'reject'",
+        ...,
+        description="Human decision: 'approve', 'reject', or 'request_changes'",
     )
     reason: str = ""
 
@@ -369,6 +370,7 @@ class ReviewHistoryEntry(BaseModel):
     human_reason: str | None = None
     raw_response: str = ""
     cost_usd: float | None = None
+    review_attempt: int = 1
     timestamp: str
 
 

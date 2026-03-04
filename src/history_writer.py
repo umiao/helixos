@@ -299,6 +299,39 @@ class HistoryWriter:
             row = result.scalar_one_or_none()
             return row if row is not None else 0
 
+    async def get_human_feedback(self, task_id: str) -> list[dict]:
+        """Retrieve all human feedback entries for a task, ordered by timestamp.
+
+        Returns entries where ``human_decision`` is set (approve, reject, or
+        request_changes).  Each entry includes the decision, reason, and
+        review_attempt for context injection into re-review prompts.
+
+        Args:
+            task_id: The task to fetch feedback for.
+
+        Returns:
+            List of dicts with human_decision, human_reason, review_attempt,
+            and timestamp.
+        """
+        async with get_session(self._sf) as session:
+            stmt = (
+                select(ReviewHistoryRow)
+                .where(ReviewHistoryRow.task_id == task_id)
+                .where(ReviewHistoryRow.human_decision.isnot(None))
+                .order_by(ReviewHistoryRow.id)
+            )
+            result = await session.execute(stmt)
+            rows = result.scalars().all()
+            return [
+                {
+                    "human_decision": r.human_decision,
+                    "human_reason": getattr(r, "human_reason", None) or "",
+                    "review_attempt": getattr(r, "review_attempt", 1),
+                    "timestamp": r.timestamp,
+                }
+                for r in rows
+            ]
+
     async def has_approved_review(self, task_id: str) -> bool:
         """Check if any review entry for *task_id* has an approved verdict.
 

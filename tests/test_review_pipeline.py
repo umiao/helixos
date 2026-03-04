@@ -1301,3 +1301,140 @@ async def test_no_synthesizing_for_single_reviewer(mock_exec: AsyncMock) -> None
     )
 
     assert "Synthesizing..." not in phases
+
+
+# ------------------------------------------------------------------
+# Human feedback injection tests (T-P0-34)
+# ------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+@patch("src.review_pipeline.asyncio.create_subprocess_exec")
+async def test_human_feedback_injected_into_prompt(mock_exec: AsyncMock) -> None:
+    """When human_feedback is provided, it should appear in the CLI prompt."""
+    captured_args: list[tuple] = []
+
+    async def _capture_exec(*args, **kwargs):
+        captured_args.append(args)
+        return _mock_proc(_make_review_output("approve", "OK"))
+
+    mock_exec.side_effect = _capture_exec
+
+    pipeline = ReviewPipeline(_default_config(), threshold=0.8)
+    feedback = [
+        {
+            "human_decision": "request_changes",
+            "human_reason": "Add timeout handling",
+            "review_attempt": 1,
+            "timestamp": "2026-03-03T05:00:00",
+        },
+        {
+            "human_decision": "request_changes",
+            "human_reason": "Also fix error path",
+            "review_attempt": 2,
+            "timestamp": "2026-03-03T06:00:00",
+        },
+    ]
+
+    await pipeline.review_task(
+        _sample_task(), "Build the thing",
+        lambda c, t, p: None,
+        complexity="S",
+        human_feedback=feedback,
+    )
+
+    # The first captured call should have the prompt with feedback
+    assert len(captured_args) >= 1
+    # args[0] is "claude", args[1] is "-p", args[2] is the prompt
+    prompt = captured_args[0][2]
+    assert "Previous human feedback" in prompt
+    assert "Add timeout handling" in prompt
+    assert "Also fix error path" in prompt
+    assert "[Attempt 1] REQUEST_CHANGES" in prompt
+    assert "[Attempt 2] REQUEST_CHANGES" in prompt
+
+
+@pytest.mark.asyncio
+@patch("src.review_pipeline.asyncio.create_subprocess_exec")
+async def test_no_feedback_no_injection(mock_exec: AsyncMock) -> None:
+    """When no human_feedback is provided, prompt should not contain feedback section."""
+    captured_args: list[tuple] = []
+
+    async def _capture_exec(*args, **kwargs):
+        captured_args.append(args)
+        return _mock_proc(_make_review_output("approve", "OK"))
+
+    mock_exec.side_effect = _capture_exec
+
+    pipeline = ReviewPipeline(_default_config(), threshold=0.8)
+
+    await pipeline.review_task(
+        _sample_task(), "Build the thing",
+        lambda c, t, p: None,
+        complexity="S",
+        human_feedback=None,
+    )
+
+    assert len(captured_args) >= 1
+    prompt = captured_args[0][2]
+    assert "Previous human feedback" not in prompt
+
+
+@pytest.mark.asyncio
+@patch("src.review_pipeline.asyncio.create_subprocess_exec")
+async def test_empty_feedback_list_no_injection(mock_exec: AsyncMock) -> None:
+    """Empty feedback list should not inject feedback section."""
+    captured_args: list[tuple] = []
+
+    async def _capture_exec(*args, **kwargs):
+        captured_args.append(args)
+        return _mock_proc(_make_review_output("approve", "OK"))
+
+    mock_exec.side_effect = _capture_exec
+
+    pipeline = ReviewPipeline(_default_config(), threshold=0.8)
+
+    await pipeline.review_task(
+        _sample_task(), "Build the thing",
+        lambda c, t, p: None,
+        complexity="S",
+        human_feedback=[],
+    )
+
+    assert len(captured_args) >= 1
+    prompt = captured_args[0][2]
+    assert "Previous human feedback" not in prompt
+
+
+@pytest.mark.asyncio
+@patch("src.review_pipeline.asyncio.create_subprocess_exec")
+async def test_feedback_without_reason(mock_exec: AsyncMock) -> None:
+    """Feedback entry with empty reason includes only the decision."""
+    captured_args: list[tuple] = []
+
+    async def _capture_exec(*args, **kwargs):
+        captured_args.append(args)
+        return _mock_proc(_make_review_output("approve", "OK"))
+
+    mock_exec.side_effect = _capture_exec
+
+    pipeline = ReviewPipeline(_default_config(), threshold=0.8)
+    feedback = [
+        {
+            "human_decision": "reject",
+            "human_reason": "",
+            "review_attempt": 1,
+            "timestamp": "2026-03-03T05:00:00",
+        },
+    ]
+
+    await pipeline.review_task(
+        _sample_task(), "Build the thing",
+        lambda c, t, p: None,
+        complexity="S",
+        human_feedback=feedback,
+    )
+
+    prompt = captured_args[0][2]
+    assert "Previous human feedback" in prompt
+    assert "[Attempt 1] REJECT" in prompt

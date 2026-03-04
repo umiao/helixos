@@ -519,9 +519,9 @@ class TestTransitionTableCoverage:
         }
 
     def test_review_needs_human_targets(self) -> None:
-        """REVIEW_NEEDS_HUMAN can go to QUEUED or BACKLOG."""
+        """REVIEW_NEEDS_HUMAN can go to QUEUED, BACKLOG, or REVIEW (request_changes)."""
         assert VALID_TRANSITIONS[TaskStatus.REVIEW_NEEDS_HUMAN] == {
-            TaskStatus.QUEUED, TaskStatus.BACKLOG,
+            TaskStatus.QUEUED, TaskStatus.BACKLOG, TaskStatus.REVIEW,
         }
 
     def test_queued_targets(self) -> None:

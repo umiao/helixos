@@ -35,82 +35,7 @@
 
 ---
 
-#### T-P0-34: Request Changes decision + human feedback loop
-- **Priority**: P0
-- **Complexity**: M
-- **Depends on**: T-P0-33
-- **Pre-implementation requirement**: Produce formal state machine diagram
-  (ASCII in task description or separate doc) before writing any code.
-
-**Problem**: Binary approve/reject is too coarse. No iteration.
-
-**State Machine (must be formalized before coding)**:
-```
-BACKLOG --[submit to review]--> REVIEW (review_status=running)
-REVIEW (running) --[pipeline completes]--> REVIEW_NEEDS_HUMAN
-REVIEW_NEEDS_HUMAN --[approve]--> QUEUED
-REVIEW_NEEDS_HUMAN --[reject]--> BACKLOG
-REVIEW_NEEDS_HUMAN --[request_changes]--> REVIEW (review_status=idle)
-REVIEW (idle) --[user edits plan + triggers re-review]--> REVIEW (running)
-
-Illegal transitions (must be guarded):
-- request_changes while review_status=running -> 409
-- edit plan while review_status=running -> allowed (edit is on task,
-  not review), but does NOT cancel running review
-- re-review while review_status=running -> 409 (already running)
-
-Semantics:
-- reject = "this task should not be done" -> BACKLOG (terminal for this cycle)
-- request_changes = "right direction, needs revision" -> stays in REVIEW
-- approve = "proceed to execution" -> QUEUED
-```
-
-**AC**:
-
-1. **"Request Changes" decision type**:
-   - New decision: `"request_changes"` alongside approve/reject
-   - Requires non-empty reason (400 if empty)
-   - Backend: task transitions REVIEW_NEEDS_HUMAN -> REVIEW, review_status=idle
-   - Human feedback persisted via write_review_decision with reason
-   - Journey AC: User clicks "Request Changes" -> types "Add timeout handling"
-     -> submits -> task stays in REVIEW column -> user can edit and re-review
-
-2. **Feedback injection into re-review** (all previous feedback, not just latest):
-   - On re-review, fetch ALL human feedback from previous attempts for this
-     task, ordered by timestamp
-   - Include plan version identifier with each feedback entry
-   - Append to reviewer user prompt as "Previous human feedback" section
-   - Token safety: practical limit ~5 iterations, not a concern
-   - Journey AC: Attempt 1 reject -> Attempt 2 request_changes("add X") ->
-     Attempt 3 request_changes("also fix Y") -> Attempt 4 reviewer sees
-     both feedback entries in context
-
-3. **Review attempt increment timing**:
-   - Increment happens at pipeline start (not at human decision time)
-   - Each automated reviewer run = one review_attempt
-   - Human decisions do not increment attempt number
-
-4. **Frontend 3-button decision area**:
-   - Approve (green) -- reason optional -> QUEUED
-   - Reject (red) -- reason optional -> BACKLOG
-   - Request Changes (amber) -- reason REQUIRED -> REVIEW (idle)
-   - When Request Changes selected: textarea border amber, placeholder
-     "Describe the changes needed (required)", submit disabled if empty
-   - After request_changes: show "Re-review" button
-
-5. **Concurrent scenario guards**:
-   - If review_status=running: decision buttons disabled with tooltip
-     "Review in progress, please wait"
-   - If user submits request_changes then immediately clicks Re-review:
-     normal flow (request_changes sets idle, re-review sets running)
-
-6. **Manual smoke test**: Review completes -> click Request Changes with
-   feedback -> task stays REVIEW -> edit plan -> re-review -> verify
-   reviewer prompt contains human feedback -> approve -> QUEUED.
-
-**Files**: `src/models.py`, `src/api.py`, `src/review_pipeline.py`,
-`src/history_writer.py`, `src/schemas.py`,
-`frontend/src/components/ReviewPanel.tsx`, `frontend/src/api.ts`, + tests
+#### ~~T-P0-34: Request Changes decision + human feedback loop~~ [DONE -- see Completed Tasks]
 
 ---
 
@@ -317,7 +242,7 @@ T-P0-30 [M] Inactivity timeout + process groups [DONE] (no deps)
 
 T-P0-33 [M] Fix review panel data bugs [DONE] (no deps)
   |
-  +--> T-P0-34 [M] Request Changes + feedback loop (needs T-P0-33)
+  +--> T-P0-34 [M] Request Changes + feedback loop [DONE] (needs T-P0-33)
          |
          +--> T-P0-35 [M] Inline plan editing + versioned history (needs T-P0-34)
                 |
@@ -331,6 +256,9 @@ T-P0-33 [M] Fix review panel data bugs [DONE] (no deps)
 
 ## Completed Tasks
 <!-- Move finished tasks here with [x] and completion date -->
+
+#### [x] T-P0-34: Request Changes decision + human feedback loop -- 2026-03-03
+- Added "request_changes" as third decision type (requires non-empty reason, 400 if empty). REVIEW_NEEDS_HUMAN -> REVIEW transition with review_status=idle. get_human_feedback() in HistoryWriter fetches all previous human feedback. Re-review injects feedback into reviewer prompts. Frontend: 3-button decision area (Approve/Request Changes/Reject), amber styling for Request Changes, Re-review button after request_changes, disabled buttons during running review. 13 new tests, 873 total passing.
 
 #### [x] T-P0-33: Fix review panel data bugs (T-P0-28 regressions) -- 2026-03-03
 - Fixed 3 data-path bugs: (1) raw_response now stores explicit CLI fields (model, usage, result, session_id) as structured JSON, decoupling DB from CLI contract. (2) Collapsible "Plan Under Review" section in ReviewPanel shows task.description (or explicit empty message). (3) human_reason column on ReviewHistoryRow, persisted E2E through write_review_decision->API->frontend with display below decision label. 6 new tests, 860 total passing.

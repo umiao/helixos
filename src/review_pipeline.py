@@ -241,6 +241,7 @@ class ReviewPipeline:
         on_progress: Callable[[int, int, str], None],
         complexity: str = "S",
         review_attempt: int = 1,
+        human_feedback: list[dict] | None = None,
     ) -> ReviewState:
         """Run the review pipeline for a task plan.
 
@@ -253,6 +254,10 @@ class ReviewPipeline:
             complexity: Task complexity (``"S"``, ``"M"``, ``"L"``). Adversarial
                 reviewer added for M and L tasks.
             review_attempt: Attempt number (1-based). Retries increment this.
+            human_feedback: Optional list of previous human feedback entries
+                (from ``HistoryWriter.get_human_feedback``).  Each entry has
+                ``human_decision``, ``human_reason``, ``review_attempt``, and
+                ``timestamp``.  Injected into reviewer prompts as context.
 
         Returns:
             ReviewState with all reviews, consensus score, and human decision flag.
@@ -279,7 +284,10 @@ class ReviewPipeline:
         for i, reviewer in enumerate(active_reviewers):
             on_progress(i, len(active_reviewers),
                         f"Starting {reviewer.focus} review...")
-            review = await self._call_reviewer(reviewer, task, plan_content)
+            review = await self._call_reviewer(
+                reviewer, task, plan_content,
+                human_feedback=human_feedback,
+            )
             reviews.append(review)
             on_progress(i + 1, len(active_reviewers),
                         f"Completed {reviewer.focus} review")
@@ -419,6 +427,7 @@ class ReviewPipeline:
         reviewer: ReviewerConfig,
         task: Task,
         plan_content: str,
+        human_feedback: list[dict] | None = None,
     ) -> LLMReview:
         """Call a reviewer via the Claude CLI.
 
@@ -426,6 +435,7 @@ class ReviewPipeline:
             reviewer: Reviewer configuration (model, focus).
             task: The task being reviewed.
             plan_content: The plan to review.
+            human_feedback: Optional list of previous human feedback entries.
 
         Returns:
             LLMReview with parsed verdict, summary, suggestions, and cost_usd.
@@ -438,6 +448,24 @@ class ReviewPipeline:
             f"Description: {task.description}\n\n"
             f"Plan:\n{plan_content}"
         )
+
+        # Inject previous human feedback into the prompt
+        if human_feedback:
+            feedback_lines = []
+            for fb in human_feedback:
+                decision = fb.get("human_decision", "")
+                reason = fb.get("human_reason", "")
+                attempt = fb.get("review_attempt", "?")
+                line = f"- [Attempt {attempt}] {decision.upper()}"
+                if reason:
+                    line += f": {reason}"
+                feedback_lines.append(line)
+            user_content += (
+                "\n\n--- Previous human feedback ---\n"
+                + "\n".join(feedback_lines)
+                + "\n--- End of feedback ---\n"
+                "\nPlease address the above feedback in your review."
+            )
 
         cli_output = await self._call_claude_cli(
             prompt=user_content,

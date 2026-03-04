@@ -470,6 +470,111 @@ class TestReviewDecide:
         )
         assert resp.status_code == 409
 
+    async def test_request_changes_stays_in_review(
+        self, client: AsyncClient, task_manager: TaskManager,
+    ):
+        """request_changes should transition to REVIEW with review_status=idle."""
+        task = _make_task(
+            task_id="proj-a:T-P0-RC1",
+            local_task_id="T-P0-RC1",
+            status=TaskStatus.REVIEW_NEEDS_HUMAN,
+        )
+        task = task.model_copy(update={
+            "review": ReviewState(
+                rounds_total=1,
+                rounds_completed=1,
+                consensus_score=0.5,
+                human_decision_needed=True,
+            ),
+        })
+        await task_manager.create_task(task)
+
+        resp = await client.post(
+            "/api/tasks/proj-a:T-P0-RC1/review/decide",
+            json={"decision": "request_changes", "reason": "Add timeout handling"},
+        )
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["status"] == "review"
+        assert data["review_status"] == "idle"
+
+    async def test_request_changes_requires_reason(
+        self, client: AsyncClient, task_manager: TaskManager,
+    ):
+        """request_changes with empty reason should return 400."""
+        task = _make_task(
+            task_id="proj-a:T-P0-RC2",
+            local_task_id="T-P0-RC2",
+            status=TaskStatus.REVIEW_NEEDS_HUMAN,
+        )
+        task = task.model_copy(update={
+            "review": ReviewState(
+                rounds_total=1,
+                rounds_completed=1,
+                consensus_score=0.5,
+                human_decision_needed=True,
+            ),
+        })
+        await task_manager.create_task(task)
+
+        resp = await client.post(
+            "/api/tasks/proj-a:T-P0-RC2/review/decide",
+            json={"decision": "request_changes", "reason": ""},
+        )
+        assert resp.status_code == 400
+        assert "required" in resp.json()["detail"].lower()
+
+    async def test_request_changes_whitespace_only_reason_returns_400(
+        self, client: AsyncClient, task_manager: TaskManager,
+    ):
+        """request_changes with whitespace-only reason should return 400."""
+        task = _make_task(
+            task_id="proj-a:T-P0-RC3",
+            local_task_id="T-P0-RC3",
+            status=TaskStatus.REVIEW_NEEDS_HUMAN,
+        )
+        task = task.model_copy(update={
+            "review": ReviewState(
+                rounds_total=1,
+                rounds_completed=1,
+                consensus_score=0.5,
+                human_decision_needed=True,
+            ),
+        })
+        await task_manager.create_task(task)
+
+        resp = await client.post(
+            "/api/tasks/proj-a:T-P0-RC3/review/decide",
+            json={"decision": "request_changes", "reason": "   "},
+        )
+        assert resp.status_code == 400
+
+    async def test_invalid_decision_returns_400(
+        self, client: AsyncClient, task_manager: TaskManager,
+    ):
+        """An unrecognized decision type should return 400."""
+        task = _make_task(
+            task_id="proj-a:T-P0-RC4",
+            local_task_id="T-P0-RC4",
+            status=TaskStatus.REVIEW_NEEDS_HUMAN,
+        )
+        task = task.model_copy(update={
+            "review": ReviewState(
+                rounds_total=1,
+                rounds_completed=1,
+                consensus_score=0.5,
+                human_decision_needed=True,
+            ),
+        })
+        await task_manager.create_task(task)
+
+        resp = await client.post(
+            "/api/tasks/proj-a:T-P0-RC4/review/decide",
+            json={"decision": "maybe"},
+        )
+        assert resp.status_code == 400
+        assert "invalid decision" in resp.json()["detail"].lower()
+
 
 class TestForceExecute:
     """Tests for POST /api/tasks/{task_id}/execute."""

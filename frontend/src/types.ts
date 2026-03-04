@@ -216,6 +216,7 @@ export interface ReviewHistoryEntry {
   human_reason: string | null;
   raw_response: string;
   cost_usd: number | null;
+  review_attempt: number;
   timestamp: string;
 }
 

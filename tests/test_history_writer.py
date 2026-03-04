@@ -470,3 +470,65 @@ class TestReviewHistory:
 
         assert await hw.get_max_review_attempt("task-1") == 5
         assert await hw.get_max_review_attempt("task-2") == 2
+
+    # ------------------------------------------------------------------
+    # get_human_feedback (T-P0-34)
+    # ------------------------------------------------------------------
+
+    async def test_get_human_feedback_empty(self, session_factory):
+        """get_human_feedback returns empty list when no feedback exists."""
+        hw = HistoryWriter(session_factory)
+        feedback = await hw.get_human_feedback("nonexistent")
+        assert feedback == []
+
+    async def test_get_human_feedback_no_decisions(self, session_factory):
+        """get_human_feedback returns empty when reviews exist but no decisions."""
+        hw = HistoryWriter(session_factory)
+        await hw.write_review("task-1", 1, _make_review())
+        await hw.write_review("task-1", 2, _make_review())
+
+        feedback = await hw.get_human_feedback("task-1")
+        assert feedback == []
+
+    async def test_get_human_feedback_single(self, session_factory):
+        """get_human_feedback returns a single feedback entry."""
+        hw = HistoryWriter(session_factory)
+        await hw.write_review("task-1", 1, _make_review(), review_attempt=1)
+        await hw.write_review_decision("task-1", "request_changes", reason="Add tests")
+
+        feedback = await hw.get_human_feedback("task-1")
+        assert len(feedback) == 1
+        assert feedback[0]["human_decision"] == "request_changes"
+        assert feedback[0]["human_reason"] == "Add tests"
+        assert feedback[0]["review_attempt"] == 1
+
+    async def test_get_human_feedback_multiple(self, session_factory):
+        """get_human_feedback returns all feedback in order."""
+        hw = HistoryWriter(session_factory)
+        # Attempt 1: request_changes
+        await hw.write_review("task-1", 1, _make_review(), review_attempt=1)
+        await hw.write_review_decision("task-1", "request_changes", reason="Add X")
+
+        # Attempt 2: request_changes again
+        await hw.write_review("task-1", 1, _make_review(), review_attempt=2)
+        await hw.write_review_decision("task-1", "request_changes", reason="Also fix Y")
+
+        feedback = await hw.get_human_feedback("task-1")
+        assert len(feedback) == 2
+        assert feedback[0]["human_reason"] == "Add X"
+        assert feedback[1]["human_reason"] == "Also fix Y"
+
+    async def test_get_human_feedback_isolated_by_task(self, session_factory):
+        """get_human_feedback is scoped to the given task_id."""
+        hw = HistoryWriter(session_factory)
+        await hw.write_review("task-1", 1, _make_review())
+        await hw.write_review_decision("task-1", "approve", reason="Good")
+        await hw.write_review("task-2", 1, _make_review())
+        await hw.write_review_decision("task-2", "reject", reason="Bad")
+
+        fb1 = await hw.get_human_feedback("task-1")
+        fb2 = await hw.get_human_feedback("task-2")
+        assert len(fb1) == 1
+        assert fb1[0]["human_decision"] == "approve"
+        assert len(fb2) == 1
+        assert fb2[0]["human_decision"] == "reject"
