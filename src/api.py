@@ -1241,9 +1241,9 @@ async def submit_review_decision(
     updated_task = task.model_copy(update={"review": review_state})
     await task_manager.update_task(updated_task)
 
-    # Persist human decision to review history
+    # Persist human decision (and optional reason) to review history
     history_writer: HistoryWriter = request.app.state.history_writer
-    await history_writer.write_review_decision(task_id, body.decision)
+    await history_writer.write_review_decision(task_id, body.decision, reason=body.reason)
 
     new_status = TaskStatus.QUEUED if body.decision == "approve" else TaskStatus.BACKLOG
 

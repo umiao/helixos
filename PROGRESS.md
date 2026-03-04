@@ -500,3 +500,10 @@
 - **Sanity check result**: 854 tests passing (11 new). Ruff clean. Frontend builds clean.
 - **Status**: [DONE]
 - **Request**: Move T-P0-32 to Completed
+
+## 2026-03-03 05:00 -- [T-P0-33] Fix review panel data bugs (T-P0-28 regressions)
+- **What I did**: Fixed 3 data-path bugs in ReviewPanel. AC1: raw_response now stores explicit CLI fields (model, usage, result, session_id) as structured JSON instead of just the parsed result text -- decouples DB schema from CLI contract and provides metadata not shown in summary/suggestions. AC2: Added collapsible "Plan Under Review" section at top of ReviewPanel showing task.description; when empty shows "(No plan content provided to reviewer)". AC3: Added human_reason TEXT NULL column to ReviewHistoryRow (auto-migrated), updated write_review_decision to accept+persist reason, wired through API endpoint, added human_reason to ReviewHistoryEntry schema and frontend types, frontend displays reason below "Human decision:" label.
+- **Deliverables**: src/review_pipeline.py (mod -- structured raw_response), src/db.py (mod -- human_reason column), src/history_writer.py (mod -- reason param in write_review_decision, human_reason in get_reviews), src/api.py (mod -- pass body.reason to write_review_decision), src/schemas.py (mod -- human_reason on ReviewHistoryEntry), frontend/src/types.ts (mod -- human_reason on ReviewHistoryEntry), frontend/src/components/ReviewPanel.tsx (mod -- Plan Under Review section, human_reason display), tests/test_review_pipeline.py (mod -- 4 new/updated raw_response tests), tests/test_history_writer.py (mod -- 4 new human_reason tests)
+- **Sanity check result**: 860 tests passing (6 new). Ruff clean. Frontend builds clean.
+- **Status**: [DONE]
+- **Request**: Move T-P0-33 to Completed

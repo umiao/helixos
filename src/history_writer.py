@@ -200,12 +200,14 @@ class HistoryWriter:
         self,
         task_id: str,
         decision: str,
+        reason: str = "",
     ) -> None:
         """Update the latest review entry for a task with a human decision.
 
         Args:
             task_id: The task to update.
             decision: The human decision (approve/reject).
+            reason: Optional human-provided reason for the decision.
         """
         async with get_session(self._sf) as session:
             stmt = (
@@ -218,6 +220,8 @@ class HistoryWriter:
             row = result.scalar_one_or_none()
             if row is not None:
                 row.human_decision = decision
+                if reason:
+                    row.human_reason = reason
 
     async def get_reviews(
         self,
@@ -257,6 +261,7 @@ class HistoryWriter:
                     "suggestions": json.loads(r.suggestions_json),
                     "consensus_score": r.consensus_score,
                     "human_decision": r.human_decision,
+                    "human_reason": getattr(r, "human_reason", None),
                     "raw_response": getattr(r, "raw_response", ""),
                     "cost_usd": getattr(r, "cost_usd", None),
                     "review_attempt": getattr(r, "review_attempt", 1),

@@ -284,6 +284,51 @@ class TestReviewHistory:
         # Should not raise
         await hw.write_review_decision("nonexistent", "reject")
 
+    async def test_write_review_decision_with_reason(self, session_factory):
+        """write_review_decision persists the human_reason alongside the decision."""
+        hw = HistoryWriter(session_factory)
+        await hw.write_review("task-1", 1, _make_review())
+
+        await hw.write_review_decision("task-1", "approve", reason="Need error handling for X")
+
+        reviews = await hw.get_reviews("task-1")
+        assert reviews[0]["human_decision"] == "approve"
+        assert reviews[0]["human_reason"] == "Need error handling for X"
+
+    async def test_write_review_decision_empty_reason(self, session_factory):
+        """write_review_decision with empty reason leaves human_reason as None."""
+        hw = HistoryWriter(session_factory)
+        await hw.write_review("task-1", 1, _make_review())
+
+        await hw.write_review_decision("task-1", "reject", reason="")
+
+        reviews = await hw.get_reviews("task-1")
+        assert reviews[0]["human_decision"] == "reject"
+        assert reviews[0]["human_reason"] is None
+
+    async def test_human_reason_default_none(self, session_factory):
+        """human_reason defaults to None when no decision has been made."""
+        hw = HistoryWriter(session_factory)
+        await hw.write_review("task-1", 1, _make_review())
+
+        reviews = await hw.get_reviews("task-1")
+        assert reviews[0]["human_reason"] is None
+
+    async def test_human_reason_persists_across_reload(self, session_factory):
+        """human_reason persists and is returned in subsequent get_reviews calls."""
+        hw = HistoryWriter(session_factory)
+        await hw.write_review("task-1", 1, _make_review())
+        await hw.write_review("task-1", 2, _make_review())
+
+        await hw.write_review_decision("task-1", "approve", reason="Looks good to me")
+
+        # Re-read from DB
+        reviews = await hw.get_reviews("task-1")
+        # Only the latest (round 2) has the decision + reason
+        assert reviews[0]["human_reason"] is None
+        assert reviews[1]["human_decision"] == "approve"
+        assert reviews[1]["human_reason"] == "Looks good to me"
+
     async def test_consensus_score_on_final_round(self, session_factory):
         """consensus_score is stored only on the final round."""
         hw = HistoryWriter(session_factory)

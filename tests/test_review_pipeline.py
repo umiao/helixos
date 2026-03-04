@@ -556,7 +556,7 @@ async def test_synthesis_score_clamped(mock_exec: AsyncMock) -> None:
 @pytest.mark.asyncio
 @patch("src.review_pipeline.asyncio.create_subprocess_exec")
 async def test_raw_response_captured(mock_exec: AsyncMock) -> None:
-    """raw_response is captured on each LLMReview from the CLI result text."""
+    """raw_response is structured JSON with model, usage, result, session_id."""
     inner_json = json.dumps({
         "verdict": "approve",
         "summary": "Plan looks good",
@@ -569,7 +569,9 @@ async def test_raw_response_captured(mock_exec: AsyncMock) -> None:
         _sample_task(), "Build the thing", lambda c, t, p: None, complexity="S"
     )
 
-    assert result.reviews[0].raw_response == inner_json
+    raw = json.loads(result.reviews[0].raw_response)
+    assert "result" in raw
+    assert raw["result"] == inner_json
 
 
 @pytest.mark.asyncio
@@ -584,8 +586,71 @@ async def test_raw_response_captured_on_parse_failure(mock_exec: AsyncMock) -> N
         _sample_task(), "Plan", lambda c, t, p: None, complexity="S"
     )
 
-    assert result.reviews[0].raw_response == raw_text
+    raw = json.loads(result.reviews[0].raw_response)
+    assert raw["result"] == raw_text
     assert result.reviews[0].verdict == "reject"
+
+
+@pytest.mark.asyncio
+@patch("src.review_pipeline.asyncio.create_subprocess_exec")
+async def test_raw_response_contains_fields_beyond_result(mock_exec: AsyncMock) -> None:
+    """raw_response must contain fields beyond just 'result' (invariant test from AC)."""
+    inner_json = json.dumps({
+        "verdict": "approve", "summary": "OK", "suggestions": [],
+    })
+    # CLI output with usage + model data
+    cli_output = {
+        "type": "result",
+        "result": inner_json,
+        "model": "claude-sonnet-4-5",
+        "usage": {"input_tokens": 1000, "output_tokens": 500},
+        "session_id": "sess-abc123",
+    }
+    mock_exec.return_value = _mock_proc(
+        json.dumps(cli_output).encode("utf-8")
+    )
+
+    pipeline = ReviewPipeline(_default_config(), threshold=0.8)
+    result = await pipeline.review_task(
+        _sample_task(), "Plan", lambda c, t, p: None, complexity="S"
+    )
+
+    raw = json.loads(result.reviews[0].raw_response)
+    # Invariant: raw_response keys minus "result" must be non-empty
+    assert set(raw.keys()) - {"result"}
+    assert raw["model"] == "claude-sonnet-4-5"
+    assert raw["usage"] == {"input_tokens": 1000, "output_tokens": 500}
+    assert raw["session_id"] == "sess-abc123"
+
+
+@pytest.mark.asyncio
+@patch("src.review_pipeline.asyncio.create_subprocess_exec")
+async def test_raw_response_explicit_fields_only(mock_exec: AsyncMock) -> None:
+    """raw_response contains only model/usage/result/session_id, not entire CLI blob."""
+    inner_json = json.dumps({
+        "verdict": "approve", "summary": "OK", "suggestions": [],
+    })
+    # CLI output with extra fields that should NOT be in raw_response
+    cli_output = {
+        "type": "result",
+        "result": inner_json,
+        "model": "claude-sonnet-4-5",
+        "usage": {"input_tokens": 100, "output_tokens": 50},
+        "session_id": "sess-xyz",
+        "some_internal_field": "should_not_be_stored",
+        "num_turns": 1,
+    }
+    mock_exec.return_value = _mock_proc(
+        json.dumps(cli_output).encode("utf-8")
+    )
+
+    pipeline = ReviewPipeline(_default_config(), threshold=0.8)
+    result = await pipeline.review_task(
+        _sample_task(), "Plan", lambda c, t, p: None, complexity="S"
+    )
+
+    raw = json.loads(result.reviews[0].raw_response)
+    assert set(raw.keys()) == {"model", "usage", "result", "session_id"}
 
 
 # ------------------------------------------------------------------

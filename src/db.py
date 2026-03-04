@@ -123,6 +123,7 @@ class ReviewHistoryRow(Base):
     suggestions_json: Mapped[str] = mapped_column(Text, nullable=False, default="[]")
     consensus_score: Mapped[float | None] = mapped_column(Float, nullable=True)
     human_decision: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    human_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
     raw_response: Mapped[str] = mapped_column(Text, nullable=False, default="")
     cost_usd: Mapped[float | None] = mapped_column(Float, nullable=True)
     review_attempt: Mapped[int] = mapped_column(Integer, nullable=False, default=1)

@@ -449,7 +449,20 @@ class ReviewPipeline:
 
         result_text = cli_output.get("result", "")
         review = self._parse_review(result_text, reviewer)
-        review.raw_response = _truncate_raw_response(result_text)
+
+        # Build raw_response from explicit CLI fields (not the full
+        # cli_output blob).  This decouples the DB schema from the CLI
+        # contract and ensures raw_response contains metadata (model,
+        # usage, session_id) NOT already present in summary/suggestions.
+        raw_response_dict = {
+            "model": cli_output.get("model"),
+            "usage": cli_output.get("usage"),
+            "result": cli_output.get("result"),
+            "session_id": cli_output.get("session_id"),
+        }
+        review.raw_response = _truncate_raw_response(
+            json.dumps(raw_response_dict, indent=2)
+        )
         review.cost_usd = _extract_cost_usd(cli_output, reviewer.model)
         return review
 

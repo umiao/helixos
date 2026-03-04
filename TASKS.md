@@ -31,59 +31,7 @@
 
 #### ~~T-P0-32: Review + execution progress phase reporting via SSE~~ [DONE -- see Completed Tasks]
 
-#### T-P0-33: Fix review panel data bugs (T-P0-28 regressions)
-- **Priority**: P0
-- **Complexity**: M
-- **Depends on**: None
-
-**Problem**: 3 data-path bugs make ReviewPanel a rubber-stamp UI.
-
-**AC**:
-
-1. **raw_response stores explicit CLI fields** (not parsed result JSON):
-   - `review_pipeline.py:_call_reviewer()`: build raw_response as:
-     ```python
-     raw_response = json.dumps({
-         "model": cli_output.get("model"),
-         "usage": cli_output.get("usage"),
-         "result": cli_output.get("result"),
-         "session_id": cli_output.get("session_id"),
-     })
-     ```
-   - Explicit field extraction -- do NOT `json.dumps(cli_output)` blindly.
-     Decouples DB schema from CLI contract.
-   - Journey AC: User clicks "Show Full Response" -> sees model info,
-     token counts (input/output), result text. This is data NOT already
-     shown in summary/suggestions.
-   - Inverse: When raw_response is empty/legacy -> section hidden (existing)
-   - Invariant test: `assert set(json.loads(raw_response).keys()) - {"result"}`
-     is non-empty (raw_response must contain fields beyond parsed result)
-
-2. **Plan content visible in ReviewPanel**:
-   - Collapsible "Plan Under Review" section at top showing `task.description`
-   - When description is empty: show "(No plan content provided to reviewer)"
-     -- explicit emptiness, NOT hidden section
-   - Journey AC: User sees REVIEW_NEEDS_HUMAN task -> opens ReviewPanel ->
-     reads plan text -> reads reviewer feedback -> makes informed decision
-
-3. **Decision reason persisted E2E**:
-   - `db.py`: add `human_reason TEXT NULL DEFAULT NULL` column to
-     ReviewHistoryRow (auto-migrate, explicitly nullable)
-   - `history_writer.write_review_decision()`: accept + persist `reason`
-   - `api.py:submit_review_decision()`: pass `body.reason` through
-   - API response: include `human_reason` in ReviewHistoryEntry
-   - Frontend: display persisted reason below "Human decision:" label
-   - Journey AC: User types "Need error handling for X" -> clicks Approve ->
-     reloads -> reason appears in review history
-   - Inverse: When reason is empty -> no reason line displayed
-
-4. **Manual smoke test**: Open ReviewPanel for a reviewed task -> verify
-   plan content visible, raw response has token usage data, submit decision
-   with reason, reload and verify reason persists.
-
-**Files**: `src/review_pipeline.py`, `src/history_writer.py`, `src/db.py`,
-`src/api.py`, `src/schemas.py`, `frontend/src/types.ts`,
-`frontend/src/components/ReviewPanel.tsx`, + regression tests
+#### ~~T-P0-33: Fix review panel data bugs (T-P0-28 regressions)~~ [DONE -- see Completed Tasks]
 
 ---
 
@@ -367,7 +315,7 @@ T-P0-30 [M] Inactivity timeout + process groups [DONE] (no deps)
 
 --- P0 (new -- review panel overhaul) ---
 
-T-P0-33 [M] Fix review panel data bugs (no deps)
+T-P0-33 [M] Fix review panel data bugs [DONE] (no deps)
   |
   +--> T-P0-34 [M] Request Changes + feedback loop (needs T-P0-33)
          |
@@ -383,6 +331,9 @@ T-P0-33 [M] Fix review panel data bugs (no deps)
 
 ## Completed Tasks
 <!-- Move finished tasks here with [x] and completion date -->
+
+#### [x] T-P0-33: Fix review panel data bugs (T-P0-28 regressions) -- 2026-03-03
+- Fixed 3 data-path bugs: (1) raw_response now stores explicit CLI fields (model, usage, result, session_id) as structured JSON, decoupling DB from CLI contract. (2) Collapsible "Plan Under Review" section in ReviewPanel shows task.description (or explicit empty message). (3) human_reason column on ReviewHistoryRow, persisted E2E through write_review_decision->API->frontend with display below decision label. 6 new tests, 860 total passing.
 
 #### [x] T-P0-32: Review + execution progress phase reporting via SSE -- 2026-03-03
 - Extended on_progress to (completed, total, phase) with "Starting {focus} review...", "Completed {focus} review", "Synthesizing..." phase strings. API forwards phase in SSE review_progress events. CodeExecutor emits [PROGRESS] log entries every 60s (elapsed, line count, since last output) via background task. Frontend: ReviewPanel shows live phase label, ExecutionLog shows live M:SS elapsed counter. SSE task_id guard: reviewPhase only updates for selected task, cleared on task switch. 11 new tests, 854 total passing.

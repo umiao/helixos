@@ -42,6 +42,7 @@ export default function ReviewPanel({
   );
   const [historyLoading, setHistoryLoading] = useState(false);
   const [expandedRaw, setExpandedRaw] = useState<Record<number, boolean>>({});
+  const [planExpanded, setPlanExpanded] = useState(true);
 
   const toggleRawResponse = useCallback((entryId: number) => {
     setExpandedRaw((prev) => ({ ...prev, [entryId]: !prev[entryId] }));
@@ -294,6 +295,37 @@ export default function ReviewPanel({
           </div>
         )}
 
+        {/* Plan Under Review -- collapsible section showing task.description */}
+        <div className="rounded-lg border border-gray-200 bg-gray-50">
+          <button
+            onClick={() => setPlanExpanded((prev) => !prev)}
+            className="w-full px-2.5 py-2 flex items-center justify-between text-xs font-semibold text-gray-600 hover:bg-gray-100 transition-colors rounded-lg"
+          >
+            <span>Plan Under Review</span>
+            <span
+              className="inline-block transition-transform text-[10px]"
+              style={{
+                transform: planExpanded ? "rotate(90deg)" : "rotate(0deg)",
+              }}
+            >
+              &#9654;
+            </span>
+          </button>
+          {planExpanded && (
+            <div className="px-2.5 pb-2.5">
+              {task.description && task.description.trim() ? (
+                <pre className="text-xs text-gray-700 whitespace-pre-wrap break-words font-sans leading-relaxed">
+                  {task.description}
+                </pre>
+              ) : (
+                <p className="text-xs text-gray-400 italic">
+                  (No plan content provided to reviewer)
+                </p>
+              )}
+            </div>
+          )}
+        </div>
+
         {/* Conversation-style review history */}
         {historyLoading && historyEntries.length === 0 ? (
           <p className="text-xs text-gray-400 text-center py-2">
@@ -377,7 +409,7 @@ export default function ReviewPanel({
                   </div>
                 )}
 
-                {/* Human decision inline */}
+                {/* Human decision inline + reason */}
                 {entry.human_decision && (
                   <div className="mt-1.5 pt-1.5 border-t border-gray-200">
                     <span className="text-[10px] text-gray-500">
@@ -392,6 +424,11 @@ export default function ReviewPanel({
                     >
                       {entry.human_decision.toUpperCase()}
                     </span>
+                    {entry.human_reason && entry.human_reason.trim() && (
+                      <p className="text-[10px] text-gray-500 mt-0.5 italic">
+                        {entry.human_reason}
+                      </p>
+                    )}
                   </div>
                 )}
 
