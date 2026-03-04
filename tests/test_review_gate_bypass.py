@@ -309,8 +309,12 @@ class TestStatusEndpointGate:
     async def test_backlog_to_review_allowed_gate_on(
         self, client: AsyncClient, task_manager: TaskManager,
     ) -> None:
-        """Gate on: BACKLOG -> REVIEW is always allowed."""
-        await task_manager.create_task(_make_task())
+        """Gate on: BACKLOG -> REVIEW allowed when plan is valid."""
+        await task_manager.create_task(
+            _make_task().model_copy(
+                update={"description": "This is a valid plan for the task."},
+            )
+        )
 
         resp = await client.patch(
             "/api/tasks/proj-a:T-P0-1/status",

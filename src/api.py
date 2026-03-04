@@ -71,7 +71,12 @@ from src.schemas import (
 )
 from src.subprocess_registry import SubprocessRegistry
 from src.sync.tasks_parser import sync_project_tasks
-from src.task_manager import OptimisticLockError, ReviewGateBlockedError, TaskManager
+from src.task_manager import (
+    OptimisticLockError,
+    PlanInvalidError,
+    ReviewGateBlockedError,
+    TaskManager,
+)
 from src.tasks_writer import NewTask, TasksWriter
 
 logger = logging.getLogger(__name__)
@@ -1219,6 +1224,15 @@ async def update_task_status(
             content={
                 "detail": str(exc),
                 "gate_action": "review_required",
+                "task_id": task_id,
+            },
+        )
+    except PlanInvalidError as exc:
+        return JSONResponse(
+            status_code=428,
+            content={
+                "detail": str(exc),
+                "gate_action": "plan_invalid",
                 "task_id": task_id,
             },
         )

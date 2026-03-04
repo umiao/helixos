@@ -1,12 +1,15 @@
 /**
  * ReviewSubmitModal -- edit + preview modal for submitting tasks for review.
- * Opens when the review gate blocks a BACKLOG -> QUEUED transition (428).
+ * Opens when the review gate blocks a transition (428) or when the plan
+ * fails validity checks (plan_invalid).
  * Allows editing title/description, then submits BACKLOG -> REVIEW.
  */
 
 import { useCallback, useState } from "react";
 import { updateTask, updateTaskStatus } from "../api";
 import type { Task } from "../types";
+
+const MIN_PLAN_LENGTH = 20;
 
 interface ReviewSubmitModalProps {
   task: Task;
@@ -28,6 +31,9 @@ export default function ReviewSubmitModal({
   const titleChanged = title !== task.title;
   const descriptionChanged = description !== task.description;
   const hasEdits = titleChanged || descriptionChanged;
+
+  const planLength = description.trim().length;
+  const planValid = planLength >= MIN_PLAN_LENGTH;
 
   const handleSubmit = useCallback(async () => {
     setSubmitting(true);
@@ -76,6 +82,19 @@ export default function ReviewSubmitModal({
             </span>
           </div>
 
+          {/* Plan validity warning */}
+          {!planValid && (
+            <div className="rounded-md bg-amber-50 border border-amber-200 px-3 py-2">
+              <p className="text-xs font-medium text-amber-800">
+                Plan required
+              </p>
+              <p className="text-xs text-amber-700 mt-0.5">
+                Write or generate a plan (at least {MIN_PLAN_LENGTH} characters)
+                before sending to review.
+              </p>
+            </div>
+          )}
+
           {/* Title */}
           <div>
             <label className="block text-xs font-medium text-gray-600 mb-1">
@@ -89,16 +108,26 @@ export default function ReviewSubmitModal({
             />
           </div>
 
-          {/* Description */}
+          {/* Description / Plan */}
           <div>
-            <label className="block text-xs font-medium text-gray-600 mb-1">
-              Description
-            </label>
+            <div className="flex items-center justify-between mb-1">
+              <label className="block text-xs font-medium text-gray-600">
+                Plan / Description
+              </label>
+              <span className={`text-xs ${planValid ? "text-green-600" : "text-amber-600"}`}>
+                {planLength}/{MIN_PLAN_LENGTH} min chars
+              </span>
+            </div>
             <textarea
               value={description}
               onChange={(e) => setDescription(e.target.value)}
               rows={6}
-              className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-indigo-400 focus:border-transparent resize-y"
+              placeholder="Describe the implementation plan for this task..."
+              className={`w-full rounded-md border px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-indigo-400 focus:border-transparent resize-y ${
+                !planValid && description.trim().length > 0
+                  ? "border-amber-300"
+                  : "border-gray-300"
+              }`}
             />
           </div>
 
@@ -133,7 +162,7 @@ export default function ReviewSubmitModal({
           </button>
           <button
             onClick={handleSubmit}
-            disabled={submitting || !title.trim()}
+            disabled={submitting || !title.trim() || !planValid}
             className="rounded-md px-4 py-2 text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
           >
             {submitting ? "Submitting..." : "Submit for Review"}

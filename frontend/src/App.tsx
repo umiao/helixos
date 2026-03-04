@@ -417,8 +417,8 @@ function App() {
       if (err instanceof ApiError) {
         const gateAction = (err as ApiError & { gate_action?: string }).gate_action;
         const conflict = (err as ApiError & { conflict?: boolean }).conflict;
-        if (gateAction === "review_required") {
-          // Review gate blocked: open the review submit modal
+        if (gateAction === "review_required" || gateAction === "plan_invalid") {
+          // Review gate or plan validity blocked: open the review submit modal
           const blockedTask = tasksRef.current.find((t) => t.id === taskId);
           if (blockedTask) {
             setReviewSubmitTask(blockedTask);

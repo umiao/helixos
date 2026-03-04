@@ -44,6 +44,19 @@ class ReviewGateBlockedError(Exception):
         super().__init__(message)
 
 
+class PlanInvalidError(Exception):
+    """Raised when a task's plan fails validity checks.
+
+    Carries enough context for the API layer to return HTTP 428
+    (Precondition Required) with a ``gate_action`` of ``plan_invalid``.
+    """
+
+    def __init__(self, task_id: str, message: str) -> None:
+        """Initialize with *task_id* and a human-readable *message*."""
+        self.task_id = task_id
+        super().__init__(message)
+
+
 class OptimisticLockError(Exception):
     """Raised when ``expected_updated_at`` does not match the DB row.
 
@@ -83,6 +96,25 @@ VALID_TRANSITIONS: dict[TaskStatus, set[TaskStatus]] = {
     TaskStatus.DONE: {TaskStatus.BACKLOG, TaskStatus.QUEUED},
     TaskStatus.BLOCKED: {TaskStatus.QUEUED, TaskStatus.BACKLOG},
 }
+
+# ---------------------------------------------------------------------------
+# Plan validity
+# ---------------------------------------------------------------------------
+
+MIN_PLAN_LENGTH = 20
+"""Minimum character count for a valid plan (after stripping whitespace)."""
+
+
+def is_plan_valid(description: str | None) -> bool:
+    """Return True if *description* passes minimum plan validity checks.
+
+    A valid plan must be non-empty, non-whitespace, and at least
+    ``MIN_PLAN_LENGTH`` characters long (after stripping).
+    """
+    if not description:
+        return False
+    stripped = description.strip()
+    return len(stripped) >= MIN_PLAN_LENGTH
 
 
 def _build_transition_error(
@@ -248,6 +280,8 @@ class TaskManager:
 
         When *review_gate_enabled* is True, BACKLOG -> QUEUED is blocked;
         the task must go through REVIEW first (Layer 1 review gate).
+        Additionally, BACKLOG -> REVIEW is blocked when the task's plan
+        (description) fails validity checks (Layer 2 plan validity gate).
 
         *reason* is an optional human-supplied note for backward transitions
         (logged but not persisted on the task itself).
@@ -259,6 +293,8 @@ class TaskManager:
         Raises ``ValueError`` on illegal transitions or missing tasks.
         Raises ``ReviewGateBlockedError`` when the review gate blocks
         the transition (callers should return HTTP 428).
+        Raises ``PlanInvalidError`` when the plan fails validity checks
+        (callers should return HTTP 428 with ``gate_action=plan_invalid``).
         Raises ``OptimisticLockError`` on concurrent-edit conflict.
         """
         async with get_session(self._sf) as session:
@@ -290,6 +326,20 @@ class TaskManager:
                     task_id,
                     f"Review gate is enabled: BACKLOG -> QUEUED is blocked "
                     f"for task {task_id}. Submit for review first.",
+                )
+
+            # Layer 2: plan validity gate blocks BACKLOG -> REVIEW
+            if (
+                review_gate_enabled
+                and current == TaskStatus.BACKLOG
+                and new_status == TaskStatus.REVIEW
+                and not is_plan_valid(row.description)
+            ):
+                raise PlanInvalidError(
+                    task_id,
+                    f"Plan is missing or too short for task {task_id}. "
+                    f"Write or generate a plan (at least {MIN_PLAN_LENGTH} "
+                    f"characters) before sending to review.",
                 )
 
             now = datetime.now(UTC).isoformat()

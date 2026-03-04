@@ -363,10 +363,10 @@ class TestReviewSubmitFlow:
         self, client: AsyncClient, seeded_task: Task,
     ):
         """Full flow: edit title/description, then transition to REVIEW."""
-        # Step 1: Edit task fields
+        # Step 1: Edit task fields (description must be >= 20 chars for plan validity)
         edit_resp = await client.patch(
             f"/api/tasks/{seeded_task.id}",
-            json={"title": "Reviewed task", "description": "Ready for review"},
+            json={"title": "Reviewed task", "description": "Ready for review process"},
         )
         assert edit_resp.status_code == 200
         assert edit_resp.json()["title"] == "Reviewed task"
@@ -380,7 +380,7 @@ class TestReviewSubmitFlow:
         data = status_resp.json()
         assert data["status"] == "review"
         assert data["title"] == "Reviewed task"
-        assert data["description"] == "Ready for review"
+        assert data["description"] == "Ready for review process"
 
     async def test_428_then_edit_then_review(
         self, client: AsyncClient, seeded_task: Task,
@@ -394,10 +394,10 @@ class TestReviewSubmitFlow:
         assert block_resp.status_code == 428
         assert block_resp.json()["gate_action"] == "review_required"
 
-        # Step 2: Edit task
+        # Step 2: Edit task with a valid plan (>= 20 chars)
         edit_resp = await client.patch(
             f"/api/tasks/{seeded_task.id}",
-            json={"title": "Revised title", "description": "Revised desc"},
+            json={"title": "Revised title", "description": "Revised description for review submission"},
         )
         assert edit_resp.status_code == 200
 

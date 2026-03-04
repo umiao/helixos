@@ -563,3 +563,10 @@
 - **Sanity check result**: 958 tests passing (14 new). Ruff clean.
 - **Status**: [DONE]
 - **Request**: Move T-P0-43 to Completed
+
+## 2026-03-03 14:00 -- [T-P0-44] Define plan validity model + enforce in review gate
+- **What I did**: Added `is_plan_valid()` function and `PlanInvalidError` exception to TaskManager. Plan must be non-empty, non-whitespace, and >= 20 characters (after stripping). `update_status()` now enforces plan validity on BACKLOG->REVIEW transition when `review_gate_enabled=True`. API returns 428 with `gate_action: "plan_invalid"`. Frontend handles `plan_invalid` same as `review_required` (opens ReviewSubmitModal). ReviewSubmitModal now shows plan validity warning banner, character counter, and disables submit when plan is too short. Updated 3 existing tests with valid plan descriptions.
+- **Deliverables**: src/task_manager.py (mod -- PlanInvalidError, is_plan_valid, MIN_PLAN_LENGTH, Layer 2 check), src/api.py (mod -- PlanInvalidError handler), frontend/src/App.tsx (mod -- plan_invalid gate_action handling), frontend/src/components/ReviewSubmitModal.tsx (mod -- plan validity UI), tests/test_plan_validity.py (new -- 20 tests), tests/test_review_gate.py (mod -- valid plan in 2 tests), tests/test_review_gate_bypass.py (mod -- valid plan in 1 test), tests/test_review_gate_ux.py (mod -- valid plan descriptions in 2 tests)
+- **Sanity check result**: 978 tests passing (20 new). Ruff clean. Frontend builds clean.
+- **Status**: [DONE]
+- **Request**: Move T-P0-44 to Completed

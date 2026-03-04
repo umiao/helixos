@@ -162,12 +162,15 @@ class TestTaskManagerReviewGate:
         )
         assert updated.status == TaskStatus.QUEUED
 
-    async def test_gate_on_allows_backlog_to_review(
+    async def test_gate_on_allows_backlog_to_review_with_valid_plan(
         self, session_factory,
     ) -> None:
-        """BACKLOG -> REVIEW should still be allowed when gate is on."""
+        """BACKLOG -> REVIEW allowed when gate is on and plan is valid."""
         tm = TaskManager(session_factory)
         task = _make_task(status=TaskStatus.BACKLOG)
+        task = task.model_copy(
+            update={"description": "This is a valid plan for the task."},
+        )
         await tm.create_task(task)
 
         updated = await tm.update_status(
@@ -194,9 +197,12 @@ class TestTaskManagerReviewGate:
         """Review gate should only affect BACKLOG -> QUEUED, not other transitions."""
         tm = TaskManager(session_factory)
         task = _make_task(status=TaskStatus.BACKLOG)
+        task = task.model_copy(
+            update={"description": "This is a valid plan for the task."},
+        )
         await tm.create_task(task)
 
-        # BACKLOG -> REVIEW should work
+        # BACKLOG -> REVIEW should work (with valid plan)
         updated = await tm.update_status(
             task.id, TaskStatus.REVIEW,
             review_gate_enabled=True,

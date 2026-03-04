@@ -84,23 +84,7 @@
 
 ### P0-BEHAVIOR -- Gating + Selection Correctness
 
-#### T-P0-44: Define plan validity model + enforce in review gate (subsumes T-P0-39)
-- **Priority**: P0
-- **Complexity**: M
-- **Depends on**: None
-- **Problem**: No definition of what makes a plan "valid" beyond `description` being non-empty. Users could write one word and bypass the review gate.
-- **Acceptance Criteria**:
-  1. Define formal plan validity check in backend (minimum: `description` is non-empty and non-whitespace, length > some threshold)
-  2. Backend validates plan on BACKLOG->REVIEW transition; returns 428 with `plan_invalid` error when plan fails validation
-  3. Frontend: gate check in both drag-drop AND context menu "Send to Review" paths
-  4. When gate blocks: toast/banner explaining "Generate or write a plan before sending to review"
-  5. **Gate ON** (plan invalid): modal appears with guidance to generate/write plan
-  6. **Gate OFF** (plan valid): direct transition to REVIEW + pipeline starts automatically
-  7. After plan generation, review does NOT auto-trigger -- user confirms explicitly by dragging to REVIEW
-  8. **Inverse case**: if gate is disabled project-wide (review_gate_enabled=false), plan validity is NOT checked
-  9. **Journey AC**: User drags planless task to REVIEW -> blocked with message -> generates plan -> drags again -> succeeds -> pipeline starts
-  10. **Deadlock prevention**: ensure generate-plan -> validate -> review flow has no circular blocks
-- **Files**: Backend validation logic, `frontend/src/App.tsx`, `frontend/src/components/ReviewSubmitModal.tsx`
+#### ~~T-P0-44: Define plan validity model + enforce in review gate (subsumes T-P0-39)~~ [DONE -- see Completed Tasks]
 
 #### T-P0-45: Generic default project selection via `is_primary` field
 - **Priority**: P0
@@ -320,6 +304,9 @@ T-P0-47 [M] No Plan badges + visual guidance (no deps, pairs with T-P0-44)
 
 ## Completed Tasks
 <!-- Move finished tasks here with [x] and completion date -->
+
+#### [x] T-P0-44: Define plan validity model + enforce in review gate -- 2026-03-03
+- Added `is_plan_valid()` function (>= 20 chars after stripping) and `PlanInvalidError` exception. `update_status()` enforces plan validity on BACKLOG->REVIEW when gate enabled (Layer 2). API returns 428 with `gate_action: "plan_invalid"`. Frontend opens ReviewSubmitModal for both `review_required` and `plan_invalid`. Modal shows plan validity warning, character counter, disables submit when plan too short. 20 new tests, 978 total passing.
 
 #### [x] T-P0-43: Fix soft-delete sync with deleted_source tracking -- 2026-03-03
 - Added `deleted_source` column to TaskRow (`"user"` | `"sync"` | NULL). `delete_task()` sets `deleted_source="user"`. `upsert_task()` skips user-deleted tasks (SKIPPED_DELETED) but allows resurrection for sync-deleted/legacy tasks. `sync_mark_removed()` marks tasks removed from TASKS.md as sync-deleted. `SyncResult`/`SyncResponse` gain `skipped` field. Schema auto-migrated. 13 new tests, 958 total passing.
