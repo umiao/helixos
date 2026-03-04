@@ -640,3 +640,10 @@
 - **Sanity check result**: Frontend builds clean. 1000 tests passing.
 - **Status**: [DONE]
 - **Request**: Move T-P0-50 to Completed
+
+## 2026-03-04 03:00 -- [T-P0-51] TASKS.md lifecycle model + archive separation
+- **What I did**: Archived 78 completed tasks from TASKS.md to archive/completed_tasks.md. Relocated dependency graph to docs/architecture/dependency-graph-history.md. Added task schema template (required fields: Priority, Complexity, Depends on, Description, Acceptance Criteria) and size invariant (<300 lines) to TASKS.md header. Replaced completed section and dependency graph in TASKS.md with links to their new locations.
+- **Deliverables**: archive/completed_tasks.md (new), docs/architecture/dependency-graph-history.md (new), TASKS.md (mod -- reduced from 474 to ~100 lines)
+- **Sanity check result**: TASKS.md is 100 lines (under 300 invariant). Archive has 79 entries (78 original + T-P0-51). 1000 tests passing.
+- **Status**: [DONE]
+- **Request**: Move T-P0-51 to Completed
