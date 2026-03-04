@@ -661,3 +661,10 @@
 - **Sanity check result**: TypeScript type-check clean. 1000 backend tests passing.
 - **Status**: [DONE]
 - **Request**: Move T-P0-55 to Completed
+
+## 2026-03-04 04:30 -- [T-P0-56] Backlog -> Generate Plan workflow task planning
+- **What I did**: Replaced T-P0-56 (research task) with 5 concrete tasks (T-P0-57 through T-P0-61) covering the backlog-to-plan workflow. Removed "Unified timeout policy" tech debt item (covered by T-P0-61). Kept "Plan generation 503 error taxonomy" in tech debt (API-layer concern). Added dependency graph for the new tasks. Key decisions: no activity-based stall detection (T-P0-60), plan_failed semantics defined (T-P0-59), timeout normalization separate from process monitoring.
+- **Deliverables**: TASKS.md (mod)
+- **Sanity check result**: TASKS.md at 142 lines (under 300 invariant). All 5 tasks have full schema with ACs, complexity, dependencies.
+- **Status**: [DONE]
+- **Request**: Move T-P0-56 to Completed (already removed from Active, no completed entry needed since it was a meta-planning task replaced by concrete tasks)
