@@ -55,6 +55,12 @@
 - Never use emoji characters anywhere in the project
 - Never use subprocess.run(text=True) without encoding="utf-8"
 - Never read/write files without explicit encoding="utf-8"
+- **Never use `os.kill(pid, 0)` for process liveness checks.** On Windows,
+  `signal.CTRL_C_EVENT == 0`, so this sends Ctrl+C to the target process
+  instead of probing it.  Use `ctypes.windll.kernel32.OpenProcess()` on
+  Windows, `os.kill(pid, 0)` only on Unix, behind a `sys.platform` guard.
+- **Never duplicate utility functions across files.** If the same helper
+  exists in >1 file, extract it to a shared module and import it.
 <!-- CUSTOMIZE: Add your project-specific prohibitions -->
 
 ## Behavior Rules
@@ -72,6 +78,11 @@
   A crash during dry-run is a blocker, not an "unrelated issue."
 - **Mock tests verify arguments. Real tests verify behavior.** Both are
   needed for subprocess-based code.
+- **Platform-sensitive code needs platform-specific review.** Before using
+  any `os.*`, `signal.*`, or `subprocess.*` API, check the Python docs for
+  Windows behavior differences.  If a function has `sys.platform` branches,
+  test both branches.  Common traps: `os.kill` signal semantics, `os.getpgid`
+  not existing, `signal.SIGTERM` vs `CTRL_BREAK_EVENT`.
 
 ### Task Planning Mode
 When the user says "plan tasks" / "edit TASKS.md only" / contains keyword "TASKS.md":

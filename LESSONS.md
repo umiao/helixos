@@ -90,6 +90,18 @@
   - Related tasks: T-P0-24, T-P0-26, T-P0-27
   - Tags: #planning #ux #state-machine #scenario-matrix #integration
 
+  14. os.kill(pid, 0) is a Ctrl+C bomb on Windows
+  - Context: `_is_process_alive(pid)` used `os.kill(pid, 0)` to probe liveness -- standard Unix idiom. On Windows, `signal.CTRL_C_EVENT == 0`, so `os.kill(pid, 0)` calls `GenerateConsoleCtrlEvent(CTRL_C_EVENT, pid)` -- sending Ctrl+C to the target process. When `test_alive_process` called `_is_process_alive(os.getpid())`, it sent Ctrl+C to the pytest process itself, causing a `KeyboardInterrupt` ~0.5s later (always at test #503).
+  - Why it was hard to catch: (a) The function worked correctly on Unix. (b) The signal is delivered asynchronously, so the crash appeared in a completely unrelated test. (c) In some execution contexts (e.g. sandboxed subprocess), the signal was caught/ignored, so the bug was intermittent.
+  - Compounding factor: The function was copy-pasted into 3 files (port_registry, process_manager, subprocess_registry). Same bug x3, same fix x3.
+  - Fix: On Windows, use `ctypes.windll.kernel32.OpenProcess(0x1000, False, pid)` instead of `os.kill(pid, 0)`. Keep Unix path unchanged.
+  - Rules derived:
+    (a) **Never use `os.kill(pid, 0)` on Windows.** Add to Prohibited Actions.
+    (b) **Never duplicate utility functions.** Extract to a shared module, import everywhere.
+    (c) **Platform-sensitive code needs platform-specific tests.** If a function has a `sys.platform` branch, test BOTH branches.
+    (d) **Suspicious test symptoms**: if a KeyboardInterrupt appears without user input, or a test "randomly" fails at a consistent position, suspect signal/platform bugs -- not flakiness.
+  - Tags: #windows #signals #os-kill #copy-paste #platform-compat
+
   13. "Surface X to user" requires semantic distinctness verification
   - Context: T-P0-28 (raw_response) had 8 passing tests but the surfaced data was identical to existing fields. Decision reason had UI/schema/API support but was never persisted to DB.
   - Root cause: Tests verified plumbing (data flows through pipe) not value (pipe carries useful water). raw_response stored the same parsed result JSON already shown in summary/suggestions. human_reason was wired in UI and API schemas but write_review_decision never persisted it to the DB column.
