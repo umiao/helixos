@@ -912,3 +912,10 @@
 - **Sanity check result**: 94 enrichment tests pass. Full suite: 1218 tests pass + 4 skipped (cli_integration). Ruff clean.
 - **Status**: [DONE]
 - **Request**: Move T-P1-87 to Completed (REMOVE spec from Active, ADD summary to Completed Tasks)
+
+## 2026-03-06 -- [T-P1-88] Migrate code_executor.py to Agent SDK
+- **What I did**: Replaced `asyncio.create_subprocess_exec` in `CodeExecutor.execute()` with `run_claude_query()` from `src/sdk_adapter`. Uses producer-task + queue pattern with 30s heartbeat (`HEARTBEAT_SECONDS`). Session timeout and inactivity timeout use manual `time.monotonic()` checks (avoids nested `asyncio.timeout`/`wait_for` conflicts found during implementation). Preflight check now verifies SDK importability via `_is_sdk_available()`. Cancel support via producer task cancellation. Updated 76 code_executor tests + stream_json tests + subprocess_stream_limit test to mock `run_claude_query` instead of subprocess.
+- **Deliverables**: `src/executors/code_executor.py`, `tests/test_code_executor.py`, `tests/test_stream_json.py`, `tests/test_subprocess_stream_limit.py`
+- **Sanity check result**: 76 code_executor tests pass. Full suite: 1208 tests pass + 4 skipped (cli_integration). Ruff clean.
+- **Status**: [DONE]
+- **Request**: Move T-P1-88 to Completed (REMOVE spec from Active, ADD summary to Completed Tasks)

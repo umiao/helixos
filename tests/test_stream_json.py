@@ -17,6 +17,7 @@ from src.executors.code_executor import (
     _strip_ansi,
 )
 from src.models import ExecutorType, Project, Task
+from src.sdk_adapter import ClaudeEvent, ClaudeEventType
 
 # ------------------------------------------------------------------
 # Fixtures
@@ -59,11 +60,23 @@ def task() -> Task:
 
 
 @pytest.fixture(autouse=True)
-def _mock_claude_on_path(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Ensure preflight CLI check passes in all test environments."""
-    monkeypatch.setattr(
-        "src.executors.code_executor.shutil.which", lambda cmd: "/usr/bin/claude"
-    )
+def _mock_sdk_available() -> None:
+    """Ensure preflight SDK check passes in all test environments."""
+    with patch(
+        "src.executors.code_executor._is_sdk_available", return_value=True,
+    ):
+        yield
+
+
+# ------------------------------------------------------------------
+# SDK mock helpers
+# ------------------------------------------------------------------
+
+
+async def _mock_sdk_events(events: list[ClaudeEvent]):
+    """Async generator yielding ClaudeEvent objects."""
+    for event in events:
+        yield event
 
 
 # ------------------------------------------------------------------
@@ -260,89 +273,32 @@ class TestSimplifyStreamEvent:
 
 
 # ------------------------------------------------------------------
-# Stdout mock helpers
-# ------------------------------------------------------------------
-
-
-class _MockStdout:
-    """Mock stdout that returns lines via readline(), then b'' for EOF."""
-
-    def __init__(self, lines: list[bytes]) -> None:
-        self._lines = list(lines)
-        self._index = 0
-
-    async def readline(self) -> bytes:
-        """Return next line, or b'' when exhausted."""
-        if self._index < len(self._lines):
-            line = self._lines[self._index]
-            self._index += 1
-            return line
-        return b""
-
-
-class _MockStderr:
-    """Mock stderr that returns lines via readline(), then b'' for EOF."""
-
-    def __init__(self, data: bytes) -> None:
-        self._lines = data.split(b"\n") if data else []
-        self._index = 0
-
-    async def readline(self) -> bytes:
-        """Return next line, or b'' when exhausted."""
-        if self._index < len(self._lines):
-            line = self._lines[self._index]
-            self._index += 1
-            if line:
-                return line + b"\n"
-            return b"\n"
-        return b""
-
-
-def _make_mock_proc(
-    stdout_lines: list[bytes],
-    returncode: int = 0,
-    stderr_data: bytes = b"",
-) -> MagicMock:
-    """Build a mock asyncio.subprocess.Process."""
-    proc = MagicMock()
-    proc.pid = 12345
-    proc.returncode = None
-
-    proc.stdout = _MockStdout(stdout_lines)
-    proc.stderr = _MockStderr(stderr_data)
-
-    async def _wait() -> int:
-        proc.returncode = returncode
-        return returncode
-
-    proc.wait = AsyncMock(side_effect=_wait)
-    return proc
-
-
-# ------------------------------------------------------------------
-# Integration tests: stream-json parsing + JSONL persistence
+# Integration tests: SDK event streaming + JSONL persistence
 # ------------------------------------------------------------------
 
 
 class TestStreamJsonExecution:
-    """Tests for stream-json parsing during execution."""
+    """Tests for SDK event streaming during execution."""
 
-    @patch("src.executors.code_executor.asyncio.create_subprocess_exec")
-    async def test_on_stream_event_called_with_parsed_dicts(
+    @patch("src.executors.code_executor.run_claude_query")
+    async def test_on_stream_event_called_with_event_dicts(
         self,
-        mock_exec: AsyncMock,
+        mock_query: MagicMock,
         config: OrchestratorSettings,
         project: Project,
         task: Task,
     ) -> None:
-        """on_stream_event is called for each parsed JSON object."""
-        stream_lines = [
-            b'{"type": "assistant", "content": "thinking..."}\n',
-            b'{"type": "tool_use", "name": "Read", "input": {"file": "x.py"}}\n',
-            b'{"type": "result"}\n',
-        ]
-        proc = _make_mock_proc(stream_lines, returncode=0)
-        mock_exec.return_value = proc
+        """on_stream_event is called for each ClaudeEvent dict."""
+        mock_query.return_value = _mock_sdk_events([
+            ClaudeEvent(type=ClaudeEventType.TEXT, text="thinking..."),
+            ClaudeEvent(
+                type=ClaudeEventType.TOOL_USE,
+                tool_name="Read",
+                tool_input={"file": "x.py"},
+                tool_use_id="tu_1",
+            ),
+            ClaudeEvent(type=ClaudeEventType.RESULT, result_text="done"),
+        ])
 
         executor = CodeExecutor(config)
         logs: list[str] = []
@@ -355,26 +311,29 @@ class TestStreamJsonExecution:
 
         assert result.success is True
         assert len(stream_events) == 3
-        assert stream_events[0]["type"] == "assistant"
+        assert stream_events[0]["type"] == "text"
         assert stream_events[1]["type"] == "tool_use"
         assert stream_events[2]["type"] == "result"
 
-    @patch("src.executors.code_executor.asyncio.create_subprocess_exec")
+    @patch("src.executors.code_executor.run_claude_query")
     async def test_on_log_called_with_simplified_text(
         self,
-        mock_exec: AsyncMock,
+        mock_query: MagicMock,
         config: OrchestratorSettings,
         project: Project,
         task: Task,
     ) -> None:
-        """on_log is called with simplified text derived from stream events."""
-        stream_lines = [
-            b'{"type": "assistant", "content": "hello world"}\n',
-            b'{"type": "tool_use", "name": "Bash", "input": {}}\n',
-            b'{"type": "result"}\n',
-        ]
-        proc = _make_mock_proc(stream_lines, returncode=0)
-        mock_exec.return_value = proc
+        """on_log is called with simplified text derived from SDK events."""
+        mock_query.return_value = _mock_sdk_events([
+            ClaudeEvent(type=ClaudeEventType.TEXT, text="hello world"),
+            ClaudeEvent(
+                type=ClaudeEventType.TOOL_USE,
+                tool_name="Bash",
+                tool_input={},
+                tool_use_id="tu_1",
+            ),
+            ClaudeEvent(type=ClaudeEventType.RESULT, result_text="done"),
+        ])
 
         executor = CodeExecutor(config)
         logs: list[str] = []
@@ -385,81 +344,19 @@ class TestStreamJsonExecution:
         assert any(line.startswith("[TOOL] Bash(") for line in logs)
         assert "[DONE]" in logs
 
-    @patch("src.executors.code_executor.asyncio.create_subprocess_exec")
-    async def test_non_json_lines_fall_back_to_on_log(
-        self,
-        mock_exec: AsyncMock,
-        config: OrchestratorSettings,
-        project: Project,
-        task: Task,
-    ) -> None:
-        """Non-JSON lines are passed to on_log as raw text (no crash)."""
-        stream_lines = [
-            b"plain text output\n",
-            b'{"type": "result"}\n',
-            b"another plain line\n",
-        ]
-        proc = _make_mock_proc(stream_lines, returncode=0)
-        mock_exec.return_value = proc
-
-        executor = CodeExecutor(config)
-        logs: list[str] = []
-        stream_events: list[dict] = []
-
-        result = await executor.execute(
-            task, project, {}, logs.append,
-            on_stream_event=stream_events.append,
-        )
-
-        assert result.success is True
-        assert "plain text output" in logs
-        assert "another plain line" in logs
-        assert len(stream_events) == 1  # only the JSON line
-
-    @patch("src.executors.code_executor.asyncio.create_subprocess_exec")
-    async def test_malformed_json_does_not_crash(
-        self,
-        mock_exec: AsyncMock,
-        config: OrchestratorSettings,
-        project: Project,
-        task: Task,
-    ) -> None:
-        """Malformed JSON lines don't crash -- they fall back to on_log."""
-        stream_lines = [
-            b'{"type": "broken json\n',
-            b'{"type": "result"}\n',
-        ]
-        proc = _make_mock_proc(stream_lines, returncode=0)
-        mock_exec.return_value = proc
-
-        executor = CodeExecutor(config)
-        logs: list[str] = []
-        stream_events: list[dict] = []
-
-        result = await executor.execute(
-            task, project, {}, logs.append,
-            on_stream_event=stream_events.append,
-        )
-
-        assert result.success is True
-        assert len(stream_events) == 1
-        assert '{"type": "broken json' in logs
-
-    @patch("src.executors.code_executor.asyncio.create_subprocess_exec")
+    @patch("src.executors.code_executor.run_claude_query")
     async def test_jsonl_file_created(
         self,
-        mock_exec: AsyncMock,
+        mock_query: MagicMock,
         config: OrchestratorSettings,
         project: Project,
         task: Task,
     ) -> None:
         """JSONL file is created at data/logs/{task_id}/stream_*.jsonl."""
-        stream_lines = [
-            b'{"type": "assistant", "content": "hi"}\n',
-            b'{"type": "result"}\n',
-        ]
-        proc = _make_mock_proc(stream_lines, returncode=0)
-        mock_exec.return_value = proc
+        mock_query.return_value = _mock_sdk_events([
+            ClaudeEvent(type=ClaudeEventType.TEXT, text="hi"),
+            ClaudeEvent(type=ClaudeEventType.RESULT, result_text="done"),
+        ])
 
         executor = CodeExecutor(config)
         await executor.execute(task, project, {}, lambda _: None)
@@ -473,23 +370,21 @@ class TestStreamJsonExecution:
         with open(jsonl_files[0], encoding="utf-8") as f:
             lines = [json.loads(line) for line in f if line.strip()]
         assert len(lines) == 2
-        assert lines[0]["type"] == "assistant"
+        assert lines[0]["type"] == "text"
         assert lines[1]["type"] == "result"
 
-    @patch("src.executors.code_executor.asyncio.create_subprocess_exec")
+    @patch("src.executors.code_executor.run_claude_query")
     async def test_on_stream_event_none_is_ok(
         self,
-        mock_exec: AsyncMock,
+        mock_query: MagicMock,
         config: OrchestratorSettings,
         project: Project,
         task: Task,
     ) -> None:
         """on_stream_event=None (default) doesn't crash."""
-        stream_lines = [
-            b'{"type": "result"}\n',
-        ]
-        proc = _make_mock_proc(stream_lines, returncode=0)
-        mock_exec.return_value = proc
+        mock_query.return_value = _mock_sdk_events([
+            ClaudeEvent(type=ClaudeEventType.RESULT, result_text="done"),
+        ])
 
         executor = CodeExecutor(config)
         result = await executor.execute(task, project, {}, lambda _: None)
@@ -593,12 +488,12 @@ class TestStreamLogEndpoint:
 
 
 # ------------------------------------------------------------------
-# ANSI stripping tests
+# ANSI stripping tests (standalone utility -- not SDK-dependent)
 # ------------------------------------------------------------------
 
 
 class TestAnsiStripping:
-    """Tests for ANSI escape code stripping on stdout."""
+    """Tests for ANSI escape code stripping."""
 
     def test_strip_ansi_basic(self) -> None:
         """Basic ANSI escape codes are removed."""
@@ -613,68 +508,37 @@ class TestAnsiStripping:
         assert len(result) == 1
         assert result[0]["type"] == "result"
 
-    @patch("src.executors.code_executor.asyncio.create_subprocess_exec")
-    async def test_ansi_stdout_parsed_to_jsonl(
+
+# ------------------------------------------------------------------
+# Bulk event tests
+# ------------------------------------------------------------------
+
+
+class TestBulkEvents:
+    """Tests for many SDK events arriving rapidly."""
+
+    @patch("src.executors.code_executor.run_claude_query")
+    async def test_many_events_all_captured(
         self,
-        mock_exec: AsyncMock,
+        mock_query: MagicMock,
         config: OrchestratorSettings,
         project: Project,
         task: Task,
     ) -> None:
-        """ANSI escape codes in stdout are stripped before JSON parsing."""
-        stream_lines = [
-            b'\x1b[0m{"type": "assistant", "content": "hi"}\x1b[0m\n',
-            b'\x1b[32m{"type": "result"}\x1b[0m\n',
-        ]
-        proc = _make_mock_proc(stream_lines, returncode=0)
-        mock_exec.return_value = proc
-
-        executor = CodeExecutor(config)
-        stream_events: list[dict] = []
-
-        result = await executor.execute(
-            task, project, {}, lambda _: None,
-            on_stream_event=stream_events.append,
-        )
-
-        assert result.success is True
-        assert len(stream_events) == 2
-        assert stream_events[0]["type"] == "assistant"
-        assert stream_events[1]["type"] == "result"
-
-        # Verify JSONL file has content
-        log_dir = config.stream_log_dir / "P0_T-P0-99"
-        jsonl_files = list(log_dir.glob("stream_*.jsonl"))
-        assert len(jsonl_files) == 1
-        with open(jsonl_files[0], encoding="utf-8") as f:
-            lines = [json.loads(line) for line in f if line.strip()]
-        assert len(lines) == 2
-
-
-# ------------------------------------------------------------------
-# Bulk flush at EOF tests
-# ------------------------------------------------------------------
-
-
-class TestBulkFlushAtEof:
-    """Tests for bulk data arriving at process exit."""
-
-    @patch("src.executors.code_executor.asyncio.create_subprocess_exec")
-    async def test_many_lines_at_once(
-        self,
-        mock_exec: AsyncMock,
-        config: OrchestratorSettings,
-        project: Project,
-        task: Task,
-    ) -> None:
-        """Many JSON lines arriving rapidly are all captured in JSONL."""
-        stream_lines = [
-            f'{{"type": "tool_use", "name": "Read", "input": {{"n": {i}}}}}\n'.encode()
+        """Many SDK events are all captured in JSONL."""
+        events = [
+            ClaudeEvent(
+                type=ClaudeEventType.TOOL_USE,
+                tool_name="Read",
+                tool_input={"n": i},
+                tool_use_id=f"tu_{i}",
+            )
             for i in range(20)
         ]
-        stream_lines.append(b'{"type": "result"}\n')
-        proc = _make_mock_proc(stream_lines, returncode=0)
-        mock_exec.return_value = proc
+        events.append(
+            ClaudeEvent(type=ClaudeEventType.RESULT, result_text="done"),
+        )
+        mock_query.return_value = _mock_sdk_events(events)
 
         executor = CodeExecutor(config)
         stream_events: list[dict] = []
@@ -693,107 +557,3 @@ class TestBulkFlushAtEof:
         with open(jsonl_files[0], encoding="utf-8") as f:
             lines = [json.loads(line) for line in f if line.strip()]
         assert len(lines) == 21
-
-
-# ------------------------------------------------------------------
-# No-trailing-newline EOF flush tests
-# ------------------------------------------------------------------
-
-
-class TestNoTrailingNewlineEof:
-    """Tests for EOF flush when last line has no trailing newline."""
-
-    @patch("src.executors.code_executor.asyncio.create_subprocess_exec")
-    async def test_no_newline_eof_captured(
-        self,
-        mock_exec: AsyncMock,
-        config: OrchestratorSettings,
-        project: Project,
-        task: Task,
-    ) -> None:
-        """JSON line without trailing newline is captured at EOF via flush."""
-        # readline() returns data without final newline when pipe closes
-        stream_lines = [
-            b'{"type": "assistant", "content": "hi"}\n',
-            b'{"type": "result"}',  # no trailing newline
-        ]
-        proc = _make_mock_proc(stream_lines, returncode=0)
-        mock_exec.return_value = proc
-
-        executor = CodeExecutor(config)
-        stream_events: list[dict] = []
-
-        result = await executor.execute(
-            task, project, {}, lambda _: None,
-            on_stream_event=stream_events.append,
-        )
-
-        assert result.success is True
-        # The no-newline line is decoded + fed to buffer, which stores it as partial.
-        # But since decoded is non-empty, it gets written to raw log and increments
-        # line_count. The buffer.feed(decoded + "\n") should parse it.
-        # Actually the feed adds "\n" so it should parse. Let's verify:
-        assert len(stream_events) == 2
-        assert stream_events[1]["type"] == "result"
-
-
-# ------------------------------------------------------------------
-# Raw capture fallback tests
-# ------------------------------------------------------------------
-
-
-class TestRawCaptureFile:
-    """Tests for raw capture file (stream_raw_*.log)."""
-
-    @patch("src.executors.code_executor.asyncio.create_subprocess_exec")
-    async def test_raw_file_captures_all_lines(
-        self,
-        mock_exec: AsyncMock,
-        config: OrchestratorSettings,
-        project: Project,
-        task: Task,
-    ) -> None:
-        """Raw log file captures all decoded lines before JSON parsing."""
-        stream_lines = [
-            b'{"type": "assistant", "content": "hi"}\n',
-            b"unparseable garbage\n",
-            b'{"type": "result"}\n',
-        ]
-        proc = _make_mock_proc(stream_lines, returncode=0)
-        mock_exec.return_value = proc
-
-        executor = CodeExecutor(config)
-        await executor.execute(task, project, {}, lambda _: None)
-
-        log_dir = config.stream_log_dir / "P0_T-P0-99"
-        raw_files = list(log_dir.glob("stream_raw_*.log"))
-        assert len(raw_files) == 1
-
-        with open(raw_files[0], encoding="utf-8") as f:
-            raw_lines = [line.rstrip("\n") for line in f if line.strip()]
-
-        # All 3 lines should be in the raw file
-        assert len(raw_lines) == 3
-        assert "assistant" in raw_lines[0]
-        assert "unparseable garbage" in raw_lines[1]
-        assert "result" in raw_lines[2]
-
-    @patch("src.executors.code_executor.asyncio.create_subprocess_exec")
-    async def test_raw_file_created_alongside_jsonl(
-        self,
-        mock_exec: AsyncMock,
-        config: OrchestratorSettings,
-        project: Project,
-        task: Task,
-    ) -> None:
-        """Both raw log and JSONL files are created for each execution."""
-        stream_lines = [b'{"type": "result"}\n']
-        proc = _make_mock_proc(stream_lines, returncode=0)
-        mock_exec.return_value = proc
-
-        executor = CodeExecutor(config)
-        await executor.execute(task, project, {}, lambda _: None)
-
-        log_dir = config.stream_log_dir / "P0_T-P0-99"
-        assert len(list(log_dir.glob("stream_*.jsonl"))) == 1
-        assert len(list(log_dir.glob("stream_raw_*.log"))) == 1

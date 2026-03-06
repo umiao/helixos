@@ -30,50 +30,45 @@ def _make_mock_proc() -> AsyncMock:
 
 
 @pytest.mark.asyncio
-async def test_code_executor_passes_stream_limit() -> None:
-    """CodeExecutor.execute() passes limit=SUBPROCESS_STREAM_LIMIT."""
-    from src.config import OrchestratorSettings
+async def test_code_executor_uses_sdk_not_subprocess() -> None:
+    """CodeExecutor.execute() uses run_claude_query, not subprocess.
+
+    T-P1-88 migrated CodeExecutor from asyncio.create_subprocess_exec to
+    the Agent SDK.  This test verifies the migration is complete.
+    """
     from src.executors.code_executor import CodeExecutor
-    from src.models import ExecutorType, Project, Task, TaskStatus
+    from src.sdk_adapter import ClaudeEvent, ClaudeEventType
 
-    project = Project(
-        id="test",
-        name="Test",
-        repo_path=None,
-        workspace_path=None,
-        tasks_file="TASKS.md",
-        executor_type=ExecutorType.CODE,
-        max_concurrency=1,
-        env_keys=[],
-        claude_md_path=None,
-        is_primary=False,
-    )
-    task = Task(
-        id="T-P0-1",
-        project_id="test",
-        local_task_id="T-P0-1",
-        title="test task",
-        status=TaskStatus.RUNNING,
-        executor_type=ExecutorType.CODE,
-    )
-    settings = OrchestratorSettings()
-    executor = CodeExecutor(settings)
-    mock_proc = _make_mock_proc()
+    async def _mock_events(*_args, **_kwargs):  # noqa: ANN002, ANN003
+        yield ClaudeEvent(type=ClaudeEventType.RESULT, result_text="done")
 
-    with patch("src.executors.code_executor.asyncio.create_subprocess_exec",
-               return_value=mock_proc) as mock_exec, \
-         patch("shutil.which", return_value="/usr/bin/claude"), \
-         patch.object(executor, "_preflight_checks", return_value=None):
-        with contextlib.suppress(Exception):
+    with patch("src.executors.code_executor.run_claude_query",
+               side_effect=_mock_events) as mock_query, \
+         patch("src.executors.code_executor._is_sdk_available",
+               return_value=True):
+        import tempfile
+        from pathlib import Path
+
+        from src.config import OrchestratorSettings
+        from src.models import ExecutorType, Project, Task, TaskStatus
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            project = Project(
+                id="test", name="Test", repo_path=Path(tmpdir),
+                executor_type=ExecutorType.CODE,
+            )
+            task = Task(
+                id="T-P0-1", project_id="test", local_task_id="T-P0-1",
+                title="test task", status=TaskStatus.RUNNING,
+                executor_type=ExecutorType.CODE,
+            )
+            settings = OrchestratorSettings()
+            executor = CodeExecutor(settings)
             await executor.execute(
-                task=task,
-                project=project,
-                env={},
+                task=task, project=project, env={},
                 on_log=lambda _line: None,
             )
-
-        mock_exec.assert_called_once()
-        assert mock_exec.call_args.kwargs.get("limit") == SUBPROCESS_STREAM_LIMIT
+            mock_query.assert_called_once()
 
 
 

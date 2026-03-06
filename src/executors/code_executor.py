@@ -1,18 +1,18 @@
-"""CodeExecutor -- spawns ``claude`` CLI in a project's git repo.
+"""CodeExecutor -- runs tasks via the Claude Agent SDK.
 
-Per PRD Section 7.2: runs ``claude -p "..." --allowedTools ... --output-format stream-json``
-via ``asyncio.create_subprocess_exec`` with timeout, streaming, and cancel support.
+Per PRD Section 7.2: sends task prompt to ``run_claude_query()`` with
+allowed tools, cwd, and env.  Streams typed ``ClaudeEvent`` objects for
+real-time callbacks, JSONL persistence, and heartbeat emission.
 
-Process group handling:
-- Unix: ``start_new_session=True`` creates a new process group; on kill we
-  send SIGTERM/SIGKILL to the entire group via ``os.killpg``.
-- Windows: ``CREATE_NEW_PROCESS_GROUP`` creation flag; on kill we send
-  ``CTRL_BREAK_EVENT`` to the group.
+Migrated from raw ``asyncio.create_subprocess_exec`` (CLI) to the Agent
+SDK adapter (``src.sdk_adapter``) in T-P1-88.
 
-Inactivity detection:
-- Each stdout line resets a per-line inactivity timer.  If no line arrives
-  within ``inactivity_timeout_minutes`` (default 20, 0 = disabled), the
-  process group is terminated with ``ErrorType.INACTIVITY_TIMEOUT``.
+Timeout / inactivity / cancellation:
+- Session timeout: ``asyncio.timeout`` wrapping the event consumer loop.
+- Inactivity timeout: if no SDK event arrives within
+  ``inactivity_timeout_minutes``, the query is cancelled.
+- Cancellation: ``cancel()`` cancels the producer task.
+- Heartbeat: if no event for 30 s, emit ``[PROGRESS]`` to ``on_log``.
 """
 
 from __future__ import annotations
@@ -24,7 +24,6 @@ import json
 import logging
 import os
 import re
-import shutil
 import signal
 import sys
 import time
@@ -32,9 +31,10 @@ from collections.abc import Callable
 from datetime import UTC, datetime
 from pathlib import Path
 
-from src.config import SUBPROCESS_STREAM_LIMIT, OrchestratorSettings
+from src.config import OrchestratorSettings
 from src.executors.base import BaseExecutor, ErrorType, ExecutorResult
 from src.models import Project, Task
+from src.sdk_adapter import ClaudeEventType, QueryOptions, run_claude_query
 
 logger = logging.getLogger(__name__)
 
@@ -48,6 +48,9 @@ _IS_WINDOWS = sys.platform == "win32"
 
 # Interval in seconds between [PROGRESS] log emissions during execution.
 PROGRESS_LOG_INTERVAL_SECONDS = 60
+
+# Heartbeat interval: emit [PROGRESS] if no SDK event for this many seconds.
+HEARTBEAT_SECONDS = 30
 
 
 def _strip_ansi(text: str) -> str:
@@ -319,19 +322,29 @@ def _simplify_stream_event(event: dict) -> str | None:
     return None
 
 
-class CodeExecutor(BaseExecutor):
-    """Executor that spawns ``claude`` CLI in a project's git repo.
+def _is_sdk_available() -> bool:
+    """Check whether the Claude Agent SDK is importable."""
+    try:
+        import claude_agent_sdk  # type: ignore[import-untyped]  # noqa: F401
 
-    Streams stdout line-by-line via *on_log*, enforces a session timeout
-    and per-line inactivity timeout, and supports cancellation via
-    ``cancel()``.  Subprocess is created in its own process group so that
-    child processes are also cleaned up on kill.
+        return True
+    except ImportError:
+        return False
+
+
+class CodeExecutor(BaseExecutor):
+    """Executor that runs tasks via the Claude Agent SDK.
+
+    Streams ``ClaudeEvent`` objects from ``run_claude_query()`` via a
+    producer-task + queue pattern.  Handles JSONL persistence, event_bus
+    emission, heartbeat, timeout, inactivity detection, and cancellation.
     """
 
     def __init__(self, config: OrchestratorSettings) -> None:
         """Initialize with orchestrator settings for timeout/grace config."""
         self._config = config
-        self._proc: asyncio.subprocess.Process | None = None
+        self._producer_task: asyncio.Task | None = None
+        self._cancelled = False
 
     async def execute(
         self,
@@ -341,18 +354,18 @@ class CodeExecutor(BaseExecutor):
         on_log: Callable[[str], None],
         on_stream_event: Callable[[dict], None] | None = None,
     ) -> ExecutorResult:
-        """Spawn ``claude`` CLI, stream stdout, enforce timeout.
+        """Run a Claude Agent SDK query, stream events, enforce timeout.
 
-        Runs pre-flight checks before spawning the subprocess:
+        Runs pre-flight checks before starting the query:
         - Verifies repo_path exists as a directory
-        - Verifies ``claude`` CLI is available on PATH
+        - Verifies Claude Agent SDK is importable
 
         Args:
             task: The task to execute.
             project: The project this task belongs to.
-            env: Environment variables to inject (merged with os.environ).
-            on_log: Callback invoked for each line of stdout.
-            on_stream_event: Optional callback for parsed stream-json events.
+            env: Environment variables to inject into the SDK query.
+            on_log: Callback invoked for each simplified log line.
+            on_stream_event: Optional callback for typed event dicts.
 
         Returns:
             ExecutorResult with success status, exit code, and log tail.
@@ -364,307 +377,242 @@ class CodeExecutor(BaseExecutor):
             return preflight
 
         prompt = self._build_prompt(task)
-        cmd = [
-            "claude",
-            "-p",
-            prompt,
-            "--allowedTools",
-            "Bash,Read,Write,Edit,MultiTool",
-            "--output-format",
-            "stream-json",
-            "--verbose",
-        ]
+
+        options = QueryOptions(
+            allowed_tools=["Bash", "Read", "Write", "Edit", "MultiTool"],
+            cwd=str(project.repo_path),
+            env=env,
+        )
 
         session_timeout = self._config.session_timeout_minutes * 60
         inactivity_timeout = self._config.inactivity_timeout_minutes * 60
-        grace = self._config.subprocess_terminate_grace_seconds
         start = time.monotonic()
-
-        merged_env = {**os.environ, **env}
-
-        # Platform-specific process group flags
-        kwargs: dict[str, object] = {
-            "cwd": str(project.repo_path),
-            "stdout": asyncio.subprocess.PIPE,
-            "stderr": asyncio.subprocess.PIPE,
-            "env": merged_env,
-        }
-        if _IS_WINDOWS:
-            import subprocess as _subprocess
-            kwargs["creationflags"] = (
-                _subprocess.CREATE_NEW_PROCESS_GROUP  # type: ignore[attr-defined]
-            )
-        else:
-            kwargs["start_new_session"] = True
-
-        self._proc = await asyncio.create_subprocess_exec(
-            *cmd,
-            limit=SUBPROCESS_STREAM_LIMIT,
-            **kwargs,  # type: ignore[arg-type]
-        )
+        self._cancelled = False
 
         # -- JSONL log persistence (lazy: files created on first write) --
         log_dir = self._config.stream_log_dir / task.id.replace(":", "_")
         timestamp_str = datetime.now(UTC).strftime("%Y%m%dT%H%M%S")
         jsonl_file = _LazyFileWriter(log_dir / f"stream_{timestamp_str}.jsonl")
-        raw_file = _LazyFileWriter(log_dir / f"stream_raw_{timestamp_str}.log")
 
         log_lines: list[str] = []
         timed_out = False
         inactivity_detected = False
-        line_count = 0
-        last_output_time = start
-        buffer = _StreamJsonBuffer()
+        event_count = 0
+        last_event_time = start
+        has_error = False
+        error_detail = ""
 
-        # Concurrent stderr reader collects lines during execution
-        stderr_lines: list[str] = []
+        event_queue: asyncio.Queue[object] = asyncio.Queue()
+        _sentinel = object()
 
-        async def _stderr_reader() -> None:
-            """Read stderr line-by-line to prevent pipe deadlock."""
+        async def _produce() -> None:
+            """Producer task: iterate SDK events into the queue."""
             try:
-                assert self._proc is not None and self._proc.stderr is not None  # noqa: S101
-                while True:
-                    raw = await self._proc.stderr.readline()
-                    if not raw:
-                        break
-                    line = raw.decode("utf-8", errors="replace").rstrip("\n")
-                    if line:
-                        stderr_lines.append(line)
-            except Exception:
-                logger.debug("stderr reader error for task %s", task.id)
-
-        # Background task that emits [PROGRESS] log entries periodically
-        async def _progress_reporter() -> None:
-            nonlocal line_count, last_output_time
-            try:
-                while True:
-                    await asyncio.sleep(PROGRESS_LOG_INTERVAL_SECONDS)
-                    now = time.monotonic()
-                    elapsed_str = _format_elapsed(now - start)
-                    since_last = int(now - last_output_time)
-                    if line_count == 0 and since_last > 30:
-                        logger.warning(
-                            "No stdout from claude for %ds (task %s)",
-                            since_last,
-                            task.id,
-                        )
-                    on_log(
-                        f"[PROGRESS] {elapsed_str} elapsed | "
-                        f"{line_count} lines | "
-                        f"{since_last}s since last output"
-                    )
+                async for ev in run_claude_query(prompt, options):
+                    await event_queue.put(ev)
             except asyncio.CancelledError:
                 pass
-
-        logger.info("Spawned claude CLI for task %s (pid=%s)", task.id, self._proc.pid)
-        progress_task = asyncio.create_task(_progress_reporter())
-        stderr_task = asyncio.create_task(_stderr_reader())
-
-        def _process_parsed_events(
-            parsed_events: list[dict], non_json: list[str],
-        ) -> None:
-            """Write parsed events to JSONL and call callbacks."""
-            for event_dict in parsed_events:
-                jsonl_file.write(
-                    json.dumps(event_dict, ensure_ascii=False) + "\n"
+            except Exception as exc:
+                logger.error(
+                    "SDK producer error for task %s: %s", task.id, exc,
                 )
-                jsonl_file.flush()
+            await event_queue.put(_sentinel)
 
-                if on_stream_event is not None:
-                    on_stream_event(event_dict)
+        logger.info("Starting Claude SDK query for task %s", task.id)
 
-                simplified = _simplify_stream_event(event_dict)
-                if simplified:
-                    log_lines.append(simplified)
-                    on_log(simplified)
-
-            for raw_text in non_json:
-                log_lines.append(raw_text)
-                on_log(raw_text)
-
+        self._producer_task = asyncio.create_task(_produce())
         try:
-            async with asyncio.timeout(session_timeout):
-                assert self._proc.stdout is not None  # noqa: S101
-                while True:
-                    try:
-                        if inactivity_timeout > 0:
-                            raw_line = await asyncio.wait_for(
-                                self._proc.stdout.readline(),
-                                timeout=inactivity_timeout,
-                            )
-                        else:
-                            raw_line = await self._proc.stdout.readline()
-                    except TimeoutError:
-                        # Per-line inactivity timeout
+            while True:
+                now = time.monotonic()
+
+                # -- Session timeout check --
+                if session_timeout > 0 and (now - start) >= session_timeout:
+                    timed_out = True
+                    on_log(
+                        f"[TIMEOUT] Session exceeded "
+                        f"{self._config.session_timeout_minutes}min, "
+                        f"terminating..."
+                    )
+                    break
+
+                # -- Inactivity check --
+                if inactivity_timeout > 0:
+                    time_since_last = now - last_event_time
+                    remaining_inactivity = (
+                        inactivity_timeout - time_since_last
+                    )
+                    if remaining_inactivity <= 0:
                         inactivity_detected = True
                         mins = self._config.inactivity_timeout_minutes
                         on_log(
                             f"[INACTIVITY] No output for {mins} minutes "
-                            f"-- stdout-based detection, terminating process group"
+                            f"-- event-based detection, terminating"
                         )
                         break
 
-                    if not raw_line:
-                        # EOF -- process closed stdout
-                        break
+                # -- Determine queue.get timeout --
+                get_timeout = float(HEARTBEAT_SECONDS)
+                if session_timeout > 0:
+                    remaining_session = session_timeout - (now - start)
+                    get_timeout = min(get_timeout, remaining_session)
+                if inactivity_timeout > 0:
+                    remaining_inact = inactivity_timeout - (now - last_event_time)
+                    get_timeout = min(get_timeout, remaining_inact)
+                get_timeout = max(get_timeout, 0.01)  # floor
 
-                    decoded = _strip_ansi(
-                        raw_line.decode("utf-8", errors="replace")
-                    ).rstrip("\n")
-                    if not decoded:
-                        continue
-
-                    # Persist-first: write raw line before JSON parsing
-                    raw_file.write(decoded + "\n")
-                    raw_file.flush()
-
-                    line_count += 1
-                    last_output_time = time.monotonic()
-
-                    if line_count == 1:
-                        logger.info(
-                            "First stdout line for task %s after %.1fs",
-                            task.id,
-                            time.monotonic() - start,
+                try:
+                    item = await asyncio.wait_for(
+                        event_queue.get(), timeout=get_timeout,
+                    )
+                except TimeoutError:
+                    # Re-check session/inactivity at top of loop
+                    # Emit heartbeat if neither threshold was hit
+                    check_now = time.monotonic()
+                    session_expired = (
+                        session_timeout > 0
+                        and (check_now - start) >= session_timeout
+                    )
+                    inact_expired = (
+                        inactivity_timeout > 0
+                        and (check_now - last_event_time) >= inactivity_timeout
+                    )
+                    if not session_expired and not inact_expired:
+                        elapsed_str = _format_elapsed(check_now - start)
+                        since_last = int(check_now - last_event_time)
+                        on_log(
+                            f"[PROGRESS] {elapsed_str} elapsed | "
+                            f"{event_count} events | "
+                            f"{since_last}s since last event"
                         )
+                    continue
 
-                    # Try to parse as stream-json
-                    parsed_events = buffer.feed(decoded + "\n")
-                    _process_parsed_events(parsed_events, buffer.non_json)
+                if item is _sentinel:
+                    break
 
-                # -- EOF: flush partial buffer --
-                if buffer._partial:
-                    remainder = buffer._partial.strip()
-                    buffer._partial = ""
-                    if remainder:
-                        raw_file.write(remainder + "\n")
-                        raw_file.flush()
-                        try:
-                            obj = json.loads(remainder)
-                            if isinstance(obj, dict):
-                                jsonl_file.write(
-                                    json.dumps(obj, ensure_ascii=False) + "\n"
-                                )
-                                jsonl_file.flush()
-                                if on_stream_event is not None:
-                                    on_stream_event(obj)
-                                simplified = _simplify_stream_event(obj)
-                                if simplified:
-                                    log_lines.append(simplified)
-                                    on_log(simplified)
-                            else:
-                                log_lines.append(remainder)
-                                on_log(remainder)
-                        except (json.JSONDecodeError, ValueError):
-                            log_lines.append(remainder)
-                            on_log(remainder)
+                if self._cancelled:
+                    break
 
-                logger.info(
-                    "stdout EOF for task %s: %d lines in %.1fs",
-                    task.id,
-                    line_count,
-                    time.monotonic() - start,
+                event = item  # ClaudeEvent
+                event_count += 1
+                last_event_time = time.monotonic()
+                event_dict = event.model_dump(exclude_none=True)
+
+                # JSONL persistence
+                jsonl_file.write(
+                    json.dumps(event_dict, ensure_ascii=False) + "\n",
                 )
+                jsonl_file.flush()
 
-                if not inactivity_detected:
-                    await self._proc.wait()
-        except TimeoutError:
-            timed_out = True
-            on_log(
-                f"[TIMEOUT] Session exceeded "
-                f"{self._config.session_timeout_minutes}min, terminating..."
-            )
+                # Stream event callback
+                if on_stream_event is not None:
+                    on_stream_event(event_dict)
+
+                # Process by event type for on_log
+                if event.type == ClaudeEventType.RESULT:
+                    log_lines.append("[DONE]")
+                    on_log("[DONE]")
+                elif event.type == ClaudeEventType.ERROR:
+                    has_error = True
+                    error_detail = (
+                        event.error_message or "Unknown error"
+                    )
+                elif event.type == ClaudeEventType.TEXT:
+                    if event.text:
+                        log_lines.append(event.text)
+                        on_log(event.text)
+                elif event.type == ClaudeEventType.TOOL_USE:
+                    input_str = json.dumps(
+                        event.tool_input or {},
+                    )[:200]
+                    line = (
+                        f"[TOOL] {event.tool_name}({input_str})"
+                    )
+                    log_lines.append(line)
+                    on_log(line)
+                elif event.type == ClaudeEventType.TOOL_RESULT:
+                    content = (
+                        event.tool_result_content or ""
+                    )[:200]
+                    line = f"[RESULT] {content}"
+                    log_lines.append(line)
+                    on_log(line)
+                elif event.type == ClaudeEventType.INIT:
+                    line = f"[INIT] session={event.session_id}"
+                    log_lines.append(line)
+                    on_log(line)
+
+                if event_count == 1:
+                    logger.info(
+                        "First SDK event for task %s after %.1fs",
+                        task.id,
+                        time.monotonic() - start,
+                    )
         finally:
-            progress_task.cancel()
-            with contextlib.suppress(asyncio.CancelledError):
-                await progress_task
-            stderr_task.cancel()
-            with contextlib.suppress(asyncio.CancelledError):
-                await stderr_task
+            if self._producer_task is not None:
+                self._producer_task.cancel()
+                with contextlib.suppress(asyncio.CancelledError):
+                    await self._producer_task
             jsonl_file.close()
-            raw_file.close()
-
-        # -- Terminate process group if needed --
-        if timed_out or inactivity_detected:
-            _terminate_process_group(self._proc)
-            try:
-                await asyncio.wait_for(self._proc.wait(), timeout=grace)
-            except TimeoutError:
-                tag = "[INACTIVITY]" if inactivity_detected else "[TIMEOUT]"
-                on_log(
-                    f"{tag} Process did not exit after {grace}s, killing..."
-                )
-                _kill_process_group(self._proc)
-                await self._proc.wait()
 
         elapsed = time.monotonic() - start
 
-        returncode = self._proc.returncode if self._proc.returncode is not None else -9
-
-        # -- Capture stderr (from concurrent reader) --
-        stderr_text: str | None = None
-        if stderr_lines:
-            joined = "\n".join(stderr_lines)
-            cleaned = _strip_ansi(joined)
-            if len(cleaned) > MAX_STDERR_BYTES:
-                stderr_text = cleaned[:MAX_STDERR_BYTES - 14] + "...[truncated]"
-            else:
-                stderr_text = cleaned
-
-        # -- Race condition guard: timeout fired but process already exited 0 --
-        # If we killed the process group but returncode is 0, the task completed
-        # successfully before the kill took effect.  Override the timeout flag
-        # so the result is reported as success with a warning.
-        if (timed_out or inactivity_detected) and returncode == 0:
-            tag = "[INACTIVITY]" if inactivity_detected else "[TIMEOUT]"
-            on_log(
-                f"{tag} Timeout fired but process exited 0 "
-                f"-- treating as successful completion"
-            )
-            timed_out = False
-            inactivity_detected = False
+        logger.info(
+            "SDK query complete for task %s: %d events in %.1fs",
+            task.id,
+            event_count,
+            elapsed,
+        )
 
         # -- Classify error type --
         error_type: ErrorType | None = None
         error_summary: str | None = None
+        returncode = 0
 
         if inactivity_detected:
             error_type = ErrorType.INACTIVITY_TIMEOUT
             mins = self._config.inactivity_timeout_minutes
             error_summary = (
-                f"Inactivity timeout - no stdout for {mins} minutes, "
-                f"process group killed"
+                f"Inactivity timeout - no events for {mins} minutes"
             )
+            returncode = -1
         elif timed_out:
             error_type = ErrorType.TIMEOUT
-            error_summary = "Session timeout - process killed"
-        elif returncode != 0:
+            error_summary = "Session timeout - query terminated"
+            returncode = -1
+        elif has_error:
             error_type = ErrorType.NON_ZERO_EXIT
-            error_summary = f"Process exited with code {returncode}"
-            if stderr_text:
-                # Append first line of stderr for quick diagnostics
-                first_line = stderr_text.split("\n", 1)[0].strip()
-                if first_line:
-                    error_summary = f"{error_summary}: {first_line[:200]}"
+            error_summary = f"Claude SDK error: {error_detail}"
+            returncode = 1
+        elif self._cancelled:
+            error_type = ErrorType.UNKNOWN
+            error_summary = "Execution cancelled"
+            returncode = -1
+
+        success = (
+            not timed_out
+            and not inactivity_detected
+            and not has_error
+            and not self._cancelled
+        )
 
         return ExecutorResult(
-            success=(not timed_out and not inactivity_detected and returncode == 0),
+            success=success,
             exit_code=returncode,
             log_lines=log_lines[-100:],
             error_summary=error_summary,
             error_type=error_type,
-            stderr_output=stderr_text,
             duration_seconds=elapsed,
         )
 
     async def cancel(self) -> None:
-        """Cancel a running execution by terminating the process group."""
-        if self._proc is not None and self._proc.returncode is None:
-            logger.info("Cancelling running subprocess (pid=%s)", self._proc.pid)
-            _terminate_process_group(self._proc)
+        """Cancel a running execution by cancelling the SDK query."""
+        self._cancelled = True
+        if self._producer_task is not None and not self._producer_task.done():
+            logger.info("Cancelling running SDK query")
+            self._producer_task.cancel()
 
     def _preflight_checks(self, project: Project) -> ExecutorResult | None:
-        """Run pre-flight checks before spawning a subprocess.
+        """Run pre-flight checks before starting an SDK query.
 
         Returns an ExecutorResult with failure details if a check fails,
         or None if all checks pass.
@@ -679,12 +627,12 @@ class CodeExecutor(BaseExecutor):
                 duration_seconds=0.0,
             )
 
-        # Check claude CLI is available
-        if shutil.which("claude") is None:
+        # Check Claude Agent SDK is available
+        if not _is_sdk_available():
             return ExecutorResult(
                 success=False,
                 exit_code=-1,
-                error_summary="Claude CLI not found on PATH",
+                error_summary="Claude Agent SDK not available (install claude-agent-sdk)",
                 error_type=ErrorType.CLI_NOT_FOUND,
                 duration_seconds=0.0,
             )
