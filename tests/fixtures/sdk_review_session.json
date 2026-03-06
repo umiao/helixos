@@ -1,0 +1,31 @@
+{
+  "description": "Realistic review session: Claude reads files, runs checks, returns structured review verdict.",
+  "events": [
+    {"type": "init", "session_id": "sess-review-fixture-001"},
+    {"type": "text", "text": "I'll review this task plan for feasibility and edge cases.", "model": "claude-sonnet-4-5-20250514"},
+    {"type": "tool_use", "tool_name": "Read", "tool_input": {"file_path": "/project/src/api.py"}, "tool_use_id": "tu-r1", "model": "claude-sonnet-4-5-20250514"},
+    {"type": "tool_result", "tool_result_content": "from fastapi import FastAPI\n\napp = FastAPI()\n\n@app.get('/health')\ndef health():\n    return {'status': 'ok'}\n\n@app.post('/api/tasks/{task_id}/execute')\nasync def execute_task(task_id: int):\n    ...\n", "tool_is_error": false, "tool_result_for_id": "tu-r1"},
+    {"type": "text", "text": "The API endpoint looks reasonable. Let me check the test coverage.", "model": "claude-sonnet-4-5-20250514"},
+    {"type": "tool_use", "tool_name": "Bash", "tool_input": {"command": "grep -r 'def test_execute' tests/"}, "tool_use_id": "tu-r2", "model": "claude-sonnet-4-5-20250514"},
+    {"type": "tool_result", "tool_result_content": "tests/test_api.py:def test_execute_task_success():\ntests/test_api.py:def test_execute_task_not_found():", "tool_is_error": false, "tool_result_for_id": "tu-r2"},
+    {"type": "text", "text": "Test coverage exists for success and not-found cases. The plan is feasible with minor suggestions for error handling improvements.", "model": "claude-sonnet-4-5-20250514"},
+    {
+      "type": "result",
+      "result_text": null,
+      "structured_output": {
+        "verdict": "approve",
+        "summary": "Plan is feasible. API endpoint structure is sound with existing test coverage for success and error paths.",
+        "suggestions": [
+          "Add timeout handling for long-running executions",
+          "Consider adding rate limiting to the execute endpoint"
+        ]
+      },
+      "cost_usd": 0.042,
+      "usage": {"input_tokens": 3200, "output_tokens": 580},
+      "duration_ms": 8500,
+      "model": "claude-sonnet-4-5-20250514",
+      "num_turns": 3,
+      "session_id": "sess-review-fixture-001"
+    }
+  ]
+}

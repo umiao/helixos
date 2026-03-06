@@ -1,0 +1,33 @@
+{
+  "description": "Realistic code execution session: Claude writes code, runs tests, fixes a failure, re-runs tests.",
+  "events": [
+    {"type": "init", "session_id": "sess-exec-fixture-002"},
+    {"type": "text", "text": "I'll implement the requested feature and verify it with tests.", "model": "claude-sonnet-4-5-20250514"},
+    {"type": "tool_use", "tool_name": "Read", "tool_input": {"file_path": "/project/src/models.py"}, "tool_use_id": "tu-e1", "model": "claude-sonnet-4-5-20250514"},
+    {"type": "tool_result", "tool_result_content": "from sqlalchemy import Column, Integer, String\nfrom sqlalchemy.orm import DeclarativeBase\n\nclass Base(DeclarativeBase):\n    pass\n\nclass Task(Base):\n    __tablename__ = 'tasks'\n    id = Column(Integer, primary_key=True)\n    title = Column(String(200))\n    status = Column(String(50), default='backlog')\n", "tool_is_error": false, "tool_result_for_id": "tu-e1"},
+    {"type": "text", "text": "I see the Task model. I need to add a priority field. Let me edit the file.", "model": "claude-sonnet-4-5-20250514"},
+    {"type": "tool_use", "tool_name": "Edit", "tool_input": {"file_path": "/project/src/models.py", "old_string": "    status = Column(String(50), default='backlog')", "new_string": "    status = Column(String(50), default='backlog')\n    priority = Column(Integer, default=0)"}, "tool_use_id": "tu-e2", "model": "claude-sonnet-4-5-20250514"},
+    {"type": "tool_result", "tool_result_content": "File edited successfully.", "tool_is_error": false, "tool_result_for_id": "tu-e2"},
+    {"type": "text", "text": "Now let me run the existing tests to make sure nothing is broken.", "model": "claude-sonnet-4-5-20250514"},
+    {"type": "tool_use", "tool_name": "Bash", "tool_input": {"command": "python -m pytest tests/test_models.py -v"}, "tool_use_id": "tu-e3", "model": "claude-sonnet-4-5-20250514"},
+    {"type": "tool_result", "tool_result_content": "FAILED tests/test_models.py::test_task_creation - AssertionError: expected 3 columns, got 4\n1 failed, 2 passed in 0.45s", "tool_is_error": false, "tool_result_for_id": "tu-e3"},
+    {"type": "text", "text": "The test expects exactly 3 columns. I need to update it to account for the new priority field.", "model": "claude-sonnet-4-5-20250514"},
+    {"type": "tool_use", "tool_name": "Edit", "tool_input": {"file_path": "/project/tests/test_models.py", "old_string": "assert len(columns) == 3", "new_string": "assert len(columns) == 4"}, "tool_use_id": "tu-e4", "model": "claude-sonnet-4-5-20250514"},
+    {"type": "tool_result", "tool_result_content": "File edited successfully.", "tool_is_error": false, "tool_result_for_id": "tu-e4"},
+    {"type": "text", "text": "Let me re-run the tests.", "model": "claude-sonnet-4-5-20250514"},
+    {"type": "tool_use", "tool_name": "Bash", "tool_input": {"command": "python -m pytest tests/test_models.py -v"}, "tool_use_id": "tu-e5", "model": "claude-sonnet-4-5-20250514"},
+    {"type": "tool_result", "tool_result_content": "tests/test_models.py::test_task_creation PASSED\ntests/test_models.py::test_task_defaults PASSED\ntests/test_models.py::test_task_status_update PASSED\n3 passed in 0.38s", "tool_is_error": false, "tool_result_for_id": "tu-e5"},
+    {"type": "text", "text": "All tests pass. The priority column has been added to the Task model with a default value of 0.", "model": "claude-sonnet-4-5-20250514"},
+    {
+      "type": "result",
+      "result_text": "Added priority column to Task model. All 3 tests pass.",
+      "structured_output": null,
+      "cost_usd": 0.067,
+      "usage": {"input_tokens": 5100, "output_tokens": 920},
+      "duration_ms": 15200,
+      "model": "claude-sonnet-4-5-20250514",
+      "num_turns": 5,
+      "session_id": "sess-exec-fixture-002"
+    }
+  ]
+}

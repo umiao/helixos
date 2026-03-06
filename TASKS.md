@@ -23,6 +23,18 @@
 ## In Progress
 <!-- Only ONE task here at a time. Focus. -->
 
+#### T-P2-91: Conversation extraction mock tests with real fixtures
+- **Priority**: P2
+- **Complexity**: S
+- **Depends on**: T-P1-89
+- **Description**: Persist real Claude CLI output as test fixtures. Write tests that feed fixtures through `collect_turns()` and summary extraction, verifying meaningful output (not just `[PROGRESS]` lines). Focus on output quality, not input completeness.
+- **Acceptance Criteria**:
+  1. `tests/fixtures/` contains 2-3 real output samples (review, execution, enrichment)
+  2. Tests verify `collect_turns()` produces non-empty text + tool actions
+  3. Tests verify summary extraction produces non-empty findings/actions
+  4. Tests verify `ClaudeResult.structured_output` correctly extracted
+  5. Deterministic (no live CLI calls)
+
 ## Active Tasks
 
 ### P0 -- Must Have (core functionality)
@@ -30,16 +42,6 @@
 
 
 
-
-#### T-P1-70: Extract `_is_process_alive()` to shared module
-- **Priority**: P1
-- **Complexity**: S
-- **Depends on**: None
-- **Description**: Deduplicate `_is_process_alive()` from port_registry.py, process_manager.py, subprocess_registry.py. Extract to `src/platform_utils.py` with proper `sys.platform` guard.
-- **Acceptance Criteria**:
-  1. Single implementation in `src/platform_utils.py`
-  2. All 3 callsites import from shared module
-  3. Existing tests pass unchanged
 
 
 #### T-P1-73: Log retention/purge policy
@@ -139,30 +141,6 @@
 
 
 
-#### T-P1-90: Remove dead subprocess boilerplate
-- **Priority**: P1
-- **Complexity**: S
-- **Depends on**: T-P1-87, T-P1-88, T-P1-89
-- **Description**: Remove `_StreamJsonBuffer`, `_simplify_stream_event()`, `_LazyFileWriter` (if replaced), `_progress_reporter()`, platform-specific `CREATE_NEW_PROCESS_GROUP`/`start_new_session` blocks, `SUBPROCESS_STREAM_LIMIT` constant. process_manager.py dev-server launch is out of scope.
-- **Acceptance Criteria**:
-  1. No `asyncio.create_subprocess_exec` for Claude CLI invocation
-  2. `_StreamJsonBuffer`, `_simplify_stream_event()` removed
-  3. All tests pass, ruff clean
-  4. Net line count reduction >= 300 lines
-
-#### T-P2-91: Conversation extraction mock tests with real fixtures
-- **Priority**: P2
-- **Complexity**: S
-- **Depends on**: T-P1-89
-- **Description**: Persist real Claude CLI output as test fixtures. Write tests that feed fixtures through `collect_turns()` and summary extraction, verifying meaningful output (not just `[PROGRESS]` lines). Focus on output quality, not input completeness.
-- **Acceptance Criteria**:
-  1. `tests/fixtures/` contains 2-3 real output samples (review, execution, enrichment)
-  2. Tests verify `collect_turns()` produces non-empty text + tool actions
-  3. Tests verify summary extraction produces non-empty findings/actions
-  4. Tests verify `ClaudeResult.structured_output` correctly extracted
-  5. Deterministic (no live CLI calls)
-
-
 ### P1-UX -- Polish
 
 ## Dependency Graph
@@ -178,7 +156,6 @@
 - T-P1-85 depends on T-P1-84
 - T-P1-87 depends on T-P1-86
 - T-P1-88 depends on T-P1-86 (complete)
-- T-P1-90 depends on T-P1-87, T-P1-88, T-P1-89 (all complete)
 - T-P2-91 depends on T-P1-89 (complete)
 
 
@@ -190,6 +167,12 @@
 ## Completed Tasks
 
 > 99 completed tasks archived to [archive/completed_tasks.md](archive/completed_tasks.md).
+
+#### [x] T-P1-90: Remove dead subprocess boilerplate -- 2026-03-06
+- Removed `_StreamJsonBuffer`, `_simplify_stream_event()`, `_terminate_process_group()`, `_kill_process_group()`, `_truncate_stderr()`, `MAX_STDERR_BYTES` from code_executor.py. Removed `SUBPROCESS_STREAM_LIMIT` from config.py. Removed 31 associated tests. Also committed T-P1-70 (extract `_is_process_alive()` to `platform_utils.py`). Net reduction: 512 lines. 1174 tests pass + 4 skipped, ruff clean.
+
+#### [x] T-P1-70: Extract _is_process_alive() to shared module -- 2026-03-06
+- Deduplicated `_is_process_alive()` from port_registry.py, process_manager.py, subprocess_registry.py into `src/platform_utils.py` with proper `sys.platform` guard. All 3 callsites import from shared module. 1205 tests pass + 4 skipped, ruff clean.
 
 #### [x] T-P1-89: Migrate review_pipeline.py + conversation extraction -- 2026-03-06
 - Replaced `_call_claude_cli()` subprocess with `_call_claude_sdk()` using `run_claude_query()` + producer-task + queue pattern. Added `conversation_turns` and `conversation_summary` fields to `LLMReview` model. Integrated `collect_turns()` for turn reconstruction and `_extract_conversation_summary()` for structured findings/actions/conclusion. Removed subprocess process-group helpers. Updated 98 review_pipeline tests + 4 integration tests + 1 subprocess_stream_limit test. Full suite: 1205 pass + 4 skipped, ruff clean.

@@ -1,0 +1,30 @@
+{
+  "description": "Realistic enrichment session: Claude analyzes a task title and returns structured enrichment output.",
+  "events": [
+    {"type": "init", "session_id": "sess-enrich-fixture-003"},
+    {"type": "text", "text": "I'll analyze this task and provide an enriched title and plan.", "model": "claude-haiku-4-5-20251001"},
+    {"type": "tool_use", "tool_name": "Read", "tool_input": {"file_path": "/project/TASKS.md"}, "tool_use_id": "tu-n1", "model": "claude-haiku-4-5-20251001"},
+    {"type": "tool_result", "tool_result_content": "# Task Backlog\n\n## Active\n- Fix login bug\n- Add dark mode\n- Refactor database layer\n", "tool_is_error": false, "tool_result_for_id": "tu-n1"},
+    {"type": "text", "text": "Based on the task context, I'll provide an enriched title and structured plan.", "model": "claude-haiku-4-5-20251001"},
+    {
+      "type": "result",
+      "result_text": null,
+      "structured_output": {
+        "enriched_title": "Fix authentication failure on login page when session cookie expires",
+        "complexity": "S",
+        "plan_steps": [
+          "Investigate session cookie expiration handling in auth middleware",
+          "Add automatic session refresh before expiration",
+          "Write regression test for expired session login flow"
+        ],
+        "estimated_files": ["src/auth/middleware.py", "src/auth/session.py", "tests/test_auth.py"]
+      },
+      "cost_usd": 0.008,
+      "usage": {"input_tokens": 1200, "output_tokens": 180},
+      "duration_ms": 3200,
+      "model": "claude-haiku-4-5-20251001",
+      "num_turns": 1,
+      "session_id": "sess-enrich-fixture-003"
+    }
+  ]
+}
