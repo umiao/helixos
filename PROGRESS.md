@@ -829,3 +829,10 @@
 - **Sanity check result**: 1131 tests pass. Ruff clean.
 - **Status**: [DONE]
 - **Request**: No task to move (hotfix, not a tracked task)
+
+## 2026-03-06 06:00 -- [PLANNING] Stream Pipeline Root Cause Fix Tasks
+- **What I did**: Added 7 new P0 tasks (T-P0-91 through T-P0-97) to TASKS.md for fixing stream pipeline root causes: CLI --json-schema investigation, schema/parsing fixes for plan+review, stream-json parser hardening, enabling stream-json for review+plan pipelines, lazy log creation, and real-CLI integration tests. Updated dependency graph. Added lesson #19 (mock tests hide CLI output format issues) to LESSONS.md.
+- **Deliverables**: TASKS.md, LESSONS.md
+- **Sanity check result**: TASKS.md structure valid, dependency chain correct (91->92,93->94,95->96,97)
+- **Status**: [DONE]
+- **Request**: No task to move (planning session, no code changes)

@@ -27,6 +27,86 @@
 
 ### P0 -- Must Have (core functionality)
 
+#### T-P0-91: Investigate CLI --json-schema output behavior
+- **Priority**: P0
+- **Complexity**: S
+- **Depends on**: None
+- **Description**: Run real Claude CLI with various flag combinations and capture raw output. Determine: (1) What does `--output-format json` + `--json-schema` actually produce? (2) Is `result: null` caused by schema validation failure or format mismatch? (3) Can `--output-format stream-json` + `--json-schema` be used together? (4) What does stream-json output look like for structured schema output?
+- **Acceptance Criteria**:
+  1. Raw CLI output captured for all 4 combinations: json/stream-json x with/without --json-schema
+  2. Root cause of `result: null` confirmed (schema failure vs format mismatch)
+  3. stream-json + --json-schema compatibility confirmed or ruled out
+  4. Findings documented in LESSONS.md
+
+#### T-P0-92: Fix schema/parsing in plan + review pipelines
+- **Priority**: P0
+- **Complexity**: S
+- **Depends on**: T-P0-91
+- **Description**: Based on T-P0-91 findings, fix the root cause of `result: null`. If schema validation failure: fix schema definitions. If format mismatch: fix parser to handle actual output structure. Must verify with real CLI call, not just mocked tests.
+- **Acceptance Criteria**:
+  1. Plan generation produces non-null result with real CLI
+  2. Review pipeline produces non-null result with real CLI
+  3. Both enrichment.py and review_pipeline.py parsers handle actual CLI output
+  4. Existing tests updated to match real output format
+  5. Manual verification: run plan/review on a real task, check DB has meaningful content
+
+#### T-P0-93: Harden stream-json event parser
+- **Priority**: P0
+- **Complexity**: S
+- **Depends on**: T-P0-91
+- **Description**: Investigate why execution raw logs contain only fragments ("data", "initial"). Check `_StreamJsonBuffer` in code_executor.py for: multi-line JSON handling, partial chunk buffering, encoding edge cases. Fix before extending streaming to more pipelines.
+- **Acceptance Criteria**:
+  1. Root cause of fragment-only raw logs identified
+  2. _StreamJsonBuffer handles multi-line JSON events
+  3. Execution JSONL files contain complete stream events (verified with real CLI)
+  4. ConversationView shows real content for execution tasks
+
+#### T-P0-94: Enable stream-json for review pipeline + ConversationView
+- **Priority**: P0
+- **Complexity**: M
+- **Depends on**: T-P0-92, T-P0-93
+- **Description**: Switch review_pipeline from `--output-format json` to `stream-json`. Wire `on_stream_event` callback through review_task -> _call_claude_cli. Add JSONL persistence. Emit `execution_stream` SSE events during review. If stream-json + --json-schema incompatible (per T-P0-91), use alternative approach (e.g., parse json output into synthetic stream events).
+- **Acceptance Criteria**:
+  1. Review execution produces JSONL stream log files with real content
+  2. SSE `execution_stream` events emitted during review
+  3. ConversationView shows real-time review progress
+  4. Review result still correctly parsed from stream output
+  5. Manual smoke test: start review -> see live updates in ConversationView
+
+#### T-P0-95: Enable stream-json for plan generation + ConversationView
+- **Priority**: P0
+- **Complexity**: M
+- **Depends on**: T-P0-92, T-P0-93
+- **Description**: Same as T-P0-94 but for enrichment.py plan generation. Switch to stream-json, wire callbacks, add JSONL persistence, emit SSE events.
+- **Acceptance Criteria**:
+  1. Plan generation produces JSONL stream log files with real content
+  2. SSE `execution_stream` events emitted during plan generation
+  3. ConversationView shows real-time plan generation progress
+  4. Plan result still correctly parsed from stream output
+  5. Manual smoke test: generate plan -> see live updates in ConversationView
+
+#### T-P0-96: Fix log creation strategy -- lazy file creation + cleanup
+- **Priority**: P0
+- **Complexity**: S
+- **Depends on**: T-P0-93
+- **Description**: Log files should only be created on first event, not at process start. This prevents empty file accumulation. Also clean existing empty files under `data/logs/`. Add startup cleanup that removes 0-byte log files.
+- **Acceptance Criteria**:
+  1. JSONL/raw log files created on first write, not at process start
+  2. No empty files left after a failed/aborted run
+  3. Existing empty files cleaned from `data/logs/`
+  4. Startup hook or init removes stale 0-byte files
+
+#### T-P0-97: Add real-CLI integration test for stream pipeline
+- **Priority**: P0
+- **Complexity**: S
+- **Depends on**: T-P0-94, T-P0-95
+- **Description**: End-to-end test that runs actual Claude CLI (not mocked). Verifies JSONL files contain real stream events. Verifies API endpoint returns non-empty events. Marked as manual/nightly (not blocking CI -- may fail without API key/network).
+- **Acceptance Criteria**:
+  1. Integration test script that exercises plan, review, and execution
+  2. Asserts JSONL files non-empty with valid JSON events
+  3. Asserts stream-log API returns events
+  4. Clearly marked as manual/nightly (skipped in normal pytest run)
+
 #### T-P1-70: Extract `_is_process_alive()` to shared module
 - **Priority**: P1
 - **Complexity**: S
@@ -175,7 +255,12 @@
 > Full historical dependency graph relocated to [docs/architecture/dependency-graph-history.md](docs/architecture/dependency-graph-history.md).
 
 ### Current
-- T-P0-89 depends on T-P0-87
+- T-P0-92 depends on T-P0-91
+- T-P0-93 depends on T-P0-91
+- T-P0-94 depends on T-P0-92, T-P0-93
+- T-P0-95 depends on T-P0-92, T-P0-93
+- T-P0-96 depends on T-P0-93
+- T-P0-97 depends on T-P0-94, T-P0-95
 - T-P1-85 depends on T-P1-84
 
 
@@ -186,7 +271,7 @@
 
 ## Completed Tasks
 
-> 79 completed tasks archived to [archive/completed_tasks.md](archive/completed_tasks.md).
+> 99 completed tasks archived to [archive/completed_tasks.md](archive/completed_tasks.md).
 
 #### [x] T-P0-90: Frontend Popover Enhancement -- 2026-03-06
 - Enhanced TaskCardPopover with "Live Activity" section for running tasks: shows tool call count, elapsed minutes, and last activity (tool name or text snippet). Added StreamSummary type, computed via useMemo in App.tsx from streamEvents, threaded through SwimLane->KanbanBoard->TaskCard->TaskCardPopover. Non-running tasks unaffected. TypeScript clean, Vite build clean.
@@ -196,63 +281,3 @@
 
 #### [x] T-P0-87: Backend stream-json + Log Persistence -- 2026-03-06
 - Switched `--output-format json` to `stream-json`. Added `_StreamJsonBuffer` for incremental JSON parsing, `on_stream_event` callback through executor chain, `_simplify_stream_event` for backward-compat `on_log`, JSONL persistence to `data/logs/{task_id}/`, `GET /api/tasks/{task_id}/stream-log` endpoint, `execution_stream` SSE event type. 26 new tests, 1124 total passing, ruff clean.
-
-#### [x] T-P0-51: TASKS.md lifecycle model + archive separation -- 2026-03-04
-- Archived 78 completed tasks to archive/completed_tasks.md. Relocated dependency graph to docs/architecture/dependency-graph-history.md. Added task schema template with required fields. TASKS.md reduced from 474 to 97 lines (under 300 invariant). 1000 tests passing.
-
-#### [x] T-P0-54: Fix review panel header -- left-align task info, natural wrapping -- 2026-03-04
-- Restructured ReviewPanel header: task info left-aligned in a bg-gray-50 identity strip, title wraps naturally (overflow-wrap: break-word, no truncate/max-w-48), task ID in mono/muted style, title text-sm, clear visual separation via border-t + background.
-
-#### [x] T-P0-61: Timeout normalization to 60min -- 2026-03-04
-- review_timeout_minutes default 10->60, enrichment_timeout_minutes added (default 60), enrichment CLI subprocess calls use asyncio.wait_for with configurable timeout. ProcessManager dev server timeout unchanged at 10s. 1006 tests passing.
-
-#### [x] T-P0-58: Done tasks show green completion in ReviewPanel -- 2026-03-04
-- Green "completed" badge in ReviewPanel header for done tasks. Done+no-plan shows "Task completed" instead of "No plan" error. Edit/Generate Plan buttons hidden for done tasks. Non-done tasks unaffected.
-
-#### [x] T-P0-57: Hover-to-generate-plan UX on TaskCard -- 2026-03-04
-- Added "Generate Plan" button to TaskCardPopover for tasks with no plan (hidden when plan exists or task is done/failed/blocked). Button calls generatePlan API with loading state and double-click prevention. Error display on failure. onTaskUpdated callback threaded through SwimLane -> KanbanBoard -> TaskCard -> TaskCardPopover for immediate UI refresh.
-
-#### [x] T-P0-59: Plan generation progress feedback -- 2026-03-04
-- Added plan_status field (none/generating/failed/ready) to Task model. API sets generating->ready/failed lifecycle. Frontend shows animated spinner + retry button. Sync POST approach chosen based on architecture analysis. 1024 tests passing.
-
-#### [x] T-P0-60: Process failure detection via hard timeout + exit code -- 2026-03-04
-- ProcessMonitor background task scans SubprocessRegistry every 5s, detects dead PIDs, emits `process_failed` SSE events. Health-check endpoint `GET /api/processes/status`. Frontend toast+log on crash. No activity-based stall detection. 1021 tests passing.
-
-#### [x] T-P0-63a: Backend plan generation streaming + SSE events -- 2026-03-04
-- Refactored generate_task_plan() to readline() loop with on_log callback. POST returns 202 with background task. SSE plan_status_change + log events with source="plan". Per-line DB writes. 409 idempotency guard, startup zombie cleanup, 30s heartbeat. 1028 tests passing.
-
-#### [x] T-P0-63b: Frontend plan generation UX wiring -- 2026-03-04
-- Wired SSE plan_status_change events in App.tsx for real-time plan_status updates. Added "PLAN" badge in ExecutionLog for source="plan" logs. Added elapsed timer in ReviewPanel during generation. Updated API client and components for 202 async flow. TypeScript clean, Vite build clean, 1028 tests passing.
-
-#### [x] T-P0-64: Real-time log streaming for review pipeline -- 2026-03-04
-- Refactored _call_claude_cli() from communicate() to readline() loop with on_log callback. Added metadata_json column to execution_logs. Wired SSE + DB dual-write for review logs (source="review"). Review pipeline emits lifecycle messages. on_progress writes to execution_logs. Error handler preserves partial logs. 1031 tests passing.
-
-#### [x] T-P0-65: Plan generation button discoverability + Kanban card visual feedback -- 2026-03-04
-- Persistent "Plan" button on TaskCard face for tasks needing plans. Pulsing blue border animation during generation. "Planning" spinner badge replaces "No Plan" during generation. Double-click prevention + backend 409 guard. TypeScript clean, Vite build clean, 1031 tests passing.
-
-#### [x] T-P0-66: Fix three critical plan generation bugs -- 2026-03-04
-- Fixed hasNoPlan using description proxy instead of plan_status field (TaskCard, TaskCardPopover, KanbanBoard). Raised budget caps ($0.10->$1.00 enrichment, $0.50->$5.00 plan gen). Plan generation now visible in Running indicator and RunningJobsPanel (blue "Planning" theme). TypeScript clean, Vite build clean, 1031 tests passing.
-
-#### [x] T-P0-67: Harden plan generation pipeline -- result-first persistence -- 2026-03-04
-- Persist raw CLI output before parsing (write_raw_artifact, no truncation). plan_json column for structured data. Structural validation rejects empty plans. Atomic update_plan() method. Removed --permission-mode plan (conflicts with --json-schema). 1040 tests passing (9 new).
-
-#### [x] T-P0-68: Investigate and design fix for tech debts -- 2026-03-04
-- Investigated all 14 tech debt items, designed 5-phase remediation plan (type safety, operational reliability, race condition hardening, subprocess abstraction, documentation). Broke into 14 prioritized sub-tasks (T-P1-70 through T-P3-83) with dependencies, acceptance criteria, and complexity estimates.
-
-#### [x] T-P1-71: Unified TaskEvent Pydantic model for SSE contract -- 2026-03-05
-- Converted Event dataclass to TaskEvent Pydantic BaseModel in src/events.py. EventBus.emit() validates via Pydantic on construction. Backward-compatible Event alias. 10 new schema enforcement tests (22 total in test_events.py). All tests passing.
-
-#### [x] T-P1-72: SSE origin field for log categorization -- 2026-03-05
-- Added `origin` field (Literal: execution/review/scheduler/plan/api/system) to TaskEvent Pydantic model. Updated EventBus.emit() with keyword-only origin parameter. Updated all 37 emit() callers across api.py, scheduler.py, process_manager.py, process_monitor.py, git_ops.py. format_sse() includes origin in SSE payload. 7 new tests, 27 total in test_events.py. 1060 tests passing, ruff clean.
-
-#### [x] T-P1-74: Plan generation error taxonomy + retry strategy -- 2026-03-05
-- Added PlanGenerationErrorType enum (cli_unavailable, timeout, parse_failure, budget_exceeded, cli_error) with retryable/user_message properties. PlanGenerationError exception class replaces RuntimeError. API returns structured {error_type, retryable, detail} in 503 responses. SSE plan_status_change includes error_type/error_message/retryable on failure. Frontend shows actionable per-type messages. 16 new tests, 1076 total passing, ruff clean.
-
-#### [x] T-P1-86: Fix stop hook JSON error + harden LLM JSON validation -- 2026-03-05
-- Fixed run_hook() to emit {"ok": true/false} JSON stdout on all exit paths (stop hooks were producing empty stdout). Added Pydantic validation models (EnrichmentResult, PlanResult, ReviewResult) to all 4 LLM JSON parsers with raw content logging on failure. 23 new tests, 1099 total passing, ruff clean.
-
-#### [x] T-P1-88: Timeout and limit relaxation -- 2026-03-05
-- Relaxed defaults: session_timeout 60->720min, inactivity_timeout 20->0 (disabled), max_total_subprocesses 5->100. Made max_budget_usd optional (None=omit flag). Removed MAX_CONCURRENT_EXECUTIONS=2 hard cap from scheduler. Removed --max-budget-usd from enrichment CLI args. Updated orchestrator_config.yaml and 4 test files. 1099 tests passing.
-
-#### [x] T-P0-55: Execution log visual markers for review activity -- 2026-03-04
-- Added purple "REVIEW" badge on review-originated log entries. Extended LogEntry with source field, SSE handlers pass source="review" for review_started/review_progress events. Uses SSE event type for origin detection.

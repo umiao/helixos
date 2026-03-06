@@ -130,3 +130,9 @@
   - Context: `--permission-mode plan` causes ExitPlanMode to be denied when `--json-schema` is also specified. The subprocess is non-interactive (`claude -p`) with structured output already enforced, so permission-mode plan adds no value and causes failures.
   - Fix: Removed `--permission-mode plan` from plan generation CLI args.
   - Tags: #claude-cli #plan-generation #incompatible-flags
+
+  19. Mocked tests hide CLI output format issues -- verify with real CLI
+  - Context: Stream-json pipeline (T-P0-87) passed all 26 tests but production showed: review `result: null` (1989 tokens generated, content discarded), ConversationView dead for plan/review, 47/57 log files empty. Mocked tests verified argument passing but never tested against real CLI output.
+  - Root cause: Tests mocked subprocess output in the expected format, so parser bugs (schema validation failure, format mismatch) were invisible. Empty log files went undetected because nothing checked file sizes post-run.
+  - Rule: Subprocess features need at least one real-CLI verification before marking DONE. "Tests pass" for subprocess code means mock tests + at least one real integration test.
+  - Tags: #testing #mocking #subprocess #stream-json #integration
