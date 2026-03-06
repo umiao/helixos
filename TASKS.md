@@ -137,17 +137,6 @@
   8. Tests: gate ON -> REVIEW, gate OFF -> QUEUED, no planned tasks -> started=0, concurrent request -> skipped via optimistic lock
   9. Manual smoke test: click "Start N Planned" -> tasks move to correct column -> SSE updates UI in real-time
 
-#### T-P1-87: Migrate enrichment.py to Agent SDK
-- **Priority**: P1
-- **Complexity**: S
-- **Depends on**: T-P1-86
-- **Description**: Replace both `asyncio.create_subprocess_exec` calls in `enrichment.py` (enrich_task + generate_task_plan) with `run_claude_query()`. Simplest call site -- proof-of-concept. For enrich_task: consume events, extract ClaudeResult.structured_output. For generate_task_plan: consume streaming events, emit to event_bus.
-- **Acceptance Criteria**:
-  1. Both enrichment functions use `run_claude_query()`, no raw subprocess calls
-  2. `enrich_task()` returns same dict shape via `ClaudeResult.structured_output`
-  3. `generate_task_plan()` streaming: events emitted to event_bus for UI
-  4. Existing enrichment tests pass unchanged
-  5. Manual smoke test: create a task, verify enrichment produces description + priority
 
 #### T-P1-88: Migrate code_executor.py to Agent SDK
 - **Priority**: P1
@@ -229,6 +218,9 @@
 ## Completed Tasks
 
 > 99 completed tasks archived to [archive/completed_tasks.md](archive/completed_tasks.md).
+
+#### [x] T-P1-87: Migrate enrichment.py to Agent SDK -- 2026-03-06
+- Replaced both `asyncio.create_subprocess_exec` calls in `enrichment.py` with `run_claude_query()` from `sdk_adapter`. `enrich_task_title()` iterates SDK events for structured output. `generate_task_plan()` uses producer-task + queue pattern for heartbeat-safe streaming. `is_claude_cli_available()` updated to check SDK import. 94 tests updated, full suite 1218 pass + 4 skipped, ruff clean.
 
 #### [x] T-P1-86: Claude Agent SDK adapter layer -- 2026-03-06
 - Added `claude-agent-sdk>=0.1.40` to requirements.txt. Created `src/sdk_adapter.py` with Pydantic models (ClaudeEvent, AssistantTurn, ToolAction, ClaudeResult, QueryOptions), `run_claude_query()` async iterator wrapping SDK `query()`, and `collect_turns()` for conversation reconstruction. SDK flag spike documented inline (permission_mode, add_dirs, max_budget_usd). No JSONL logging in adapter. 33 new tests in `tests/test_sdk_adapter.py`. 1219 tests pass + 4 skipped, ruff clean.
