@@ -13,11 +13,14 @@ import json
 import logging
 from collections.abc import AsyncGenerator
 from datetime import UTC, datetime
-from typing import Any
+from typing import Any, Literal
 
 from fastapi import APIRouter, Request
 from pydantic import BaseModel, Field
 from starlette.responses import StreamingResponse
+
+#: Valid values for the ``origin`` field on SSE events.
+Origin = Literal["execution", "review", "scheduler", "plan", "api", "system"]
 
 logger = logging.getLogger(__name__)
 
@@ -28,18 +31,20 @@ class TaskEvent(BaseModel):
     """A single event emitted by the orchestrator.
 
     Unified Pydantic model formalizing the SSE event contract
-    ``{type, task_id, data, timestamp}``.
+    ``{type, task_id, data, origin, timestamp}``.
 
     Attributes:
         type: Event category (e.g. "log", "status_change", "alert").
         task_id: The task this event relates to.
         data: Event payload (any JSON-serializable value).
+        origin: Subsystem that produced the event.
         timestamp: When the event was created (defaults to now).
     """
 
     type: str
     task_id: str
     data: Any
+    origin: Origin = "system"
     timestamp: datetime = Field(default_factory=lambda: datetime.now(UTC))
 
 
@@ -60,15 +65,23 @@ class EventBus:
         """Initialize the event bus with no subscribers."""
         self._subscribers: list[asyncio.Queue[TaskEvent]] = []
 
-    def emit(self, event_type: str, task_id: str, data: Any) -> None:
+    def emit(
+        self,
+        event_type: str,
+        task_id: str,
+        data: Any,
+        *,
+        origin: Origin = "system",
+    ) -> None:
         """Emit an event to all current subscribers.
 
         Args:
             event_type: Event type (e.g., "log", "status_change", "alert").
             task_id: The task this event relates to.
             data: Event payload (any JSON-serializable value).
+            origin: Subsystem that produced the event.
         """
-        event = TaskEvent(type=event_type, task_id=task_id, data=data)
+        event = TaskEvent(type=event_type, task_id=task_id, data=data, origin=origin)
         for queue in self._subscribers:
             if queue.full():
                 with contextlib.suppress(asyncio.QueueEmpty):
@@ -124,6 +137,7 @@ def format_sse(event: TaskEvent) -> str:
         "type": event.type,
         "task_id": event.task_id,
         "data": event.data,
+        "origin": event.origin,
         "timestamp": event.timestamp.isoformat(),
     }
     return f"data: {json.dumps(payload, ensure_ascii=False)}\n\n"

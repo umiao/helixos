@@ -267,7 +267,7 @@ class TestTaskEventSchema:
         """model_dump() should produce the SSE contract keys."""
         event = TaskEvent(type="log", task_id="t1", data={"msg": "hi"})
         dumped = event.model_dump()
-        assert set(dumped.keys()) == {"type", "task_id", "data", "timestamp"}
+        assert set(dumped.keys()) == {"type", "task_id", "data", "origin", "timestamp"}
 
     def test_emit_rejects_invalid_type(self) -> None:
         """EventBus.emit() should reject non-string event_type via Pydantic."""
@@ -280,3 +280,40 @@ class TestTaskEventSchema:
         bus = EventBus()
         with pytest.raises(ValidationError):
             bus.emit("log", 456, "data")  # type: ignore[arg-type]
+
+    def test_origin_defaults_to_system(self) -> None:
+        """Origin should default to 'system' when not specified."""
+        event = TaskEvent(type="log", task_id="t1", data="x")
+        assert event.origin == "system"
+
+    def test_origin_accepts_valid_values(self) -> None:
+        """Origin should accept all valid Literal values."""
+        for origin in ("execution", "review", "scheduler", "plan", "api", "system"):
+            event = TaskEvent(type="log", task_id="t1", data="x", origin=origin)
+            assert event.origin == origin
+
+    def test_origin_rejects_invalid_value(self) -> None:
+        """Origin should reject values outside the Literal type."""
+        with pytest.raises(ValidationError):
+            TaskEvent(type="log", task_id="t1", data="x", origin="bogus")  # type: ignore[arg-type]
+
+    def test_emit_passes_origin_to_event(self) -> None:
+        """EventBus.emit() should forward origin kwarg to TaskEvent."""
+        bus = EventBus()
+        received: list[TaskEvent] = []
+
+        import asyncio
+
+        async def _capture() -> None:
+            async for evt in bus.subscribe():
+                received.append(evt)
+                break
+
+        async def _run() -> None:
+            task = asyncio.create_task(_capture())
+            await asyncio.sleep(0.01)
+            bus.emit("log", "t1", "x", origin="review")
+            await task
+
+        asyncio.get_event_loop().run_until_complete(_run())
+        assert received[0].origin == "review"

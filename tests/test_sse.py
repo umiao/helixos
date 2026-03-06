@@ -50,11 +50,11 @@ class TestFormatSSE:
             assert payload["type"] == etype
 
     def test_json_structure(self) -> None:
-        """Payload should contain exactly type, task_id, data, timestamp."""
+        """Payload should contain exactly type, task_id, data, origin, timestamp."""
         event = Event(type="alert", task_id="t3", data={"err": "fail"})
         result = format_sse(event)
         payload = json.loads(result[len("data: ") : -2])
-        assert set(payload.keys()) == {"type", "task_id", "data", "timestamp"}
+        assert set(payload.keys()) == {"type", "task_id", "data", "origin", "timestamp"}
 
     def test_nested_data(self) -> None:
         """format_sse should handle nested data structures."""
@@ -379,7 +379,7 @@ class TestSSEEndpoint:
         await task
 
         payload = json.loads(frames[0][len("data: ") : -2])
-        assert set(payload.keys()) == {"type", "task_id", "data", "timestamp"}
+        assert set(payload.keys()) == {"type", "task_id", "data", "origin", "timestamp"}
         assert payload["type"] == "review_progress"
         assert payload["task_id"] == "t5"
         assert payload["data"] == {"round": 2, "total": 3}
