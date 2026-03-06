@@ -787,3 +787,10 @@
 - **Sanity check result**: 27/27 test_events.py tests pass. Full suite 1060 tests pass. Ruff clean.
 - **Status**: [DONE]
 - **Request**: Move T-P1-72 to Completed
+
+## 2026-03-05 02:00 -- [T-P1-74] Plan generation error taxonomy + retry strategy
+- **What I did**: Added structured error types for plan generation failures. Created `PlanGenerationErrorType` enum (cli_unavailable, timeout, parse_failure, budget_exceeded, cli_error) with `retryable` and `user_message` properties. Created `PlanGenerationError` exception replacing generic `RuntimeError`. Added `_classify_cli_error()` helper for stderr-based error classification. Updated API endpoints to return `{error_type, retryable, detail}` in 503 responses. SSE `plan_status_change` events now include `error_type`, `error_message`, `retryable` on failure. Frontend shows actionable per-type error messages in ReviewPanel and TaskCardPopover.
+- **Deliverables**: src/enrichment.py, src/api.py, frontend/src/types.ts, frontend/src/App.tsx, frontend/src/components/ReviewPanel.tsx, frontend/src/components/TaskCardPopover.tsx, tests/test_enrichment.py, TASKS.md, PROGRESS.md
+- **Sanity check result**: 77/77 test_enrichment.py tests pass (16 new). Full suite 1076 tests pass. Ruff clean. TypeScript clean.
+- **Status**: [DONE]
+- **Request**: Move T-P1-74 to Completed

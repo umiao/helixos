@@ -18,6 +18,7 @@ conflicts with ``--json-schema`` (ExitPlanMode denied in structured mode).
 from __future__ import annotations
 
 import asyncio
+import enum
 import json
 import logging
 import shutil
@@ -26,6 +27,84 @@ from collections.abc import Awaitable, Callable
 from pathlib import Path
 
 logger = logging.getLogger(__name__)
+
+
+# ------------------------------------------------------------------
+# Plan generation error taxonomy (T-P1-74)
+# ------------------------------------------------------------------
+
+
+class PlanGenerationErrorType(enum.StrEnum):
+    """Structured error types for plan generation failures.
+
+    Enables smart retry decisions: transient errors (timeout) are retryable,
+    while permanent errors (cli_unavailable, budget_exceeded) are not.
+    """
+
+    CLI_UNAVAILABLE = "cli_unavailable"
+    TIMEOUT = "timeout"
+    PARSE_FAILURE = "parse_failure"
+    BUDGET_EXCEEDED = "budget_exceeded"
+    CLI_ERROR = "cli_error"
+
+    @property
+    def retryable(self) -> bool:
+        """Whether this error type is worth retrying."""
+        return self in (
+            PlanGenerationErrorType.TIMEOUT,
+            PlanGenerationErrorType.PARSE_FAILURE,
+            PlanGenerationErrorType.CLI_ERROR,
+        )
+
+    @property
+    def user_message(self) -> str:
+        """Actionable message for the frontend."""
+        messages = {
+            PlanGenerationErrorType.CLI_UNAVAILABLE: (
+                "Claude CLI is not installed or not on PATH. "
+                "Install it to enable plan generation."
+            ),
+            PlanGenerationErrorType.TIMEOUT: (
+                "Plan generation timed out. "
+                "The task may be too complex -- try again or simplify the description."
+            ),
+            PlanGenerationErrorType.PARSE_FAILURE: (
+                "Could not parse the AI response into a valid plan. "
+                "Try again -- the AI may produce a better response."
+            ),
+            PlanGenerationErrorType.BUDGET_EXCEEDED: (
+                "API budget limit was exceeded. "
+                "Increase the budget or wait before retrying."
+            ),
+            PlanGenerationErrorType.CLI_ERROR: (
+                "Claude CLI returned an error. "
+                "Check logs for details and try again."
+            ),
+        }
+        return messages[self]
+
+
+class PlanGenerationError(Exception):
+    """Structured exception for plan generation failures.
+
+    Carries an error_type for smart retry decisions and actionable
+    user-facing messages.
+    """
+
+    def __init__(self, error_type: PlanGenerationErrorType, detail: str) -> None:
+        self.error_type = error_type
+        self.detail = detail
+        super().__init__(f"[{error_type.value}] {detail}")
+
+    @property
+    def retryable(self) -> bool:
+        """Whether the caller should retry this operation."""
+        return self.error_type.retryable
+
+    @property
+    def user_message(self) -> str:
+        """Actionable message suitable for display to users."""
+        return self.error_type.user_message
 
 
 # JSON schema for structured enrichment output
@@ -98,14 +177,17 @@ async def enrich_task_title(
     except TimeoutError:
         proc.kill()
         await proc.wait()
-        raise RuntimeError(
-            f"Enrichment subprocess timed out after {timeout_minutes} minutes"
+        raise PlanGenerationError(
+            PlanGenerationErrorType.TIMEOUT,
+            f"Enrichment subprocess timed out after {timeout_minutes} minutes",
         ) from None
 
     if proc.returncode != 0:
         stderr_text = stderr_bytes.decode("utf-8", errors="replace")
-        raise RuntimeError(
-            f"Claude CLI failed (exit {proc.returncode}): {stderr_text}"
+        error_type = _classify_cli_error(proc.returncode, stderr_text)
+        raise PlanGenerationError(
+            error_type,
+            f"Claude CLI failed (exit {proc.returncode}): {stderr_text}",
         )
 
     # Claude CLI wraps output in {"result": "..."}
@@ -137,6 +219,24 @@ def _parse_enrichment(text: str) -> dict[str, str]:
         priority = "P1"
 
     return {"description": description, "priority": priority}
+
+
+def _classify_cli_error(returncode: int, stderr: str) -> PlanGenerationErrorType:
+    """Classify a CLI subprocess error into a structured error type.
+
+    Args:
+        returncode: The process exit code.
+        stderr: The stderr output from the process.
+
+    Returns:
+        The most specific error type matching the failure.
+    """
+    stderr_lower = stderr.lower()
+    if "budget" in stderr_lower or "usage limit" in stderr_lower:
+        return PlanGenerationErrorType.BUDGET_EXCEEDED
+    if "not found" in stderr_lower or "no such file" in stderr_lower:
+        return PlanGenerationErrorType.CLI_UNAVAILABLE
+    return PlanGenerationErrorType.CLI_ERROR
 
 
 # ------------------------------------------------------------------
@@ -287,8 +387,9 @@ async def generate_task_plan(
     except TimeoutError:
         proc.kill()
         await proc.wait()
-        raise RuntimeError(
-            f"Plan generation subprocess timed out after {timeout_minutes} minutes"
+        raise PlanGenerationError(
+            PlanGenerationErrorType.TIMEOUT,
+            f"Plan generation subprocess timed out after {timeout_minutes} minutes",
         ) from None
 
     # PERSIST-FIRST: save full raw output before ANY parsing or validation.
@@ -308,8 +409,10 @@ async def generate_task_plan(
         if proc.stderr is not None:
             stderr_bytes = await proc.stderr.read()
         stderr_text = stderr_bytes.decode("utf-8", errors="replace")
-        raise RuntimeError(
-            f"Claude CLI failed (exit {proc.returncode}): {stderr_text}"
+        error_type = _classify_cli_error(proc.returncode, stderr_text)
+        raise PlanGenerationError(
+            error_type,
+            f"Claude CLI failed (exit {proc.returncode}): {stderr_text}",
         )
 
     # Reassemble all stdout lines and parse the JSON result
@@ -332,10 +435,11 @@ async def generate_task_plan(
     # Structural validation: reject empty/incomplete plans before caller marks "ready"
     is_valid, reason = _validate_plan_structure(plan_data)
     if not is_valid:
-        raise RuntimeError(
+        raise PlanGenerationError(
+            PlanGenerationErrorType.PARSE_FAILURE,
             f"Plan generation produced invalid structure ({reason}). "
             f"Raw output length: {len(full_output)} chars. "
-            f"Raw output preserved in execution_logs for re-parse."
+            f"Raw output preserved in execution_logs for re-parse.",
         )
 
     return plan_data

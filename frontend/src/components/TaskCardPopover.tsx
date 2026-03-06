@@ -151,7 +151,9 @@ export default function TaskCardPopover({ task, anchorRect, onTaskUpdated }: Tas
       {showGenerateButton && (
         <div className="mb-3">
           {planFailed && !generating && (
-            <p className="mb-1 text-xs text-red-600">Plan generation failed</p>
+            <p className="mb-1 text-xs text-red-600">
+              {task.plan_error_message || "Plan generation failed"}
+            </p>
           )}
           <button
             onClick={handleGeneratePlan}

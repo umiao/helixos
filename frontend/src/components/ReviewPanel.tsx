@@ -764,7 +764,10 @@ export default function ReviewPanel({
                     </p>
                   )}
                   {task.plan_status === "failed" && !generating && (
-                    <p className="mt-1 text-xs text-red-600">Plan generation failed. Click Retry to try again.</p>
+                    <p className="mt-1 text-xs text-red-600">
+                      {task.plan_error_message || "Plan generation failed."}{" "}
+                      Click Retry to try again.
+                    </p>
                   )}
                   {!isRunning && !isDone && (
                     <div className="mt-2 flex gap-2">

@@ -24,6 +24,8 @@ from src.config import OrchestratorConfig, ProjectRegistry, load_config
 from src.config_writer import add_project_to_config, suggest_next_project_id
 from src.db import create_engine, create_session_factory, init_db
 from src.enrichment import (
+    PlanGenerationError,
+    PlanGenerationErrorType,
     enrich_task_title,
     format_plan_as_text,
     generate_task_plan,
@@ -673,9 +675,13 @@ async def enrich_task(body: EnrichTaskRequest, request: Request) -> EnrichTaskRe
     Returns 503 if Claude CLI is not available on PATH.
     """
     if not is_claude_cli_available():
-        raise HTTPException(
+        return JSONResponse(
             status_code=503,
-            detail="Claude CLI not available -- enrichment disabled",
+            content={
+                "detail": PlanGenerationErrorType.CLI_UNAVAILABLE.user_message,
+                "error_type": PlanGenerationErrorType.CLI_UNAVAILABLE.value,
+                "retryable": False,
+            },
         )
 
     config: OrchestratorConfig = request.app.state.config
@@ -685,12 +691,26 @@ async def enrich_task(body: EnrichTaskRequest, request: Request) -> EnrichTaskRe
         result = await enrich_task_title(
             body.title, timeout_minutes=enrichment_timeout,
         )
+    except PlanGenerationError as exc:
+        logger.warning("Task enrichment failed: %s", exc)
+        return JSONResponse(
+            status_code=503,
+            content={
+                "detail": exc.user_message,
+                "error_type": exc.error_type.value,
+                "retryable": exc.retryable,
+            },
+        )
     except RuntimeError as exc:
         logger.warning("Task enrichment failed: %s", exc)
-        raise HTTPException(
+        return JSONResponse(
             status_code=503,
-            detail=f"Enrichment failed: {exc}",
-        ) from exc
+            content={
+                "detail": f"Enrichment failed: {exc}",
+                "error_type": PlanGenerationErrorType.CLI_ERROR.value,
+                "retryable": True,
+            },
+        )
 
     return EnrichTaskResponse(
         description=result["description"],
@@ -724,9 +744,13 @@ async def generate_plan(task_id: str, request: Request) -> JSONResponse:
     Returns 409 if the task already has plan_status="generating".
     """
     if not is_claude_cli_available():
-        raise HTTPException(
+        return JSONResponse(
             status_code=503,
-            detail="Claude CLI not available -- plan generation disabled",
+            content={
+                "detail": PlanGenerationErrorType.CLI_UNAVAILABLE.user_message,
+                "error_type": PlanGenerationErrorType.CLI_UNAVAILABLE.value,
+                "retryable": False,
+            },
         )
 
     task_manager: TaskManager = request.app.state.task_manager
@@ -810,14 +834,23 @@ async def generate_plan(task_id: str, request: Request) -> JSONResponse:
             )
         except Exception as exc:
             logger.warning("Plan generation failed for %s: %s", task_id, exc)
+            # Extract structured error info if available
+            if isinstance(exc, PlanGenerationError):
+                error_type = exc.error_type.value
+                user_msg = exc.user_message
+                retryable = exc.retryable
+            else:
+                error_type = PlanGenerationErrorType.CLI_ERROR.value
+                user_msg = str(exc)
+                retryable = True
             event_bus.emit("log", task_id, {
-                "message": f"Plan generation failed: {exc}",
+                "message": f"Plan generation failed: {user_msg}",
                 "source": "plan",
             }, origin="plan")
             asyncio.ensure_future(
                 history_writer.write_log(
                     task_id,
-                    f"Plan generation failed: {exc}",
+                    f"Plan generation failed [{error_type}]: {exc}",
                     level="error",
                     source="plan",
                 ),
@@ -828,7 +861,12 @@ async def generate_plan(task_id: str, request: Request) -> JSONResponse:
                 current.plan_status = "failed"
                 await task_manager.update_task(current)
             event_bus.emit(
-                "plan_status_change", task_id, {"plan_status": "failed"},
+                "plan_status_change", task_id, {
+                    "plan_status": "failed",
+                    "error_type": error_type,
+                    "error_message": user_msg,
+                    "retryable": retryable,
+                },
                 origin="plan",
             )
 

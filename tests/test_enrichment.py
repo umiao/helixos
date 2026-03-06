@@ -32,6 +32,8 @@ from src.config import (
 )
 from src.db import Base
 from src.enrichment import (
+    PlanGenerationError,
+    PlanGenerationErrorType,
     _parse_enrichment,
     _parse_plan,
     _validate_plan_structure,
@@ -237,7 +239,7 @@ class TestEnrichTaskTitle:
 
     @pytest.mark.asyncio
     async def test_cli_failure_raises(self) -> None:
-        """Non-zero exit code raises RuntimeError."""
+        """Non-zero exit code raises PlanGenerationError."""
         mock_proc = _mock_proc(b"", returncode=1)
         mock_proc.communicate = AsyncMock(
             return_value=(b"", b"CLI error message"),
@@ -246,7 +248,7 @@ class TestEnrichTaskTitle:
         with patch(
             "src.enrichment.asyncio.create_subprocess_exec",
             return_value=mock_proc,
-        ), pytest.raises(RuntimeError, match="Claude CLI failed"):
+        ), pytest.raises(PlanGenerationError, match="Claude CLI failed"):
             await enrich_task_title("Something")
 
     @pytest.mark.asyncio
@@ -387,7 +389,7 @@ class TestEnrichEndpoint:
                 json={"title": "Something"},
             )
             assert resp.status_code == 503
-            assert "not available" in resp.json()["detail"].lower()
+            assert "not installed" in resp.json()["detail"].lower()
 
     @pytest.mark.asyncio
     async def test_cli_error_503(self, client: AsyncClient) -> None:
@@ -411,7 +413,7 @@ class TestEnrichEndpoint:
                 json={"title": "Something"},
             )
             assert resp.status_code == 503
-            assert "failed" in resp.json()["detail"].lower()
+            assert "error" in resp.json()["detail"].lower()
 
     @pytest.mark.asyncio
     async def test_empty_title_422(self, client: AsyncClient) -> None:
@@ -711,7 +713,7 @@ class TestGenerateTaskPlan:
 
     @pytest.mark.asyncio
     async def test_cli_failure_raises(self) -> None:
-        """Non-zero exit code raises RuntimeError."""
+        """Non-zero exit code raises PlanGenerationError."""
         mock_proc = _mock_readline_proc(b"", returncode=1)
         mock_proc.stderr.read = AsyncMock(return_value=b"error")
 
@@ -720,7 +722,7 @@ class TestGenerateTaskPlan:
                 "src.enrichment.asyncio.create_subprocess_exec",
                 return_value=mock_proc,
             ),
-            pytest.raises(RuntimeError, match="Claude CLI failed"),
+            pytest.raises(PlanGenerationError, match="Claude CLI failed"),
         ):
             await generate_task_plan("Broken task")
 
@@ -830,7 +832,7 @@ class TestGenerateTaskPlan:
                 "src.enrichment.asyncio.create_subprocess_exec",
                 return_value=mock_proc,
             ),
-            pytest.raises(RuntimeError, match="Claude CLI failed"),
+            pytest.raises(PlanGenerationError, match="Claude CLI failed"),
         ):
             await generate_task_plan(
                 "Broken task", on_raw_artifact=capture_artifact,
@@ -850,7 +852,7 @@ class TestGenerateTaskPlan:
                 "src.enrichment.asyncio.create_subprocess_exec",
                 return_value=mock_proc,
             ),
-            pytest.raises(RuntimeError, match="invalid structure.*empty_steps"),
+            pytest.raises(PlanGenerationError, match="invalid structure.*empty_steps"),
         ):
             await generate_task_plan("Task")
 
@@ -884,7 +886,7 @@ class TestGeneratePlanEndpoint:
                 "/api/tasks/any-id/generate-plan",
             )
             assert resp.status_code == 503
-            assert "not available" in resp.json()["detail"].lower()
+            assert "not installed" in resp.json()["detail"].lower()
 
     @pytest.mark.asyncio
     async def test_success_returns_202(
@@ -1118,7 +1120,7 @@ class TestEnrichmentTimeout:
 
     @pytest.mark.asyncio
     async def test_enrich_task_title_timeout(self) -> None:
-        """enrich_task_title raises RuntimeError on timeout."""
+        """enrich_task_title raises PlanGenerationError on timeout."""
         proc = AsyncMock()
         proc.communicate = AsyncMock(
             side_effect=TimeoutError(),
@@ -1126,20 +1128,20 @@ class TestEnrichmentTimeout:
         proc.kill = MagicMock()
         proc.wait = AsyncMock()
 
-        with (
-            patch(
-                "src.enrichment.asyncio.create_subprocess_exec",
-                return_value=proc,
-            ),
-            pytest.raises(RuntimeError, match="timed out"),
+        with patch(  # noqa: SIM117
+            "src.enrichment.asyncio.create_subprocess_exec",
+            return_value=proc,
         ):
-            await enrich_task_title("Title", timeout_minutes=1)
+            with pytest.raises(PlanGenerationError, match="timed out") as exc_info:
+                await enrich_task_title("Title", timeout_minutes=1)
+
+        assert exc_info.value.error_type == PlanGenerationErrorType.TIMEOUT
 
         proc.kill.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_generate_task_plan_timeout(self) -> None:
-        """generate_task_plan raises RuntimeError on overall timeout."""
+        """generate_task_plan raises PlanGenerationError on overall timeout."""
         proc = AsyncMock()
         proc.kill = MagicMock()
         proc.wait = AsyncMock()
@@ -1152,7 +1154,7 @@ class TestEnrichmentTimeout:
         proc.stderr.read = AsyncMock(return_value=b"")
 
         # Patch asyncio.timeout to raise TimeoutError immediately
-        with (
+        with (  # noqa: SIM117
             patch(
                 "src.enrichment.asyncio.create_subprocess_exec",
                 return_value=proc,
@@ -1161,10 +1163,11 @@ class TestEnrichmentTimeout:
                 "src.enrichment.asyncio.timeout",
                 side_effect=TimeoutError(),
             ),
-            pytest.raises(RuntimeError, match="timed out"),
         ):
-            await generate_task_plan("Title", timeout_minutes=1)
+            with pytest.raises(PlanGenerationError, match="timed out") as exc_info:
+                await generate_task_plan("Title", timeout_minutes=1)
 
+        assert exc_info.value.error_type == PlanGenerationErrorType.TIMEOUT
         proc.kill.assert_called_once()
 
     @pytest.mark.asyncio
@@ -1331,3 +1334,173 @@ class TestBlankLinePreservation:
         # The plan should still parse correctly (last-line fallback)
         assert result["plan"] == "Do the thing"
         assert len(result["steps"]) == 1
+
+
+# ------------------------------------------------------------------
+# Error taxonomy tests (T-P1-74)
+# ------------------------------------------------------------------
+
+
+class TestPlanGenerationErrorType:
+    """Tests for PlanGenerationErrorType enum properties."""
+
+    def test_all_types_have_user_message(self) -> None:
+        """Every error type has a non-empty user_message."""
+        for et in PlanGenerationErrorType:
+            assert len(et.user_message) > 0
+
+    def test_retryable_types(self) -> None:
+        """Timeout, parse_failure, cli_error are retryable."""
+        assert PlanGenerationErrorType.TIMEOUT.retryable is True
+        assert PlanGenerationErrorType.PARSE_FAILURE.retryable is True
+        assert PlanGenerationErrorType.CLI_ERROR.retryable is True
+
+    def test_non_retryable_types(self) -> None:
+        """CLI unavailable and budget exceeded are not retryable."""
+        assert PlanGenerationErrorType.CLI_UNAVAILABLE.retryable is False
+        assert PlanGenerationErrorType.BUDGET_EXCEEDED.retryable is False
+
+    def test_string_values(self) -> None:
+        """Enum values are lowercase snake_case strings."""
+        assert PlanGenerationErrorType.CLI_UNAVAILABLE == "cli_unavailable"
+        assert PlanGenerationErrorType.TIMEOUT == "timeout"
+        assert PlanGenerationErrorType.PARSE_FAILURE == "parse_failure"
+        assert PlanGenerationErrorType.BUDGET_EXCEEDED == "budget_exceeded"
+        assert PlanGenerationErrorType.CLI_ERROR == "cli_error"
+
+
+class TestPlanGenerationError:
+    """Tests for PlanGenerationError exception class."""
+
+    def test_error_carries_type(self) -> None:
+        """Exception carries error_type for classification."""
+        err = PlanGenerationError(PlanGenerationErrorType.TIMEOUT, "timed out")
+        assert err.error_type == PlanGenerationErrorType.TIMEOUT
+        assert err.detail == "timed out"
+
+    def test_retryable_property(self) -> None:
+        """retryable delegates to error_type."""
+        err = PlanGenerationError(PlanGenerationErrorType.TIMEOUT, "timed out")
+        assert err.retryable is True
+        err2 = PlanGenerationError(PlanGenerationErrorType.BUDGET_EXCEEDED, "over")
+        assert err2.retryable is False
+
+    def test_user_message_property(self) -> None:
+        """user_message delegates to error_type."""
+        err = PlanGenerationError(PlanGenerationErrorType.CLI_UNAVAILABLE, "x")
+        assert "not installed" in err.user_message.lower()
+
+    def test_str_representation(self) -> None:
+        """str() includes error type and detail."""
+        err = PlanGenerationError(PlanGenerationErrorType.TIMEOUT, "timed out")
+        s = str(err)
+        assert "timeout" in s
+        assert "timed out" in s
+
+
+class TestClassifyCliError:
+    """Tests for _classify_cli_error helper."""
+
+    def test_budget_exceeded(self) -> None:
+        """Stderr mentioning 'budget' -> BUDGET_EXCEEDED."""
+        from src.enrichment import _classify_cli_error
+
+        result = _classify_cli_error(1, "Error: API budget exceeded")
+        assert result == PlanGenerationErrorType.BUDGET_EXCEEDED
+
+    def test_usage_limit(self) -> None:
+        """Stderr mentioning 'usage limit' -> BUDGET_EXCEEDED."""
+        from src.enrichment import _classify_cli_error
+
+        result = _classify_cli_error(1, "Usage limit reached")
+        assert result == PlanGenerationErrorType.BUDGET_EXCEEDED
+
+    def test_not_found(self) -> None:
+        """Stderr mentioning 'not found' -> CLI_UNAVAILABLE."""
+        from src.enrichment import _classify_cli_error
+
+        result = _classify_cli_error(127, "claude: command not found")
+        assert result == PlanGenerationErrorType.CLI_UNAVAILABLE
+
+    def test_no_such_file(self) -> None:
+        """Stderr with 'no such file' -> CLI_UNAVAILABLE."""
+        from src.enrichment import _classify_cli_error
+
+        result = _classify_cli_error(1, "No such file or directory")
+        assert result == PlanGenerationErrorType.CLI_UNAVAILABLE
+
+    def test_generic_error(self) -> None:
+        """Unrecognized errors -> CLI_ERROR."""
+        from src.enrichment import _classify_cli_error
+
+        result = _classify_cli_error(1, "Something unexpected happened")
+        assert result == PlanGenerationErrorType.CLI_ERROR
+
+
+class TestStructuredErrorInApi:
+    """Tests for structured error responses in API endpoints."""
+
+    @pytest.mark.asyncio
+    async def test_enrich_503_has_error_type(
+        self, client: AsyncClient,
+    ) -> None:
+        """Enrich 503 response includes error_type and retryable fields."""
+        with patch("src.enrichment.shutil.which", return_value=None):
+            resp = await client.post(
+                "/api/tasks/enrich", json={"title": "Something"},
+            )
+            assert resp.status_code == 503
+            data = resp.json()
+            assert data["error_type"] == "cli_unavailable"
+            assert data["retryable"] is False
+
+    @pytest.mark.asyncio
+    async def test_enrich_cli_error_has_error_type(
+        self, client: AsyncClient,
+    ) -> None:
+        """Enrich CLI failure 503 includes structured error_type."""
+        mock_proc = _mock_proc(b"", returncode=1)
+        mock_proc.communicate = AsyncMock(
+            return_value=(b"", b"some error"),
+        )
+        with (
+            patch(
+                "src.enrichment.shutil.which",
+                return_value="/usr/bin/claude",
+            ),
+            patch(
+                "src.enrichment.asyncio.create_subprocess_exec",
+                return_value=mock_proc,
+            ),
+        ):
+            resp = await client.post(
+                "/api/tasks/enrich", json={"title": "Something"},
+            )
+            assert resp.status_code == 503
+            data = resp.json()
+            assert data["error_type"] == "cli_error"
+            assert data["retryable"] is True
+
+    @pytest.mark.asyncio
+    async def test_generate_plan_503_has_error_type(
+        self, client: AsyncClient, test_app,
+    ) -> None:
+        """Generate-plan 503 response includes structured error_type."""
+        from src.sync.tasks_parser import sync_project_tasks
+
+        task_manager: TaskManager = test_app.state.task_manager
+        registry = test_app.state.registry
+        project = registry.list_projects()[0]
+        await sync_project_tasks(project.id, task_manager, registry)
+
+        tasks = await task_manager.list_tasks(project_id=project.id)
+        task = tasks[0]
+
+        with patch("src.enrichment.shutil.which", return_value=None):
+            resp = await client.post(
+                f"/api/tasks/{task.id}/generate-plan",
+            )
+            assert resp.status_code == 503
+            data = resp.json()
+            assert data["error_type"] == "cli_unavailable"
+            assert data["retryable"] is False

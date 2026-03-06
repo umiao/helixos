@@ -163,17 +163,25 @@ function App() {
         }
         case "plan_status_change": {
           const newPlanStatus = event.data.plan_status as string;
+          // Capture structured error info on failure
+          const errorPatch: Partial<Task> =
+            newPlanStatus === "failed"
+              ? {
+                  plan_error_type: (event.data.error_type as string) || undefined,
+                  plan_error_message: (event.data.error_message as string) || undefined,
+                }
+              : { plan_error_type: undefined, plan_error_message: undefined };
           setTasks((prev) =>
             prev.map((t) =>
               t.id === event.task_id
-                ? { ...t, plan_status: newPlanStatus as Task["plan_status"] }
+                ? { ...t, plan_status: newPlanStatus as Task["plan_status"], ...errorPatch }
                 : t,
             ),
           );
           // Update selected task inline
           setSelectedTask((sel) =>
             sel && sel.id === event.task_id
-              ? { ...sel, plan_status: newPlanStatus as Task["plan_status"] }
+              ? { ...sel, plan_status: newPlanStatus as Task["plan_status"], ...errorPatch }
               : sel,
           );
           // On terminal states, fetch full task to get updated description

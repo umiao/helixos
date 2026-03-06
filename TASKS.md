@@ -49,15 +49,6 @@
   2. Purge runs on app startup or scheduled interval
   3. Test verifies old entries are cleaned
 
-#### T-P1-74: Plan generation error taxonomy + retry strategy
-- **Priority**: P1
-- **Complexity**: S
-- **Depends on**: None
-- **Description**: Structured error types for plan gen failures: CLI unavailable, timeout, parse failure, budget exceeded. Enable smart retry decisions.
-- **Acceptance Criteria**:
-  1. Error enum/classes in `src/enrichment.py`
-  2. API returns structured error type in 503 response
-  3. Frontend shows actionable error message per type
 
 #### T-P2-75: Raw-response decoupling postmortem integration test
 - **Priority**: P2
@@ -211,6 +202,9 @@
 
 #### [x] T-P1-72: SSE origin field for log categorization -- 2026-03-05
 - Added `origin` field (Literal: execution/review/scheduler/plan/api/system) to TaskEvent Pydantic model. Updated EventBus.emit() with keyword-only origin parameter. Updated all 37 emit() callers across api.py, scheduler.py, process_manager.py, process_monitor.py, git_ops.py. format_sse() includes origin in SSE payload. 7 new tests, 27 total in test_events.py. 1060 tests passing, ruff clean.
+
+#### [x] T-P1-74: Plan generation error taxonomy + retry strategy -- 2026-03-05
+- Added PlanGenerationErrorType enum (cli_unavailable, timeout, parse_failure, budget_exceeded, cli_error) with retryable/user_message properties. PlanGenerationError exception class replaces RuntimeError. API returns structured {error_type, retryable, detail} in 503 responses. SSE plan_status_change includes error_type/error_message/retryable on failure. Frontend shows actionable per-type messages. 16 new tests, 1076 total passing, ruff clean.
 
 #### [x] T-P0-55: Execution log visual markers for review activity -- 2026-03-04
 - Added purple "REVIEW" badge on review-originated log entries. Extended LogEntry with source field, SSE handlers pass source="review" for review_started/review_progress events. Uses SSE event type for origin detection.

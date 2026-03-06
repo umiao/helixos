@@ -82,6 +82,10 @@ export interface Task {
   review_status: ReviewStatus;
   review_lifecycle_state: ReviewLifecycleState;
   plan_status: PlanStatus;
+  /** Structured error type from last plan generation failure (if any). */
+  plan_error_type?: string;
+  /** Actionable error message from last plan generation failure (if any). */
+  plan_error_message?: string;
 }
 
 export interface Dependency {
