@@ -16,9 +16,11 @@ from src.executors.base import BaseExecutor, ErrorType, ExecutorResult
 from src.executors.code_executor import (
     MAX_STDERR_BYTES,
     CodeExecutor,
+    _LazyFileWriter,
     _format_elapsed,
     _strip_ansi,
     _truncate_stderr,
+    cleanup_empty_log_files,
 )
 from src.models import ExecutorType, Project, Task
 
@@ -1817,3 +1819,108 @@ class TestTimeoutRaceCondition:
         assert result.success is False
         assert result.error_type == ErrorType.INACTIVITY_TIMEOUT
         assert result.exit_code == -15
+
+
+# ------------------------------------------------------------------
+# T-P0-96: LazyFileWriter and cleanup_empty_log_files
+# ------------------------------------------------------------------
+
+
+class TestLazyFileWriter:
+    """Tests for _LazyFileWriter -- deferred file creation."""
+
+    def test_no_file_created_without_write(self, tmp_path: Path) -> None:
+        """File should NOT exist if write() is never called."""
+        target = tmp_path / "subdir" / "test.log"
+        writer = _LazyFileWriter(target)
+        assert not target.exists()
+        writer.close()
+        assert not target.exists()
+
+    def test_file_created_on_first_write(self, tmp_path: Path) -> None:
+        """File should be created when write() is called for the first time."""
+        target = tmp_path / "subdir" / "test.log"
+        writer = _LazyFileWriter(target)
+        writer.write("hello\n")
+        writer.flush()
+        writer.close()
+        assert target.exists()
+        assert target.read_text(encoding="utf-8") == "hello\n"
+
+    def test_parent_dirs_created(self, tmp_path: Path) -> None:
+        """Parent directories should be created on first write."""
+        target = tmp_path / "a" / "b" / "c" / "deep.jsonl"
+        writer = _LazyFileWriter(target)
+        writer.write("line\n")
+        writer.close()
+        assert target.exists()
+
+    def test_multiple_writes(self, tmp_path: Path) -> None:
+        """Multiple writes should append to the same file."""
+        target = tmp_path / "multi.log"
+        writer = _LazyFileWriter(target)
+        writer.write("first\n")
+        writer.write("second\n")
+        writer.close()
+        assert target.read_text(encoding="utf-8") == "first\nsecond\n"
+
+    def test_flush_noop_before_write(self, tmp_path: Path) -> None:
+        """flush() before any write should be a no-op (no crash)."""
+        target = tmp_path / "noop.log"
+        writer = _LazyFileWriter(target)
+        writer.flush()  # should not raise
+        assert not target.exists()
+
+    def test_close_noop_before_write(self, tmp_path: Path) -> None:
+        """close() before any write should be a no-op (no crash)."""
+        target = tmp_path / "noop.log"
+        writer = _LazyFileWriter(target)
+        writer.close()  # should not raise
+        assert not target.exists()
+
+    def test_opened_property(self, tmp_path: Path) -> None:
+        """opened property reflects whether the file has been written to."""
+        target = tmp_path / "prop.log"
+        writer = _LazyFileWriter(target)
+        assert not writer.opened
+        writer.write("x")
+        assert writer.opened
+        writer.close()
+
+
+class TestCleanupEmptyLogFiles:
+    """Tests for cleanup_empty_log_files -- removes 0-byte files."""
+
+    def test_removes_empty_files(self, tmp_path: Path) -> None:
+        """Should remove 0-byte files and leave non-empty ones."""
+        empty = tmp_path / "empty.jsonl"
+        empty.write_text("", encoding="utf-8")
+        nonempty = tmp_path / "nonempty.jsonl"
+        nonempty.write_text("data\n", encoding="utf-8")
+
+        removed = cleanup_empty_log_files(tmp_path)
+        assert removed == 1
+        assert not empty.exists()
+        assert nonempty.exists()
+
+    def test_recursive_cleanup(self, tmp_path: Path) -> None:
+        """Should clean empty files in subdirectories."""
+        sub = tmp_path / "task_1"
+        sub.mkdir()
+        (sub / "stream.jsonl").write_text("", encoding="utf-8")
+        (sub / "raw.log").write_text("", encoding="utf-8")
+        (sub / "good.jsonl").write_text("{}\n", encoding="utf-8")
+
+        removed = cleanup_empty_log_files(tmp_path)
+        assert removed == 2
+        assert (sub / "good.jsonl").exists()
+
+    def test_nonexistent_dir(self, tmp_path: Path) -> None:
+        """Should return 0 for a non-existent directory."""
+        removed = cleanup_empty_log_files(tmp_path / "does_not_exist")
+        assert removed == 0
+
+    def test_empty_dir(self, tmp_path: Path) -> None:
+        """Should return 0 for an empty directory."""
+        removed = cleanup_empty_log_files(tmp_path)
+        assert removed == 0

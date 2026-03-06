@@ -871,3 +871,10 @@
 - **Sanity check result**: 1148 tests pass, ruff clean. All 94 enrichment tests pass.
 - **Status**: [DONE]
 - **Request**: Move T-P0-95 to Completed (REMOVE spec from Active, ADD summary to Completed Tasks)
+
+## 2026-03-06 12:00 -- [T-P0-96] Fix log creation strategy -- lazy file creation + cleanup
+- **What I did**: Created `_LazyFileWriter` class in `code_executor.py` that defers file open to first `write()` call, preventing empty log file accumulation. Replaced eager `open()` calls in all 3 log-creating locations: `code_executor.py`, `enrichment.py`, `review_pipeline.py`. Added `cleanup_empty_log_files()` function that recursively removes 0-byte files from `data/logs/`. Wired cleanup into app `lifespan()` startup in `api.py`. Added 11 new tests (7 for `_LazyFileWriter`, 4 for `cleanup_empty_log_files`).
+- **Deliverables**: `src/executors/code_executor.py`, `src/enrichment.py`, `src/review_pipeline.py`, `src/api.py`, `tests/test_code_executor.py`
+- **Sanity check result**: 1159 tests pass, ruff clean.
+- **Status**: [DONE]
+- **Request**: Move T-P0-96 to Completed (REMOVE spec from Active, ADD summary to Completed Tasks)

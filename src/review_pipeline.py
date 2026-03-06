@@ -22,7 +22,11 @@ from typing import Literal
 from pydantic import BaseModel, ValidationError
 
 from src.config import ReviewerConfig, ReviewPipelineConfig
-from src.executors.code_executor import _simplify_stream_event, _StreamJsonBuffer
+from src.executors.code_executor import (
+    _LazyFileWriter,
+    _simplify_stream_event,
+    _StreamJsonBuffer,
+)
 from src.history_writer import HistoryWriter
 from src.models import LLMReview, ReviewLifecycleState, ReviewState, Task
 
@@ -495,19 +499,14 @@ class ReviewPipeline:
             **kwargs,  # type: ignore[arg-type]
         )
 
-        # -- JSONL log persistence --
-        jsonl_file = None
-        raw_file = None
+        # -- JSONL log persistence (lazy: files created on first write) --
+        jsonl_file: _LazyFileWriter | None = None
+        raw_file: _LazyFileWriter | None = None
         if task_id is not None and self._stream_log_dir is not None:
             log_dir = self._stream_log_dir / task_id.replace(":", "_")
-            log_dir.mkdir(parents=True, exist_ok=True)
             ts = datetime.now(UTC).strftime("%Y%m%dT%H%M%S")
-            jsonl_file = open(  # noqa: SIM115
-                log_dir / f"review_stream_{ts}.jsonl", "w", encoding="utf-8",
-            )
-            raw_file = open(  # noqa: SIM115
-                log_dir / f"review_raw_{ts}.log", "w", encoding="utf-8",
-            )
+            jsonl_file = _LazyFileWriter(log_dir / f"review_stream_{ts}.jsonl")
+            raw_file = _LazyFileWriter(log_dir / f"review_raw_{ts}.log")
 
         timeout_seconds = self._timeout_minutes * 60 if self._timeout_minutes > 0 else None
         log_lines: list[str] = []

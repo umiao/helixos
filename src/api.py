@@ -318,6 +318,13 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     if pm_orphans:
         logger.info("Cleaned up %d orphaned dev servers", len(pm_orphans))
 
+    # Clean up stale 0-byte log files from previous runs
+    from src.executors.code_executor import cleanup_empty_log_files
+
+    empty_removed = cleanup_empty_log_files(config.orchestrator.stream_log_dir)
+    if empty_removed > 0:
+        logger.info("Removed %d empty log files from %s", empty_removed, config.orchestrator.stream_log_dir)
+
     # Process monitor (background failure detection)
     process_monitor = ProcessMonitor(
         subprocess_registry=subprocess_registry,

@@ -30,16 +30,6 @@
 
 
 
-#### T-P0-96: Fix log creation strategy -- lazy file creation + cleanup
-- **Priority**: P0
-- **Complexity**: S
-- **Depends on**: T-P0-93
-- **Description**: Log files should only be created on first event, not at process start. This prevents empty file accumulation. Also clean existing empty files under `data/logs/`. Add startup cleanup that removes 0-byte log files.
-- **Acceptance Criteria**:
-  1. JSONL/raw log files created on first write, not at process start
-  2. No empty files left after a failed/aborted run
-  3. Existing empty files cleaned from `data/logs/`
-  4. Startup hook or init removes stale 0-byte files
 
 #### T-P0-97: Add real-CLI integration test for stream pipeline
 - **Priority**: P0
@@ -217,6 +207,9 @@
 ## Completed Tasks
 
 > 99 completed tasks archived to [archive/completed_tasks.md](archive/completed_tasks.md).
+
+#### [x] T-P0-96: Fix log creation strategy -- lazy file creation + cleanup -- 2026-03-06
+- Added `_LazyFileWriter` class that defers file creation to first `write()` call, preventing empty log files. Replaced eager `open()` in code_executor.py, enrichment.py, review_pipeline.py. Added `cleanup_empty_log_files()` for startup cleanup of 0-byte files, wired into `lifespan()`. 11 new tests. 1159 tests pass, ruff clean.
 
 #### [x] T-P0-95: Enable stream-json for plan generation + ConversationView -- 2026-03-06
 - Switched `generate_task_plan` from `--output-format json` to `stream-json --verbose`. Added `_StreamJsonBuffer` parsing, JSONL persistence (`plan_stream_*.jsonl` + `plan_raw_*.log`), `on_stream_event` callback, partial buffer flush at EOF. Wired SSE `execution_stream` emission with `origin="plan"` in `api.py`. Result still correctly extracted from stream `result` event's `structured_output`. Added 5 new tests (CLI args, event callback, None safety, multi-event, JSONL persistence). 1148 tests pass, ruff clean. AC5 (manual smoke test) deferred to T-P0-97.

@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import io
 import json
 import logging
 import os
@@ -29,6 +30,7 @@ import sys
 import time
 from collections.abc import Callable
 from datetime import UTC, datetime
+from pathlib import Path
 
 from src.config import OrchestratorSettings
 from src.executors.base import BaseExecutor, ErrorType, ExecutorResult
@@ -101,6 +103,69 @@ def _kill_process_group(proc: asyncio.subprocess.Process) -> None:
     else:
         with contextlib.suppress(ProcessLookupError):
             os.killpg(os.getpgid(pid), signal.SIGKILL)
+
+
+class _LazyFileWriter:
+    """File writer that defers file creation until the first write.
+
+    Prevents empty log files from accumulating when a subprocess produces
+    no output (e.g., aborted or failed before any stdout).
+
+    Args:
+        path: Target file path.  Parent directories are created on first write.
+    """
+
+    def __init__(self, path: Path) -> None:
+        """Initialize with target path; file is NOT opened yet."""
+        self._path: Path = path
+        self._file: io.TextIOWrapper | None = None
+
+    def write(self, data: str) -> None:
+        """Write data, opening the file on first call."""
+        if self._file is None:
+            self._path.parent.mkdir(parents=True, exist_ok=True)
+            self._file = open(self._path, "w", encoding="utf-8")  # noqa: SIM115
+        self._file.write(data)
+
+    def flush(self) -> None:
+        """Flush underlying file (no-op if never opened)."""
+        if self._file is not None:
+            self._file.flush()
+
+    def close(self) -> None:
+        """Close underlying file (no-op if never opened)."""
+        if self._file is not None:
+            self._file.close()
+            self._file = None
+
+    @property
+    def opened(self) -> bool:
+        """Return True if the file has been opened (at least one write)."""
+        return self._file is not None
+
+
+def cleanup_empty_log_files(log_dir: Path) -> int:
+    """Remove 0-byte files from *log_dir* recursively.
+
+    Called at application startup to clean up stale empty log files left
+    by aborted or failed runs.
+
+    Args:
+        log_dir: Root log directory (e.g. ``data/logs``).
+
+    Returns:
+        Number of files removed.
+    """
+    log_dir = Path(log_dir)
+    if not log_dir.is_dir():
+        return 0
+
+    removed = 0
+    for f in log_dir.rglob("*"):
+        if f.is_file() and f.stat().st_size == 0:
+            f.unlink()
+            removed += 1
+    return removed
 
 
 class _StreamJsonBuffer:
@@ -337,14 +402,11 @@ class CodeExecutor(BaseExecutor):
             **kwargs,  # type: ignore[arg-type]
         )
 
-        # -- JSONL log persistence --
+        # -- JSONL log persistence (lazy: files created on first write) --
         log_dir = self._config.stream_log_dir / task.id.replace(":", "_")
-        log_dir.mkdir(parents=True, exist_ok=True)
         timestamp_str = datetime.now(UTC).strftime("%Y%m%dT%H%M%S")
-        jsonl_path = log_dir / f"stream_{timestamp_str}.jsonl"
-        raw_log_path = log_dir / f"stream_raw_{timestamp_str}.log"
-        jsonl_file = open(jsonl_path, "w", encoding="utf-8")  # noqa: SIM115
-        raw_file = open(raw_log_path, "w", encoding="utf-8")  # noqa: SIM115
+        jsonl_file = _LazyFileWriter(log_dir / f"stream_{timestamp_str}.jsonl")
+        raw_file = _LazyFileWriter(log_dir / f"stream_raw_{timestamp_str}.log")
 
         log_lines: list[str] = []
         timed_out = False
