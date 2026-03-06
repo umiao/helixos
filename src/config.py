@@ -47,7 +47,7 @@ class OrchestratorSettings(BaseModel):
     global_concurrency_limit: int = 3
     per_project_concurrency: int = 1
     review_consensus_threshold: float = 0.8
-    session_timeout_minutes: int = 60
+    session_timeout_minutes: int = 720
     subprocess_terminate_grace_seconds: int = 5
     unified_env_path: Path = Path("~/.helixos/.env")
     state_db_path: Path = Path("~/.helixos/state.db")
@@ -57,8 +57,8 @@ class OrchestratorSettings(BaseModel):
             "backend": PortRange(min_port=8100, max_port=8999),
         },
     )
-    max_total_subprocesses: int = Field(default=5, ge=1)
-    inactivity_timeout_minutes: int = Field(default=20, ge=0)
+    max_total_subprocesses: int = Field(default=100, ge=1)
+    inactivity_timeout_minutes: int = Field(default=0, ge=0)
 
     @model_validator(mode="after")
     def _expand_paths(self) -> OrchestratorSettings:
@@ -121,7 +121,7 @@ class ReviewerConfig(BaseModel):
     focus: str
     api: str = "claude_cli"
     required: bool = True
-    max_budget_usd: float = 0.50
+    max_budget_usd: float | None = None
 
 
 class ReviewPipelineConfig(BaseModel):

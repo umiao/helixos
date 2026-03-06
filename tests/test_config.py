@@ -188,7 +188,7 @@ class TestOrchestratorSettings:
         assert s.global_concurrency_limit == 3
         assert s.per_project_concurrency == 1
         assert s.review_consensus_threshold == 0.8
-        assert s.session_timeout_minutes == 60
+        assert s.session_timeout_minutes == 720
         assert s.subprocess_terminate_grace_seconds == 5
 
     def test_path_expansion(self) -> None:
@@ -223,9 +223,9 @@ class TestOrchestratorSettings:
         assert "backend" not in s.port_ranges
 
     def test_max_total_subprocesses_default(self) -> None:
-        """Default max_total_subprocesses is 5."""
+        """Default max_total_subprocesses is 100."""
         s = OrchestratorSettings()
-        assert s.max_total_subprocesses == 5
+        assert s.max_total_subprocesses == 100
 
     def test_max_total_subprocesses_custom(self) -> None:
         """Custom max_total_subprocesses is accepted."""
@@ -395,9 +395,9 @@ class TestReviewerConfig:
         assert rc.required is False
 
     def test_max_budget_usd_default(self) -> None:
-        """max_budget_usd defaults to 0.50."""
+        """max_budget_usd defaults to None (unlimited)."""
         rc = ReviewerConfig(model="claude-sonnet-4-5", focus="feasibility")
-        assert rc.max_budget_usd == 0.50
+        assert rc.max_budget_usd is None
 
     def test_max_budget_usd_custom(self) -> None:
         """max_budget_usd can be set to a custom value."""
@@ -561,7 +561,7 @@ orchestrator:
         p = _write_yaml(tmp_path, FULL_YAML)
         cfg = load_config(p)
         # New fields should have defaults
-        assert cfg.orchestrator.max_total_subprocesses == 5
+        assert cfg.orchestrator.max_total_subprocesses == 100
         assert "frontend" in cfg.orchestrator.port_ranges
         for pc in cfg.projects.values():
             assert pc.launch_command is None

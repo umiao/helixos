@@ -1499,9 +1499,9 @@ class TestInactivityConfig:
     """Verify inactivity_timeout_minutes config field."""
 
     def test_default_value(self) -> None:
-        """Default inactivity_timeout_minutes is 20."""
+        """Default inactivity_timeout_minutes is 0 (disabled)."""
         config = OrchestratorSettings()
-        assert config.inactivity_timeout_minutes == 20
+        assert config.inactivity_timeout_minutes == 0
 
     def test_custom_value(self) -> None:
         """Custom inactivity_timeout_minutes is accepted."""

@@ -29,7 +29,6 @@ logger = logging.getLogger(__name__)
 
 TICK_INTERVAL_SECONDS = 5
 RETRY_BACKOFF_SECONDS: list[int] = [30, 60, 120]
-MAX_CONCURRENT_EXECUTIONS = 2
 
 
 class Scheduler:
@@ -421,15 +420,12 @@ class Scheduler:
     def available_slots(self) -> int:
         """Number of additional tasks that can be launched.
 
-        Computed as ``min(global_limit, active_projects, MAX_CONCURRENT_EXECUTIONS)
-        - len(running)``.  The ``MAX_CONCURRENT_EXECUTIONS`` hard limit prevents
-        resource exhaustion regardless of config.
+        Computed as ``min(global_limit, active_projects) - len(running)``.
         """
         active_projects = len(self._registry.list_projects())
         limit = min(
             self._config.orchestrator.global_concurrency_limit,
             active_projects,
-            MAX_CONCURRENT_EXECUTIONS,
         )
         return max(0, limit - len(self.running))
 

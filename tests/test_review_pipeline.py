@@ -786,7 +786,7 @@ def test_extract_cost_usd_unknown_model() -> None:
 @pytest.mark.asyncio
 @patch("src.review_pipeline.asyncio.create_subprocess_exec")
 async def test_reviewer_uses_max_budget_usd(mock_exec: AsyncMock) -> None:
-    """CLI call uses reviewer's max_budget_usd instead of hardcoded 0.50."""
+    """CLI call includes --max-budget-usd when reviewer sets it."""
     mock_exec.return_value = _mock_proc(
         _make_review_output("approve", "OK")
     )
@@ -815,8 +815,8 @@ async def test_reviewer_uses_max_budget_usd(mock_exec: AsyncMock) -> None:
 
 @pytest.mark.asyncio
 @patch("src.review_pipeline.asyncio.create_subprocess_exec")
-async def test_reviewer_default_budget(mock_exec: AsyncMock) -> None:
-    """Reviewer without explicit max_budget_usd defaults to 0.50."""
+async def test_reviewer_default_budget_omits_flag(mock_exec: AsyncMock) -> None:
+    """Reviewer without explicit max_budget_usd omits --max-budget-usd flag."""
     mock_exec.return_value = _mock_proc(
         _make_review_output("approve", "OK")
     )
@@ -827,9 +827,8 @@ async def test_reviewer_default_budget(mock_exec: AsyncMock) -> None:
         _sample_task(), "Plan", lambda c, t, p: None, complexity="S"
     )
 
-    call_args = mock_exec.call_args.args
-    budget_idx = list(call_args).index("--max-budget-usd") + 1
-    assert call_args[budget_idx] == "0.50"
+    call_args = list(mock_exec.call_args.args)
+    assert "--max-budget-usd" not in call_args
 
 
 # ------------------------------------------------------------------

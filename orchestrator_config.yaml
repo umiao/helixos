@@ -5,9 +5,10 @@ orchestrator:
   global_concurrency_limit: 3       # max concurrent sessions across all projects
   per_project_concurrency: 1        # max 1 running task per project (immutable for now)
   review_consensus_threshold: 0.8
-  session_timeout_minutes: 60
+  session_timeout_minutes: 720
   subprocess_terminate_grace_seconds: 5
-  inactivity_timeout_minutes: 20
+  max_total_subprocesses: 100
+  inactivity_timeout_minutes: 0
   unified_env_path: "~/.helixos/.env"
   state_db_path: "~/.helixos/state.db"
 
@@ -41,11 +42,9 @@ review_pipeline:
     focus: "feasibility_and_edge_cases"
     api: "claude_cli"
     required: true
-    max_budget_usd: 2.00
   - model: "claude-sonnet-4-5"
     focus: "adversarial_red_team"
     api: "claude_cli"
     required: false
-    max_budget_usd: 0.50
 
 dependencies: []

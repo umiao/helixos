@@ -410,7 +410,7 @@ class ReviewPipeline:
         prompt: str,
         system_prompt: str,
         model: str,
-        max_budget_usd: float = 0.50,
+        max_budget_usd: float | None = None,
         json_schema: str | None = None,
         on_log: Callable[[str], None] | None = None,
         heartbeat_seconds: int = 30,
@@ -448,8 +448,9 @@ class ReviewPipeline:
             "--model", model,
             "--output-format", "json",
             "--no-session-persistence",
-            "--max-budget-usd", f"{max_budget_usd:.2f}",
         ]
+        if max_budget_usd is not None:
+            args.extend(["--max-budget-usd", f"{max_budget_usd:.2f}"])
         if json_schema is not None:
             args.extend(["--json-schema", json_schema])
 

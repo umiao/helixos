@@ -15,7 +15,7 @@ from src.events import EventBus
 from src.executors.base import BaseExecutor, ErrorType, ExecutorResult
 from src.executors.code_executor import CodeExecutor
 from src.models import ExecutorType, Project, Task, TaskStatus
-from src.scheduler import MAX_CONCURRENT_EXECUTIONS, RETRY_BACKOFF_SECONDS, Scheduler
+from src.scheduler import RETRY_BACKOFF_SECONDS, Scheduler
 from src.task_manager import TaskManager
 
 # ---------------------------------------------------------------------------
@@ -1151,19 +1151,15 @@ class TestAutoCommitHook:
 
 
 # ---------------------------------------------------------------------------
-# Tests -- MAX_CONCURRENT_EXECUTIONS hard limit
+# Tests -- available_slots concurrency limit
 # ---------------------------------------------------------------------------
 
 
-class TestMaxConcurrentExecutions:
-    """Tests for the MAX_CONCURRENT_EXECUTIONS hard limit."""
+class TestAvailableSlots:
+    """Tests for the available_slots concurrency computation."""
 
-    def test_constant_value(self) -> None:
-        """MAX_CONCURRENT_EXECUTIONS should be 2."""
-        assert MAX_CONCURRENT_EXECUTIONS == 2
-
-    async def test_hard_limit_caps_slots(self, session_factory) -> None:
-        """Even with high global_concurrency_limit, hard limit is enforced."""
+    async def test_slots_capped_by_project_count(self, session_factory) -> None:
+        """With high global_concurrency_limit, project count caps slots."""
         task_manager = TaskManager(session_factory)
 
         config = _make_config(
@@ -1190,11 +1186,11 @@ class TestMaxConcurrentExecutions:
 
         scheduler = Scheduler(config, task_manager, registry, env_loader, event_bus)
 
-        # With 3 projects and global_limit=10, min(10, 3, 2) = 2
-        assert scheduler.available_slots == MAX_CONCURRENT_EXECUTIONS
+        # With 3 projects and global_limit=10, min(10, 3) = 3
+        assert scheduler.available_slots == 3
 
-    async def test_hard_limit_with_running_tasks(self, session_factory) -> None:
-        """Running tasks reduce available slots below hard limit."""
+    async def test_slots_reduced_by_running_tasks(self, session_factory) -> None:
+        """Running tasks reduce available slots."""
         task_manager = TaskManager(session_factory)
 
         config = _make_config(
@@ -1221,12 +1217,13 @@ class TestMaxConcurrentExecutions:
 
         scheduler = Scheduler(config, task_manager, registry, env_loader, event_bus)
 
-        # Simulate 1 running task
+        # Simulate 1 running task: min(10, 3) - 1 = 2
         scheduler.running["fake:t1"] = asyncio.create_task(asyncio.sleep(10))
-        assert scheduler.available_slots == 1
+        assert scheduler.available_slots == 2
 
-        # Simulate 2 running tasks -- should be at limit
+        # Simulate 3 running tasks -- should be at limit
         scheduler.running["fake:t2"] = asyncio.create_task(asyncio.sleep(10))
+        scheduler.running["fake:t3"] = asyncio.create_task(asyncio.sleep(10))
         assert scheduler.available_slots == 0
 
         # Clean up
