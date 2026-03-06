@@ -1,4 +1,4 @@
-"""Tests for stream-json buffer, simplified text derivation, JSONL persistence, and API endpoint."""
+"""Tests for SDK event streaming, JSONL persistence, and API endpoint."""
 
 from __future__ import annotations
 
@@ -12,8 +12,6 @@ from httpx import ASGITransport, AsyncClient
 from src.config import OrchestratorSettings
 from src.executors.code_executor import (
     CodeExecutor,
-    _simplify_stream_event,
-    _StreamJsonBuffer,
     _strip_ansi,
 )
 from src.models import ExecutorType, Project, Task
@@ -77,199 +75,6 @@ async def _mock_sdk_events(events: list[ClaudeEvent]):
     """Async generator yielding ClaudeEvent objects."""
     for event in events:
         yield event
-
-
-# ------------------------------------------------------------------
-# _StreamJsonBuffer tests
-# ------------------------------------------------------------------
-
-
-class TestStreamJsonBuffer:
-    """Tests for the _StreamJsonBuffer class."""
-
-    def test_single_json_line(self) -> None:
-        """A complete JSON line is parsed and returned."""
-        buf = _StreamJsonBuffer()
-        result = buf.feed('{"type": "assistant", "content": "hello"}\n')
-        assert len(result) == 1
-        assert result[0]["type"] == "assistant"
-        assert result[0]["content"] == "hello"
-        assert buf.non_json == []
-
-    def test_multiple_json_lines(self) -> None:
-        """Multiple JSON lines in one feed are all parsed."""
-        buf = _StreamJsonBuffer()
-        text = '{"type": "assistant"}\n{"type": "tool_use"}\n'
-        result = buf.feed(text)
-        assert len(result) == 2
-        assert result[0]["type"] == "assistant"
-        assert result[1]["type"] == "tool_use"
-
-    def test_non_json_line(self) -> None:
-        """Non-JSON lines are captured in non_json."""
-        buf = _StreamJsonBuffer()
-        result = buf.feed("plain text line\n")
-        assert len(result) == 0
-        assert buf.non_json == ["plain text line"]
-
-    def test_mixed_json_and_non_json(self) -> None:
-        """Mix of JSON and non-JSON lines."""
-        buf = _StreamJsonBuffer()
-        text = 'some text\n{"type": "result"}\nmore text\n'
-        result = buf.feed(text)
-        assert len(result) == 1
-        assert result[0]["type"] == "result"
-        assert buf.non_json == ["some text", "more text"]
-
-    def test_split_line_across_feeds(self) -> None:
-        """Partial line is buffered and completed on next feed."""
-        buf = _StreamJsonBuffer()
-        result1 = buf.feed('{"type": "assis')
-        assert len(result1) == 0  # partial, no newline
-        result2 = buf.feed('tant"}\n')
-        assert len(result2) == 1
-        assert result2[0]["type"] == "assistant"
-
-    def test_empty_lines_ignored(self) -> None:
-        """Empty lines are ignored."""
-        buf = _StreamJsonBuffer()
-        result = buf.feed("\n\n\n")
-        assert len(result) == 0
-        assert buf.non_json == []
-
-    def test_non_dict_json_goes_to_non_json(self) -> None:
-        """JSON arrays or primitives go to non_json."""
-        buf = _StreamJsonBuffer()
-        result = buf.feed('[1, 2, 3]\n')
-        assert len(result) == 0
-        assert buf.non_json == ["[1, 2, 3]"]
-
-
-# ------------------------------------------------------------------
-# _simplify_stream_event tests
-# ------------------------------------------------------------------
-
-
-class TestSimplifyStreamEvent:
-    """Tests for _simplify_stream_event."""
-
-    def test_assistant_text_string(self) -> None:
-        """Assistant event with string content."""
-        result = _simplify_stream_event({"type": "assistant", "content": "Hello world"})
-        assert result == "Hello world"
-
-    def test_assistant_text_blocks(self) -> None:
-        """Assistant event with content blocks."""
-        event = {
-            "type": "assistant",
-            "content": [
-                {"type": "text", "text": "Hello"},
-                {"type": "text", "text": "world"},
-            ],
-        }
-        result = _simplify_stream_event(event)
-        assert result == "Hello world"
-
-    def test_tool_use(self) -> None:
-        """Tool use event produces [TOOL] tag."""
-        event = {
-            "type": "tool_use",
-            "name": "Read",
-            "input": {"file": "test.py"},
-        }
-        result = _simplify_stream_event(event)
-        assert result is not None
-        assert result.startswith("[TOOL] Read(")
-        assert "test.py" in result
-
-    def test_tool_result(self) -> None:
-        """Tool result event produces [RESULT] tag."""
-        event = {"type": "tool_result", "content": "file contents here"}
-        result = _simplify_stream_event(event)
-        assert result is not None
-        assert result.startswith("[RESULT] ")
-        assert "file contents here" in result
-
-    def test_tool_result_long_content_truncated(self) -> None:
-        """Long tool result content is truncated."""
-        event = {"type": "tool_result", "content": "x" * 300}
-        result = _simplify_stream_event(event)
-        assert result is not None
-        assert len(result) < 220
-        assert "..." in result
-
-    def test_result_event(self) -> None:
-        """Result event produces [DONE]."""
-        result = _simplify_stream_event({"type": "result"})
-        assert result == "[DONE]"
-
-    def test_content_block_delta(self) -> None:
-        """Content block delta with text."""
-        event = {"type": "content_block_delta", "delta": {"text": "partial"}}
-        result = _simplify_stream_event(event)
-        assert result == "partial"
-
-    def test_unknown_event_returns_none(self) -> None:
-        """Unknown event types return None."""
-        result = _simplify_stream_event({"type": "ping"})
-        assert result is None
-
-    def test_assistant_empty_content(self) -> None:
-        """Assistant with empty content returns None."""
-        result = _simplify_stream_event({"type": "assistant", "content": ""})
-        assert result is None
-
-    def test_stream_event_text_delta(self) -> None:
-        """stream_event with nested delta text is extracted."""
-        event = {
-            "type": "stream_event",
-            "event": {
-                "type": "content_block_delta",
-                "delta": {"type": "text_delta", "text": "streaming chunk"},
-            },
-        }
-        result = _simplify_stream_event(event)
-        assert result == "streaming chunk"
-
-    def test_stream_event_empty_delta(self) -> None:
-        """stream_event with no text in delta returns None."""
-        event = {
-            "type": "stream_event",
-            "event": {"type": "content_block_delta", "delta": {"type": "text_delta"}},
-        }
-        result = _simplify_stream_event(event)
-        assert result is None
-
-    def test_stream_event_no_event_key(self) -> None:
-        """stream_event without 'event' key returns None."""
-        result = _simplify_stream_event({"type": "stream_event"})
-        assert result is None
-
-    def test_system_init_event(self) -> None:
-        """system init event produces [INIT] tag with model."""
-        event = {
-            "type": "system",
-            "subtype": "init",
-            "model": "claude-sonnet-4-6",
-        }
-        result = _simplify_stream_event(event)
-        assert result == "[INIT] model=claude-sonnet-4-6"
-
-    def test_system_non_init_returns_none(self) -> None:
-        """system event without init subtype returns None."""
-        result = _simplify_stream_event({"type": "system", "subtype": "other"})
-        assert result is None
-
-    def test_user_event_returns_none(self) -> None:
-        """user event is suppressed."""
-        result = _simplify_stream_event({"type": "user", "content": "some prompt"})
-        assert result is None
-
-    def test_rate_limit_event_returns_none(self) -> None:
-        """rate_limit_event is suppressed."""
-        event = {"type": "rate_limit_event", "retry_after": 5}
-        result = _simplify_stream_event(event)
-        assert result is None
 
 
 # ------------------------------------------------------------------
@@ -500,13 +305,11 @@ class TestAnsiStripping:
         assert _strip_ansi("\x1b[0m hello \x1b[31m") == " hello "
 
     def test_ansi_wrapped_json_parsed(self) -> None:
-        """ANSI-wrapped JSON line is correctly parsed by buffer."""
-        buf = _StreamJsonBuffer()
+        """ANSI-wrapped JSON line is correctly stripped and parsed."""
         ansi_line = '\x1b[0m{"type": "result"}\x1b[0m'
-        cleaned = _strip_ansi(ansi_line).rstrip("\n")
-        result = buf.feed(cleaned + "\n")
-        assert len(result) == 1
-        assert result[0]["type"] == "result"
+        cleaned = _strip_ansi(ansi_line)
+        parsed = json.loads(cleaned)
+        assert parsed["type"] == "result"
 
 
 # ------------------------------------------------------------------

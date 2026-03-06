@@ -1,31 +1,15 @@
-"""Regression tests: asyncio subprocess stream limit is set to avoid LimitOverrunError.
+"""Regression tests: SDK migration verification.
 
-The Claude CLI with --output-format stream-json can emit single JSON lines >64KB.
-asyncio.create_subprocess_exec defaults to 64KB StreamReader buffers, which raises
-LimitOverrunError on large lines.  These tests verify that all three subprocess
-call sites pass limit=SUBPROCESS_STREAM_LIMIT.
+The Claude CLI subprocess calls have been replaced by the Agent SDK
+(T-P1-87, T-P1-88, T-P1-89).  These tests verify the migration is complete:
+no asyncio.create_subprocess_exec for Claude CLI invocation remains.
 """
 
 from __future__ import annotations
 
-from unittest.mock import AsyncMock, patch
+from unittest.mock import patch
 
 import pytest
-
-from src.config import SUBPROCESS_STREAM_LIMIT
-
-
-def _make_mock_proc() -> AsyncMock:
-    """Create a mock subprocess with PIPE-like stdout/stderr."""
-    mock_proc = AsyncMock()
-    mock_proc.pid = 12345
-    mock_proc.stdout = AsyncMock()
-    mock_proc.stdout.readline = AsyncMock(return_value=b"")
-    mock_proc.stderr = AsyncMock()
-    mock_proc.stderr.readline = AsyncMock(return_value=b"")
-    mock_proc.wait = AsyncMock(return_value=0)
-    mock_proc.returncode = 0
-    return mock_proc
 
 
 @pytest.mark.asyncio
@@ -104,8 +88,3 @@ async def test_review_pipeline_uses_sdk_not_subprocess() -> None:
         mock_query.assert_called_once()
         assert isinstance(cli_output, dict)
         assert isinstance(events, list)
-
-
-def test_subprocess_stream_limit_value() -> None:
-    """SUBPROCESS_STREAM_LIMIT is 8 MiB -- large enough for CLI output."""
-    assert SUBPROCESS_STREAM_LIMIT == 8 * 1024 * 1024

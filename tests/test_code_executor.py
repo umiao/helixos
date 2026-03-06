@@ -16,12 +16,10 @@ from src.config import OrchestratorSettings
 from src.executors.base import BaseExecutor, ErrorType, ExecutorResult
 from src.executors.code_executor import (
     HEARTBEAT_SECONDS,
-    MAX_STDERR_BYTES,
     CodeExecutor,
     _format_elapsed,
     _LazyFileWriter,
     _strip_ansi,
-    _truncate_stderr,
     cleanup_empty_log_files,
 )
 from src.models import ExecutorType, Project, Task
@@ -979,35 +977,6 @@ class TestTimeoutErrorType:
 # ------------------------------------------------------------------
 
 
-class TestTruncateStderr:
-    """Verify stderr truncation and ANSI stripping."""
-
-    def test_short_stderr(self) -> None:
-        """Short stderr is returned without truncation."""
-        result = _truncate_stderr(b"short error")
-        assert result == "short error"
-
-    def test_long_stderr_truncated(self) -> None:
-        """Stderr exceeding MAX_STDERR_BYTES is truncated."""
-        raw = b"X" * (MAX_STDERR_BYTES + 100)
-        result = _truncate_stderr(raw)
-        assert len(result) <= MAX_STDERR_BYTES
-        assert result.endswith("...[truncated]")
-
-    def test_ansi_stripped_before_truncation(self) -> None:
-        """ANSI codes are stripped before truncation."""
-        raw = b"\x1b[31mRed text\x1b[0m"
-        result = _truncate_stderr(raw)
-        assert "\x1b[" not in result
-        assert "Red text" in result
-
-    def test_invalid_utf8_replaced(self) -> None:
-        """Invalid UTF-8 bytes are replaced, not raising."""
-        raw = b"valid \xff invalid"
-        result = _truncate_stderr(raw)
-        assert "valid" in result
-
-
 # ------------------------------------------------------------------
 # Tests: Inactivity timeout
 # ------------------------------------------------------------------
@@ -1157,52 +1126,6 @@ class TestInactivityTimeout:
             "[INACTIVITY]" in ln and "event-based detection" in ln
             for ln in logs
         )
-
-
-# ------------------------------------------------------------------
-# Tests: Process group helpers (standalone functions, not used by
-# SDK executor but kept for backward compat until T-P1-90)
-# ------------------------------------------------------------------
-
-
-class TestProcessGroupHelpers:
-    """Verify _terminate_process_group and _kill_process_group."""
-
-    def test_terminate_process_group_no_pid(self) -> None:
-        """_terminate_process_group handles None pid gracefully."""
-        from src.executors.code_executor import _terminate_process_group
-
-        proc = MagicMock()
-        proc.pid = None
-        _terminate_process_group(proc)  # should not raise
-
-    def test_kill_process_group_no_pid(self) -> None:
-        """_kill_process_group handles None pid gracefully."""
-        from src.executors.code_executor import _kill_process_group
-
-        proc = MagicMock()
-        proc.pid = None
-        _kill_process_group(proc)  # should not raise
-
-    @patch("src.executors.code_executor.os.kill")
-    def test_terminate_suppresses_os_error(self, mock_kill: MagicMock) -> None:
-        """_terminate_process_group suppresses OSError (process already gone)."""
-        import sys
-
-        from src.executors.code_executor import _terminate_process_group
-
-        mock_kill.side_effect = OSError("No such process")
-        proc = MagicMock()
-        proc.pid = 999
-
-        if sys.platform == "win32":
-            _terminate_process_group(proc)  # should not raise
-            mock_kill.assert_called_once()
-        else:
-            with patch("src.executors.code_executor.os.killpg") as mock_killpg:
-                mock_killpg.side_effect = ProcessLookupError("No such process")
-                _terminate_process_group(proc)
-                mock_killpg.assert_called_once()
 
 
 # ------------------------------------------------------------------

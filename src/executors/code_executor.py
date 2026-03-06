@@ -24,8 +24,6 @@ import json
 import logging
 import os
 import re
-import signal
-import sys
 import time
 from collections.abc import Callable
 from datetime import UTC, datetime
@@ -38,13 +36,8 @@ from src.sdk_adapter import ClaudeEventType, QueryOptions, run_claude_query
 
 logger = logging.getLogger(__name__)
 
-# Maximum stderr capture size in bytes
-MAX_STDERR_BYTES = 4096
-
 # Regex to strip ANSI escape sequences
 _ANSI_RE = re.compile(r"\x1b\[[0-9;]*[a-zA-Z]")
-
-_IS_WINDOWS = sys.platform == "win32"
 
 # Interval in seconds between [PROGRESS] log emissions during execution.
 PROGRESS_LOG_INTERVAL_SECONDS = 60
@@ -63,49 +56,6 @@ def _format_elapsed(seconds: float) -> str:
     total = int(seconds)
     mins, secs = divmod(total, 60)
     return f"{mins}:{secs:02d}"
-
-
-def _truncate_stderr(raw: bytes) -> str:
-    """Decode, strip ANSI, and truncate stderr to MAX_STDERR_BYTES chars."""
-    decoded = raw.decode("utf-8", errors="replace")
-    cleaned = _strip_ansi(decoded)
-    if len(cleaned) > MAX_STDERR_BYTES:
-        return cleaned[:MAX_STDERR_BYTES - 14] + "...[truncated]"
-    return cleaned
-
-
-def _terminate_process_group(proc: asyncio.subprocess.Process) -> None:
-    """Send SIGTERM to the entire process group (or CTRL_BREAK on Windows).
-
-    Suppresses ProcessLookupError in case the process already exited.
-    """
-    pid = proc.pid
-    if pid is None:
-        return
-
-    if _IS_WINDOWS:
-        with contextlib.suppress(OSError):
-            os.kill(pid, signal.CTRL_BREAK_EVENT)  # type: ignore[attr-defined]
-    else:
-        with contextlib.suppress(ProcessLookupError):
-            os.killpg(os.getpgid(pid), signal.SIGTERM)
-
-
-def _kill_process_group(proc: asyncio.subprocess.Process) -> None:
-    """Send SIGKILL to the entire process group (force-kill).
-
-    On Windows, falls back to ``proc.kill()`` since there is no SIGKILL.
-    """
-    pid = proc.pid
-    if pid is None:
-        return
-
-    if _IS_WINDOWS:
-        with contextlib.suppress(OSError):
-            proc.kill()
-    else:
-        with contextlib.suppress(ProcessLookupError):
-            os.killpg(os.getpgid(pid), signal.SIGKILL)
 
 
 class _LazyFileWriter:
@@ -169,157 +119,6 @@ def cleanup_empty_log_files(log_dir: Path) -> int:
             f.unlink()
             removed += 1
     return removed
-
-
-class _StreamJsonBuffer:
-    """Incremental buffer that accumulates raw text and yields parsed JSON objects.
-
-    Handles the case where a JSON object might be split across multiple reads
-    (though readline-based I/O typically delivers complete lines). Each call to
-    ``feed()`` returns a list of successfully parsed JSON dicts from the input.
-    Non-JSON lines are returned separately via the ``non_json`` attribute after
-    each ``feed()`` call.
-    """
-
-    def __init__(self) -> None:
-        """Initialize with empty buffer."""
-        self._partial: str = ""
-        self.non_json: list[str] = []
-
-    def feed(self, text: str) -> list[dict]:
-        """Feed a text chunk and return any complete JSON objects found.
-
-        Args:
-            text: Raw text (possibly containing multiple lines).
-
-        Returns:
-            List of parsed JSON dicts from complete lines.
-        """
-        self.non_json = []
-        combined = self._partial + text
-        self._partial = ""
-
-        results: list[dict] = []
-        lines = combined.split("\n")
-
-        # If text doesn't end with newline, last element is partial
-        if not combined.endswith("\n"):
-            self._partial = lines.pop()
-
-        for line in lines:
-            stripped = line.strip()
-            if not stripped:
-                continue
-            try:
-                obj = json.loads(stripped)
-                if isinstance(obj, dict):
-                    results.append(obj)
-                else:
-                    self.non_json.append(stripped)
-            except (json.JSONDecodeError, ValueError):
-                self.non_json.append(stripped)
-
-        return results
-
-
-def _simplify_stream_event(event: dict) -> str | None:
-    """Derive a simplified text line from a parsed stream-json event.
-
-    Maps stream-json event types to human-readable text for backward-compatible
-    ``on_log()`` output:
-    - assistant text -> emit the text content
-    - content_block_delta -> emit delta text
-    - stream_event -> emit nested delta text (``event.delta.text``)
-    - tool_use -> ``[TOOL] name(...)``
-    - tool_result -> ``[RESULT] content[:200]``
-    - result -> ``[DONE]``
-    - system (init) -> ``[INIT] model=X``
-    - user / rate_limit_event -> None (suppressed)
-
-    Args:
-        event: A parsed JSON dict from stream-json output.
-
-    Returns:
-        Simplified text string, or None if the event has no useful text.
-    """
-    event_type = event.get("type", "")
-
-    if event_type == "assistant":
-        # Assistant text message
-        content = event.get("content", "")
-        if isinstance(content, list):
-            # Content blocks - extract text blocks
-            parts = []
-            for block in content:
-                if isinstance(block, dict) and block.get("type") == "text":
-                    parts.append(block.get("text", ""))
-            return " ".join(parts) if parts else None
-        if isinstance(content, str) and content:
-            return content
-        # Also check for message.content pattern
-        message = event.get("message", {})
-        if isinstance(message, dict):
-            msg_content = message.get("content", "")
-            if isinstance(msg_content, str) and msg_content:
-                return msg_content
-        return None
-
-    if event_type == "content_block_delta":
-        delta = event.get("delta", {})
-        if isinstance(delta, dict):
-            text = delta.get("text", "")
-            if text:
-                return text
-        return None
-
-    if event_type == "stream_event":
-        # --verbose stream_event wraps delta as event.delta.type == "text_delta"
-        inner = event.get("event", {})
-        if isinstance(inner, dict):
-            delta = inner.get("delta", {})
-            if isinstance(delta, dict):
-                text = delta.get("text", "")
-                if text:
-                    return text
-        return None
-
-    if event_type == "tool_use":
-        name = event.get("name", "unknown")
-        tool_input = event.get("input", {})
-        input_str = json.dumps(tool_input, ensure_ascii=False) if tool_input else ""
-        if len(input_str) > 200:
-            input_str = input_str[:200] + "..."
-        return f"[TOOL] {name}({input_str})"
-
-    if event_type == "tool_result":
-        content = event.get("content", "")
-        if isinstance(content, str):
-            display = content[:200] + "..." if len(content) > 200 else content
-        else:
-            raw = json.dumps(content, ensure_ascii=False)
-            display = raw[:200] + "..." if len(raw) > 200 else raw
-        return f"[RESULT] {display}"
-
-    if event_type == "result":
-        return "[DONE]"
-
-    if event_type == "system":
-        # System init event contains model/tools info
-        subtype = event.get("subtype", "")
-        if subtype == "init":
-            model = event.get("model", "unknown")
-            return f"[INIT] model={model}"
-        return None
-
-    if event_type == "user":
-        # User message echo -- no useful content to display
-        return None
-
-    if event_type == "rate_limit_event":
-        # Rate limit info -- no actionable content for log
-        return None
-
-    return None
 
 
 def _is_sdk_available() -> bool:

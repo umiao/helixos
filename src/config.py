@@ -17,12 +17,6 @@ from src.models import ExecutorType, Project
 
 logger = logging.getLogger(__name__)
 
-# asyncio StreamReader default is 64 KiB, too small for stream-json result
-# events from the Claude CLI (review text, code diffs, tool output can exceed
-# several MB). 8 MiB is generous but memory impact is trivial (one buffer
-# per subprocess).
-SUBPROCESS_STREAM_LIMIT: int = 8 * 1024 * 1024  # 8 MiB
-
 
 # ------------------------------------------------------------------
 # Config sub-models
