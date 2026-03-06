@@ -38,15 +38,6 @@
   2. All 3 callsites import from shared module
   3. Existing tests pass unchanged
 
-#### T-P1-72: SSE origin field for log categorization
-- **Priority**: P1
-- **Complexity**: S
-- **Depends on**: T-P1-71
-- **Description**: Add explicit `origin` field (execution/review/scheduler/plan) to SSE event payloads for clean log categorization (from T-P0-55).
-- **Acceptance Criteria**:
-  1. All SSE events include `origin` field
-  2. Frontend uses `origin` instead of inferring from event type
-
 
 #### T-P1-73: Log retention/purge policy
 - **Priority**: P1
@@ -217,6 +208,9 @@
 
 #### [x] T-P1-71: Unified TaskEvent Pydantic model for SSE contract -- 2026-03-05
 - Converted Event dataclass to TaskEvent Pydantic BaseModel in src/events.py. EventBus.emit() validates via Pydantic on construction. Backward-compatible Event alias. 10 new schema enforcement tests (22 total in test_events.py). All tests passing.
+
+#### [x] T-P1-72: SSE origin field for log categorization -- 2026-03-05
+- Added `origin` field (Literal: execution/review/scheduler/plan/api/system) to TaskEvent Pydantic model. Updated EventBus.emit() with keyword-only origin parameter. Updated all 37 emit() callers across api.py, scheduler.py, process_manager.py, process_monitor.py, git_ops.py. format_sse() includes origin in SSE payload. 7 new tests, 27 total in test_events.py. 1060 tests passing, ruff clean.
 
 #### [x] T-P0-55: Execution log visual markers for review activity -- 2026-03-04
 - Added purple "REVIEW" badge on review-originated log entries. Extended LogEntry with source field, SSE handlers pass source="review" for review_started/review_progress events. Uses SSE event type for origin detection.

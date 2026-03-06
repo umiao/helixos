@@ -613,9 +613,9 @@ class TestSSEEventsEmitted:
         events: list[tuple[str, str]] = []
         original_emit = event_bus.emit
 
-        def capture_emit(event_type: str, task_id: str, data: dict) -> None:
+        def capture_emit(event_type: str, task_id: str, data: dict, **kwargs: object) -> None:
             events.append((event_type, task_id))
-            original_emit(event_type, task_id, data)
+            original_emit(event_type, task_id, data, **kwargs)
 
         event_bus.emit = capture_emit
 
@@ -649,9 +649,9 @@ class TestSSEEventsEmitted:
         events: list[tuple[str, str]] = []
         original_emit = event_bus.emit
 
-        def capture_emit(event_type: str, task_id: str, data: dict) -> None:
+        def capture_emit(event_type: str, task_id: str, data: dict, **kwargs: object) -> None:
             events.append((event_type, task_id))
-            original_emit(event_type, task_id, data)
+            original_emit(event_type, task_id, data, **kwargs)
 
         event_bus.emit = capture_emit
 

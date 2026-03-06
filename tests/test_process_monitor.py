@@ -131,7 +131,7 @@ async def test_scan_emits_process_failed_event(
     collected: list[dict] = []
     original_emit = event_bus.emit
 
-    def capture_emit(event_type: str, task_id: str, data: object) -> None:
+    def capture_emit(event_type: str, task_id: str, data: object, **kwargs: object) -> None:
         collected.append({
             "type": event_type,
             "task_id": task_id,
@@ -331,9 +331,9 @@ async def test_executor_crash_event_payload(
     collected: list[dict] = []
     original_emit = event_bus.emit
 
-    def capture_emit(event_type: str, task_id: str, data: object) -> None:
+    def capture_emit(event_type: str, task_id: str, data: object, **kwargs: object) -> None:
         collected.append({"type": event_type, "task_id": task_id, "data": data})
-        original_emit(event_type, task_id, data)
+        original_emit(event_type, task_id, data, **kwargs)
 
     event_bus.emit = capture_emit  # type: ignore[assignment]
 

@@ -91,9 +91,9 @@ def _track_events(event_bus: EventBus) -> list[tuple[str, str, object]]:
     emitted: list[tuple[str, str, object]] = []
     original = event_bus.emit
 
-    def tracking(event_type: str, task_id: str, data: object) -> None:
+    def tracking(event_type: str, task_id: str, data: object, **kwargs: object) -> None:
         emitted.append((event_type, task_id, data))
-        original(event_type, task_id, data)
+        original(event_type, task_id, data, **kwargs)
 
     event_bus.emit = tracking  # type: ignore[assignment]
     return emitted

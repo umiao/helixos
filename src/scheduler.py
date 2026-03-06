@@ -156,6 +156,7 @@ class Scheduler:
                 "alert",
                 task.id,
                 {"error": "Recovered from crash -- was RUNNING when process exited"},
+                origin="scheduler",
             )
 
         if count > 0:
@@ -183,6 +184,7 @@ class Scheduler:
             await self._settings_store.set_paused(project_id, paused=True)
         self._event_bus.emit(
             "execution_paused", project_id, {"paused": True},
+            origin="scheduler",
         )
         logger.info("Execution paused for project %s", project_id)
 
@@ -200,6 +202,7 @@ class Scheduler:
             await self._settings_store.set_paused(project_id, paused=False)
         self._event_bus.emit(
             "execution_paused", project_id, {"paused": False},
+            origin="scheduler",
         )
         logger.info("Execution resumed for project %s", project_id)
 
@@ -236,6 +239,7 @@ class Scheduler:
         self._event_bus.emit(
             "review_gate_changed", project_id,
             {"review_gate_enabled": True},
+            origin="scheduler",
         )
         logger.info("Review gate enabled for project %s", project_id)
 
@@ -256,6 +260,7 @@ class Scheduler:
         self._event_bus.emit(
             "review_gate_changed", project_id,
             {"review_gate_enabled": False},
+            origin="scheduler",
         )
         logger.info("Review gate disabled for project %s", project_id)
 
@@ -311,6 +316,7 @@ class Scheduler:
             )
         self._event_bus.emit(
             "alert", task_id, {"error": "Task cancelled"},
+            origin="scheduler",
         )
 
         # Ensure cleanup (idempotent with _execute_task's finally block)
@@ -377,7 +383,8 @@ class Scheduler:
 
                 await self._task_manager.update_status(task.id, TaskStatus.RUNNING)
                 self._event_bus.emit(
-                    "status_change", task.id, {"status": "running"}
+                    "status_change", task.id, {"status": "running"},
+                    origin="scheduler",
                 )
 
                 self.running[task.id] = asyncio.create_task(
@@ -526,7 +533,7 @@ class Scheduler:
             env = self._env_loader.get_project_env(project)
 
             def on_log(line: str) -> None:
-                self._event_bus.emit("log", task.id, line)
+                self._event_bus.emit("log", task.id, line, origin="execution")
                 if self._history_writer is not None:
                     asyncio.ensure_future(
                         self._history_writer.write_log(task.id, line),
@@ -563,6 +570,7 @@ class Scheduler:
                     )
                 self._event_bus.emit(
                     "status_change", task.id, {"status": "done"},
+                    origin="execution",
                 )
                 await self._auto_commit_hook(task, project)
             elif task.id in self._cancelled:
@@ -578,6 +586,7 @@ class Scheduler:
                     )
                 self._event_bus.emit(
                     "alert", task.id, {"error": "Task cancelled"},
+                    origin="execution",
                 )
             else:
                 error_msg = result.error_summary or "Max retries exhausted"
@@ -622,12 +631,14 @@ class Scheduler:
                         "alert",
                         task.id,
                         alert_data,
+                        origin="execution",
                     )
                     await self._task_manager.update_status(
                         task.id, TaskStatus.BLOCKED,
                     )
                     self._event_bus.emit(
                         "status_change", task.id, {"status": "blocked"},
+                        origin="execution",
                     )
         except Exception as exc:
             exc_type = type(exc).__name__
@@ -657,6 +668,7 @@ class Scheduler:
                     "error": f"Unhandled execution error: {error_detail}",
                     "error_type": ErrorType.INFRA.value,
                 },
+                origin="execution",
             )
         finally:
             self.running.pop(task.id, None)
@@ -706,6 +718,7 @@ class Scheduler:
                 task.id,
                 f"Retry {attempt}/{len(RETRY_BACKOFF_SECONDS)} "
                 f"after {delay}s backoff",
+                origin="execution",
             )
 
             await asyncio.sleep(delay)

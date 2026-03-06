@@ -763,14 +763,14 @@ async def generate_plan(task_id: str, request: Request) -> JSONResponse:
     # Mark plan as generating + emit SSE event
     task.plan_status = "generating"
     await task_manager.update_task(task)
-    event_bus.emit("plan_status_change", task_id, {"plan_status": "generating"})
+    event_bus.emit("plan_status_change", task_id, {"plan_status": "generating"}, origin="plan")
 
     # Launch background task (fire-and-forget, like review pipeline pattern)
     async def _run_plan_generation() -> None:
         try:
             def on_log(line: str) -> None:
                 """Per-line callback: SSE emit + DB write."""
-                event_bus.emit("log", task_id, {"message": line, "source": "plan"})
+                event_bus.emit("log", task_id, {"message": line, "source": "plan"}, origin="plan")
                 asyncio.ensure_future(
                     history_writer.write_log(
                         task_id, line, level="info", source="plan",
@@ -806,13 +806,14 @@ async def generate_plan(task_id: str, request: Request) -> JSONResponse:
             )
             event_bus.emit(
                 "plan_status_change", task_id, {"plan_status": "ready"},
+                origin="plan",
             )
         except Exception as exc:
             logger.warning("Plan generation failed for %s: %s", task_id, exc)
             event_bus.emit("log", task_id, {
                 "message": f"Plan generation failed: {exc}",
                 "source": "plan",
-            })
+            }, origin="plan")
             asyncio.ensure_future(
                 history_writer.write_log(
                     task_id,
@@ -828,6 +829,7 @@ async def generate_plan(task_id: str, request: Request) -> JSONResponse:
                 await task_manager.update_task(current)
             event_bus.emit(
                 "plan_status_change", task_id, {"plan_status": "failed"},
+                origin="plan",
             )
 
     asyncio.create_task(_run_plan_generation())
@@ -1242,7 +1244,7 @@ def _enqueue_review_pipeline(
         )
         return
 
-    event_bus.emit("review_started", task_id, {})
+    event_bus.emit("review_started", task_id, {}, origin="review")
 
     async def _run_review_bg() -> None:
         """Background task to run the review pipeline."""
@@ -1257,6 +1259,7 @@ def _enqueue_review_pipeline(
                     "review_progress",
                     task_id,
                     {"completed": completed, "total": total, "phase": phase},
+                    origin="review",
                 )
                 if history_writer is not None:
                     asyncio.ensure_future(
@@ -1269,6 +1272,7 @@ def _enqueue_review_pipeline(
                 """Per-line callback: SSE emit + DB write (source=review)."""
                 event_bus.emit(
                     "log", task_id, {"message": line, "source": "review"},
+                    origin="review",
                 )
                 if history_writer is not None:
                     asyncio.ensure_future(
@@ -1317,6 +1321,7 @@ def _enqueue_review_pipeline(
             await task_manager.update_status(task_id, new_status)
             event_bus.emit(
                 "status_change", task_id, {"status": new_status.value},
+                origin="review",
             )
         except Exception as exc:
             logger.exception("Review failed for task %s", task_id)
@@ -1324,6 +1329,7 @@ def _enqueue_review_pipeline(
             event_bus.emit(
                 "log", task_id,
                 {"message": error_msg, "source": "review"},
+                origin="review",
             )
             if history_writer is not None:
                 asyncio.ensure_future(
@@ -1352,8 +1358,8 @@ async def _set_review_failed(
         )
     except Exception:
         logger.exception("Failed to set review status for task %s", task_id)
-    event_bus.emit("alert", task_id, {"error": error_msg})
-    event_bus.emit("review_failed", task_id, {"error": error_msg})
+    event_bus.emit("alert", task_id, {"error": error_msg}, origin="review")
+    event_bus.emit("review_failed", task_id, {"error": error_msg}, origin="review")
 
 
 @api_router.patch(
@@ -1421,7 +1427,7 @@ async def update_task_status(
         raise HTTPException(status_code=409, detail=str(exc)) from None
 
     event_bus: EventBus = request.app.state.event_bus
-    event_bus.emit("status_change", task_id, {"status": body.status.value})
+    event_bus.emit("status_change", task_id, {"status": body.status.value}, origin="api")
 
     # Transition-driven pipeline trigger: enqueue review when entering REVIEW
     if (
@@ -1489,7 +1495,7 @@ async def retry_review(task_id: str, request: Request) -> dict:
             task = await task_manager.update_status(task_id, TaskStatus.REVIEW)
         except ValueError as exc:
             raise HTTPException(status_code=409, detail=str(exc)) from None
-        event_bus.emit("status_change", task_id, {"status": "review"})
+        event_bus.emit("status_change", task_id, {"status": "review"}, origin="api")
     else:
         # Already in REVIEW, just reset review_status to running
         await task_manager.set_review_status(task_id, "running")
@@ -1593,7 +1599,7 @@ async def submit_review_decision(
     if body.decision == "request_changes":
         await task_manager.set_review_status(task_id, "idle")
 
-    event_bus.emit("status_change", task_id, {"status": new_status.value})
+    event_bus.emit("status_change", task_id, {"status": new_status.value}, origin="api")
 
     # Re-fetch to get the updated review_status
     if body.decision == "request_changes":
@@ -1639,7 +1645,7 @@ async def force_execute(task_id: str, request: Request) -> dict:
     except ValueError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from None
 
-    event_bus.emit("status_change", task_id, {"status": "queued"})
+    event_bus.emit("status_change", task_id, {"status": "queued"}, origin="api")
 
     return {"detail": "Task queued for execution", "task_id": task_id}
 
@@ -1683,7 +1689,7 @@ async def retry_task(task_id: str, request: Request) -> TaskResponse:
     except ValueError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from None
 
-    event_bus.emit("status_change", task_id, {"status": "queued"})
+    event_bus.emit("status_change", task_id, {"status": "queued"}, origin="api")
 
     return _task_to_response(updated)
 
@@ -1757,7 +1763,7 @@ async def delete_task(
         raise HTTPException(status_code=409, detail=msg) from None
 
     event_bus: EventBus = request.app.state.event_bus
-    event_bus.emit("task_deleted", task_id, {"task_id": task_id})
+    event_bus.emit("task_deleted", task_id, {"task_id": task_id}, origin="api")
 
     return JSONResponse(status_code=204, content=None)
 

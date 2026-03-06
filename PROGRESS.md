@@ -780,3 +780,10 @@
 - **Sanity check result**: All 26 test_events.py + 21 test_sse.py tests pass (47 total). Full test suite passes. Ruff clean.
 - **Status**: [DONE]
 - **Request**: Move T-P1-71 to Completed
+
+## 2026-03-05 01:00 -- [T-P1-72] SSE origin field for log categorization
+- **What I did**: Added `origin` field to all SSE event payloads for clean log categorization. Updated all 37 emit() callers across 5 source files (api.py, scheduler.py, process_manager.py, process_monitor.py, git_ops.py) with appropriate origin values: "execution" for task execution/process events, "review" for review pipeline events, "plan" for plan generation events, "scheduler" for pause/resume/gate/recovery events, "api" for user-initiated status changes. Updated format_sse() to include origin in JSON payload. Added 7 new tests (origin default, valid values, invalid value rejection, format_sse inclusion, emit forwarding).
+- **Deliverables**: src/events.py, src/api.py, src/scheduler.py, src/process_manager.py, src/process_monitor.py, src/git_ops.py, tests/test_events.py, TASKS.md, PROGRESS.md
+- **Sanity check result**: 27/27 test_events.py tests pass. Full suite 1060 tests pass. Ruff clean.
+- **Status**: [DONE]
+- **Request**: Move T-P1-72 to Completed

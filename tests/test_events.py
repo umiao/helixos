@@ -8,7 +8,7 @@ from datetime import UTC, datetime
 import pytest
 from pydantic import ValidationError
 
-from src.events import MAX_QUEUE_SIZE, Event, EventBus, TaskEvent
+from src.events import MAX_QUEUE_SIZE, Event, EventBus, TaskEvent, format_sse
 
 
 class TestEvent:
@@ -297,23 +297,28 @@ class TestTaskEventSchema:
         with pytest.raises(ValidationError):
             TaskEvent(type="log", task_id="t1", data="x", origin="bogus")  # type: ignore[arg-type]
 
-    def test_emit_passes_origin_to_event(self) -> None:
+    def test_format_sse_includes_origin(self) -> None:
+        """format_sse() should include origin in the JSON payload."""
+        import json
+
+        event = TaskEvent(type="log", task_id="t1", data="x", origin="execution")
+        sse = format_sse(event)
+        payload = json.loads(sse.removeprefix("data: ").strip())
+        assert payload["origin"] == "execution"
+
+    async def test_emit_passes_origin_to_event(self) -> None:
         """EventBus.emit() should forward origin kwarg to TaskEvent."""
         bus = EventBus()
         received: list[TaskEvent] = []
-
-        import asyncio
 
         async def _capture() -> None:
             async for evt in bus.subscribe():
                 received.append(evt)
                 break
 
-        async def _run() -> None:
-            task = asyncio.create_task(_capture())
-            await asyncio.sleep(0.01)
-            bus.emit("log", "t1", "x", origin="review")
-            await task
+        task = asyncio.create_task(_capture())
+        await asyncio.sleep(0.01)
+        bus.emit("log", "t1", "x", origin="review")
+        await task
 
-        asyncio.get_event_loop().run_until_complete(_run())
         assert received[0].origin == "review"

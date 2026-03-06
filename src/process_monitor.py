@@ -142,6 +142,7 @@ class ProcessMonitor:
                     "elapsed_seconds": round(elapsed, 1),
                     "error": f"Dev server crashed (pid={entry.pid})",
                 },
+                origin="execution",
             )
             # Clean up ProcessManager state for this dev server
             self._process_manager._cleanup_stale(project_id)
@@ -162,6 +163,7 @@ class ProcessMonitor:
                     "elapsed_seconds": round(elapsed, 1),
                     "error": f"Executor process crashed (pid={entry.pid})",
                 },
+                origin="execution",
             )
         else:
             logger.warning(

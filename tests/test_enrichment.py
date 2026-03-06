@@ -1045,9 +1045,9 @@ class TestGeneratePlanEndpoint:
         emitted: list[tuple[str, str, dict]] = []
         original_emit = event_bus.emit
 
-        def capture_emit(event_type: str, task_id: str, data: object) -> None:
+        def capture_emit(event_type: str, task_id: str, data: object, **kwargs: object) -> None:
             emitted.append((event_type, task_id, data))
-            original_emit(event_type, task_id, data)
+            original_emit(event_type, task_id, data, **kwargs)
 
         event_bus.emit = capture_emit
 

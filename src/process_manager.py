@@ -200,6 +200,7 @@ class ProcessManager:
             "process_start",
             project_id,
             {"pid": pid, "port": port},
+            origin="execution",
         )
 
         logger.info(
@@ -280,6 +281,7 @@ class ProcessManager:
             "process_stop",
             project_id,
             {"pid": pid},
+            origin="execution",
         )
 
         logger.info("Stopped dev server for project %s (pid=%d)", project_id, pid)

@@ -120,6 +120,7 @@ class GitOps:
                         f"Staged {file_count} files exceeds limit {max_files}"
                     ),
                 },
+                origin="execution",
             )
             logger.warning(
                 "Auto-commit aborted for task %s: %d files > limit %d",
