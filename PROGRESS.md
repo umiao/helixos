@@ -864,3 +864,10 @@
 - **Sanity check result**: 1143 tests pass, ruff clean. All 101 review pipeline tests pass.
 - **Status**: [DONE]
 - **Request**: Move T-P0-94 to Completed (REMOVE spec from Active, ADD summary to Completed Tasks)
+
+## 2026-03-06 11:00 -- [T-P0-95] Enable stream-json for plan generation + ConversationView
+- **What I did**: Switched `generate_task_plan` in `enrichment.py` from `--output-format json` to `--output-format stream-json --verbose`. Imported `_StreamJsonBuffer` and `_simplify_stream_event` from code_executor. Added stream-json event parsing loop with JSONL persistence (`plan_stream_*.jsonl` + `plan_raw_*.log`). Added `on_stream_event`, `stream_log_dir`, and `task_id` params. Added partial buffer flush at EOF. Wired SSE `execution_stream` event emission with `origin="plan"` via `on_plan_stream_event` in `api.py`. Result correctly extracted from stream `result` event's `structured_output`. Added 5 new tests covering: CLI args verification, event callback, None safety, multi-event parsing, JSONL file persistence.
+- **Deliverables**: `src/enrichment.py`, `src/api.py`, `tests/test_enrichment.py`
+- **Sanity check result**: 1148 tests pass, ruff clean. All 94 enrichment tests pass.
+- **Status**: [DONE]
+- **Request**: Move T-P0-95 to Completed (REMOVE spec from Active, ADD summary to Completed Tasks)

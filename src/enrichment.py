@@ -24,10 +24,13 @@ import logging
 import shutil
 import time
 from collections.abc import Awaitable, Callable
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Literal
 
 from pydantic import BaseModel, ValidationError
+
+from src.executors.code_executor import _simplify_stream_event, _StreamJsonBuffer
 
 logger = logging.getLogger(__name__)
 
@@ -325,12 +328,15 @@ async def generate_task_plan(
     on_log: Callable[[str], None] | None = None,
     heartbeat_seconds: int = 30,
     on_raw_artifact: Callable[[str], Awaitable[None]] | None = None,
+    on_stream_event: Callable[[dict], None] | None = None,
+    stream_log_dir: Path | None = None,
+    task_id: str | None = None,
 ) -> dict:
     """Call Claude CLI to generate a structured implementation plan.
 
     Uses ``claude -p`` with ``--add-dir`` for codebase context when
-    *repo_path* is provided.  Streams stdout line-by-line via *on_log*
-    callback for real-time feedback (same pattern as CodeExecutor).
+    *repo_path* is provided.  Uses ``--output-format stream-json --verbose``
+    for real-time streaming with JSONL persistence.
 
     Args:
         title: The task title.
@@ -339,11 +345,16 @@ async def generate_task_plan(
             context via ``--add-dir``.
         timeout_minutes: Maximum time in minutes before the subprocess is
             killed. 0 disables the timeout.
-        on_log: Optional callback invoked per stdout line for real-time
-            streaming.  Signature: ``(line: str) -> None``.
+        on_log: Optional callback invoked per simplified log line for
+            real-time streaming.  Signature: ``(line: str) -> None``.
         heartbeat_seconds: If no stdout line arrives within this many
             seconds, emit a synthetic ``[PROGRESS] heartbeat`` line via
             *on_log*.  Set to 0 to disable.
+        on_raw_artifact: Optional async callback to persist raw CLI output.
+        on_stream_event: Optional callback invoked for each parsed
+            stream-json event dict.  Signature: ``(event: dict) -> None``.
+        stream_log_dir: Optional directory for JSONL stream log persistence.
+        task_id: Optional task ID used for log file naming.
 
     Returns:
         Dict with ``plan`` (str), ``steps`` (list of dicts), and
@@ -360,7 +371,8 @@ async def generate_task_plan(
         "claude", "-p", user_prompt,
         "--system-prompt", _PLAN_SYSTEM_PROMPT,
         "--model", "claude-sonnet-4-5",
-        "--output-format", "json",
+        "--output-format", "stream-json",
+        "--verbose",
         "--no-session-persistence",
         "--json-schema", _PLAN_JSON_SCHEMA,
     ]
@@ -377,13 +389,55 @@ async def generate_task_plan(
         stderr=asyncio.subprocess.PIPE,
     )
 
+    # -- JSONL log persistence --
+    jsonl_file = None
+    raw_file = None
+    if task_id is not None and stream_log_dir is not None:
+        log_dir = stream_log_dir / task_id.replace(":", "_")
+        log_dir.mkdir(parents=True, exist_ok=True)
+        ts = datetime.now(UTC).strftime("%Y%m%dT%H%M%S")
+        jsonl_file = open(  # noqa: SIM115
+            log_dir / f"plan_stream_{ts}.jsonl", "w", encoding="utf-8",
+        )
+        raw_file = open(  # noqa: SIM115
+            log_dir / f"plan_raw_{ts}.log", "w", encoding="utf-8",
+        )
+
     timeout_seconds = timeout_minutes * 60 if timeout_minutes > 0 else None
     log_lines: list[str] = []
     last_output_time = time.monotonic()
+    buffer = _StreamJsonBuffer()
+    cli_output: dict = {}  # Will be populated from the result event
 
     def _emit(line: str) -> None:
         if on_log is not None:
             on_log(line)
+
+    def _process_parsed_events(
+        parsed_events: list[dict], non_json: list[str],
+    ) -> None:
+        """Write parsed events to JSONL and call callbacks."""
+        nonlocal cli_output
+        for event_dict in parsed_events:
+            if jsonl_file is not None:
+                jsonl_file.write(
+                    json.dumps(event_dict, ensure_ascii=False) + "\n"
+                )
+                jsonl_file.flush()
+
+            if on_stream_event is not None:
+                on_stream_event(event_dict)
+
+            # Capture the result event as the final CLI output
+            if event_dict.get("type") == "result":
+                cli_output = event_dict
+
+            simplified = _simplify_stream_event(event_dict)
+            if simplified:
+                _emit(simplified)
+
+        for raw_text in non_json:
+            _emit(raw_text)
 
     try:
         async with asyncio.timeout(timeout_seconds):
@@ -410,10 +464,47 @@ async def generate_task_plan(
                     break
 
                 decoded = raw_line.decode("utf-8", errors="replace").rstrip("\r\n")
-                log_lines.append(decoded)  # always preserve for JSON reassembly
-                if decoded.strip():  # only emit non-blank for progress
-                    _emit(decoded)
-                    last_output_time = time.monotonic()
+                log_lines.append(decoded)  # always preserve for raw artifact
+
+                if not decoded.strip():
+                    continue
+
+                # Persist raw line
+                if raw_file is not None:
+                    raw_file.write(decoded + "\n")
+                    raw_file.flush()
+
+                last_output_time = time.monotonic()
+
+                # Parse stream-json events
+                parsed_events = buffer.feed(decoded + "\n")
+                _process_parsed_events(parsed_events, buffer.non_json)
+
+            # -- EOF: flush partial buffer --
+            if buffer._partial:
+                remainder = buffer._partial.strip()
+                buffer._partial = ""
+                if remainder:
+                    if raw_file is not None:
+                        raw_file.write(remainder + "\n")
+                        raw_file.flush()
+                    try:
+                        obj = json.loads(remainder)
+                        if isinstance(obj, dict):
+                            if jsonl_file is not None:
+                                jsonl_file.write(
+                                    json.dumps(obj, ensure_ascii=False) + "\n"
+                                )
+                                jsonl_file.flush()
+                            if on_stream_event is not None:
+                                on_stream_event(obj)
+                            if obj.get("type") == "result":
+                                cli_output = obj
+                            simplified = _simplify_stream_event(obj)
+                            if simplified:
+                                _emit(simplified)
+                    except (json.JSONDecodeError, ValueError):
+                        pass
 
             await proc.wait()
     except TimeoutError:
@@ -423,6 +514,11 @@ async def generate_task_plan(
             PlanGenerationErrorType.TIMEOUT,
             f"Plan generation subprocess timed out after {timeout_minutes} minutes",
         ) from None
+    finally:
+        if jsonl_file is not None:
+            jsonl_file.close()
+        if raw_file is not None:
+            raw_file.close()
 
     # PERSIST-FIRST: save full raw output before ANY parsing or validation.
     # Even if returncode != 0 or JSON parsing fails, the raw output is recoverable.
@@ -447,19 +543,19 @@ async def generate_task_plan(
             f"Claude CLI failed (exit {proc.returncode}): {stderr_text}",
         )
 
-    # Reassemble all stdout lines and parse the JSON result
-    try:
-        cli_output = json.loads(full_output)
-    except json.JSONDecodeError:
-        # If the output isn't valid JSON, try the last line (some CLIs
-        # emit progress text before the final JSON blob)
-        cli_output = {}
-        for line in reversed(log_lines):
-            try:
-                cli_output = json.loads(line)
-                break
-            except json.JSONDecodeError:
-                continue
+    # If we captured a result event from stream-json, extract from it.
+    # Otherwise fall back to parsing full output as JSON.
+    if not cli_output:
+        try:
+            cli_output = json.loads(full_output)
+        except json.JSONDecodeError:
+            cli_output = {}
+            for line in reversed(log_lines):
+                try:
+                    cli_output = json.loads(line)
+                    break
+                except json.JSONDecodeError:
+                    continue
 
     # structured_output is a dict when --json-schema was used; fall back to result
     result_data = cli_output.get("structured_output") or cli_output.get("result", "")

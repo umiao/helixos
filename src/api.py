@@ -813,6 +813,18 @@ async def generate_plan(task_id: str, request: Request) -> JSONResponse:
                     metadata_json=json.dumps({"chars": len(content)}),
                 )
 
+            def on_plan_stream_event(event_dict: dict) -> None:
+                """Emit parsed stream-json events as SSE for ConversationView."""
+                event_bus.emit(
+                    "execution_stream", task_id, event_dict,
+                    origin="plan",
+                )
+
+            # Resolve stream log directory for JSONL persistence
+            plan_log_dir: Path | None = None
+            with contextlib.suppress(AttributeError, TypeError):
+                plan_log_dir = config.review_pipeline.stream_log_dir
+
             plan_data = await generate_task_plan(
                 title=task.title,
                 description=task.description,
@@ -820,6 +832,9 @@ async def generate_plan(task_id: str, request: Request) -> JSONResponse:
                 timeout_minutes=enrichment_timeout,
                 on_log=on_log,
                 on_raw_artifact=on_raw_artifact,
+                on_stream_event=on_plan_stream_event,
+                stream_log_dir=plan_log_dir,
+                task_id=task_id,
             )
 
             formatted = format_plan_as_text(plan_data)

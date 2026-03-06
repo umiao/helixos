@@ -29,17 +29,6 @@
 
 
 
-#### T-P0-95: Enable stream-json for plan generation + ConversationView
-- **Priority**: P0
-- **Complexity**: M
-- **Depends on**: T-P0-92, T-P0-93
-- **Description**: Same as T-P0-94 but for enrichment.py plan generation. Switch to stream-json, wire callbacks, add JSONL persistence, emit SSE events.
-- **Acceptance Criteria**:
-  1. Plan generation produces JSONL stream log files with real content
-  2. SSE `execution_stream` events emitted during plan generation
-  3. ConversationView shows real-time plan generation progress
-  4. Plan result still correctly parsed from stream output
-  5. Manual smoke test: generate plan -> see live updates in ConversationView
 
 #### T-P0-96: Fix log creation strategy -- lazy file creation + cleanup
 - **Priority**: P0
@@ -228,6 +217,9 @@
 ## Completed Tasks
 
 > 99 completed tasks archived to [archive/completed_tasks.md](archive/completed_tasks.md).
+
+#### [x] T-P0-95: Enable stream-json for plan generation + ConversationView -- 2026-03-06
+- Switched `generate_task_plan` from `--output-format json` to `stream-json --verbose`. Added `_StreamJsonBuffer` parsing, JSONL persistence (`plan_stream_*.jsonl` + `plan_raw_*.log`), `on_stream_event` callback, partial buffer flush at EOF. Wired SSE `execution_stream` emission with `origin="plan"` in `api.py`. Result still correctly extracted from stream `result` event's `structured_output`. Added 5 new tests (CLI args, event callback, None safety, multi-event, JSONL persistence). 1148 tests pass, ruff clean. AC5 (manual smoke test) deferred to T-P0-97.
 
 #### [x] T-P0-94: Enable stream-json for review pipeline + ConversationView -- 2026-03-06
 - Switched `_call_claude_cli` from `--output-format json` to `stream-json --verbose`. Added `_StreamJsonBuffer` parsing, JSONL persistence (`review_stream_*.jsonl`), `on_stream_event` callback threaded through `review_task` -> `_call_reviewer` -> `_call_claude_cli` -> `_synthesize`. Wired SSE `execution_stream` emission in `api.py`. Result still correctly extracted from `result` event's `structured_output`. Added 5 new tests. 1143 tests pass, ruff clean. AC5 (manual smoke test) deferred to T-P0-97 (end-to-end verification).

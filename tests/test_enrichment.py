@@ -869,6 +869,122 @@ class TestGenerateTaskPlan:
         ):
             await generate_task_plan("Task")
 
+    @pytest.mark.asyncio
+    async def test_cli_args_use_stream_json_and_verbose(self) -> None:
+        """CLI args include --output-format stream-json --verbose."""
+        stdout = _make_valid_plan_output()
+        mock_proc = _mock_readline_proc(stdout)
+
+        with patch(
+            "src.enrichment.asyncio.create_subprocess_exec",
+            return_value=mock_proc,
+        ) as mock_exec:
+            await generate_task_plan("Task")
+            call_args = mock_exec.call_args[0]
+            assert "--output-format" in call_args
+            fmt_idx = list(call_args).index("--output-format")
+            assert call_args[fmt_idx + 1] == "stream-json"
+            assert "--verbose" in call_args
+
+    @pytest.mark.asyncio
+    async def test_on_stream_event_callback(self) -> None:
+        """on_stream_event callback is called for each parsed event."""
+        stdout = _make_valid_plan_output()
+        mock_proc = _mock_readline_proc(stdout)
+        events: list[dict] = []
+
+        with patch(
+            "src.enrichment.asyncio.create_subprocess_exec",
+            return_value=mock_proc,
+        ):
+            result = await generate_task_plan(
+                "Task", on_stream_event=events.append,
+            )
+            assert result["plan"] == "A valid plan summary"
+            # Should have received the result event
+            assert len(events) >= 1
+            result_events = [e for e in events if e.get("type") == "result"]
+            assert len(result_events) == 1
+
+    @pytest.mark.asyncio
+    async def test_on_stream_event_none_is_safe(self) -> None:
+        """on_stream_event=None does not crash."""
+        stdout = _make_valid_plan_output()
+        mock_proc = _mock_readline_proc(stdout)
+
+        with patch(
+            "src.enrichment.asyncio.create_subprocess_exec",
+            return_value=mock_proc,
+        ):
+            result = await generate_task_plan(
+                "Task", on_stream_event=None,
+            )
+            assert result["plan"] == "A valid plan summary"
+
+    @pytest.mark.asyncio
+    async def test_multi_event_stream(self) -> None:
+        """Multiple stream-json events are parsed and dispatched."""
+        # Simulate assistant event + result event on separate lines
+        assistant_event = json.dumps({
+            "type": "assistant",
+            "message": {"content": [{"type": "text", "text": "Planning..."}]},
+        })
+        result_event = json.dumps({
+            "type": "result",
+            "structured_output": {
+                "plan": "Multi-event plan",
+                "steps": [{"step": "Step 1", "files": []}],
+                "acceptance_criteria": ["AC 1"],
+            },
+            "result": None,
+        })
+        stdout = (assistant_event + "\n" + result_event + "\n").encode("utf-8")
+        mock_proc = _mock_readline_proc(stdout)
+        events: list[dict] = []
+
+        with patch(
+            "src.enrichment.asyncio.create_subprocess_exec",
+            return_value=mock_proc,
+        ):
+            result = await generate_task_plan(
+                "Task", on_stream_event=events.append,
+            )
+            assert result["plan"] == "Multi-event plan"
+            assert len(events) == 2
+            assert events[0]["type"] == "assistant"
+            assert events[1]["type"] == "result"
+
+    @pytest.mark.asyncio
+    async def test_jsonl_file_persistence(self, tmp_path: Path) -> None:
+        """JSONL log files are created when stream_log_dir + task_id given."""
+        stdout = _make_valid_plan_output()
+        mock_proc = _mock_readline_proc(stdout)
+
+        with patch(
+            "src.enrichment.asyncio.create_subprocess_exec",
+            return_value=mock_proc,
+        ):
+            await generate_task_plan(
+                "Task",
+                stream_log_dir=tmp_path,
+                task_id="test-task-1",
+            )
+
+        log_dir = tmp_path / "test-task-1"
+        assert log_dir.exists()
+
+        jsonl_files = list(log_dir.glob("plan_stream_*.jsonl"))
+        assert len(jsonl_files) == 1
+        content = jsonl_files[0].read_text(encoding="utf-8").strip()
+        assert len(content) > 0
+        # Each line should be valid JSON
+        for line in content.split("\n"):
+            parsed = json.loads(line)
+            assert isinstance(parsed, dict)
+
+        raw_files = list(log_dir.glob("plan_raw_*.log"))
+        assert len(raw_files) == 1
+
 
 # ------------------------------------------------------------------
 # API endpoint tests: POST /api/tasks/{id}/generate-plan
