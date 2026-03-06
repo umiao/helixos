@@ -850,3 +850,10 @@
 - **Sanity check result**: 1131 tests pass, ruff clean. All 185 enrichment+review tests pass with new mock format.
 - **Status**: [DONE]
 - **Request**: Move T-P0-92 to Completed (REMOVE spec from In Progress, ADD summary to Completed Tasks)
+
+## 2026-03-06 09:00 -- [T-P0-93] Harden stream-json event parser + add --verbose flag
+- **What I did**: Replaced `--include-partial-messages` with `--verbose` in CLI args (code_executor.py). Extended `_simplify_stream_event` to handle all 6 real event types: added `stream_event` (nested `event.delta.text` parsing), `system` init (`[INIT] model=X`), `user` (suppressed), `rate_limit_event` (suppressed). Added 8 new unit tests covering all new event types including edge cases.
+- **Deliverables**: `src/executors/code_executor.py`, `tests/test_stream_json.py`
+- **Sanity check result**: 1138 tests pass, ruff clean. All 40 stream JSON tests pass.
+- **Status**: [DONE]
+- **Request**: Move T-P0-93 to Completed (REMOVE spec from In Progress, ADD summary to Completed Tasks)

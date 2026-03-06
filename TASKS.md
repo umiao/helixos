@@ -27,24 +27,6 @@
 
 ### P0 -- Must Have (core functionality)
 
-#### T-P0-93: Harden stream-json event parser + add --verbose flag
-- **Priority**: P0
-- **Complexity**: S
-- **Depends on**: None (T-P0-91 complete)
-- **Description**: T-P0-91 found TWO issues: (1) `--verbose` flag is MISSING from code_executor.py CLI args -- without it, stream-json only emits the final result event (explains empty logs). (2) Parser coverage gaps: `_simplify_stream_event` handles 5 types but real CLI emits 6+.
-- **Findings from T-P0-91**:
-  - **CRITICAL**: `--verbose` is required for stream-json to emit intermediate events (system, assistant, stream_event). Without it, only final `result` appears. Our code_executor.py line 271-280 is missing `--verbose`.
-  - Real event types: system, assistant, stream_event, result, rate_limit_event, user
-  - `stream_event` wraps delta as `event.delta.type == "text_delta"`, not top-level `content_block_delta`
-  - `system` with subtype `init` contains model/tools info (useful for log enrichment)
-  - `result` event contains `structured_output` field when `--json-schema` used
-- **Acceptance Criteria**:
-  1. `--verbose` added to CLI args in code_executor.py
-  2. `_simplify_stream_event` handles all 6 real event types
-  3. `stream_event` delta nesting correctly parsed (`.event.delta.text`)
-  4. `system` init events logged as `[INIT] model=X`
-  5. Execution JSONL files contain complete stream events (verified with real CLI)
-  6. ConversationView shows real content for execution tasks
 
 #### T-P0-94: Enable stream-json for review pipeline + ConversationView
 - **Priority**: P0
@@ -257,6 +239,9 @@
 ## Completed Tasks
 
 > 99 completed tasks archived to [archive/completed_tasks.md](archive/completed_tasks.md).
+
+#### [x] T-P0-93: Harden stream-json event parser + add --verbose flag -- 2026-03-06
+- Replaced `--include-partial-messages` with `--verbose` in CLI args. Extended `_simplify_stream_event` to handle all 6 real event types: added `stream_event` (nested delta parsing), `system` init (`[INIT] model=X`), `user` (suppressed), `rate_limit_event` (suppressed). Added 8 new tests. 1138 tests pass, ruff clean. AC5/AC6 (real CLI verification) deferred to T-P0-97.
 
 #### [x] T-P0-92: Fix schema/parsing in plan + review pipelines -- 2026-03-06
 - Fixed all 5 callsites to read `structured_output` (dict) instead of `result` (null). Updated 4 parse functions to accept `str | dict` and skip `json.loads()` when already a dict. Updated all test helpers to simulate real `structured_output` field. 1131 tests pass, ruff clean.

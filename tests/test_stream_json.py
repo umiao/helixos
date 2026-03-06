@@ -206,6 +206,58 @@ class TestSimplifyStreamEvent:
         result = _simplify_stream_event({"type": "assistant", "content": ""})
         assert result is None
 
+    def test_stream_event_text_delta(self) -> None:
+        """stream_event with nested delta text is extracted."""
+        event = {
+            "type": "stream_event",
+            "event": {
+                "type": "content_block_delta",
+                "delta": {"type": "text_delta", "text": "streaming chunk"},
+            },
+        }
+        result = _simplify_stream_event(event)
+        assert result == "streaming chunk"
+
+    def test_stream_event_empty_delta(self) -> None:
+        """stream_event with no text in delta returns None."""
+        event = {
+            "type": "stream_event",
+            "event": {"type": "content_block_delta", "delta": {"type": "text_delta"}},
+        }
+        result = _simplify_stream_event(event)
+        assert result is None
+
+    def test_stream_event_no_event_key(self) -> None:
+        """stream_event without 'event' key returns None."""
+        result = _simplify_stream_event({"type": "stream_event"})
+        assert result is None
+
+    def test_system_init_event(self) -> None:
+        """system init event produces [INIT] tag with model."""
+        event = {
+            "type": "system",
+            "subtype": "init",
+            "model": "claude-sonnet-4-6",
+        }
+        result = _simplify_stream_event(event)
+        assert result == "[INIT] model=claude-sonnet-4-6"
+
+    def test_system_non_init_returns_none(self) -> None:
+        """system event without init subtype returns None."""
+        result = _simplify_stream_event({"type": "system", "subtype": "other"})
+        assert result is None
+
+    def test_user_event_returns_none(self) -> None:
+        """user event is suppressed."""
+        result = _simplify_stream_event({"type": "user", "content": "some prompt"})
+        assert result is None
+
+    def test_rate_limit_event_returns_none(self) -> None:
+        """rate_limit_event is suppressed."""
+        event = {"type": "rate_limit_event", "retry_after": 5}
+        result = _simplify_stream_event(event)
+        assert result is None
+
 
 # ------------------------------------------------------------------
 # Stdout mock helpers

@@ -160,9 +160,13 @@ def _simplify_stream_event(event: dict) -> str | None:
     Maps stream-json event types to human-readable text for backward-compatible
     ``on_log()`` output:
     - assistant text -> emit the text content
+    - content_block_delta -> emit delta text
+    - stream_event -> emit nested delta text (``event.delta.text``)
     - tool_use -> ``[TOOL] name(...)``
     - tool_result -> ``[RESULT] content[:200]``
     - result -> ``[DONE]``
+    - system (init) -> ``[INIT] model=X``
+    - user / rate_limit_event -> None (suppressed)
 
     Args:
         event: A parsed JSON dict from stream-json output.
@@ -200,6 +204,17 @@ def _simplify_stream_event(event: dict) -> str | None:
                 return text
         return None
 
+    if event_type == "stream_event":
+        # --verbose stream_event wraps delta as event.delta.type == "text_delta"
+        inner = event.get("event", {})
+        if isinstance(inner, dict):
+            delta = inner.get("delta", {})
+            if isinstance(delta, dict):
+                text = delta.get("text", "")
+                if text:
+                    return text
+        return None
+
     if event_type == "tool_use":
         name = event.get("name", "unknown")
         tool_input = event.get("input", {})
@@ -219,6 +234,22 @@ def _simplify_stream_event(event: dict) -> str | None:
 
     if event_type == "result":
         return "[DONE]"
+
+    if event_type == "system":
+        # System init event contains model/tools info
+        subtype = event.get("subtype", "")
+        if subtype == "init":
+            model = event.get("model", "unknown")
+            return f"[INIT] model={model}"
+        return None
+
+    if event_type == "user":
+        # User message echo -- no useful content to display
+        return None
+
+    if event_type == "rate_limit_event":
+        # Rate limit info -- no actionable content for log
+        return None
 
     return None
 
@@ -276,7 +307,7 @@ class CodeExecutor(BaseExecutor):
             "Bash,Read,Write,Edit,MultiTool",
             "--output-format",
             "stream-json",
-            "--include-partial-messages",
+            "--verbose",
         ]
 
         session_timeout = self._config.session_timeout_minutes * 60
