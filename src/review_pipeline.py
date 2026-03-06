@@ -626,8 +626,9 @@ class ReviewPipeline:
             on_raw_artifact=on_raw_artifact,
         )
 
-        result_text = cli_output.get("result", "")
-        review = self._parse_review(result_text, reviewer)
+        # structured_output is a dict when --json-schema was used; fall back to result
+        result_data = cli_output.get("structured_output") or cli_output.get("result", "")
+        review = self._parse_review(result_data, reviewer)
 
         # Build raw_response from explicit CLI fields (not the full
         # cli_output blob).  This decouples the DB schema from the CLI
@@ -636,7 +637,7 @@ class ReviewPipeline:
         raw_response_dict = {
             "model": cli_output.get("model"),
             "usage": cli_output.get("usage"),
-            "result": cli_output.get("result"),
+            "result": cli_output.get("structured_output") or cli_output.get("result"),
             "session_id": cli_output.get("session_id"),
         }
         review.raw_response = _truncate_raw_response(
@@ -656,29 +657,31 @@ class ReviewPipeline:
         """
         return _REVIEW_PROMPTS.get(focus, _DEFAULT_REVIEW_PROMPT)
 
-    def _parse_review(self, text: str, reviewer: ReviewerConfig) -> LLMReview:
+    def _parse_review(self, text: str | dict, reviewer: ReviewerConfig) -> LLMReview:
         """Parse a Claude CLI result into an LLMReview.
 
         Args:
-            text: The ``result`` text from Claude CLI JSON output.
+            text: The ``structured_output`` (dict) or ``result`` (str) field
+                from Claude CLI JSON output.
             reviewer: The reviewer config that generated this response.
 
         Returns:
             LLMReview with extracted verdict, summary, suggestions.
         """
         try:
-            data = json.loads(text)
+            data = text if isinstance(text, dict) else json.loads(text)
             result = ReviewResult.model_validate(data)
             verdict = result.verdict
             summary = result.summary
             suggestions = result.suggestions
         except (json.JSONDecodeError, ValidationError, KeyError, IndexError) as exc:
+            raw_repr = str(text)
             logger.warning(
                 "Failed to parse review response from %s: %s. Raw (%d chars): %.500s",
-                reviewer.model, exc, len(text), text,
+                reviewer.model, exc, len(raw_repr), raw_repr,
             )
             verdict = "reject"
-            summary = text
+            summary = raw_repr if isinstance(text, str) else str(text)
             suggestions = []
 
         return LLMReview(
@@ -728,26 +731,30 @@ class ReviewPipeline:
             json_schema=_SYNTHESIS_JSON_SCHEMA,
         )
 
-        return self._parse_synthesis(cli_output.get("result", ""))
+        # structured_output is a dict when --json-schema was used; fall back to result
+        synthesis_data = cli_output.get("structured_output") or cli_output.get("result", "")
+        return self._parse_synthesis(synthesis_data)
 
-    def _parse_synthesis(self, text: str) -> SynthesisResult:
+    def _parse_synthesis(self, text: str | dict) -> SynthesisResult:
         """Parse synthesis result text into a SynthesisResult.
 
         Args:
-            text: The ``result`` text from Claude CLI JSON output.
+            text: The ``structured_output`` (dict) or ``result`` (str) field
+                from Claude CLI JSON output.
 
         Returns:
             SynthesisResult with score and disagreements.
         """
         try:
-            data = json.loads(text)
+            data = text if isinstance(text, dict) else json.loads(text)
             result = SynthesisResult.model_validate(data)
             score = result.score
             disagreements = result.disagreements
         except (json.JSONDecodeError, ValidationError, KeyError, ValueError) as exc:
+            raw_repr = str(text)
             logger.warning(
                 "Failed to parse synthesis response: %s. Raw (%d chars): %.500s",
-                exc, len(text), text,
+                exc, len(raw_repr), raw_repr,
             )
             score = 0.5
             disagreements = ["Synthesis parsing failed -- manual review recommended"]

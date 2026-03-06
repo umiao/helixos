@@ -33,13 +33,17 @@ from src.review_pipeline import (
 # ------------------------------------------------------------------
 
 
-def _make_cli_output(inner_json: str) -> bytes:
-    """Create mock Claude CLI stdout bytes wrapping an inner JSON string.
+def _make_cli_output(inner: dict | str) -> bytes:
+    """Create mock Claude CLI stdout bytes.
 
-    The Claude CLI with ``--output-format json`` returns a JSON object
-    with a ``result`` field containing the LLM response text.
+    When ``inner`` is a dict, simulates ``--json-schema`` mode where
+    ``structured_output`` is already a parsed object and ``result`` is null.
+    When ``inner`` is a str, simulates legacy mode with ``result`` as string.
     """
-    cli_output = {"type": "result", "result": inner_json}
+    if isinstance(inner, dict):
+        cli_output = {"type": "result", "structured_output": inner, "result": None}
+    else:
+        cli_output = {"type": "result", "result": inner}
     return json.dumps(cli_output).encode("utf-8")
 
 
@@ -49,11 +53,11 @@ def _make_review_output(
     suggestions: list[str] | None = None,
 ) -> bytes:
     """Create mock Claude CLI stdout for a review response."""
-    inner = json.dumps({
+    inner = {
         "verdict": verdict,
         "summary": summary,
         "suggestions": suggestions or [],
-    })
+    }
     return _make_cli_output(inner)
 
 
@@ -62,10 +66,10 @@ def _make_synthesis_output(
     disagreements: list[str] | None = None,
 ) -> bytes:
     """Create mock Claude CLI stdout for a synthesis response."""
-    inner = json.dumps({
+    inner = {
         "score": score,
         "disagreements": disagreements or [],
-    })
+    }
     return _make_cli_output(inner)
 
 
@@ -586,12 +590,12 @@ async def test_synthesis_score_clamped(mock_exec: AsyncMock) -> None:
 @patch("src.review_pipeline.asyncio.create_subprocess_exec")
 async def test_raw_response_captured(mock_exec: AsyncMock) -> None:
     """raw_response is structured JSON with model, usage, result, session_id."""
-    inner_json = json.dumps({
+    inner_dict = {
         "verdict": "approve",
         "summary": "Plan looks good",
         "suggestions": [],
-    })
-    mock_exec.return_value = _mock_proc(_make_cli_output(inner_json))
+    }
+    mock_exec.return_value = _mock_proc(_make_review_output("approve", "Plan looks good"))
 
     pipeline = ReviewPipeline(_default_config(), threshold=0.8)
     result = await pipeline.review_task(
@@ -600,15 +604,19 @@ async def test_raw_response_captured(mock_exec: AsyncMock) -> None:
 
     raw = json.loads(result.reviews[0].raw_response)
     assert "result" in raw
-    assert raw["result"] == inner_json
+    assert raw["result"] == inner_dict
 
 
 @pytest.mark.asyncio
 @patch("src.review_pipeline.asyncio.create_subprocess_exec")
 async def test_raw_response_captured_on_parse_failure(mock_exec: AsyncMock) -> None:
-    """raw_response is captured even when JSON parsing fails."""
+    """raw_response is captured even when JSON parsing fails (legacy result-as-string)."""
     raw_text = "This is not valid JSON but is the raw reviewer output"
-    mock_exec.return_value = _mock_proc(_make_cli_output(raw_text))
+    # Simulate legacy mode: structured_output absent, result is a raw string
+    cli_bytes = json.dumps({
+        "type": "result", "result": raw_text, "structured_output": None,
+    }).encode("utf-8")
+    mock_exec.return_value = _mock_proc(cli_bytes)
 
     pipeline = ReviewPipeline(_default_config(), threshold=0.8)
     result = await pipeline.review_task(
@@ -624,13 +632,12 @@ async def test_raw_response_captured_on_parse_failure(mock_exec: AsyncMock) -> N
 @patch("src.review_pipeline.asyncio.create_subprocess_exec")
 async def test_raw_response_contains_fields_beyond_result(mock_exec: AsyncMock) -> None:
     """raw_response must contain fields beyond just 'result' (invariant test from AC)."""
-    inner_json = json.dumps({
-        "verdict": "approve", "summary": "OK", "suggestions": [],
-    })
-    # CLI output with usage + model data
+    inner_dict = {"verdict": "approve", "summary": "OK", "suggestions": []}
+    # CLI output with structured_output + usage + model data
     cli_output = {
         "type": "result",
-        "result": inner_json,
+        "structured_output": inner_dict,
+        "result": None,
         "model": "claude-sonnet-4-5",
         "usage": {"input_tokens": 1000, "output_tokens": 500},
         "session_id": "sess-abc123",
@@ -656,13 +663,12 @@ async def test_raw_response_contains_fields_beyond_result(mock_exec: AsyncMock) 
 @patch("src.review_pipeline.asyncio.create_subprocess_exec")
 async def test_raw_response_explicit_fields_only(mock_exec: AsyncMock) -> None:
     """raw_response contains only model/usage/result/session_id, not entire CLI blob."""
-    inner_json = json.dumps({
-        "verdict": "approve", "summary": "OK", "suggestions": [],
-    })
+    inner_dict = {"verdict": "approve", "summary": "OK", "suggestions": []}
     # CLI output with extra fields that should NOT be in raw_response
     cli_output = {
         "type": "result",
-        "result": inner_json,
+        "structured_output": inner_dict,
+        "result": None,
         "model": "claude-sonnet-4-5",
         "usage": {"input_tokens": 100, "output_tokens": 50},
         "session_id": "sess-xyz",
@@ -837,16 +843,24 @@ async def test_reviewer_default_budget_omits_flag(mock_exec: AsyncMock) -> None:
 
 
 def _make_cli_output_with_usage(
-    inner_json: str,
+    inner: dict | str,
     input_tokens: int = 500,
     output_tokens: int = 200,
 ) -> bytes:
     """Create mock Claude CLI stdout with usage data."""
-    cli_output = {
-        "type": "result",
-        "result": inner_json,
-        "usage": {"input_tokens": input_tokens, "output_tokens": output_tokens},
-    }
+    if isinstance(inner, dict):
+        cli_output = {
+            "type": "result",
+            "structured_output": inner,
+            "result": None,
+            "usage": {"input_tokens": input_tokens, "output_tokens": output_tokens},
+        }
+    else:
+        cli_output = {
+            "type": "result",
+            "result": inner,
+            "usage": {"input_tokens": input_tokens, "output_tokens": output_tokens},
+        }
     return json.dumps(cli_output).encode("utf-8")
 
 
@@ -854,9 +868,7 @@ def _make_cli_output_with_usage(
 @patch("src.review_pipeline.asyncio.create_subprocess_exec")
 async def test_cost_usd_captured_on_review(mock_exec: AsyncMock) -> None:
     """cost_usd is populated on LLMReview when usage data is in CLI output."""
-    inner = json.dumps({
-        "verdict": "approve", "summary": "OK", "suggestions": [],
-    })
+    inner = {"verdict": "approve", "summary": "OK", "suggestions": []}
     mock_exec.return_value = _mock_proc(
         _make_cli_output_with_usage(inner, input_tokens=1000, output_tokens=500)
     )

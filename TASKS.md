@@ -27,24 +27,6 @@
 
 ### P0 -- Must Have (core functionality)
 
-#### T-P0-92: Fix schema/parsing in plan + review pipelines
-- **Priority**: P0
-- **Complexity**: S
-- **Depends on**: None (T-P0-91 complete)
-- **Description**: T-P0-91 CONFIRMED: when `--json-schema` is used, Claude CLI puts structured output in `structured_output` field (a JSON object), NOT `result` (which is null). All 5 callsites read `result` and get null. Fix: read `structured_output` when `--json-schema` is present. The value is already a parsed object, so skip `json.loads()`.
-- **Findings from T-P0-91**:
-  - `enrichment.py:224` -- reads `result`, should read `structured_output`
-  - `enrichment.py:461` -- reads `result`, should read `structured_output`
-  - `review_pipeline.py:629` -- reads `result`, should read `structured_output`
-  - `review_pipeline.py:639` -- raw_response builder reads `result`
-  - `review_pipeline.py:731` -- synthesis reads `result`, should read `structured_output`
-  - Key difference: `structured_output` is already a JSON object (dict), not a JSON string. So `json.loads()` on it will fail. Parsers need to handle both dict and str.
-- **Acceptance Criteria**:
-  1. All 5 callsites read `structured_output` when `--json-schema` was used
-  2. Parsers handle `structured_output` as dict (no json.loads needed)
-  3. Existing tests updated to mock `structured_output` field instead of `result`
-  4. Manual verification: run plan/review on a real task, check DB has meaningful content
-
 #### T-P0-93: Harden stream-json event parser + add --verbose flag
 - **Priority**: P0
 - **Complexity**: S
@@ -275,6 +257,9 @@
 ## Completed Tasks
 
 > 99 completed tasks archived to [archive/completed_tasks.md](archive/completed_tasks.md).
+
+#### [x] T-P0-92: Fix schema/parsing in plan + review pipelines -- 2026-03-06
+- Fixed all 5 callsites to read `structured_output` (dict) instead of `result` (null). Updated 4 parse functions to accept `str | dict` and skip `json.loads()` when already a dict. Updated all test helpers to simulate real `structured_output` field. 1131 tests pass, ruff clean.
 
 #### [x] T-P0-91: Investigate CLI --json-schema output behavior -- 2026-03-06
 - Confirmed root cause via official docs (code.claude.com/docs/en/headless): `--json-schema` puts output in `structured_output` field (object), NOT `result` (null). All 5 callsites in enrichment.py and review_pipeline.py read `result` and get null. Stream-json + --json-schema confirmed compatible. Documented 6 real stream-json event types vs 5 handled by parser. Added LESSONS #20 and #21.

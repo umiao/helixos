@@ -54,15 +54,23 @@ from src.task_manager import TaskManager
 # ------------------------------------------------------------------
 
 
-def _make_cli_output(inner_json: str) -> bytes:
-    """Create mock Claude CLI stdout bytes wrapping an inner JSON string."""
-    cli_output = {"type": "result", "result": inner_json}
+def _make_cli_output(inner: dict | str) -> bytes:
+    """Create mock Claude CLI stdout bytes.
+
+    When ``inner`` is a dict, simulates ``--json-schema`` mode where
+    ``structured_output`` is already a parsed object and ``result`` is null.
+    When ``inner`` is a str, simulates legacy mode with ``result`` as string.
+    """
+    if isinstance(inner, dict):
+        cli_output = {"type": "result", "structured_output": inner, "result": None}
+    else:
+        cli_output = {"type": "result", "result": inner}
     return json.dumps(cli_output).encode("utf-8")
 
 
 def _make_enrichment_output(description: str, priority: str) -> bytes:
     """Create mock Claude CLI stdout for an enrichment response."""
-    inner = json.dumps({"description": description, "priority": priority})
+    inner = {"description": description, "priority": priority}
     return _make_cli_output(inner)
 
 
@@ -257,8 +265,8 @@ class TestEnrichTaskTitle:
 
     @pytest.mark.asyncio
     async def test_malformed_json_uses_defaults(self) -> None:
-        """Malformed inner JSON uses safe defaults."""
-        cli_output = json.dumps({"result": "not valid json"}).encode("utf-8")
+        """Malformed inner JSON uses safe defaults (legacy result-as-string)."""
+        cli_output = json.dumps({"result": "not valid json", "structured_output": None}).encode("utf-8")
         mock_proc = _mock_proc(cli_output)
 
         with patch(
@@ -440,8 +448,7 @@ class TestEnrichEndpoint:
     @pytest.mark.asyncio
     async def test_enrichment_p1_default(self, client: AsyncClient) -> None:
         """Invalid priority from CLI falls back to P1."""
-        inner = json.dumps({"description": "desc", "priority": "CRITICAL"})
-        stdout = _make_cli_output(inner)
+        stdout = _make_cli_output({"description": "desc", "priority": "CRITICAL"})
         mock_proc = _mock_proc(stdout)
 
         with (
@@ -482,11 +489,11 @@ def _make_plan_output(
     acceptance_criteria: list[str],
 ) -> bytes:
     """Create mock Claude CLI stdout for a plan generation response."""
-    inner = json.dumps({
+    inner = {
         "plan": plan,
         "steps": steps,
         "acceptance_criteria": acceptance_criteria,
-    })
+    }
     return _make_cli_output(inner)
 
 
@@ -1300,7 +1307,7 @@ class TestBlankLinePreservation:
             "steps": [{"step": "Step 1", "files": []}],
             "acceptance_criteria": ["AC1"],
         })
-        cli_json = json.dumps({"type": "result", "result": inner})
+        cli_json = json.dumps({"type": "result", "structured_output": json.loads(inner), "result": None})
 
         # Simulate CLI output: blank lines before/after the JSON blob
         raw_lines = [

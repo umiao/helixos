@@ -219,31 +219,34 @@ async def enrich_task_title(
             f"Claude CLI failed (exit {proc.returncode}): {stderr_text}",
         )
 
-    # Claude CLI wraps output in {"result": "..."}
+    # When --json-schema is used, CLI puts structured output in
+    # "structured_output" (already a dict), NOT "result" (which is null).
     cli_output = json.loads(stdout_bytes.decode("utf-8"))
-    result_text = cli_output.get("result", "")
+    result_data = cli_output.get("structured_output") or cli_output.get("result", "")
 
-    return _parse_enrichment(result_text)
+    return _parse_enrichment(result_data)
 
 
-def _parse_enrichment(text: str) -> dict[str, str]:
+def _parse_enrichment(text: str | dict) -> dict[str, str]:
     """Parse the Claude CLI enrichment result into description + priority.
 
     Args:
-        text: The ``result`` field from Claude CLI JSON output.
+        text: The ``structured_output`` (dict) or ``result`` (str) field
+            from Claude CLI JSON output.
 
     Returns:
         Dict with ``description`` and ``priority`` keys.
     """
     try:
-        data = json.loads(text)
+        data = text if isinstance(text, dict) else json.loads(text)
         result = EnrichmentResult.model_validate(data)
         description = result.description
         priority = result.priority
     except (json.JSONDecodeError, ValidationError, KeyError, TypeError) as exc:
+        raw_repr = str(text)
         logger.warning(
             "Failed to parse enrichment response: %s. Raw (%d chars): %.500s",
-            exc, len(text), text,
+            exc, len(raw_repr), raw_repr,
         )
         description = ""
         priority = "P1"
@@ -458,8 +461,9 @@ async def generate_task_plan(
             except json.JSONDecodeError:
                 continue
 
-    result_text = cli_output.get("result", "")
-    plan_data = _parse_plan(result_text)
+    # structured_output is a dict when --json-schema was used; fall back to result
+    result_data = cli_output.get("structured_output") or cli_output.get("result", "")
+    plan_data = _parse_plan(result_data)
 
     # Structural validation: reject empty/incomplete plans before caller marks "ready"
     is_valid, reason = _validate_plan_structure(plan_data)
@@ -488,27 +492,29 @@ def _validate_plan_structure(plan_data: dict) -> tuple[bool, str]:
     return True, "ok"
 
 
-def _parse_plan(text: str) -> dict:
+def _parse_plan(text: str | dict) -> dict:
     """Parse the Claude CLI plan generation result.
 
     Args:
-        text: The ``result`` field from Claude CLI JSON output.
+        text: The ``structured_output`` (dict) or ``result`` (str) field
+            from Claude CLI JSON output.
 
     Returns:
         Dict with ``plan``, ``steps``, and ``acceptance_criteria`` keys.
     """
     try:
-        data = json.loads(text)
+        data = text if isinstance(text, dict) else json.loads(text)
         result = PlanResult.model_validate(data)
         plan = result.plan
         steps = [s.model_dump() for s in result.steps]
         acceptance_criteria = result.acceptance_criteria
     except (json.JSONDecodeError, ValidationError, KeyError, TypeError) as exc:
+        raw_repr = str(text)
         logger.warning(
             "Failed to parse plan response: %s. Raw (%d chars): %.500s",
-            exc, len(text), text,
+            exc, len(raw_repr), raw_repr,
         )
-        plan = text if text else ""
+        plan = text if isinstance(text, str) and text else ""
         steps = []
         acceptance_criteria = []
 

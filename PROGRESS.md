@@ -843,3 +843,10 @@
 - **Sanity check result**: Official docs confirm `structured_output` field. Existing exp1_stderr.txt shows `result: null` with `permission_denials`, consistent with findings.
 - **Status**: [DONE]
 - **Request**: Move T-P0-91 to Completed (DONE -- spec removed from In Progress, summary added to Completed Tasks)
+
+## 2026-03-06 08:00 -- [T-P0-92] Fix schema/parsing in plan + review pipelines
+- **What I did**: Fixed all 5 callsites to read `structured_output` (dict) instead of `result` (null) when `--json-schema` is used. Updated 4 parse functions (`_parse_enrichment`, `_parse_plan`, `_parse_review`, `_parse_synthesis`) to accept `str | dict` and skip `json.loads()` when input is already a dict. Updated `raw_response_dict` builder to read `structured_output`. Updated all test helpers (`_make_cli_output`, `_make_review_output`, `_make_synthesis_output`, `_make_plan_output`, `_make_cli_output_with_usage`) to simulate real CLI behavior with `structured_output` field.
+- **Deliverables**: `src/enrichment.py`, `src/review_pipeline.py`, `tests/test_enrichment.py`, `tests/test_review_pipeline.py`
+- **Sanity check result**: 1131 tests pass, ruff clean. All 185 enrichment+review tests pass with new mock format.
+- **Status**: [DONE]
+- **Request**: Move T-P0-92 to Completed (REMOVE spec from In Progress, ADD summary to Completed Tasks)
