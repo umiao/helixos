@@ -83,25 +83,6 @@
   2. Finalization checks epoch match before state transition
   3. Test for concurrent finalization attempt
 
-#### T-P2-78: SubprocessRunner design doc
-- **Priority**: P2
-- **Complexity**: S
-- **Depends on**: T-P1-70
-- **Description**: Design shared `SubprocessRunner` abstraction unifying subprocess management patterns across enrichment.py, review_pipeline.py, code_executor.py, process_manager.py. (Reverted to queued -- was picked up by orchestrator during stream-json logging bug investigation.)
-- **Acceptance Criteria**:
-  1. Design doc in `docs/architecture/subprocess-runner.md`
-  2. Covers: process group isolation, timeout, readline streaming, persist-first, platform guards
-
-#### T-P2-79: SubprocessRunner implementation + refactor
-- **Priority**: P2
-- **Complexity**: M
-- **Depends on**: T-P2-78
-- **Description**: Implement SubprocessRunner and refactor 4 callsites to use it.
-- **Acceptance Criteria**:
-  1. `src/subprocess_runner.py` with shared abstraction
-  2. All 4 callsites refactored
-  3. Existing tests pass unchanged
-
 
 #### T-P2-80: State machine diagram documentation
 - **Priority**: P2
@@ -156,6 +137,83 @@
   8. Tests: gate ON -> REVIEW, gate OFF -> QUEUED, no planned tasks -> started=0, concurrent request -> skipped via optimistic lock
   9. Manual smoke test: click "Start N Planned" -> tasks move to correct column -> SSE updates UI in real-time
 
+#### T-P1-86: Claude Agent SDK adapter layer
+- **Priority**: P1
+- **Complexity**: M
+- **Depends on**: None
+- **Description**: Add `claude-agent-sdk` to requirements.txt. Create `src/sdk_adapter.py` with typed event models (`ClaudeEvent`, `AssistantTurn`, `ToolAction`, `ClaudeResult`) and `run_claude_query(prompt, options) -> AsyncIterator[ClaudeEvent]` wrapping the SDK's `query()`. Include `collect_turns()` utility for conversation reconstruction. Spike SDK flag compatibility (`permission_mode`, `add_dirs`, `max_budget_usd`) before implementation. Adapter returns an async iterator -- no callbacks. JSONL logging is consumer's responsibility, not adapter's.
+- **Acceptance Criteria**:
+  1. `claude-agent-sdk` in requirements.txt, importable
+  2. `ClaudeEvent`, `AssistantTurn`, `ToolAction`, `ClaudeResult` Pydantic models in `src/sdk_adapter.py`
+  3. `run_claude_query()` returns `AsyncIterator[ClaudeEvent]` translating SDK messages to typed events
+  4. `collect_turns()` reconstructs conversation turns from event stream (handles tool_use -> tool_result across turn boundaries)
+  5. SDK flag spike documented: verify `permission_mode`, `add_dirs`, `max_budget_usd` behave as expected
+  6. Unit tests with mocked `query()` verify event translation and turn reconstruction
+  7. Adapter does NOT do JSONL logging
+
+#### T-P1-87: Migrate enrichment.py to Agent SDK
+- **Priority**: P1
+- **Complexity**: S
+- **Depends on**: T-P1-86
+- **Description**: Replace both `asyncio.create_subprocess_exec` calls in `enrichment.py` (enrich_task + generate_task_plan) with `run_claude_query()`. Simplest call site -- proof-of-concept. For enrich_task: consume events, extract ClaudeResult.structured_output. For generate_task_plan: consume streaming events, emit to event_bus.
+- **Acceptance Criteria**:
+  1. Both enrichment functions use `run_claude_query()`, no raw subprocess calls
+  2. `enrich_task()` returns same dict shape via `ClaudeResult.structured_output`
+  3. `generate_task_plan()` streaming: events emitted to event_bus for UI
+  4. Existing enrichment tests pass unchanged
+  5. Manual smoke test: create a task, verify enrichment produces description + priority
+
+#### T-P1-88: Migrate code_executor.py to Agent SDK
+- **Priority**: P1
+- **Complexity**: M
+- **Depends on**: T-P1-86
+- **Description**: Replace `asyncio.create_subprocess_exec` in `CodeExecutor.execute()` with `run_claude_query()`. Consumer handles JSONL logging, event_bus emission, and heartbeat (emit [PROGRESS] if no event for 30s). Remove `_progress_reporter()` from readline loop.
+- **Acceptance Criteria**:
+  1. `execute()` uses `run_claude_query()`, no raw subprocess
+  2. Events streamed to event_bus for real-time UI
+  3. JSONL persistence: consumer writes each `ClaudeEvent` to lazy file writer
+  4. Heartbeat: if no event for 30s, emit `[PROGRESS]` heartbeat to UI
+  5. Timeout behavior preserved (external `asyncio.timeout` wrapping the iterator)
+  6. Cancellation works (breaking from iterator + cleanup)
+  7. Existing code_executor tests pass unchanged
+
+#### T-P1-89: Migrate review_pipeline.py + conversation extraction
+- **Priority**: P1
+- **Complexity**: M
+- **Depends on**: T-P1-86
+- **Description**: Replace `_call_claude_cli()` with `run_claude_query()`. Use `collect_turns()` from adapter to reconstruct conversation. Build summary from turns. Key fix: review produces meaningful conversation content, not just `[PROGRESS]` heartbeats.
+- **Acceptance Criteria**:
+  1. `_call_claude_cli()` uses `run_claude_query()`, no raw subprocess
+  2. Conversation turns: `collect_turns()` produces `list[AssistantTurn]` with text + tool actions
+  3. Summary: post-processing extracts `{"findings": [...], "actions_taken": [...], "conclusion": "..."}`
+  4. Both stored: turns in `review.conversation_turns` (new field), summary in `review.summary`
+  5. `raw_response` still stores model/usage/result metadata (backward compat)
+  6. JSONL logging + heartbeat as consumer responsibility
+  7. Existing review_pipeline tests pass unchanged
+
+#### T-P1-90: Remove dead subprocess boilerplate
+- **Priority**: P1
+- **Complexity**: S
+- **Depends on**: T-P1-87, T-P1-88, T-P1-89
+- **Description**: Remove `_StreamJsonBuffer`, `_simplify_stream_event()`, `_LazyFileWriter` (if replaced), `_progress_reporter()`, platform-specific `CREATE_NEW_PROCESS_GROUP`/`start_new_session` blocks, `SUBPROCESS_STREAM_LIMIT` constant. process_manager.py dev-server launch is out of scope.
+- **Acceptance Criteria**:
+  1. No `asyncio.create_subprocess_exec` for Claude CLI invocation
+  2. `_StreamJsonBuffer`, `_simplify_stream_event()` removed
+  3. All tests pass, ruff clean
+  4. Net line count reduction >= 300 lines
+
+#### T-P2-91: Conversation extraction mock tests with real fixtures
+- **Priority**: P2
+- **Complexity**: S
+- **Depends on**: T-P1-89
+- **Description**: Persist real Claude CLI output as test fixtures. Write tests that feed fixtures through `collect_turns()` and summary extraction, verifying meaningful output (not just `[PROGRESS]` lines). Focus on output quality, not input completeness.
+- **Acceptance Criteria**:
+  1. `tests/fixtures/` contains 2-3 real output samples (review, execution, enrichment)
+  2. Tests verify `collect_turns()` produces non-empty text + tool actions
+  3. Tests verify summary extraction produces non-empty findings/actions
+  4. Tests verify `ClaudeResult.structured_output` correctly extracted
+  5. Deterministic (no live CLI calls)
+
 
 ### P1-UX -- Polish
 
@@ -170,6 +228,11 @@
 - T-P0-95 depends on T-P0-92, T-P0-93
 - T-P0-96 depends on T-P0-93
 - T-P1-85 depends on T-P1-84
+- T-P1-87 depends on T-P1-86
+- T-P1-88 depends on T-P1-86
+- T-P1-89 depends on T-P1-86
+- T-P1-90 depends on T-P1-87, T-P1-88, T-P1-89
+- T-P2-91 depends on T-P1-89
 
 
 ---
