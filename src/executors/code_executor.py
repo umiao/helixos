@@ -1,6 +1,6 @@
 """CodeExecutor -- spawns ``claude`` CLI in a project's git repo.
 
-Per PRD Section 7.2: runs ``claude -p "..." --allowedTools ... --output-format json``
+Per PRD Section 7.2: runs ``claude -p "..." --allowedTools ... --output-format stream-json``
 via ``asyncio.create_subprocess_exec`` with timeout, streaming, and cancel support.
 
 Process group handling:
@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import json
 import logging
 import os
 import re
@@ -27,6 +28,7 @@ import signal
 import sys
 import time
 from collections.abc import Callable
+from datetime import UTC, datetime
 
 from src.config import OrchestratorSettings
 from src.executors.base import BaseExecutor, ErrorType, ExecutorResult
@@ -101,6 +103,126 @@ def _kill_process_group(proc: asyncio.subprocess.Process) -> None:
             os.killpg(os.getpgid(pid), signal.SIGKILL)
 
 
+class _StreamJsonBuffer:
+    """Incremental buffer that accumulates raw text and yields parsed JSON objects.
+
+    Handles the case where a JSON object might be split across multiple reads
+    (though readline-based I/O typically delivers complete lines). Each call to
+    ``feed()`` returns a list of successfully parsed JSON dicts from the input.
+    Non-JSON lines are returned separately via the ``non_json`` attribute after
+    each ``feed()`` call.
+    """
+
+    def __init__(self) -> None:
+        """Initialize with empty buffer."""
+        self._partial: str = ""
+        self.non_json: list[str] = []
+
+    def feed(self, text: str) -> list[dict]:
+        """Feed a text chunk and return any complete JSON objects found.
+
+        Args:
+            text: Raw text (possibly containing multiple lines).
+
+        Returns:
+            List of parsed JSON dicts from complete lines.
+        """
+        self.non_json = []
+        combined = self._partial + text
+        self._partial = ""
+
+        results: list[dict] = []
+        lines = combined.split("\n")
+
+        # If text doesn't end with newline, last element is partial
+        if not combined.endswith("\n"):
+            self._partial = lines.pop()
+
+        for line in lines:
+            stripped = line.strip()
+            if not stripped:
+                continue
+            try:
+                obj = json.loads(stripped)
+                if isinstance(obj, dict):
+                    results.append(obj)
+                else:
+                    self.non_json.append(stripped)
+            except (json.JSONDecodeError, ValueError):
+                self.non_json.append(stripped)
+
+        return results
+
+
+def _simplify_stream_event(event: dict) -> str | None:
+    """Derive a simplified text line from a parsed stream-json event.
+
+    Maps stream-json event types to human-readable text for backward-compatible
+    ``on_log()`` output:
+    - assistant text -> emit the text content
+    - tool_use -> ``[TOOL] name(...)``
+    - tool_result -> ``[RESULT] content[:200]``
+    - result -> ``[DONE]``
+
+    Args:
+        event: A parsed JSON dict from stream-json output.
+
+    Returns:
+        Simplified text string, or None if the event has no useful text.
+    """
+    event_type = event.get("type", "")
+
+    if event_type == "assistant":
+        # Assistant text message
+        content = event.get("content", "")
+        if isinstance(content, list):
+            # Content blocks - extract text blocks
+            parts = []
+            for block in content:
+                if isinstance(block, dict) and block.get("type") == "text":
+                    parts.append(block.get("text", ""))
+            return " ".join(parts) if parts else None
+        if isinstance(content, str) and content:
+            return content
+        # Also check for message.content pattern
+        message = event.get("message", {})
+        if isinstance(message, dict):
+            msg_content = message.get("content", "")
+            if isinstance(msg_content, str) and msg_content:
+                return msg_content
+        return None
+
+    if event_type == "content_block_delta":
+        delta = event.get("delta", {})
+        if isinstance(delta, dict):
+            text = delta.get("text", "")
+            if text:
+                return text
+        return None
+
+    if event_type == "tool_use":
+        name = event.get("name", "unknown")
+        tool_input = event.get("input", {})
+        input_str = json.dumps(tool_input, ensure_ascii=False) if tool_input else ""
+        if len(input_str) > 200:
+            input_str = input_str[:200] + "..."
+        return f"[TOOL] {name}({input_str})"
+
+    if event_type == "tool_result":
+        content = event.get("content", "")
+        if isinstance(content, str):
+            display = content[:200] + "..." if len(content) > 200 else content
+        else:
+            raw = json.dumps(content, ensure_ascii=False)
+            display = raw[:200] + "..." if len(raw) > 200 else raw
+        return f"[RESULT] {display}"
+
+    if event_type == "result":
+        return "[DONE]"
+
+    return None
+
+
 class CodeExecutor(BaseExecutor):
     """Executor that spawns ``claude`` CLI in a project's git repo.
 
@@ -121,6 +243,7 @@ class CodeExecutor(BaseExecutor):
         project: Project,
         env: dict[str, str],
         on_log: Callable[[str], None],
+        on_stream_event: Callable[[dict], None] | None = None,
     ) -> ExecutorResult:
         """Spawn ``claude`` CLI, stream stdout, enforce timeout.
 
@@ -133,6 +256,7 @@ class CodeExecutor(BaseExecutor):
             project: The project this task belongs to.
             env: Environment variables to inject (merged with os.environ).
             on_log: Callback invoked for each line of stdout.
+            on_stream_event: Optional callback for parsed stream-json events.
 
         Returns:
             ExecutorResult with success status, exit code, and log tail.
@@ -151,7 +275,7 @@ class CodeExecutor(BaseExecutor):
             "--allowedTools",
             "Bash,Read,Write,Edit,MultiTool",
             "--output-format",
-            "json",
+            "stream-json",
         ]
 
         session_timeout = self._config.session_timeout_minutes * 60
@@ -181,11 +305,19 @@ class CodeExecutor(BaseExecutor):
             **kwargs,  # type: ignore[arg-type]
         )
 
+        # -- JSONL log persistence --
+        log_dir = self._config.stream_log_dir / task.id.replace(":", "_")
+        log_dir.mkdir(parents=True, exist_ok=True)
+        timestamp_str = datetime.now(UTC).strftime("%Y%m%dT%H%M%S")
+        jsonl_path = log_dir / f"stream_{timestamp_str}.jsonl"
+        jsonl_file = open(jsonl_path, "w", encoding="utf-8")  # noqa: SIM115
+
         log_lines: list[str] = []
         timed_out = False
         inactivity_detected = False
         line_count = 0
         last_output_time = start
+        buffer = _StreamJsonBuffer()
 
         # Background task that emits [PROGRESS] log entries periodically
         async def _progress_reporter() -> None:
@@ -233,11 +365,37 @@ class CodeExecutor(BaseExecutor):
                         break
 
                     decoded = raw_line.decode("utf-8").strip()
-                    if decoded:
-                        log_lines.append(decoded)
-                        on_log(decoded)
-                        line_count += 1
-                        last_output_time = time.monotonic()
+                    if not decoded:
+                        continue
+
+                    line_count += 1
+                    last_output_time = time.monotonic()
+
+                    # Try to parse as stream-json
+                    parsed_events = buffer.feed(decoded + "\n")
+                    non_json = buffer.non_json
+
+                    for event_dict in parsed_events:
+                        # Persist to JSONL
+                        jsonl_file.write(
+                            json.dumps(event_dict, ensure_ascii=False) + "\n"
+                        )
+                        jsonl_file.flush()
+
+                        # Call stream event callback
+                        if on_stream_event is not None:
+                            on_stream_event(event_dict)
+
+                        # Derive simplified text for backward-compat on_log
+                        simplified = _simplify_stream_event(event_dict)
+                        if simplified:
+                            log_lines.append(simplified)
+                            on_log(simplified)
+
+                    # Non-JSON lines fall back to on_log as raw text
+                    for raw_text in non_json:
+                        log_lines.append(raw_text)
+                        on_log(raw_text)
 
                 if not inactivity_detected:
                     await self._proc.wait()
@@ -251,6 +409,7 @@ class CodeExecutor(BaseExecutor):
             progress_task.cancel()
             with contextlib.suppress(asyncio.CancelledError):
                 await progress_task
+            jsonl_file.close()
 
         # -- Terminate process group if needed --
         if timed_out or inactivity_detected:

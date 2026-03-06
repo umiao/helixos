@@ -57,6 +57,7 @@ class MockExecutor(BaseExecutor):
         project: Project,
         env: dict[str, str],
         on_log: Callable[[str], None],
+        on_stream_event: Callable[[dict], None] | None = None,
     ) -> ExecutorResult:
         """Record the call, invoke on_log, and return the result."""
         self.calls.append(task.id)
@@ -108,6 +109,7 @@ class FailThenSucceedExecutor(BaseExecutor):
         project: Project,
         env: dict[str, str],
         on_log: Callable[[str], None],
+        on_stream_event: Callable[[dict], None] | None = None,
     ) -> ExecutorResult:
         """Fail for the first N calls, then succeed."""
         self.calls.append(task.id)
@@ -311,7 +313,7 @@ class TestSchedulerTick:
         class CrashingExecutor(BaseExecutor):
             """Executor that raises an exception."""
 
-            async def execute(self, task, project, env, on_log):
+            async def execute(self, task, project, env, on_log, on_stream_event=None):
                 """Raise an unhandled error."""
                 raise RuntimeError("kaboom")
 
@@ -1285,7 +1287,7 @@ class TestErrorDetailsInAlerts:
         class CrashingExecutor(BaseExecutor):
             """Executor that raises a specific exception."""
 
-            async def execute(self, task, project, env, on_log):
+            async def execute(self, task, project, env, on_log, on_stream_event=None):
                 """Raise ValueError."""
                 raise ValueError("missing config key")
 
@@ -1670,6 +1672,7 @@ class TestImmediateDispatch:
                 self, task: Task, project: Project,
                 env: dict[str, str],
                 on_log: Callable[[str], None],
+                on_stream_event: Callable[[dict], None] | None = None,
             ) -> ExecutorResult:
                 """Record task execution time."""
                 executed.append((task.id, time.monotonic()))
@@ -1729,6 +1732,7 @@ class TestImmediateDispatch:
                 self, task: Task, project: Project,
                 env: dict[str, str],
                 on_log: Callable[[str], None],
+                on_stream_event: Callable[[dict], None] | None = None,
             ) -> ExecutorResult:
                 """Block on task A, return immediately for others."""
                 dispatched.append(task.id)
@@ -1797,6 +1801,7 @@ class TestImmediateDispatch:
                 self, task: Task, project: Project,
                 env: dict[str, str],
                 on_log: Callable[[str], None],
+                on_stream_event: Callable[[dict], None] | None = None,
             ) -> ExecutorResult:
                 """Count execution per task."""
                 execution_count[task.id] = execution_count.get(task.id, 0) + 1

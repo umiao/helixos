@@ -55,6 +55,7 @@ class BaseExecutor(ABC):
         project: Project,
         env: dict[str, str],
         on_log: Callable[[str], None],
+        on_stream_event: Callable[[dict], None] | None = None,
     ) -> ExecutorResult:
         """Execute a task and return the result."""
         ...

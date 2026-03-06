@@ -691,7 +691,7 @@ class TestSubprocessArgs:
         assert "-p" in cmd
         assert "--allowedTools" in cmd
         assert "--output-format" in cmd
-        assert "json" in cmd
+        assert "stream-json" in cmd
 
     @patch("src.executors.code_executor.asyncio.create_subprocess_exec")
     async def test_cwd_is_repo_path(

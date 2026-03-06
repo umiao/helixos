@@ -430,6 +430,19 @@ class ReviewHistoryResponse(BaseModel):
 
 
 # ------------------------------------------------------------------
+# Stream log schemas
+# ------------------------------------------------------------------
+
+
+class StreamLogResponse(BaseModel):
+    """Response schema for the stream-log endpoint."""
+
+    task_id: str
+    file: str
+    events: list[dict]
+
+
+# ------------------------------------------------------------------
 # Error schemas
 # ------------------------------------------------------------------
 

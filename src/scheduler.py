@@ -535,6 +535,12 @@ class Scheduler:
                         self._history_writer.write_log(task.id, line),
                     )
 
+            def on_stream_event(event_dict: dict) -> None:
+                self._event_bus.emit(
+                    "execution_stream", task.id, event_dict,
+                    origin="execution",
+                )
+
             # DB-first: log execution start
             if self._history_writer is not None:
                 await self._history_writer.write_log(
@@ -542,7 +548,7 @@ class Scheduler:
                 )
 
             result = await self._run_with_retry(
-                executor, task, project, env, on_log,
+                executor, task, project, env, on_log, on_stream_event,
             )
 
             if result.success:
@@ -684,6 +690,7 @@ class Scheduler:
         project: Project,
         env: dict[str, str],
         on_log: Callable[[str], None],
+        on_stream_event: Callable[[dict], None] | None = None,
     ) -> ExecutorResult:
         """Execute with exponential backoff retry.
 
@@ -696,11 +703,15 @@ class Scheduler:
             project: The project this task belongs to.
             env: Environment variables for the execution.
             on_log: Callback for log output.
+            on_stream_event: Optional callback for parsed stream-json events.
 
         Returns:
             The final ExecutorResult (success or last failure).
         """
-        result = await executor.execute(task, project, env=env, on_log=on_log)
+        result = await executor.execute(
+            task, project, env=env, on_log=on_log,
+            on_stream_event=on_stream_event,
+        )
 
         if result.success:
             return result
@@ -727,6 +738,7 @@ class Scheduler:
             self._executors[task.id] = executor
             result = await executor.execute(
                 task, project, env=env, on_log=on_log,
+                on_stream_event=on_stream_event,
             )
 
             if result.success:

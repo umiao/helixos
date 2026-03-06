@@ -26,23 +26,6 @@
 ## Active Tasks
 
 ### P0 -- Must Have (core functionality)
-#### T-P0-87: Backend stream-json + Log Persistence
-- **Priority**: P1
-- **Complexity**: M
-- **Depends on**: None
-- **Description**: Switch Claude CLI from `--output-format json` to `--output-format stream-json` for real-time structured streaming. Add incremental buffer-based JSON parsing (`_StreamJsonBuffer`), `on_stream_event` callback through executor chain, JSONL log persistence to `data/logs/{task_id}/`, and `GET /api/tasks/{task_id}/stream-log` endpoint. New SSE event type `execution_stream` with `origin="execution"`.
-- **Acceptance Criteria**:
-  1. `code_executor.py`: `--output-format stream-json` replaces `--output-format json`
-  2. `_StreamJsonBuffer` class accumulates raw bytes and yields complete JSON objects (handles split lines)
-  3. `on_stream_event: Callable[[dict], None] | None = None` param added to `BaseExecutor.execute()` and `CodeExecutor.execute()`
-  4. Simplified text derived from parsed events for backward-compat `on_log()`: assistant text -> emit text, tool_use -> `[TOOL] {name}(...)`, tool_result -> `[RESULT] {content[:200]}`, result -> `[DONE]`
-  5. Non-JSON lines fall back to `on_log()` as raw text (no crash)
-  6. JSONL file created at `data/logs/{task_id}/stream_{YYYYMMDDTHHMMSS}.jsonl`, flushed per line, closed in `finally`
-  7. `stream_log_dir: Path` added to `OrchestratorSettings` (default `Path("data/logs")`)
-  8. `GET /api/tasks/{task_id}/stream-log` returns `{task_id, file, events}` from most recent JSONL
-  9. `scheduler.py` wires `on_stream_event` callback that emits `execution_stream` SSE event
-  10. Tests: mock subprocess stdout with known stream-json lines, assert `on_stream_event` called with parsed dicts, assert `on_log` called with simplified text, assert JSONL file valid, assert API endpoint returns parsed events, assert malformed lines don't crash
-
 #### T-P0-89: Frontend Conversation View
 - **Priority**: P1
 - **Complexity**: M
@@ -232,6 +215,9 @@
 ## Completed Tasks
 
 > 79 completed tasks archived to [archive/completed_tasks.md](archive/completed_tasks.md).
+
+#### [x] T-P0-87: Backend stream-json + Log Persistence -- 2026-03-06
+- Switched `--output-format json` to `stream-json`. Added `_StreamJsonBuffer` for incremental JSON parsing, `on_stream_event` callback through executor chain, `_simplify_stream_event` for backward-compat `on_log`, JSONL persistence to `data/logs/{task_id}/`, `GET /api/tasks/{task_id}/stream-log` endpoint, `execution_stream` SSE event type. 26 new tests, 1124 total passing, ruff clean.
 
 #### [x] T-P0-51: TASKS.md lifecycle model + archive separation -- 2026-03-04
 - Archived 78 completed tasks to archive/completed_tasks.md. Relocated dependency graph to docs/architecture/dependency-graph-history.md. Added task schema template with required fields. TASKS.md reduced from 474 to 97 lines (under 300 invariant). 1000 tests passing.

@@ -8,6 +8,7 @@ business logic to TaskManager, Scheduler, ReviewPipeline, and TasksParser.
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import json
 import logging
 import sys
@@ -66,6 +67,7 @@ from src.schemas import (
     ReviewHistoryResponse,
     ReviewStateResponse,
     StatusTransitionRequest,
+    StreamLogResponse,
     SyncAllResponse,
     SyncResponse,
     TaskResponse,
@@ -1847,6 +1849,53 @@ async def get_task_logs(
         offset=offset,
         limit=limit,
         entries=[ExecutionLogEntry(**e) for e in entries],
+    )
+
+
+@api_router.get(
+    "/api/tasks/{task_id}/stream-log",
+    responses={404: {"model": ErrorResponse}},
+)
+async def get_task_stream_log(
+    task_id: str,
+    request: Request,
+) -> StreamLogResponse:
+    """Get the most recent stream-json JSONL log for a task.
+
+    Returns parsed events from the most recent JSONL file in
+    ``data/logs/{task_id}/``.
+    """
+    config: OrchestratorConfig = request.app.state.config
+    task_manager: TaskManager = request.app.state.task_manager
+
+    task = await task_manager.get_task(task_id)
+    if task is None:
+        raise HTTPException(status_code=404, detail=f"Task not found: {task_id}")
+
+    log_dir = (
+        config.orchestrator.stream_log_dir / task_id.replace(":", "_")
+    )
+    if not log_dir.is_dir():
+        return StreamLogResponse(task_id=task_id, file="", events=[])
+
+    # Find the most recent JSONL file
+    jsonl_files = sorted(log_dir.glob("stream_*.jsonl"))
+    if not jsonl_files:
+        return StreamLogResponse(task_id=task_id, file="", events=[])
+
+    latest = jsonl_files[-1]
+    events: list[dict] = []
+    with open(latest, encoding="utf-8") as f:
+        for line in f:
+            stripped = line.strip()
+            if stripped:
+                with contextlib.suppress(json.JSONDecodeError, ValueError):
+                    events.append(json.loads(stripped))
+
+    return StreamLogResponse(
+        task_id=task_id,
+        file=latest.name,
+        events=events,
     )
 
 

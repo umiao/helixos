@@ -801,3 +801,10 @@
 - **Sanity check result**: 89/89 test_enrichment.py pass (12 new). 96/96 test_review_pipeline.py pass (11 new). Full suite 1099 tests pass. Ruff clean. Hook JSON verified: echo '{}' | python .claude/hooks/lint_check.py outputs {"ok": true}.
 - **Status**: [DONE]
 - **Request**: Move T-P1-86 to Completed
+
+## 2026-03-06 01:00 -- [T-P0-87] Backend stream-json + Log Persistence
+- **What I did**: Switched Claude CLI from `--output-format json` to `--output-format stream-json`. Added `_StreamJsonBuffer` class for incremental JSON parsing with split-line handling. Added `on_stream_event: Callable[[dict], None] | None` parameter to `BaseExecutor.execute()` and `CodeExecutor.execute()`. Added `_simplify_stream_event()` for backward-compat `on_log` text (assistant->text, tool_use->[TOOL], tool_result->[RESULT], result->[DONE]). Added JSONL log persistence to `data/logs/{task_id}/stream_{timestamp}.jsonl` with per-line flush. Added `stream_log_dir` to `OrchestratorSettings`. Added `GET /api/tasks/{task_id}/stream-log` endpoint returning events from most recent JSONL. Wired `on_stream_event` in scheduler to emit `execution_stream` SSE event with `origin="execution"`. Updated all mock executor subclasses across 4 test files to accept the new parameter.
+- **Deliverables**: src/executors/code_executor.py, src/executors/base.py, src/config.py, src/scheduler.py, src/schemas.py, src/api.py, tests/test_stream_json.py (new, 26 tests), tests/test_code_executor.py, tests/test_scheduler.py, tests/test_review_gate.py, tests/integration/conftest.py, tests/integration/test_sync_to_execute.py
+- **Sanity check result**: 26/26 new stream-json tests pass. Full suite 1124 tests pass. Ruff clean.
+- **Status**: [DONE]
+- **Request**: Move T-P0-87 to Completed

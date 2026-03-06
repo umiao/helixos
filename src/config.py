@@ -59,6 +59,7 @@ class OrchestratorSettings(BaseModel):
     )
     max_total_subprocesses: int = Field(default=100, ge=1)
     inactivity_timeout_minutes: int = Field(default=0, ge=0)
+    stream_log_dir: Path = Path("data/logs")
 
     @model_validator(mode="after")
     def _expand_paths(self) -> OrchestratorSettings:

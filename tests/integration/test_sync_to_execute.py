@@ -147,7 +147,7 @@ async def test_sync_to_execute_with_git_commit(
 
     # The mock executor simulates file creation for git commit
     async def mock_execute_and_create_file(
-        task, project, env, on_log,
+        task, project, env, on_log, on_stream_event=None,
     ) -> ExecutorResult:
         """Simulate work by creating a file in the repo."""
         new_file = temp_project_repo / "output.txt"
