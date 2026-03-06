@@ -31,17 +31,6 @@
 
 
 
-#### T-P0-97: Add real-CLI integration test for stream pipeline
-- **Priority**: P0
-- **Complexity**: S
-- **Depends on**: T-P0-94, T-P0-95
-- **Description**: End-to-end test that runs actual Claude CLI (not mocked). Verifies JSONL files contain real stream events. Verifies API endpoint returns non-empty events. Marked as manual/nightly (not blocking CI -- may fail without API key/network).
-- **Acceptance Criteria**:
-  1. Integration test script that exercises plan, review, and execution
-  2. Asserts JSONL files non-empty with valid JSON events
-  3. Asserts stream-log API returns events
-  4. Clearly marked as manual/nightly (skipped in normal pytest run)
-
 #### T-P1-70: Extract `_is_process_alive()` to shared module
 - **Priority**: P1
 - **Complexity**: S
@@ -195,7 +184,6 @@
 - T-P0-94 depends on T-P0-92, T-P0-93
 - T-P0-95 depends on T-P0-92, T-P0-93
 - T-P0-96 depends on T-P0-93
-- T-P0-97 depends on T-P0-94, T-P0-95
 - T-P1-85 depends on T-P1-84
 
 
@@ -207,6 +195,9 @@
 ## Completed Tasks
 
 > 99 completed tasks archived to [archive/completed_tasks.md](archive/completed_tasks.md).
+
+#### [x] T-P0-97: Add real-CLI integration test for stream pipeline -- 2026-03-06
+- Created `tests/integration/test_stream_cli.py` with 4 tests covering execution (CodeExecutor), plan generation (generate_task_plan), review (_call_claude_cli), and API endpoint (stream-log). Tests use `@pytest.mark.cli_integration` and are auto-skipped unless `-m cli_integration` is passed. Added `pytest_collection_modifyitems` hook in `tests/conftest.py` for auto-skip. Registered `cli_integration` marker in `pyproject.toml`. 1159 tests pass + 4 skipped, ruff clean.
 
 #### [x] T-P0-96: Fix log creation strategy -- lazy file creation + cleanup -- 2026-03-06
 - Added `_LazyFileWriter` class that defers file creation to first `write()` call, preventing empty log files. Replaced eager `open()` in code_executor.py, enrichment.py, review_pipeline.py. Added `cleanup_empty_log_files()` for startup cleanup of 0-byte files, wired into `lifespan()`. 11 new tests. 1159 tests pass, ruff clean.

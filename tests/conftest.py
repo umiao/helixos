@@ -8,6 +8,17 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_asyn
 from src.db import Base
 
 
+def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item]) -> None:
+    """Auto-skip cli_integration tests unless explicitly selected via -m."""
+    marker_expr = config.getoption("-m", default="")
+    if "cli_integration" in str(marker_expr):
+        return  # user explicitly requested cli_integration tests
+    skip_cli = pytest.mark.skip(reason="cli_integration tests require -m cli_integration")
+    for item in items:
+        if "cli_integration" in item.keywords:
+            item.add_marker(skip_cli)
+
+
 @pytest.fixture
 async def async_engine():
     """Create an in-memory SQLite async engine for testing."""

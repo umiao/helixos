@@ -878,3 +878,10 @@
 - **Sanity check result**: 1159 tests pass, ruff clean.
 - **Status**: [DONE]
 - **Request**: Move T-P0-96 to Completed (REMOVE spec from Active, ADD summary to Completed Tasks)
+
+## 2026-03-06 13:00 -- [T-P0-97] Add real-CLI integration test for stream pipeline
+- **What I did**: Created `tests/integration/test_stream_cli.py` with 4 async tests that exercise the real Claude CLI: execution (CodeExecutor), plan generation (generate_task_plan), review (_call_claude_cli), and the stream-log API endpoint. Tests are marked `@pytest.mark.cli_integration` and auto-skipped in normal `pytest` runs via a `pytest_collection_modifyitems` hook in `tests/conftest.py`. Registered the `cli_integration` marker in `pyproject.toml`.
+- **Deliverables**: `tests/integration/test_stream_cli.py`, `tests/conftest.py`, `pyproject.toml`
+- **Sanity check result**: 1159 tests pass + 4 skipped (cli_integration), ruff clean.
+- **Status**: [DONE]
+- **Request**: Move T-P0-97 to Completed (REMOVE spec from Active, ADD summary to Completed Tasks)

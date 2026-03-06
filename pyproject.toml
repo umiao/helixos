@@ -46,4 +46,5 @@ asyncio_mode = "auto"
 markers = [
     "slow: marks tests as slow",
     "integration: marks tests requiring network access",
+    "cli_integration: marks tests requiring real Claude CLI + API key (manual/nightly only)",
 ]
