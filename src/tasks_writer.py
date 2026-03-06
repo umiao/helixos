@@ -20,6 +20,9 @@ logger = logging.getLogger(__name__)
 # Regex to extract task IDs like T-P0-1, T-P2-14
 TASK_ID_RE = re.compile(r"T-P(\d+)-(\d+)")
 
+# Regex to match `- **Plan**: <value>` lines
+PLAN_LINE_RE = re.compile(r"^-\s+\*\*Plan\*\*:\s*\S+\s*$")
+
 # Section header regex (## level)
 SECTION_RE = re.compile(r"^##\s+(.*)", re.MULTILINE)
 
@@ -282,3 +285,88 @@ class TasksWriter:
             success=True,
             backup_path=backup_path,
         )
+
+    def update_task_plan_status(self, task_id: str, status: str) -> bool:
+        """Insert or update ``- **Plan**: <status>`` for *task_id* in TASKS.md.
+
+        Creates a ``.bak`` backup before writing and validates the result.
+        Returns *True* on success, *False* on failure (file restored from
+        backup on validation error).
+        """
+        with self._thread_lock, self._file_lock:
+            return self._update_plan_status_locked(task_id, status)
+
+    def _update_plan_status_locked(self, task_id: str, status: str) -> bool:
+        """Internal: update plan status while holding the lock."""
+        if not self._path.is_file():
+            logger.warning("TASKS.md not found at %s, cannot update plan status", self._path)
+            return False
+
+        content = self._path.read_text(encoding="utf-8")
+        lines = content.split("\n")
+
+        # Find the task heading line
+        task_heading_idx: int | None = None
+        for i, line in enumerate(lines):
+            stripped = line.strip()
+            heading_match = re.match(r"^#{4,6}\s+", stripped)
+            if heading_match and task_id in stripped:
+                task_heading_idx = i
+                break
+
+        if task_heading_idx is None:
+            logger.warning("Task %s not found in %s", task_id, self._path)
+            return False
+
+        # Find the task's description block (lines after heading until
+        # next heading or section boundary)
+        block_end = len(lines)
+        for i in range(task_heading_idx + 1, len(lines)):
+            stripped = lines[i].strip()
+            if re.match(r"^#{1,6}\s+", stripped):
+                block_end = i
+                break
+
+        # Look for an existing Plan line within the block
+        plan_line_idx: int | None = None
+        # Track last metadata line (- **Key**: value) for insertion point
+        last_meta_idx: int | None = None
+        for i in range(task_heading_idx + 1, block_end):
+            stripped = lines[i].strip()
+            if PLAN_LINE_RE.match(stripped):
+                plan_line_idx = i
+                break
+            if re.match(r"^-\s+\*\*\w+.*\*\*:", stripped):
+                last_meta_idx = i
+
+        plan_line = f"- **Plan**: {status}"
+
+        if plan_line_idx is not None:
+            # Replace existing Plan line
+            lines[plan_line_idx] = plan_line
+        elif last_meta_idx is not None:
+            # Insert after last metadata line
+            lines.insert(last_meta_idx + 1, plan_line)
+        else:
+            # Insert right after the heading
+            lines.insert(task_heading_idx + 1, plan_line)
+
+        new_content = "\n".join(lines)
+
+        # Create .bak backup before writing
+        bak_path = self._path.with_suffix(".md.bak")
+        shutil.copy2(str(self._path), str(bak_path))
+        logger.info("Created backup: %s", bak_path)
+
+        self._path.write_text(new_content, encoding="utf-8")
+
+        # Post-write validation
+        error = _validate_written_file(self._path, task_id)
+        if error is not None:
+            logger.error("Post-write validation failed: %s", error)
+            shutil.copy2(str(bak_path), str(self._path))
+            logger.info("Restored from backup after validation failure")
+            return False
+
+        logger.info("Updated plan status for %s to %s", task_id, status)
+        return True

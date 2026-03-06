@@ -140,21 +140,6 @@
   1. Root cause identified (missing ORDER BY or frontend sort)
   2. Fix applied or task spec written for fix
 
-#### T-P1-84: Persist plan_status to TASKS.md (bidirectional sync)
-- **Priority**: P1
-- **Complexity**: M
-- **Depends on**: None
-- **Description**: plan_status is DB-only; every sync resets it to "none". Add `- **Plan**: ready` marker to TASKS.md after plan generation succeeds, and teach the parser/sync to read it back. Three-way semantics: line absent = don't touch DB (DB wins), explicit `ready`/`failed` = overwrite DB, explicit `none` = reset DB. Writer uses backup+validate pattern.
-- **Acceptance Criteria**:
-  1. `ParsedTask` has `plan_status: str | None = None` (None = line absent, sentinel semantics)
-  2. Parser recognizes `- **Plan**: <value>` with whitelist validation (`none`, `ready`, `failed`); invalid values -> None + warning
-  3. `TasksWriter.update_task_plan_status(task_id, status)` inserts/updates Plan field in TASKS.md (with .bak backup)
-  4. `upsert_task()` only updates DB plan_status when TASKS.md value is not None (absence = DB wins)
-  5. API `generate_plan` writes `- **Plan**: ready` to TASKS.md after DB update; failure logged at WARNING (non-fatal, with explicit message "DB plan_status=ready but TASKS.md not updated")
-  6. Round-trip test: generate plan -> TASKS.md shows `ready` -> sync -> DB plan_status still `ready`
-  7. Absence test: DB=ready, TASKS.md line absent -> sync -> DB still `ready`
-  8. All existing parser/writer tests still pass, ruff clean
-
 #### T-P1-85: Replace Launch button with "Start All Planned Tasks"
 - **Priority**: P1
 - **Complexity**: M
@@ -195,6 +180,9 @@
 ## Completed Tasks
 
 > 99 completed tasks archived to [archive/completed_tasks.md](archive/completed_tasks.md).
+
+#### [x] T-P1-84: Persist plan_status to TASKS.md (bidirectional sync) -- 2026-03-06
+- Added `plan_status: str | None` to ParsedTask, parser extracts `- **Plan**: <value>` with whitelist validation. TasksWriter.update_task_plan_status() inserts/updates Plan field with .bak backup. upsert_task() respects None=DB-wins semantics. API generate_plan writes Plan=ready to TASKS.md (non-fatal). 23 new tests. 1186 tests pass + 4 skipped, ruff clean.
 
 #### [x] T-P0-97: Add real-CLI integration test for stream pipeline -- 2026-03-06
 - Created `tests/integration/test_stream_cli.py` with 4 tests covering execution (CodeExecutor), plan generation (generate_task_plan), review (_call_claude_cli), and API endpoint (stream-log). Tests use `@pytest.mark.cli_integration` and are auto-skipped unless `-m cli_integration` is passed. Added `pytest_collection_modifyitems` hook in `tests/conftest.py` for auto-skip. Registered `cli_integration` marker in `pyproject.toml`. 1159 tests pass + 4 skipped, ruff clean.

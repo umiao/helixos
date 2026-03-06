@@ -857,6 +857,27 @@ async def generate_plan(task_id: str, request: Request) -> JSONResponse:
                 "plan_status_change", task_id, {"plan_status": "ready"},
                 origin="plan",
             )
+
+            # Persist plan_status=ready to TASKS.md (non-fatal on failure)
+            try:
+                _task = await task_manager.get_task(task_id)
+                if _task is not None:
+                    _project = registry.get_project(_task.project_id)
+                    if _project.repo_path is not None:
+                        _tasks_md = _project.repo_path / _project.tasks_file
+                        _writer = TasksWriter(_tasks_md)
+                        if not _writer.update_task_plan_status(
+                            _task.local_task_id, "ready",
+                        ):
+                            logger.warning(
+                                "DB plan_status=ready but TASKS.md not "
+                                "updated for %s", task_id,
+                            )
+            except Exception as _exc:
+                logger.warning(
+                    "DB plan_status=ready but TASKS.md not updated "
+                    "for %s: %s", task_id, _exc,
+                )
         except Exception as exc:
             logger.warning("Plan generation failed for %s: %s", task_id, exc)
             # Extract structured error info if available

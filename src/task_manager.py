@@ -174,7 +174,12 @@ class TaskManager:
 
         return task
 
-    async def upsert_task(self, task: Task) -> UpsertResult:
+    async def upsert_task(
+        self,
+        task: Task,
+        *,
+        plan_status: str | None = None,
+    ) -> UpsertResult:
         """Insert, resurrect, or update a task -- no exceptions on conflict.
 
         Handles all cases that ``sync_project_tasks`` needs:
@@ -182,6 +187,12 @@ class TaskManager:
         - Row soft-deleted: un-delete + full field update (resurrected)
         - Row exists + fields changed: UPDATE changed fields (updated)
         - Row exists + nothing changed: no-op (unchanged)
+
+        Args:
+            task: The task data to upsert.
+            plan_status: When not *None*, overwrite the DB ``plan_status``
+                column with this value.  *None* (line absent in TASKS.md)
+                means "DB wins" -- the existing value is preserved.
         """
         async with get_session(self._sf) as session:
             row = await session.get(TaskRow, task.id)
@@ -189,6 +200,8 @@ class TaskManager:
 
             if row is None:
                 data = task.model_dump(mode="json")
+                if plan_status is not None:
+                    data["plan_status"] = plan_status
                 new_row = TaskRow(**task_dict_to_row_kwargs(data))
                 session.add(new_row)
                 return UpsertResult.created
@@ -201,6 +214,8 @@ class TaskManager:
                     return UpsertResult.skipped_deleted
                 # sync-deleted or legacy (NULL) -- allow resurrection
                 data = task.model_dump(mode="json")
+                if plan_status is not None:
+                    data["plan_status"] = plan_status
                 kwargs = task_dict_to_row_kwargs(data)
                 for key, value in kwargs.items():
                     setattr(row, key, value)
@@ -219,6 +234,10 @@ class TaskManager:
             if row.status != task.status.value and task.status == TaskStatus.DONE:
                 # Force DONE transition when TASKS.md says completed
                 row.status = task.status.value
+                changed = True
+            # plan_status: only overwrite when TASKS.md explicitly sets it
+            if plan_status is not None and row.plan_status != plan_status:
+                row.plan_status = plan_status
                 changed = True
 
             if changed:

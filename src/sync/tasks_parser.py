@@ -47,6 +47,13 @@ DEFAULT_STATUS_SECTIONS: dict[str, TaskStatus] = {
 # ---------------------------------------------------------------------------
 
 
+# Whitelist of valid plan_status values in TASKS.md
+VALID_PLAN_STATUSES = {"none", "ready", "failed"}
+
+# Regex to extract `- **Plan**: <value>` from task description
+PLAN_STATUS_RE = re.compile(r"^-\s+\*\*Plan\*\*:\s*(\S+)\s*$", re.MULTILINE)
+
+
 @dataclass
 class ParsedTask:
     """A task extracted from TASKS.md."""
@@ -55,6 +62,7 @@ class ParsedTask:
     title: str
     status: TaskStatus
     description: str
+    plan_status: str | None = None
 
 
 @dataclass
@@ -140,11 +148,14 @@ class TasksParser:
                 self._warnings.append(
                     f"Duplicate task ID: {cur_id}, keeping last occurrence"
                 )
+            # Extract plan_status from description if present
+            plan_status = _extract_plan_status(desc, cur_id, self._warnings)
             tasks[cur_id] = ParsedTask(
                 local_task_id=cur_id,
                 title=cur_title,
                 status=cur_status,
                 description=desc,
+                plan_status=plan_status,
             )
             cur_id = None
             cur_desc = []
@@ -222,6 +233,29 @@ class TasksParser:
 # ---------------------------------------------------------------------------
 
 
+def _extract_plan_status(
+    description: str,
+    task_id: str,
+    warnings: list[str],
+) -> str | None:
+    """Extract ``plan_status`` from a ``- **Plan**: <value>`` line.
+
+    Returns the validated status string, or *None* if the line is absent.
+    Invalid values produce a warning and return *None* (line-absent
+    semantics, so the DB value is preserved).
+    """
+    m = PLAN_STATUS_RE.search(description)
+    if m is None:
+        return None
+    value = m.group(1).lower()
+    if value not in VALID_PLAN_STATUSES:
+        warnings.append(
+            f"Task {task_id}: invalid Plan status {value!r}, ignoring"
+        )
+        return None
+    return value
+
+
 def _extract_title(text: str, match: re.Match[str]) -> str:
     """Extract the task title from *text* after the matched task ID.
 
@@ -296,7 +330,9 @@ async def sync_project_tasks(
             status=pt.status,
             executor_type=project.executor_type,
         )
-        upsert_result = await task_manager.upsert_task(task)
+        upsert_result = await task_manager.upsert_task(
+            task, plan_status=pt.plan_status,
+        )
         if upsert_result == UpsertResult.created:
             result.added += 1
         elif upsert_result == UpsertResult.skipped_deleted:

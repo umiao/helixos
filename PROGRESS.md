@@ -891,3 +891,10 @@
 - **Deliverables**: `src/config.py`, `src/review_pipeline.py`, `src/enrichment.py`, `src/executors/code_executor.py`, `tests/test_subprocess_stream_limit.py`, `LESSONS.md`
 - **Sanity check result**: 1163 tests pass + 4 skipped (cli_integration), ruff clean.
 - **Status**: [DONE]
+
+## 2026-03-06 -- [T-P1-84] Persist plan_status to TASKS.md (bidirectional sync)
+- **What I did**: Added `plan_status: str | None = None` to `ParsedTask`. Parser now extracts `- **Plan**: <value>` with whitelist validation (none/ready/failed); invalid values produce a warning and return None. Added `TasksWriter.update_task_plan_status()` that inserts/updates the Plan field with .bak backup. Updated `upsert_task()` to accept optional `plan_status` kwarg -- None means DB wins, explicit value overwrites. API `generate_plan` now writes `- **Plan**: ready` to TASKS.md after DB update (non-fatal on failure, logs WARNING).
+- **Deliverables**: `src/sync/tasks_parser.py`, `src/tasks_writer.py`, `src/task_manager.py`, `src/api.py`, `tests/test_plan_status_sync.py`
+- **Sanity check result**: 1186 tests pass + 4 skipped (cli_integration), ruff clean.
+- **Status**: [DONE]
+- **Request**: Move T-P1-84 to Completed (REMOVE spec from Active, ADD summary to Completed Tasks)
