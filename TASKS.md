@@ -137,6 +137,37 @@
   1. Root cause identified (missing ORDER BY or frontend sort)
   2. Fix applied or task spec written for fix
 
+#### T-P1-84: Persist plan_status to TASKS.md (bidirectional sync)
+- **Priority**: P1
+- **Complexity**: M
+- **Depends on**: None
+- **Description**: plan_status is DB-only; every sync resets it to "none". Add `- **Plan**: ready` marker to TASKS.md after plan generation succeeds, and teach the parser/sync to read it back. Three-way semantics: line absent = don't touch DB (DB wins), explicit `ready`/`failed` = overwrite DB, explicit `none` = reset DB. Writer uses backup+validate pattern.
+- **Acceptance Criteria**:
+  1. `ParsedTask` has `plan_status: str | None = None` (None = line absent, sentinel semantics)
+  2. Parser recognizes `- **Plan**: <value>` with whitelist validation (`none`, `ready`, `failed`); invalid values -> None + warning
+  3. `TasksWriter.update_task_plan_status(task_id, status)` inserts/updates Plan field in TASKS.md (with .bak backup)
+  4. `upsert_task()` only updates DB plan_status when TASKS.md value is not None (absence = DB wins)
+  5. API `generate_plan` writes `- **Plan**: ready` to TASKS.md after DB update; failure logged at WARNING (non-fatal, with explicit message "DB plan_status=ready but TASKS.md not updated")
+  6. Round-trip test: generate plan -> TASKS.md shows `ready` -> sync -> DB plan_status still `ready`
+  7. Absence test: DB=ready, TASKS.md line absent -> sync -> DB still `ready`
+  8. All existing parser/writer tests still pass, ruff clean
+
+#### T-P1-85: Replace Launch button with "Start All Planned Tasks"
+- **Priority**: P1
+- **Complexity**: M
+- **Depends on**: T-P1-84
+- **Description**: Replace dev server Launch/Stop button (LaunchControl.tsx) with a "Start N Planned" button that batch-moves all BACKLOG tasks with plan_status=ready into the pipeline. Respects review gate: gate ON -> REVIEW (triggers review pipeline), gate OFF -> QUEUED (scheduler picks up). Uses optimistic locking (expected_updated_at) per-task for concurrent safety.
+- **Acceptance Criteria**:
+  1. `POST /api/projects/{project_id}/start-all-planned` endpoint with `StartAllPlannedResponse` schema
+  2. Endpoint queries BACKLOG tasks with plan_status=ready, reads `updated_at`, passes `expected_updated_at` to `update_status()`
+  3. `OptimisticLockError` caught per-task and reported in `skipped_details`
+  4. Review gate ON: tasks move to REVIEW + review pipeline enqueued; gate OFF: tasks move to QUEUED
+  5. Frontend `StartAllPlanned.tsx` component shows "Start N Planned" (count from client-side task list), disabled when N=0, loading spinner during request
+  6. `SwimLaneHeader.tsx` uses StartAllPlanned instead of LaunchControl (tasks prop passed from parent)
+  7. `LaunchControl.tsx` deleted; backend launch/stop endpoints kept (no UI, API-only)
+  8. Tests: gate ON -> REVIEW, gate OFF -> QUEUED, no planned tasks -> started=0, concurrent request -> skipped via optimistic lock
+  9. Manual smoke test: click "Start N Planned" -> tasks move to correct column -> SSE updates UI in real-time
+
 ### P1-UX -- Polish
 
 ## Dependency Graph
@@ -144,7 +175,7 @@
 > Full historical dependency graph relocated to [docs/architecture/dependency-graph-history.md](docs/architecture/dependency-graph-history.md).
 
 ### Current
-(no active dependencies)
+- T-P1-85 depends on T-P1-84
 
 ---
 
@@ -205,6 +236,9 @@
 
 #### [x] T-P1-74: Plan generation error taxonomy + retry strategy -- 2026-03-05
 - Added PlanGenerationErrorType enum (cli_unavailable, timeout, parse_failure, budget_exceeded, cli_error) with retryable/user_message properties. PlanGenerationError exception class replaces RuntimeError. API returns structured {error_type, retryable, detail} in 503 responses. SSE plan_status_change includes error_type/error_message/retryable on failure. Frontend shows actionable per-type messages. 16 new tests, 1076 total passing, ruff clean.
+
+#### [x] T-P1-86: Fix stop hook JSON error + harden LLM JSON validation -- 2026-03-05
+- Fixed run_hook() to emit {"ok": true/false} JSON stdout on all exit paths (stop hooks were producing empty stdout). Added Pydantic validation models (EnrichmentResult, PlanResult, ReviewResult) to all 4 LLM JSON parsers with raw content logging on failure. 23 new tests, 1099 total passing, ruff clean.
 
 #### [x] T-P0-55: Execution log visual markers for review activity -- 2026-03-04
 - Added purple "REVIEW" badge on review-originated log entries. Extended LogEntry with source field, SSE handlers pass source="review" for review_started/review_progress events. Uses SSE event type for origin detection.

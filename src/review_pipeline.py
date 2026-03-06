@@ -16,8 +16,9 @@ import sys
 import time
 from collections.abc import Awaitable, Callable
 from datetime import UTC, datetime
+from typing import Literal
 
-from pydantic import BaseModel
+from pydantic import BaseModel, ValidationError
 
 from src.config import ReviewerConfig, ReviewPipelineConfig
 from src.history_writer import HistoryWriter
@@ -29,6 +30,14 @@ logger = logging.getLogger(__name__)
 # ------------------------------------------------------------------
 # Internal models
 # ------------------------------------------------------------------
+
+
+class ReviewResult(BaseModel):
+    """Validates review JSON matches --json-schema contract."""
+
+    verdict: Literal["approve", "reject"]
+    summary: str
+    suggestions: list[str]
 
 
 class SynthesisResult(BaseModel):
@@ -550,6 +559,12 @@ class ReviewPipeline:
                 except json.JSONDecodeError:
                     continue
 
+        if not cli_output:
+            logger.warning(
+                "Failed to parse any JSON from CLI output (%d chars). Raw: %.500s",
+                len(full_output), full_output,
+            )
+
         return cli_output
 
     async def _call_reviewer(
@@ -652,13 +667,14 @@ class ReviewPipeline:
         """
         try:
             data = json.loads(text)
-            verdict = data.get("verdict", "reject")
-            summary = data.get("summary", "")
-            suggestions = data.get("suggestions", [])
-        except (json.JSONDecodeError, KeyError, IndexError):
+            result = ReviewResult.model_validate(data)
+            verdict = result.verdict
+            summary = result.summary
+            suggestions = result.suggestions
+        except (json.JSONDecodeError, ValidationError, KeyError, IndexError) as exc:
             logger.warning(
-                "Failed to parse review response from %s, treating as reject",
-                reviewer.model,
+                "Failed to parse review response from %s: %s. Raw (%d chars): %.500s",
+                reviewer.model, exc, len(text), text,
             )
             verdict = "reject"
             summary = text
@@ -724,10 +740,14 @@ class ReviewPipeline:
         """
         try:
             data = json.loads(text)
-            score = float(data.get("score", 0.5))
-            disagreements = data.get("disagreements", [])
-        except (json.JSONDecodeError, KeyError, ValueError):
-            logger.warning("Failed to parse synthesis response, using default score")
+            result = SynthesisResult.model_validate(data)
+            score = result.score
+            disagreements = result.disagreements
+        except (json.JSONDecodeError, ValidationError, KeyError, ValueError) as exc:
+            logger.warning(
+                "Failed to parse synthesis response: %s. Raw (%d chars): %.500s",
+                exc, len(text), text,
+            )
             score = 0.5
             disagreements = ["Synthesis parsing failed -- manual review recommended"]
 

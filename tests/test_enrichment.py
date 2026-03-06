@@ -32,8 +32,10 @@ from src.config import (
 )
 from src.db import Base
 from src.enrichment import (
+    EnrichmentResult,
     PlanGenerationError,
     PlanGenerationErrorType,
+    PlanResult,
     _parse_enrichment,
     _parse_plan,
     _validate_plan_structure,
@@ -180,17 +182,19 @@ class TestParseEnrichment:
         assert result["description"] == ""
         assert result["priority"] == "P1"
 
-    def test_description_is_stringified(self) -> None:
-        """Non-string description is cast to str."""
+    def test_non_string_description_rejected(self) -> None:
+        """Non-string description is rejected by Pydantic, falls back to defaults."""
         text = json.dumps({"description": 42, "priority": "P0"})
         result = _parse_enrichment(text)
-        assert result["description"] == "42"
+        assert result["description"] == ""
+        assert result["priority"] == "P1"
 
-    def test_priority_is_stringified(self) -> None:
-        """Non-string priority is cast to str and falls back to P1 if invalid."""
+    def test_non_string_priority_rejected(self) -> None:
+        """Non-string priority is rejected by Pydantic, falls back to defaults."""
         text = json.dumps({"description": "desc", "priority": 0})
         result = _parse_enrichment(text)
         assert result["priority"] == "P1"
+        assert result["description"] == ""
 
 
 # ------------------------------------------------------------------
@@ -531,16 +535,17 @@ class TestParsePlan:
         assert result["plan"] == ""
         assert result["steps"] == []
 
-    def test_missing_fields(self) -> None:
-        """Missing fields default to empty."""
+    def test_missing_fields_falls_back(self) -> None:
+        """Missing required fields trigger Pydantic rejection, falls back to raw text."""
         text = json.dumps({"plan": "Just a plan"})
         result = _parse_plan(text)
-        assert result["plan"] == "Just a plan"
+        # Pydantic rejects incomplete data, fallback returns raw text as plan
+        assert result["plan"] == text
         assert result["steps"] == []
         assert result["acceptance_criteria"] == []
 
-    def test_invalid_steps_filtered(self) -> None:
-        """Steps without 'step' key are filtered out."""
+    def test_invalid_steps_rejected(self) -> None:
+        """Steps with invalid items cause Pydantic rejection, falls back to raw text."""
         text = json.dumps({
             "plan": "p",
             "steps": [
@@ -551,8 +556,9 @@ class TestParsePlan:
             "acceptance_criteria": [],
         })
         result = _parse_plan(text)
-        assert len(result["steps"]) == 1
-        assert result["steps"][0]["step"] == "valid"
+        # Pydantic rejects the invalid step items, entire plan falls back
+        assert result["plan"] == text
+        assert result["steps"] == []
 
 
 # ------------------------------------------------------------------
@@ -1504,3 +1510,132 @@ class TestStructuredErrorInApi:
             data = resp.json()
             assert data["error_type"] == "cli_unavailable"
             assert data["retryable"] is False
+
+
+# ------------------------------------------------------------------
+# Unit tests: Pydantic validation models
+# ------------------------------------------------------------------
+
+
+class TestEnrichmentResultModel:
+    """Tests for EnrichmentResult Pydantic validation."""
+
+    def test_valid_enrichment(self) -> None:
+        """Valid enrichment data passes validation."""
+        result = EnrichmentResult.model_validate(
+            {"description": "Add login", "priority": "P0"}
+        )
+        assert result.description == "Add login"
+        assert result.priority == "P0"
+
+    def test_invalid_priority_rejected(self) -> None:
+        """Invalid priority enum value is rejected by Pydantic."""
+        from pydantic import ValidationError
+        with pytest.raises(ValidationError, match="priority"):
+            EnrichmentResult.model_validate(
+                {"description": "desc", "priority": "P5"}
+            )
+
+    def test_missing_required_field(self) -> None:
+        """Missing required field is rejected."""
+        from pydantic import ValidationError
+        with pytest.raises(ValidationError, match="description"):
+            EnrichmentResult.model_validate({"priority": "P0"})
+
+    def test_all_valid_priorities(self) -> None:
+        """All valid priority values are accepted."""
+        for p in ("P0", "P1", "P2"):
+            result = EnrichmentResult.model_validate(
+                {"description": "d", "priority": p}
+            )
+            assert result.priority == p
+
+
+class TestPlanResultModel:
+    """Tests for PlanResult and PlanStep Pydantic validation."""
+
+    def test_valid_plan(self) -> None:
+        """Valid plan data passes validation."""
+        result = PlanResult.model_validate({
+            "plan": "Add caching",
+            "steps": [{"step": "Add Redis", "files": ["src/cache.py"]}],
+            "acceptance_criteria": ["Tests pass"],
+        })
+        assert result.plan == "Add caching"
+        assert len(result.steps) == 1
+        assert result.steps[0].step == "Add Redis"
+        assert result.steps[0].files == ["src/cache.py"]
+
+    def test_step_without_files(self) -> None:
+        """Step without files defaults to empty list."""
+        result = PlanResult.model_validate({
+            "plan": "p",
+            "steps": [{"step": "Do thing"}],
+            "acceptance_criteria": ["ac"],
+        })
+        assert result.steps[0].files == []
+
+    def test_step_missing_step_key_rejected(self) -> None:
+        """Step without required 'step' key is rejected."""
+        from pydantic import ValidationError
+        with pytest.raises(ValidationError, match="step"):
+            PlanResult.model_validate({
+                "plan": "p",
+                "steps": [{"notastep": "invalid"}],
+                "acceptance_criteria": [],
+            })
+
+    def test_missing_plan_field_rejected(self) -> None:
+        """Missing plan field is rejected."""
+        from pydantic import ValidationError
+        with pytest.raises(ValidationError, match="plan"):
+            PlanResult.model_validate({
+                "steps": [],
+                "acceptance_criteria": [],
+            })
+
+
+class TestParseEnrichmentWithValidation:
+    """Tests that _parse_enrichment uses Pydantic and logs raw content."""
+
+    def test_invalid_priority_logs_raw_content(self, caplog: pytest.LogCaptureFixture) -> None:
+        """Invalid priority triggers Pydantic rejection and logs raw content."""
+        text = json.dumps({"description": "desc", "priority": "HIGH"})
+        with caplog.at_level("WARNING"):
+            result = _parse_enrichment(text)
+        assert result["priority"] == "P1"  # falls back to default
+        assert result["description"] == ""  # falls back to default
+        assert "Raw" in caplog.text
+        assert "HIGH" in caplog.text
+
+    def test_malformed_json_logs_raw(self, caplog: pytest.LogCaptureFixture) -> None:
+        """Malformed JSON logs raw content."""
+        with caplog.at_level("WARNING"):
+            result = _parse_enrichment("not json {{{")
+        assert result["description"] == ""
+        assert "Raw" in caplog.text
+        assert "not json" in caplog.text
+
+
+class TestParsePlanWithValidation:
+    """Tests that _parse_plan uses Pydantic and logs raw content."""
+
+    def test_invalid_step_structure_logs_raw(self, caplog: pytest.LogCaptureFixture) -> None:
+        """Steps with wrong structure trigger Pydantic rejection and log raw."""
+        text = json.dumps({
+            "plan": "p",
+            "steps": [{"notastep": "bad"}],
+            "acceptance_criteria": [],
+        })
+        with caplog.at_level("WARNING"):
+            result = _parse_plan(text)
+        assert result["steps"] == []  # falls back
+        assert "Raw" in caplog.text
+
+    def test_missing_acceptance_criteria_logs_raw(self, caplog: pytest.LogCaptureFixture) -> None:
+        """Missing required field triggers Pydantic rejection."""
+        text = json.dumps({"plan": "p", "steps": []})
+        with caplog.at_level("WARNING"):
+            result = _parse_plan(text)
+        assert result["plan"] == text  # raw text fallback
+        assert "Raw" in caplog.text

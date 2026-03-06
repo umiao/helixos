@@ -25,8 +25,38 @@ import shutil
 import time
 from collections.abc import Awaitable, Callable
 from pathlib import Path
+from typing import Literal
+
+from pydantic import BaseModel, ValidationError
 
 logger = logging.getLogger(__name__)
+
+
+# ------------------------------------------------------------------
+# Pydantic validation models for CLI structured output
+# ------------------------------------------------------------------
+
+
+class EnrichmentResult(BaseModel):
+    """Validates enrichment JSON matches --json-schema contract."""
+
+    description: str
+    priority: Literal["P0", "P1", "P2"]
+
+
+class PlanStep(BaseModel):
+    """Single step in a plan, matching steps[].* in --json-schema."""
+
+    step: str
+    files: list[str] = []
+
+
+class PlanResult(BaseModel):
+    """Validates plan JSON matches --json-schema contract."""
+
+    plan: str
+    steps: list[PlanStep]
+    acceptance_criteria: list[str]
 
 
 # ------------------------------------------------------------------
@@ -208,13 +238,14 @@ def _parse_enrichment(text: str) -> dict[str, str]:
     """
     try:
         data = json.loads(text)
-        description = str(data.get("description", ""))
-        priority = str(data.get("priority", "P1"))
-        # Validate priority is one of P0/P1/P2
-        if priority not in ("P0", "P1", "P2"):
-            priority = "P1"
-    except (json.JSONDecodeError, KeyError, TypeError):
-        logger.warning("Failed to parse enrichment response, using defaults")
+        result = EnrichmentResult.model_validate(data)
+        description = result.description
+        priority = result.priority
+    except (json.JSONDecodeError, ValidationError, KeyError, TypeError) as exc:
+        logger.warning(
+            "Failed to parse enrichment response: %s. Raw (%d chars): %.500s",
+            exc, len(text), text,
+        )
         description = ""
         priority = "P1"
 
@@ -470,27 +501,15 @@ def _parse_plan(text: str) -> dict:
     """
     try:
         data = json.loads(text)
-        plan = str(data.get("plan", ""))
-        steps = data.get("steps", [])
-        acceptance_criteria = data.get("acceptance_criteria", [])
-
-        # Validate steps structure
-        validated_steps = []
-        for s in steps:
-            if isinstance(s, dict) and "step" in s:
-                validated_steps.append({
-                    "step": str(s["step"]),
-                    "files": [str(f) for f in s.get("files", [])],
-                })
-        steps = validated_steps
-
-        # Validate acceptance_criteria is list of strings
-        if not isinstance(acceptance_criteria, list):
-            acceptance_criteria = []
-        acceptance_criteria = [str(ac) for ac in acceptance_criteria]
-
-    except (json.JSONDecodeError, KeyError, TypeError):
-        logger.warning("Failed to parse plan response, returning raw text")
+        result = PlanResult.model_validate(data)
+        plan = result.plan
+        steps = [s.model_dump() for s in result.steps]
+        acceptance_criteria = result.acceptance_criteria
+    except (json.JSONDecodeError, ValidationError, KeyError, TypeError) as exc:
+        logger.warning(
+            "Failed to parse plan response: %s. Raw (%d chars): %.500s",
+            exc, len(text), text,
+        )
         plan = text if text else ""
         steps = []
         acceptance_criteria = []

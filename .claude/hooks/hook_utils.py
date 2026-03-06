@@ -12,7 +12,6 @@ import io
 import json
 import subprocess
 import sys
-import traceback
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
@@ -182,6 +181,8 @@ def run_hook(hook_name: str, main_fn: Callable[[dict[str, Any]], None]) -> None:
     4. Calls main_fn(hook_input) with the parsed dict
     5. Catches ANY unhandled exception from main_fn, prints diagnostics,
        and exits 0 (never blocks the user due to hook bugs)
+    6. Emits JSON to stdout on ALL exit paths (Claude Code expects
+       ``{"ok": true/false}`` from stop hooks)
 
     Args:
         hook_name: Identifier for the hook (used in error messages).
@@ -193,22 +194,27 @@ def run_hook(hook_name: str, main_fn: Callable[[dict[str, Any]], None]) -> None:
 
     hook_input = safe_read_stdin(hook_name)
     if hook_input is None:
+        # Stdin failure is infrastructure error, don't block user
+        print(json.dumps({"ok": True, "reason": "invalid hook input"}))
         sys.exit(0)
 
     try:
         main_fn(hook_input)
-    except SystemExit:
-        raise  # Allow explicit sys.exit() calls to propagate
+    except SystemExit as exc:
+        code = exc.code if isinstance(exc.code, int) else 0
+        if code == 0:
+            print(json.dumps({"ok": True}))
+        else:
+            print(json.dumps({"ok": False, "reason": f"{hook_name} failed (exit {code})"}))
+        sys.exit(code)
     except Exception as exc:
-        tb = traceback.format_exc()
         print(
-            f"[HOOK ERROR] {hook_name}: Unhandled exception in hook logic.\n"
-            f"  Exception: {type(exc).__name__}: {exc}\n"
-            f"  Traceback:\n{tb}\n"
-            f"  Allowing operation to proceed (hook error should not block user).",
+            f"[HOOK ERROR] {hook_name}: Unhandled exception: {exc}",
             file=sys.stderr,
         )
+        print(json.dumps({"ok": True}))  # don't block on hook bugs
         sys.exit(0)
 
-    # If main_fn returns without calling sys.exit(), default to 0
+    # main_fn returned without sys.exit()
+    print(json.dumps({"ok": True}))
     sys.exit(0)

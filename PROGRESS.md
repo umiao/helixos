@@ -794,3 +794,10 @@
 - **Sanity check result**: 77/77 test_enrichment.py tests pass (16 new). Full suite 1076 tests pass. Ruff clean. TypeScript clean.
 - **Status**: [DONE]
 - **Request**: Move T-P1-74 to Completed
+
+## 2026-03-05 03:30 -- [T-P1-86] Fix stop hook JSON error + harden LLM JSON validation
+- **What I did**: Fixed run_hook() in hook_utils.py to emit {"ok": true/false} JSON stdout on all exit paths (SystemExit, unhandled exception, normal return, stdin failure). Added Pydantic validation models (EnrichmentResult, PlanStep, PlanResult in enrichment.py; ReviewResult in review_pipeline.py) to all 4 LLM JSON parsers. Added raw content logging (%.500s) on all parse failures. Added warning log in _call_claude_cli() when both full-output and last-line JSON parsing fail. Updated 4 existing tests for stricter Pydantic validation behavior.
+- **Deliverables**: .claude/hooks/hook_utils.py, src/enrichment.py, src/review_pipeline.py, tests/test_enrichment.py, tests/test_review_pipeline.py, TASKS.md, PROGRESS.md
+- **Sanity check result**: 89/89 test_enrichment.py pass (12 new). 96/96 test_review_pipeline.py pass (11 new). Full suite 1099 tests pass. Ruff clean. Hook JSON verified: echo '{}' | python .claude/hooks/lint_check.py outputs {"ok": true}.
+- **Status**: [DONE]
+- **Request**: Move T-P1-86 to Completed

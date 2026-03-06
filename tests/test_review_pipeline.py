@@ -20,6 +20,8 @@ from src.models import ExecutorType, ReviewLifecycleState, Task, TaskStatus
 from src.review_pipeline import (
     MAX_RAW_RESPONSE_BYTES,
     ReviewPipeline,
+    ReviewResult,
+    SynthesisResult,
     _extract_cost_usd,
     _kill_review_process,
     _terminate_review_process,
@@ -2050,3 +2052,129 @@ async def test_raw_artifact_persisted_on_nonzero_exit(
     # on_raw_artifact MUST have been called BEFORE the RuntimeError
     assert len(artifact_content) == 1
     assert "partial output before crash" in artifact_content[0]
+
+
+# ------------------------------------------------------------------
+# Unit tests: Pydantic validation models for review/synthesis
+# ------------------------------------------------------------------
+
+
+class TestReviewResultModel:
+    """Tests for ReviewResult Pydantic validation."""
+
+    def test_valid_approve(self) -> None:
+        """Valid approve review passes validation."""
+        result = ReviewResult.model_validate({
+            "verdict": "approve",
+            "summary": "Looks good",
+            "suggestions": ["Minor nit"],
+        })
+        assert result.verdict == "approve"
+        assert result.summary == "Looks good"
+
+    def test_valid_reject(self) -> None:
+        """Valid reject review passes validation."""
+        result = ReviewResult.model_validate({
+            "verdict": "reject",
+            "summary": "Needs work",
+            "suggestions": [],
+        })
+        assert result.verdict == "reject"
+
+    def test_invalid_verdict_rejected(self) -> None:
+        """Invalid verdict enum value is rejected."""
+        from pydantic import ValidationError
+        with pytest.raises(ValidationError, match="verdict"):
+            ReviewResult.model_validate({
+                "verdict": "maybe",
+                "summary": "s",
+                "suggestions": [],
+            })
+
+    def test_missing_summary_rejected(self) -> None:
+        """Missing required summary field is rejected."""
+        from pydantic import ValidationError
+        with pytest.raises(ValidationError, match="summary"):
+            ReviewResult.model_validate({
+                "verdict": "approve",
+                "suggestions": [],
+            })
+
+
+class TestSynthesisResultModel:
+    """Tests for SynthesisResult Pydantic validation."""
+
+    def test_valid_synthesis(self) -> None:
+        """Valid synthesis data passes validation."""
+        result = SynthesisResult.model_validate({
+            "score": 0.85,
+            "disagreements": ["Minor issue"],
+        })
+        assert result.score == 0.85
+        assert result.disagreements == ["Minor issue"]
+
+    def test_missing_score_rejected(self) -> None:
+        """Missing required score field is rejected."""
+        from pydantic import ValidationError
+        with pytest.raises(ValidationError, match="score"):
+            SynthesisResult.model_validate({"disagreements": []})
+
+    def test_string_score_coerced(self) -> None:
+        """Pydantic coerces numeric strings to float."""
+        result = SynthesisResult.model_validate({
+            "score": "0.9",
+            "disagreements": [],
+        })
+        assert result.score == 0.9
+
+
+class TestParseReviewWithValidation:
+    """Tests that _parse_review uses Pydantic and logs raw content."""
+
+    def test_invalid_verdict_logs_raw(self, caplog: pytest.LogCaptureFixture) -> None:
+        """Invalid verdict triggers Pydantic rejection and logs raw content."""
+        text = json.dumps({
+            "verdict": "maybe",
+            "summary": "s",
+            "suggestions": [],
+        })
+        pipeline = ReviewPipeline(_default_config())
+        reviewer = ReviewerConfig(model="claude-sonnet-4-5", focus="test")
+        with caplog.at_level("WARNING"):
+            review = pipeline._parse_review(text, reviewer)
+        assert review.verdict == "reject"  # fallback
+        assert review.summary == text  # raw text as summary
+        assert "Raw" in caplog.text
+        assert "maybe" in caplog.text
+
+    def test_malformed_json_logs_raw(self, caplog: pytest.LogCaptureFixture) -> None:
+        """Malformed JSON logs raw content."""
+        pipeline = ReviewPipeline(_default_config())
+        reviewer = ReviewerConfig(model="claude-sonnet-4-5", focus="test")
+        with caplog.at_level("WARNING"):
+            review = pipeline._parse_review("not json!", reviewer)
+        assert review.verdict == "reject"
+        assert "Raw" in caplog.text
+        assert "not json!" in caplog.text
+
+
+class TestParseSynthesisWithValidation:
+    """Tests that _parse_synthesis uses Pydantic and logs raw content."""
+
+    def test_malformed_json_logs_raw(self, caplog: pytest.LogCaptureFixture) -> None:
+        """Malformed JSON logs raw content."""
+        pipeline = ReviewPipeline(_default_config())
+        with caplog.at_level("WARNING"):
+            result = pipeline._parse_synthesis("bad json!!!")
+        assert result.score == 0.5  # default fallback
+        assert "Raw" in caplog.text
+        assert "bad json" in caplog.text
+
+    def test_missing_score_logs_raw(self, caplog: pytest.LogCaptureFixture) -> None:
+        """Missing required field triggers Pydantic rejection."""
+        text = json.dumps({"disagreements": ["issue"]})
+        pipeline = ReviewPipeline(_default_config())
+        with caplog.at_level("WARNING"):
+            result = pipeline._parse_synthesis(text)
+        assert result.score == 0.5  # default fallback
+        assert "Raw" in caplog.text
