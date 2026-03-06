@@ -86,6 +86,12 @@
   Windows behavior differences.  If a function has `sys.platform` branches,
   test both branches.  Common traps: `os.kill` signal semantics, `os.getpgid`
   not existing, `signal.SIGTERM` vs `CTRL_BREAK_EVENT`.
+- **Diff First rule for investigation tasks.** When given a working example
+  (user-provided command, docs snippet, or reference implementation) and a
+  broken implementation, the FIRST step is a mechanical diff of flags, args,
+  and config between the two.  Every delta is a finding.  Do NOT skip to
+  output-format analysis or external doc research before completing this diff.
+  Analysis of "why" comes AFTER identifying "what's different."
 
 ### Task Planning Mode
 When the user says "plan tasks" / "edit TASKS.md only" / contains keyword "TASKS.md":

@@ -169,3 +169,14 @@
   - This explains why 47/57 log files were effectively empty: only a single result line was captured.
   - Fix: Add `--verbose` to the CLI args in code_executor.py (and review_pipeline/enrichment when they switch to stream-json).
   - Tags: #claude-cli #stream-json #verbose #missing-flag
+
+  23. Investigation tasks: diff the working example against our code FIRST
+  - Context: T-P0-91 had a user-provided working example with `--verbose` in the command. Our code_executor.py was missing `--verbose`. This was the most obvious finding but was missed on the first pass because the investigation focused on output format analysis (field names, event types) without first doing a mechanical flag-by-flag diff.
+  - Root cause: "answer is in the problem statement" blindness. The investigation went straight to external docs and output format analysis, skipping the simplest check: compare working example flags vs our code flags.
+  - Process fix -- **"Diff First" rule for CLI investigation tasks**:
+    Step 1: Extract exact command from working example (user-provided or docs).
+    Step 2: Extract exact command from our code.
+    Step 3: Diff flags/args mechanically. Every delta is a finding.
+    Step 4: THEN investigate output format, event types, field names, etc.
+  - Generalized rule: When given a working reference and a broken implementation, the FIRST action is a mechanical diff between the two. Analysis of "why" comes after identifying "what's different."
+  - Tags: #investigation #process #diff-first #cli #root-cause-analysis
