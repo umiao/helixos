@@ -83,7 +83,7 @@
 - **Priority**: P2
 - **Complexity**: S
 - **Depends on**: T-P1-70
-- **Description**: Design shared `SubprocessRunner` abstraction unifying subprocess management patterns across enrichment.py, review_pipeline.py, code_executor.py, process_manager.py.
+- **Description**: Design shared `SubprocessRunner` abstraction unifying subprocess management patterns across enrichment.py, review_pipeline.py, code_executor.py, process_manager.py. (Reverted to queued -- was picked up by orchestrator during stream-json logging bug investigation.)
 - **Acceptance Criteria**:
   1. Design doc in `docs/architecture/subprocess-runner.md`
   2. Covers: process group isolation, timeout, readline streaming, persist-first, platform guards

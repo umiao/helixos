@@ -109,6 +109,26 @@ class _HangingStdout:
         return b""
 
 
+class _MockStderr:
+    """Mock stderr that returns lines via readline(), then b'' for EOF."""
+
+    def __init__(self, data: bytes) -> None:
+        # Split raw bytes into lines for readline-based reading
+        if data:
+            self._lines = [line + b"\n" for line in data.split(b"\n") if line]
+        else:
+            self._lines = []
+        self._index = 0
+
+    async def readline(self) -> bytes:
+        """Return next line, or b'' when exhausted."""
+        if self._index < len(self._lines):
+            line = self._lines[self._index]
+            self._index += 1
+            return line
+        return b""
+
+
 def _make_mock_proc(
     stdout_lines: list[bytes],
     returncode: int = 0,
@@ -130,10 +150,8 @@ def _make_mock_proc(
     # Use readline-based mock for stdout
     proc.stdout = _MockStdout(stdout_lines)
 
-    # Mock stderr as an async reader
-    stderr_mock = AsyncMock()
-    stderr_mock.read = AsyncMock(return_value=stderr_data)
-    proc.stderr = stderr_mock
+    # Use readline-based mock for stderr (concurrent reader)
+    proc.stderr = _MockStderr(stderr_data)
 
     # wait() sets returncode and optionally delays
     async def _wait() -> int:
@@ -986,7 +1004,7 @@ class TestStderrCapture:
         executor = CodeExecutor(config)
         result = await executor.execute(task, project, {}, lambda _: None)
 
-        assert result.stderr_output == "error message\n"
+        assert result.stderr_output == "error message"
 
     @patch("src.executors.code_executor.asyncio.create_subprocess_exec")
     async def test_stderr_ansi_stripped(

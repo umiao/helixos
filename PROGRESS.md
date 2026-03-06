@@ -822,3 +822,10 @@
 - **Sanity check result**: TypeScript type check passes (tsc --noEmit clean). Vite build succeeds. 1124 backend tests pass. Ruff clean.
 - **Status**: [DONE]
 - **Request**: Move T-P0-90 to Completed
+
+## 2026-03-06 05:00 -- [HOTFIX] Fix Stream-JSON Log Persistence (Empty JSONL Files)
+- **What I did**: Fixed empty JSONL log files caused by missing ANSI stripping on stdout. Added `_strip_ansi()` + `errors="replace"` to stdout decoding (was only on stderr). Added raw capture fallback (`stream_raw_*.log`) for persist-first architecture. Added `--include-partial-messages` CLI flag. Replaced post-exit stderr `.read()` with concurrent `_stderr_reader()` async task to prevent pipe deadlock. Added EOF partial buffer flush. Added diagnostic logging (spawn, first line, EOF, no-output warning). Updated stderr mocks in test_code_executor.py to readline-based. Added 7 new tests: ANSI stripping (unit + integration), bulk flush at EOF, no-trailing-newline EOF, raw capture file verification. Reverted T-P2-78 to queued in TASKS.md.
+- **Deliverables**: src/executors/code_executor.py, tests/test_stream_json.py, tests/test_code_executor.py, TASKS.md
+- **Sanity check result**: 1131 tests pass. Ruff clean.
+- **Status**: [DONE]
+- **Request**: No task to move (hotfix, not a tracked task)

@@ -276,6 +276,7 @@ class CodeExecutor(BaseExecutor):
             "Bash,Read,Write,Edit,MultiTool",
             "--output-format",
             "stream-json",
+            "--include-partial-messages",
         ]
 
         session_timeout = self._config.session_timeout_minutes * 60
@@ -310,7 +311,9 @@ class CodeExecutor(BaseExecutor):
         log_dir.mkdir(parents=True, exist_ok=True)
         timestamp_str = datetime.now(UTC).strftime("%Y%m%dT%H%M%S")
         jsonl_path = log_dir / f"stream_{timestamp_str}.jsonl"
+        raw_log_path = log_dir / f"stream_raw_{timestamp_str}.log"
         jsonl_file = open(jsonl_path, "w", encoding="utf-8")  # noqa: SIM115
+        raw_file = open(raw_log_path, "w", encoding="utf-8")  # noqa: SIM115
 
         log_lines: list[str] = []
         timed_out = False
@@ -318,6 +321,23 @@ class CodeExecutor(BaseExecutor):
         line_count = 0
         last_output_time = start
         buffer = _StreamJsonBuffer()
+
+        # Concurrent stderr reader collects lines during execution
+        stderr_lines: list[str] = []
+
+        async def _stderr_reader() -> None:
+            """Read stderr line-by-line to prevent pipe deadlock."""
+            try:
+                assert self._proc is not None and self._proc.stderr is not None  # noqa: S101
+                while True:
+                    raw = await self._proc.stderr.readline()
+                    if not raw:
+                        break
+                    line = raw.decode("utf-8", errors="replace").rstrip("\n")
+                    if line:
+                        stderr_lines.append(line)
+            except Exception:
+                logger.debug("stderr reader error for task %s", task.id)
 
         # Background task that emits [PROGRESS] log entries periodically
         async def _progress_reporter() -> None:
@@ -328,6 +348,12 @@ class CodeExecutor(BaseExecutor):
                     now = time.monotonic()
                     elapsed_str = _format_elapsed(now - start)
                     since_last = int(now - last_output_time)
+                    if line_count == 0 and since_last > 30:
+                        logger.warning(
+                            "No stdout from claude for %ds (task %s)",
+                            since_last,
+                            task.id,
+                        )
                     on_log(
                         f"[PROGRESS] {elapsed_str} elapsed | "
                         f"{line_count} lines | "
@@ -336,7 +362,31 @@ class CodeExecutor(BaseExecutor):
             except asyncio.CancelledError:
                 pass
 
+        logger.info("Spawned claude CLI for task %s (pid=%s)", task.id, self._proc.pid)
         progress_task = asyncio.create_task(_progress_reporter())
+        stderr_task = asyncio.create_task(_stderr_reader())
+
+        def _process_parsed_events(
+            parsed_events: list[dict], non_json: list[str],
+        ) -> None:
+            """Write parsed events to JSONL and call callbacks."""
+            for event_dict in parsed_events:
+                jsonl_file.write(
+                    json.dumps(event_dict, ensure_ascii=False) + "\n"
+                )
+                jsonl_file.flush()
+
+                if on_stream_event is not None:
+                    on_stream_event(event_dict)
+
+                simplified = _simplify_stream_event(event_dict)
+                if simplified:
+                    log_lines.append(simplified)
+                    on_log(simplified)
+
+            for raw_text in non_json:
+                log_lines.append(raw_text)
+                on_log(raw_text)
 
         try:
             async with asyncio.timeout(session_timeout):
@@ -364,38 +414,63 @@ class CodeExecutor(BaseExecutor):
                         # EOF -- process closed stdout
                         break
 
-                    decoded = raw_line.decode("utf-8").strip()
+                    decoded = _strip_ansi(
+                        raw_line.decode("utf-8", errors="replace")
+                    ).rstrip("\n")
                     if not decoded:
                         continue
+
+                    # Persist-first: write raw line before JSON parsing
+                    raw_file.write(decoded + "\n")
+                    raw_file.flush()
 
                     line_count += 1
                     last_output_time = time.monotonic()
 
+                    if line_count == 1:
+                        logger.info(
+                            "First stdout line for task %s after %.1fs",
+                            task.id,
+                            time.monotonic() - start,
+                        )
+
                     # Try to parse as stream-json
                     parsed_events = buffer.feed(decoded + "\n")
-                    non_json = buffer.non_json
+                    _process_parsed_events(parsed_events, buffer.non_json)
 
-                    for event_dict in parsed_events:
-                        # Persist to JSONL
-                        jsonl_file.write(
-                            json.dumps(event_dict, ensure_ascii=False) + "\n"
-                        )
-                        jsonl_file.flush()
+                # -- EOF: flush partial buffer --
+                if buffer._partial:
+                    remainder = buffer._partial.strip()
+                    buffer._partial = ""
+                    if remainder:
+                        raw_file.write(remainder + "\n")
+                        raw_file.flush()
+                        try:
+                            obj = json.loads(remainder)
+                            if isinstance(obj, dict):
+                                jsonl_file.write(
+                                    json.dumps(obj, ensure_ascii=False) + "\n"
+                                )
+                                jsonl_file.flush()
+                                if on_stream_event is not None:
+                                    on_stream_event(obj)
+                                simplified = _simplify_stream_event(obj)
+                                if simplified:
+                                    log_lines.append(simplified)
+                                    on_log(simplified)
+                            else:
+                                log_lines.append(remainder)
+                                on_log(remainder)
+                        except (json.JSONDecodeError, ValueError):
+                            log_lines.append(remainder)
+                            on_log(remainder)
 
-                        # Call stream event callback
-                        if on_stream_event is not None:
-                            on_stream_event(event_dict)
-
-                        # Derive simplified text for backward-compat on_log
-                        simplified = _simplify_stream_event(event_dict)
-                        if simplified:
-                            log_lines.append(simplified)
-                            on_log(simplified)
-
-                    # Non-JSON lines fall back to on_log as raw text
-                    for raw_text in non_json:
-                        log_lines.append(raw_text)
-                        on_log(raw_text)
+                logger.info(
+                    "stdout EOF for task %s: %d lines in %.1fs",
+                    task.id,
+                    line_count,
+                    time.monotonic() - start,
+                )
 
                 if not inactivity_detected:
                     await self._proc.wait()
@@ -409,7 +484,11 @@ class CodeExecutor(BaseExecutor):
             progress_task.cancel()
             with contextlib.suppress(asyncio.CancelledError):
                 await progress_task
+            stderr_task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await stderr_task
             jsonl_file.close()
+            raw_file.close()
 
         # -- Terminate process group if needed --
         if timed_out or inactivity_detected:
@@ -428,15 +507,15 @@ class CodeExecutor(BaseExecutor):
 
         returncode = self._proc.returncode if self._proc.returncode is not None else -9
 
-        # -- Capture stderr --
+        # -- Capture stderr (from concurrent reader) --
         stderr_text: str | None = None
-        if self._proc.stderr is not None:
-            try:
-                raw_stderr = await self._proc.stderr.read()
-                if raw_stderr:
-                    stderr_text = _truncate_stderr(raw_stderr)
-            except Exception:
-                logger.debug("Failed to read stderr for task %s", task.id)
+        if stderr_lines:
+            joined = "\n".join(stderr_lines)
+            cleaned = _strip_ansi(joined)
+            if len(cleaned) > MAX_STDERR_BYTES:
+                stderr_text = cleaned[:MAX_STDERR_BYTES - 14] + "...[truncated]"
+            else:
+                stderr_text = cleaned
 
         # -- Race condition guard: timeout fired but process already exited 0 --
         # If we killed the process group but returncode is 0, the task completed
