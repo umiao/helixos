@@ -27,45 +27,46 @@
 
 ### P0 -- Must Have (core functionality)
 
-#### T-P0-91: Investigate CLI --json-schema output behavior
-- **Priority**: P0
-- **Complexity**: S
-- **Depends on**: None
-- **Description**: Run real Claude CLI with various flag combinations and capture raw output. Determine: (1) What does `--output-format json` + `--json-schema` actually produce? (2) Is `result: null` caused by schema validation failure or format mismatch? (3) Can `--output-format stream-json` + `--json-schema` be used together? (4) What does stream-json output look like for structured schema output?
-- **Acceptance Criteria**:
-  1. Raw CLI output captured for all 4 combinations: json/stream-json x with/without --json-schema
-  2. Root cause of `result: null` confirmed (schema failure vs format mismatch)
-  3. stream-json + --json-schema compatibility confirmed or ruled out
-  4. Findings documented in LESSONS.md
-
 #### T-P0-92: Fix schema/parsing in plan + review pipelines
 - **Priority**: P0
 - **Complexity**: S
-- **Depends on**: T-P0-91
-- **Description**: Based on T-P0-91 findings, fix the root cause of `result: null`. If schema validation failure: fix schema definitions. If format mismatch: fix parser to handle actual output structure. Must verify with real CLI call, not just mocked tests.
+- **Depends on**: None (T-P0-91 complete)
+- **Description**: T-P0-91 CONFIRMED: when `--json-schema` is used, Claude CLI puts structured output in `structured_output` field (a JSON object), NOT `result` (which is null). All 5 callsites read `result` and get null. Fix: read `structured_output` when `--json-schema` is present. The value is already a parsed object, so skip `json.loads()`.
+- **Findings from T-P0-91**:
+  - `enrichment.py:224` -- reads `result`, should read `structured_output`
+  - `enrichment.py:461` -- reads `result`, should read `structured_output`
+  - `review_pipeline.py:629` -- reads `result`, should read `structured_output`
+  - `review_pipeline.py:639` -- raw_response builder reads `result`
+  - `review_pipeline.py:731` -- synthesis reads `result`, should read `structured_output`
+  - Key difference: `structured_output` is already a JSON object (dict), not a JSON string. So `json.loads()` on it will fail. Parsers need to handle both dict and str.
 - **Acceptance Criteria**:
-  1. Plan generation produces non-null result with real CLI
-  2. Review pipeline produces non-null result with real CLI
-  3. Both enrichment.py and review_pipeline.py parsers handle actual CLI output
-  4. Existing tests updated to match real output format
-  5. Manual verification: run plan/review on a real task, check DB has meaningful content
+  1. All 5 callsites read `structured_output` when `--json-schema` was used
+  2. Parsers handle `structured_output` as dict (no json.loads needed)
+  3. Existing tests updated to mock `structured_output` field instead of `result`
+  4. Manual verification: run plan/review on a real task, check DB has meaningful content
 
 #### T-P0-93: Harden stream-json event parser
 - **Priority**: P0
 - **Complexity**: S
-- **Depends on**: T-P0-91
-- **Description**: Investigate why execution raw logs contain only fragments ("data", "initial"). Check `_StreamJsonBuffer` in code_executor.py for: multi-line JSON handling, partial chunk buffering, encoding edge cases. Fix before extending streaming to more pipelines.
+- **Depends on**: None (T-P0-91 complete)
+- **Description**: T-P0-91 found parser coverage gaps. `_simplify_stream_event` handles 5 types but real CLI emits 6+. Missing: `system` (init/hooks), `stream_event` (token deltas -- different nesting than assumed `content_block_delta`), `rate_limit_event`, `user` (synthetic). Also: `content_block_delta` handler doesn't match real `stream_event.event.delta` nesting.
+- **Findings from T-P0-91**:
+  - Real event types: system, assistant, stream_event, result, rate_limit_event, user
+  - `stream_event` wraps delta as `event.delta.type == "text_delta"`, not top-level `content_block_delta`
+  - `system` with subtype `init` contains model/tools info (useful for log enrichment)
+  - `result` event contains `structured_output` field when `--json-schema` used
 - **Acceptance Criteria**:
-  1. Root cause of fragment-only raw logs identified
-  2. _StreamJsonBuffer handles multi-line JSON events
-  3. Execution JSONL files contain complete stream events (verified with real CLI)
-  4. ConversationView shows real content for execution tasks
+  1. `_simplify_stream_event` handles all 6 real event types
+  2. `stream_event` delta nesting correctly parsed (`.event.delta.text`)
+  3. `system` init events logged as `[INIT] model=X`
+  4. Execution JSONL files contain complete stream events (verified with real CLI)
+  5. ConversationView shows real content for execution tasks
 
 #### T-P0-94: Enable stream-json for review pipeline + ConversationView
 - **Priority**: P0
 - **Complexity**: M
 - **Depends on**: T-P0-92, T-P0-93
-- **Description**: Switch review_pipeline from `--output-format json` to `stream-json`. Wire `on_stream_event` callback through review_task -> _call_claude_cli. Add JSONL persistence. Emit `execution_stream` SSE events during review. If stream-json + --json-schema incompatible (per T-P0-91), use alternative approach (e.g., parse json output into synthetic stream events).
+- **Description**: Switch review_pipeline from `--output-format json` to `stream-json`. Wire `on_stream_event` callback through review_task -> _call_claude_cli. Add JSONL persistence. Emit `execution_stream` SSE events during review. T-P0-91 CONFIRMED: stream-json + --json-schema are compatible. JSON schema result appears at end in `result` event's `structured_output` field. Natural language text streams normally via `stream_event` deltas.
 - **Acceptance Criteria**:
   1. Review execution produces JSONL stream log files with real content
   2. SSE `execution_stream` events emitted during review
@@ -255,8 +256,8 @@
 > Full historical dependency graph relocated to [docs/architecture/dependency-graph-history.md](docs/architecture/dependency-graph-history.md).
 
 ### Current
-- T-P0-92 depends on T-P0-91
-- T-P0-93 depends on T-P0-91
+- T-P0-92 depends on None (T-P0-91 complete)
+- T-P0-93 depends on None (T-P0-91 complete)
 - T-P0-94 depends on T-P0-92, T-P0-93
 - T-P0-95 depends on T-P0-92, T-P0-93
 - T-P0-96 depends on T-P0-93
@@ -272,6 +273,9 @@
 ## Completed Tasks
 
 > 99 completed tasks archived to [archive/completed_tasks.md](archive/completed_tasks.md).
+
+#### [x] T-P0-91: Investigate CLI --json-schema output behavior -- 2026-03-06
+- Confirmed root cause via official docs (code.claude.com/docs/en/headless): `--json-schema` puts output in `structured_output` field (object), NOT `result` (null). All 5 callsites in enrichment.py and review_pipeline.py read `result` and get null. Stream-json + --json-schema confirmed compatible. Documented 6 real stream-json event types vs 5 handled by parser. Added LESSONS #20 and #21.
 
 #### [x] T-P0-90: Frontend Popover Enhancement -- 2026-03-06
 - Enhanced TaskCardPopover with "Live Activity" section for running tasks: shows tool call count, elapsed minutes, and last activity (tool name or text snippet). Added StreamSummary type, computed via useMemo in App.tsx from streamEvents, threaded through SwimLane->KanbanBoard->TaskCard->TaskCardPopover. Non-running tasks unaffected. TypeScript clean, Vite build clean.

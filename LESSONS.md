@@ -136,3 +136,29 @@
   - Root cause: Tests mocked subprocess output in the expected format, so parser bugs (schema validation failure, format mismatch) were invisible. Empty log files went undetected because nothing checked file sizes post-run.
   - Rule: Subprocess features need at least one real-CLI verification before marking DONE. "Tests pass" for subprocess code means mock tests + at least one real integration test.
   - Tags: #testing #mocking #subprocess #stream-json #integration
+
+  20. Claude CLI `result` vs `structured_output` field -- the --json-schema trap
+  - Context: T-P0-91 investigation. All 5 callsites in enrichment.py and review_pipeline.py read `cli_output.get("result", "")`, but every one of them passes `--json-schema`. Per official docs (code.claude.com/docs/en/headless), when `--json-schema` is used, the structured output goes in the `structured_output` field and `result` is null.
+  - Root cause: Our code was written assuming `result` always contains the answer. Documentation clearly states two different output contracts depending on whether `--json-schema` is present.
+  - Affected locations (all read `result` but should read `structured_output`):
+    (a) `enrichment.py:224` -- enrichment parsing
+    (b) `enrichment.py:461` -- plan generation parsing
+    (c) `review_pipeline.py:629` -- reviewer result parsing
+    (d) `review_pipeline.py:639` -- raw_response builder
+    (e) `review_pipeline.py:731` -- synthesis result parsing
+  - Fix: When `--json-schema` is used, read `structured_output` instead of `result`. The value is already a parsed JSON object (not a string), so no `json.loads()` needed on it.
+  - Rule: Always check CLI docs for output field names. When using `--json-schema`, the result is in `structured_output` (object), not `result` (string/null).
+  - Tags: #claude-cli #json-schema #structured-output #parsing #root-cause
+
+  21. Claude CLI stream-json event types -- parser coverage gaps
+  - Context: T-P0-91 investigation. `_simplify_stream_event` in code_executor.py handles 5 event types (assistant, content_block_delta, tool_use, tool_result, result) but real CLI output includes 6+ types.
+  - Real stream-json event types (from docs + captured output):
+    (a) `system` -- subtypes: hook_started, hook_response, init (session/model info)
+    (b) `assistant` -- message with content blocks (thinking + text)
+    (c) `stream_event` -- token-level deltas (requires --include-partial-messages)
+    (d) `result` -- final result (with structured_output when --json-schema used)
+    (e) `rate_limit_event` -- rate limit info
+    (f) `user` -- synthetic user messages (from hooks, isSynthetic=true)
+  - Parser gap: `system`, `stream_event`, `rate_limit_event`, `user` are silently dropped (return None). This is mostly harmless for logging but means the JSONL files miss simplified representations.
+  - Note: `content_block_delta` in our parser maps to `stream_event.event.delta` in actual CLI output. The event nesting is different than assumed.
+  - Tags: #stream-json #event-types #parser #code-executor

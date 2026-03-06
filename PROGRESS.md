@@ -836,3 +836,10 @@
 - **Sanity check result**: TASKS.md structure valid, dependency chain correct (91->92,93->94,95->96,97)
 - **Status**: [DONE]
 - **Request**: No task to move (planning session, no code changes)
+
+## 2026-03-06 07:00 -- [T-P0-91] Investigate CLI --json-schema output behavior
+- **What I did**: Confirmed root cause of `result: null` via official Claude Code docs (code.claude.com/docs/en/headless). When `--json-schema` is used, CLI puts structured output in `structured_output` field (already a JSON object), NOT `result` (which is null). All 5 callsites in enrichment.py and review_pipeline.py read `result` and get null. Also confirmed: stream-json + --json-schema are compatible (JSON only at end in result event). Documented 6 real stream-json event types vs 5 handled by parser. Found `content_block_delta` vs `stream_event` nesting mismatch.
+- **Deliverables**: LESSONS.md (#20, #21), TASKS.md (T-P0-91 completed, T-P0-92/93 updated with findings, dependencies unblocked)
+- **Sanity check result**: Official docs confirm `structured_output` field. Existing exp1_stderr.txt shows `result: null` with `permission_denials`, consistent with findings.
+- **Status**: [DONE]
+- **Request**: Move T-P0-91 to Completed (DONE -- spec removed from In Progress, summary added to Completed Tasks)
