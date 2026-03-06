@@ -919,3 +919,10 @@
 - **Sanity check result**: 76 code_executor tests pass. Full suite: 1208 tests pass + 4 skipped (cli_integration). Ruff clean.
 - **Status**: [DONE]
 - **Request**: Move T-P1-88 to Completed (REMOVE spec from Active, ADD summary to Completed Tasks)
+
+## 2026-03-06 -- [T-P1-89] Migrate review_pipeline.py + conversation extraction
+- **What I did**: Replaced `_call_claude_cli()` (subprocess-based) with `_call_claude_sdk()` using `run_claude_query()` from `src/sdk_adapter`. Uses producer-task + queue pattern with heartbeat support (same as enrichment.py/code_executor.py). Removed subprocess process-group helpers (`_terminate_review_process`, `_kill_review_process`). Added `conversation_turns` and `conversation_summary` fields to `LLMReview` model. Integrated `collect_turns()` to reconstruct conversation turns from raw `ClaudeEvent` objects. Added `_extract_conversation_summary()` to produce structured `{findings, actions_taken, conclusion}` dict. SDK-reported `cost_usd` used when available, falling back to token-based estimate. Updated 98 review_pipeline tests + 4 integration tests + 1 subprocess_stream_limit test to mock `run_claude_query` instead of subprocess.
+- **Deliverables**: `src/review_pipeline.py`, `src/models.py`, `tests/test_review_pipeline.py`, `tests/integration/test_review_flow.py`, `tests/test_subprocess_stream_limit.py`
+- **Sanity check result**: 98 review_pipeline tests pass. Full suite: 1205 tests pass + 4 skipped (cli_integration). Ruff clean.
+- **Status**: [DONE]
+- **Request**: Move T-P1-89 to Completed (REMOVE spec from Active, ADD summary to Completed Tasks)

@@ -140,6 +140,8 @@ class LLMReview(BaseModel):
     raw_response: str = ""
     cost_usd: float | None = None
     timestamp: datetime
+    conversation_turns: list[dict] = Field(default_factory=list)
+    conversation_summary: dict = Field(default_factory=dict)
 
 
 class ReviewState(BaseModel):

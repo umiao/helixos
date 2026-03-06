@@ -138,19 +138,6 @@
   9. Manual smoke test: click "Start N Planned" -> tasks move to correct column -> SSE updates UI in real-time
 
 
-#### T-P1-89: Migrate review_pipeline.py + conversation extraction
-- **Priority**: P1
-- **Complexity**: M
-- **Depends on**: T-P1-86
-- **Description**: Replace `_call_claude_cli()` with `run_claude_query()`. Use `collect_turns()` from adapter to reconstruct conversation. Build summary from turns. Key fix: review produces meaningful conversation content, not just `[PROGRESS]` heartbeats.
-- **Acceptance Criteria**:
-  1. `_call_claude_cli()` uses `run_claude_query()`, no raw subprocess
-  2. Conversation turns: `collect_turns()` produces `list[AssistantTurn]` with text + tool actions
-  3. Summary: post-processing extracts `{"findings": [...], "actions_taken": [...], "conclusion": "..."}`
-  4. Both stored: turns in `review.conversation_turns` (new field), summary in `review.summary`
-  5. `raw_response` still stores model/usage/result metadata (backward compat)
-  6. JSONL logging + heartbeat as consumer responsibility
-  7. Existing review_pipeline tests pass unchanged
 
 #### T-P1-90: Remove dead subprocess boilerplate
 - **Priority**: P1
@@ -191,9 +178,8 @@
 - T-P1-85 depends on T-P1-84
 - T-P1-87 depends on T-P1-86
 - T-P1-88 depends on T-P1-86 (complete)
-- T-P1-89 depends on T-P1-86
-- T-P1-90 depends on T-P1-87, T-P1-88, T-P1-89 (T-P1-87/88 complete, needs T-P1-89)
-- T-P2-91 depends on T-P1-89
+- T-P1-90 depends on T-P1-87, T-P1-88, T-P1-89 (all complete)
+- T-P2-91 depends on T-P1-89 (complete)
 
 
 ---
@@ -204,6 +190,9 @@
 ## Completed Tasks
 
 > 99 completed tasks archived to [archive/completed_tasks.md](archive/completed_tasks.md).
+
+#### [x] T-P1-89: Migrate review_pipeline.py + conversation extraction -- 2026-03-06
+- Replaced `_call_claude_cli()` subprocess with `_call_claude_sdk()` using `run_claude_query()` + producer-task + queue pattern. Added `conversation_turns` and `conversation_summary` fields to `LLMReview` model. Integrated `collect_turns()` for turn reconstruction and `_extract_conversation_summary()` for structured findings/actions/conclusion. Removed subprocess process-group helpers. Updated 98 review_pipeline tests + 4 integration tests + 1 subprocess_stream_limit test. Full suite: 1205 pass + 4 skipped, ruff clean.
 
 #### [x] T-P1-88: Migrate code_executor.py to Agent SDK -- 2026-03-06
 - Replaced `asyncio.create_subprocess_exec` in `CodeExecutor.execute()` with `run_claude_query()` from `sdk_adapter`. Uses producer-task + queue pattern with 30s heartbeat, manual time-based session/inactivity timeout (avoids nested asyncio.timeout/wait_for conflicts). Preflight check updated to verify SDK importability. Cancel support via producer task cancellation. Updated 76 tests (+ stream_json + subprocess_stream_limit) to mock `run_claude_query` instead of subprocess. 1208 tests pass + 4 skipped, ruff clean.

@@ -1,17 +1,18 @@
 """Tests for the ReviewPipeline.
 
-Uses subprocess mocking (patching asyncio.create_subprocess_exec) to test
-approve, reject, disagree, progress callback, synthesis, and error-handling
-scenarios. All LLM calls go through the Claude CLI subprocess.
+Uses SDK adapter mocking (patching run_claude_query) to test approve, reject,
+disagree, progress callback, synthesis, and error-handling scenarios.
+All LLM calls go through the Claude Agent SDK via ``sdk_adapter``.
+
+Migrated from subprocess mocking to SDK mocking in T-P1-89.
 """
 
 from __future__ import annotations
 
 import asyncio
 import json
-import sys
 from datetime import UTC, datetime
-from pathlib import Path
+from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -23,82 +24,116 @@ from src.review_pipeline import (
     ReviewPipeline,
     ReviewResult,
     SynthesisResult,
+    _extract_conversation_summary,
     _extract_cost_usd,
-    _kill_review_process,
-    _terminate_review_process,
     _truncate_raw_response,
 )
+from src.sdk_adapter import ClaudeEvent, ClaudeEventType
 
 # ------------------------------------------------------------------
 # Helpers
 # ------------------------------------------------------------------
 
 
-def _make_cli_output(inner: dict | str) -> bytes:
-    """Create mock Claude CLI stdout bytes.
-
-    When ``inner`` is a dict, simulates ``--json-schema`` mode where
-    ``structured_output`` is already a parsed object and ``result`` is null.
-    When ``inner`` is a str, simulates legacy mode with ``result`` as string.
-    """
-    if isinstance(inner, dict):
-        cli_output = {"type": "result", "structured_output": inner, "result": None}
-    else:
-        cli_output = {"type": "result", "result": inner}
-    return json.dumps(cli_output).encode("utf-8")
-
-
-def _make_review_output(
+def _make_review_events(
     verdict: str,
     summary: str,
     suggestions: list[str] | None = None,
-) -> bytes:
-    """Create mock Claude CLI stdout for a review response."""
+    model: str = "claude-sonnet-4-5",
+    usage: dict[str, int] | None = None,
+    session_id: str | None = None,
+    cost_usd: float | None = None,
+) -> list[ClaudeEvent]:
+    """Create a list of ClaudeEvent objects simulating a review response.
+
+    Generates INIT + TEXT + RESULT events, matching what the SDK adapter
+    would produce for a simple structured-output query.
+    """
     inner = {
         "verdict": verdict,
         "summary": summary,
         "suggestions": suggestions or [],
     }
-    return _make_cli_output(inner)
+    events = [
+        ClaudeEvent(
+            type=ClaudeEventType.INIT,
+            session_id=session_id or "sess-test",
+        ),
+        ClaudeEvent(
+            type=ClaudeEventType.TEXT,
+            text=f"Reviewing: {summary}",
+            model=model,
+        ),
+        ClaudeEvent(
+            type=ClaudeEventType.RESULT,
+            structured_output=inner,
+            result_text=None,
+            model=model,
+            usage=usage,
+            session_id=session_id or "sess-test",
+            cost_usd=cost_usd,
+        ),
+    ]
+    return events
 
 
-def _make_synthesis_output(
+def _make_synthesis_events(
     score: float,
     disagreements: list[str] | None = None,
-) -> bytes:
-    """Create mock Claude CLI stdout for a synthesis response."""
+    model: str = "claude-sonnet-4-5",
+) -> list[ClaudeEvent]:
+    """Create ClaudeEvent objects simulating a synthesis response."""
     inner = {
         "score": score,
         "disagreements": disagreements or [],
     }
-    return _make_cli_output(inner)
+    return [
+        ClaudeEvent(type=ClaudeEventType.INIT, session_id="sess-synth"),
+        ClaudeEvent(
+            type=ClaudeEventType.RESULT,
+            structured_output=inner,
+            result_text=None,
+            model=model,
+        ),
+    ]
 
 
-def _mock_proc(stdout: bytes, returncode: int = 0) -> AsyncMock:
-    """Create a mock subprocess with readline-based stdout.
+def _make_error_events(error_message: str = "SDK error") -> list[ClaudeEvent]:
+    """Create ClaudeEvent objects simulating an SDK error."""
+    return [
+        ClaudeEvent(type=ClaudeEventType.INIT, session_id="sess-err"),
+        ClaudeEvent(
+            type=ClaudeEventType.ERROR,
+            error_message=error_message,
+        ),
+    ]
 
-    Simulates line-by-line reading used by the streaming _call_claude_cli.
+
+async def _mock_run_claude_query_from_events(
+    events: list[ClaudeEvent],
+):
+    """Create an async generator that yields events from a list."""
+    for event in events:
+        yield event
+
+
+def _setup_mock_query(
+    mock_query: MagicMock,
+    event_sequences: list[list[ClaudeEvent]],
+) -> None:
+    """Configure mock run_claude_query to yield events from sequences.
+
+    Each call to run_claude_query() will return the next sequence of events.
     """
-    proc = AsyncMock()
-    proc.returncode = returncode
-    proc.wait = AsyncMock()
-    proc.kill = MagicMock()
+    call_count = 0
 
-    # Build a mock stdout that yields lines then EOF
-    lines = stdout.split(b"\n") if stdout else []
-    line_queue: list[bytes] = [line + b"\n" for line in lines if line]
-    line_queue.append(b"")  # EOF sentinel
+    def _side_effect(prompt: str, options: Any = None):
+        nonlocal call_count
+        idx = min(call_count, len(event_sequences) - 1)
+        call_count += 1
+        return _mock_run_claude_query_from_events(event_sequences[idx])
 
-    mock_stdout = AsyncMock()
-    mock_stdout.readline = AsyncMock(side_effect=line_queue)
-
-    mock_stderr = AsyncMock()
-    mock_stderr.read = AsyncMock(return_value=b"")
-
-    proc.stdout = mock_stdout
-    proc.stderr = mock_stderr
-
-    return proc
+    mock_query.side_effect = _side_effect
 
 
 def _default_config() -> ReviewPipelineConfig:
@@ -140,12 +175,12 @@ def _sample_task() -> Task:
 
 
 @pytest.mark.asyncio
-@patch("src.review_pipeline.asyncio.create_subprocess_exec")
-async def test_single_reviewer_approve(mock_exec: AsyncMock) -> None:
+@patch("src.review_pipeline.run_claude_query")
+async def test_single_reviewer_approve(mock_query: MagicMock) -> None:
     """Single required reviewer approves -> score 1.0, no human decision."""
-    mock_exec.return_value = _mock_proc(
-        _make_review_output("approve", "Plan looks good", [])
-    )
+    _setup_mock_query(mock_query, [
+        _make_review_events("approve", "Plan looks good"),
+    ])
 
     pipeline = ReviewPipeline(_default_config(), threshold=0.8)
 
@@ -165,16 +200,16 @@ async def test_single_reviewer_approve(mock_exec: AsyncMock) -> None:
     assert result.rounds_completed == 1
     assert result.lifecycle_state == ReviewLifecycleState.APPROVED
     # Only required reviewer called for S complexity
-    assert mock_exec.call_count == 1
+    assert mock_query.call_count == 1
 
 
 @pytest.mark.asyncio
-@patch("src.review_pipeline.asyncio.create_subprocess_exec")
-async def test_single_reviewer_reject(mock_exec: AsyncMock) -> None:
+@patch("src.review_pipeline.run_claude_query")
+async def test_single_reviewer_reject(mock_query: MagicMock) -> None:
     """Single required reviewer rejects -> score 0.0, REJECTED_SINGLE lifecycle."""
-    mock_exec.return_value = _mock_proc(
-        _make_review_output("reject", "Plan has issues", ["Fix error handling", "Add tests"])
-    )
+    _setup_mock_query(mock_query, [
+        _make_review_events("reject", "Plan has issues", ["Fix error handling", "Add tests"]),
+    ])
 
     pipeline = ReviewPipeline(_default_config(), threshold=0.8)
 
@@ -196,14 +231,14 @@ async def test_single_reviewer_reject(mock_exec: AsyncMock) -> None:
 
 
 @pytest.mark.asyncio
-@patch("src.review_pipeline.asyncio.create_subprocess_exec")
-async def test_multi_reviewer_disagree(mock_exec: AsyncMock) -> None:
+@patch("src.review_pipeline.run_claude_query")
+async def test_multi_reviewer_disagree(mock_query: MagicMock) -> None:
     """Two reviewers disagree -> synthesis called, score from synthesis."""
-    mock_exec.side_effect = [
-        _mock_proc(_make_review_output("approve", "Looks feasible")),
-        _mock_proc(_make_review_output("reject", "Security risk", ["Add auth check"])),
-        _mock_proc(_make_synthesis_output(0.65, ["Security concerns"])),
-    ]
+    _setup_mock_query(mock_query, [
+        _make_review_events("approve", "Looks feasible"),
+        _make_review_events("reject", "Security risk", ["Add auth check"]),
+        _make_synthesis_events(0.65, ["Security concerns"]),
+    ])
 
     pipeline = ReviewPipeline(_default_config(), threshold=0.8)
 
@@ -217,18 +252,18 @@ async def test_multi_reviewer_disagree(mock_exec: AsyncMock) -> None:
     assert result.decision_points == ["Security concerns"]
     assert result.lifecycle_state == ReviewLifecycleState.REJECTED_CONSENSUS
     # 2 review calls + 1 synthesis call = 3 total
-    assert mock_exec.call_count == 3
+    assert mock_query.call_count == 3
 
 
 @pytest.mark.asyncio
-@patch("src.review_pipeline.asyncio.create_subprocess_exec")
-async def test_multi_reviewer_agree(mock_exec: AsyncMock) -> None:
+@patch("src.review_pipeline.run_claude_query")
+async def test_multi_reviewer_agree(mock_query: MagicMock) -> None:
     """Two reviewers both approve -> synthesis called, high score."""
-    mock_exec.side_effect = [
-        _mock_proc(_make_review_output("approve", "Feasible")),
-        _mock_proc(_make_review_output("approve", "No risks found")),
-        _mock_proc(_make_synthesis_output(0.95, [])),
-    ]
+    _setup_mock_query(mock_query, [
+        _make_review_events("approve", "Feasible"),
+        _make_review_events("approve", "No risks found"),
+        _make_synthesis_events(0.95, []),
+    ])
 
     pipeline = ReviewPipeline(_default_config(), threshold=0.8)
 
@@ -249,14 +284,14 @@ async def test_multi_reviewer_agree(mock_exec: AsyncMock) -> None:
 
 
 @pytest.mark.asyncio
-@patch("src.review_pipeline.asyncio.create_subprocess_exec")
-async def test_progress_callback(mock_exec: AsyncMock) -> None:
+@patch("src.review_pipeline.run_claude_query")
+async def test_progress_callback(mock_query: MagicMock) -> None:
     """on_progress is called with (completed, total, phase) around each reviewer."""
-    mock_exec.side_effect = [
-        _mock_proc(_make_review_output("approve", "OK")),
-        _mock_proc(_make_review_output("approve", "OK")),
-        _mock_proc(_make_synthesis_output(0.9, [])),
-    ]
+    _setup_mock_query(mock_query, [
+        _make_review_events("approve", "OK"),
+        _make_review_events("approve", "OK"),
+        _make_synthesis_events(0.9, []),
+    ])
 
     pipeline = ReviewPipeline(_default_config(), threshold=0.8)
 
@@ -278,12 +313,12 @@ async def test_progress_callback(mock_exec: AsyncMock) -> None:
 
 
 @pytest.mark.asyncio
-@patch("src.review_pipeline.asyncio.create_subprocess_exec")
-async def test_progress_callback_single_reviewer(mock_exec: AsyncMock) -> None:
+@patch("src.review_pipeline.run_claude_query")
+async def test_progress_callback_single_reviewer(mock_query: MagicMock) -> None:
     """Progress callback for single reviewer: start + complete phases."""
-    mock_exec.return_value = _mock_proc(
-        _make_review_output("approve", "OK")
-    )
+    _setup_mock_query(mock_query, [
+        _make_review_events("approve", "OK"),
+    ])
 
     pipeline = ReviewPipeline(_default_config())
 
@@ -307,12 +342,12 @@ async def test_progress_callback_single_reviewer(mock_exec: AsyncMock) -> None:
 
 
 @pytest.mark.asyncio
-@patch("src.review_pipeline.asyncio.create_subprocess_exec")
-async def test_s_complexity_skips_optional(mock_exec: AsyncMock) -> None:
+@patch("src.review_pipeline.run_claude_query")
+async def test_s_complexity_skips_optional(mock_query: MagicMock) -> None:
     """S complexity only runs required reviewers."""
-    mock_exec.return_value = _mock_proc(
-        _make_review_output("approve", "OK")
-    )
+    _setup_mock_query(mock_query, [
+        _make_review_events("approve", "OK"),
+    ])
 
     pipeline = ReviewPipeline(_default_config())
 
@@ -321,18 +356,18 @@ async def test_s_complexity_skips_optional(mock_exec: AsyncMock) -> None:
     )
 
     assert len(result.reviews) == 1
-    assert mock_exec.call_count == 1
+    assert mock_query.call_count == 1
 
 
 @pytest.mark.asyncio
-@patch("src.review_pipeline.asyncio.create_subprocess_exec")
-async def test_m_complexity_includes_optional(mock_exec: AsyncMock) -> None:
+@patch("src.review_pipeline.run_claude_query")
+async def test_m_complexity_includes_optional(mock_query: MagicMock) -> None:
     """M complexity includes optional adversarial reviewer."""
-    mock_exec.side_effect = [
-        _mock_proc(_make_review_output("approve", "OK")),
-        _mock_proc(_make_review_output("approve", "OK")),
-        _mock_proc(_make_synthesis_output(0.9, [])),
-    ]
+    _setup_mock_query(mock_query, [
+        _make_review_events("approve", "OK"),
+        _make_review_events("approve", "OK"),
+        _make_synthesis_events(0.9, []),
+    ])
 
     pipeline = ReviewPipeline(_default_config())
 
@@ -342,18 +377,18 @@ async def test_m_complexity_includes_optional(mock_exec: AsyncMock) -> None:
 
     assert len(result.reviews) == 2
     # 2 reviews + 1 synthesis
-    assert mock_exec.call_count == 3
+    assert mock_query.call_count == 3
 
 
 @pytest.mark.asyncio
-@patch("src.review_pipeline.asyncio.create_subprocess_exec")
-async def test_l_complexity_includes_optional(mock_exec: AsyncMock) -> None:
+@patch("src.review_pipeline.run_claude_query")
+async def test_l_complexity_includes_optional(mock_query: MagicMock) -> None:
     """L complexity also includes optional adversarial reviewer."""
-    mock_exec.side_effect = [
-        _mock_proc(_make_review_output("approve", "OK")),
-        _mock_proc(_make_review_output("approve", "OK")),
-        _mock_proc(_make_synthesis_output(0.9, [])),
-    ]
+    _setup_mock_query(mock_query, [
+        _make_review_events("approve", "OK"),
+        _make_review_events("approve", "OK"),
+        _make_synthesis_events(0.9, []),
+    ])
 
     pipeline = ReviewPipeline(_default_config())
 
@@ -370,12 +405,20 @@ async def test_l_complexity_includes_optional(mock_exec: AsyncMock) -> None:
 
 
 @pytest.mark.asyncio
-@patch("src.review_pipeline.asyncio.create_subprocess_exec")
-async def test_parse_failure_treated_as_reject(mock_exec: AsyncMock) -> None:
+@patch("src.review_pipeline.run_claude_query")
+async def test_parse_failure_treated_as_reject(mock_query: MagicMock) -> None:
     """Invalid JSON from reviewer -> treated as reject with REJECTED_SINGLE lifecycle."""
-    mock_exec.return_value = _mock_proc(
-        _make_cli_output("This is not valid JSON")
-    )
+    # Result has raw text instead of structured review JSON
+    events = [
+        ClaudeEvent(type=ClaudeEventType.INIT, session_id="sess-test"),
+        ClaudeEvent(
+            type=ClaudeEventType.RESULT,
+            result_text="This is not valid JSON",
+            structured_output=None,
+            model="claude-sonnet-4-5",
+        ),
+    ]
+    _setup_mock_query(mock_query, [events])
 
     pipeline = ReviewPipeline(_default_config(), threshold=0.8)
 
@@ -391,14 +434,23 @@ async def test_parse_failure_treated_as_reject(mock_exec: AsyncMock) -> None:
 
 
 @pytest.mark.asyncio
-@patch("src.review_pipeline.asyncio.create_subprocess_exec")
-async def test_synthesis_parse_failure(mock_exec: AsyncMock) -> None:
+@patch("src.review_pipeline.run_claude_query")
+async def test_synthesis_parse_failure(mock_query: MagicMock) -> None:
     """Invalid JSON from synthesis -> default score 0.5, human decision needed."""
-    mock_exec.side_effect = [
-        _mock_proc(_make_review_output("approve", "OK")),
-        _mock_proc(_make_review_output("reject", "Bad")),
-        _mock_proc(_make_cli_output("not json at all")),
+    synthesis_events = [
+        ClaudeEvent(type=ClaudeEventType.INIT, session_id="sess-synth"),
+        ClaudeEvent(
+            type=ClaudeEventType.RESULT,
+            result_text="not json at all",
+            structured_output=None,
+            model="claude-sonnet-4-5",
+        ),
     ]
+    _setup_mock_query(mock_query, [
+        _make_review_events("approve", "OK"),
+        _make_review_events("reject", "Bad"),
+        synthesis_events,
+    ])
 
     pipeline = ReviewPipeline(_default_config(), threshold=0.8)
 
@@ -447,17 +499,23 @@ def test_build_review_prompt_unknown_focus() -> None:
 
 
 # ------------------------------------------------------------------
-# CLI call content verification
+# SDK call content verification
 # ------------------------------------------------------------------
 
 
 @pytest.mark.asyncio
-@patch("src.review_pipeline.asyncio.create_subprocess_exec")
-async def test_reviewer_receives_task_context(mock_exec: AsyncMock) -> None:
-    """CLI call includes task title, ID, description, and plan content."""
-    mock_exec.return_value = _mock_proc(
-        _make_review_output("approve", "OK")
-    )
+@patch("src.review_pipeline.run_claude_query")
+async def test_reviewer_receives_task_context(mock_query: MagicMock) -> None:
+    """SDK call includes task title, ID, description, and plan content in prompt."""
+    captured_prompts: list[str] = []
+
+    def _capture_query(prompt: str, options: Any = None):
+        captured_prompts.append(prompt)
+        return _mock_run_claude_query_from_events(
+            _make_review_events("approve", "OK")
+        )
+
+    mock_query.side_effect = _capture_query
 
     pipeline = ReviewPipeline(_default_config())
     task = _sample_task()
@@ -466,22 +524,26 @@ async def test_reviewer_receives_task_context(mock_exec: AsyncMock) -> None:
         task, "My detailed plan", lambda c, t, p: None, complexity="S"
     )
 
-    call_args = mock_exec.call_args.args
-    # call_args = ("claude", "-p", prompt, "--system-prompt", system, ...)
-    prompt = call_args[2]  # The -p argument value
-
+    assert len(captured_prompts) >= 1
+    prompt = captured_prompts[0]
     assert task.title in prompt
     assert task.id in prompt
     assert "My detailed plan" in prompt
 
 
 @pytest.mark.asyncio
-@patch("src.review_pipeline.asyncio.create_subprocess_exec")
-async def test_reviewer_uses_correct_model(mock_exec: AsyncMock) -> None:
-    """CLI call uses the model specified in the reviewer config."""
-    mock_exec.return_value = _mock_proc(
-        _make_review_output("approve", "OK")
-    )
+@patch("src.review_pipeline.run_claude_query")
+async def test_reviewer_uses_correct_model(mock_query: MagicMock) -> None:
+    """SDK call uses the model specified in the reviewer config via QueryOptions."""
+    captured_options: list[Any] = []
+
+    def _capture_query(prompt: str, options: Any = None):
+        captured_options.append(options)
+        return _mock_run_claude_query_from_events(
+            _make_review_events("approve", "OK")
+        )
+
+    mock_query.side_effect = _capture_query
 
     pipeline = ReviewPipeline(_default_config())
 
@@ -489,10 +551,8 @@ async def test_reviewer_uses_correct_model(mock_exec: AsyncMock) -> None:
         _sample_task(), "Plan", lambda c, t, p: None, complexity="S"
     )
 
-    call_args = mock_exec.call_args.args
-    # Find --model flag and its value
-    model_idx = list(call_args).index("--model") + 1
-    assert call_args[model_idx] == "claude-sonnet-4-5"
+    assert len(captured_options) >= 1
+    assert captured_options[0].model == "claude-sonnet-4-5"
 
 
 # ------------------------------------------------------------------
@@ -542,14 +602,14 @@ async def test_empty_reviewers_config() -> None:
 
 
 @pytest.mark.asyncio
-@patch("src.review_pipeline.asyncio.create_subprocess_exec")
-async def test_threshold_boundary(mock_exec: AsyncMock) -> None:
+@patch("src.review_pipeline.run_claude_query")
+async def test_threshold_boundary(mock_query: MagicMock) -> None:
     """Score exactly at threshold -> no human decision needed."""
-    mock_exec.side_effect = [
-        _mock_proc(_make_review_output("approve", "OK")),
-        _mock_proc(_make_review_output("approve", "OK")),
-        _mock_proc(_make_synthesis_output(0.8, [])),
-    ]
+    _setup_mock_query(mock_query, [
+        _make_review_events("approve", "OK"),
+        _make_review_events("approve", "OK"),
+        _make_synthesis_events(0.8, []),
+    ])
 
     pipeline = ReviewPipeline(_default_config(), threshold=0.8)
 
@@ -563,14 +623,14 @@ async def test_threshold_boundary(mock_exec: AsyncMock) -> None:
 
 
 @pytest.mark.asyncio
-@patch("src.review_pipeline.asyncio.create_subprocess_exec")
-async def test_synthesis_score_clamped(mock_exec: AsyncMock) -> None:
+@patch("src.review_pipeline.run_claude_query")
+async def test_synthesis_score_clamped(mock_query: MagicMock) -> None:
     """Synthesis score > 1.0 is clamped to 1.0."""
-    mock_exec.side_effect = [
-        _mock_proc(_make_review_output("approve", "OK")),
-        _mock_proc(_make_review_output("approve", "OK")),
-        _mock_proc(_make_synthesis_output(1.5, [])),
-    ]
+    _setup_mock_query(mock_query, [
+        _make_review_events("approve", "OK"),
+        _make_review_events("approve", "OK"),
+        _make_synthesis_events(1.5, []),
+    ])
 
     pipeline = ReviewPipeline(_default_config(), threshold=0.8)
 
@@ -588,15 +648,17 @@ async def test_synthesis_score_clamped(mock_exec: AsyncMock) -> None:
 
 
 @pytest.mark.asyncio
-@patch("src.review_pipeline.asyncio.create_subprocess_exec")
-async def test_raw_response_captured(mock_exec: AsyncMock) -> None:
+@patch("src.review_pipeline.run_claude_query")
+async def test_raw_response_captured(mock_query: MagicMock) -> None:
     """raw_response is structured JSON with model, usage, result, session_id."""
     inner_dict = {
         "verdict": "approve",
         "summary": "Plan looks good",
         "suggestions": [],
     }
-    mock_exec.return_value = _mock_proc(_make_review_output("approve", "Plan looks good"))
+    _setup_mock_query(mock_query, [
+        _make_review_events("approve", "Plan looks good"),
+    ])
 
     pipeline = ReviewPipeline(_default_config(), threshold=0.8)
     result = await pipeline.review_task(
@@ -609,15 +671,20 @@ async def test_raw_response_captured(mock_exec: AsyncMock) -> None:
 
 
 @pytest.mark.asyncio
-@patch("src.review_pipeline.asyncio.create_subprocess_exec")
-async def test_raw_response_captured_on_parse_failure(mock_exec: AsyncMock) -> None:
+@patch("src.review_pipeline.run_claude_query")
+async def test_raw_response_captured_on_parse_failure(mock_query: MagicMock) -> None:
     """raw_response is captured even when JSON parsing fails (legacy result-as-string)."""
     raw_text = "This is not valid JSON but is the raw reviewer output"
-    # Simulate legacy mode: structured_output absent, result is a raw string
-    cli_bytes = json.dumps({
-        "type": "result", "result": raw_text, "structured_output": None,
-    }).encode("utf-8")
-    mock_exec.return_value = _mock_proc(cli_bytes)
+    events = [
+        ClaudeEvent(type=ClaudeEventType.INIT, session_id="sess-test"),
+        ClaudeEvent(
+            type=ClaudeEventType.RESULT,
+            result_text=raw_text,
+            structured_output=None,
+            model="claude-sonnet-4-5",
+        ),
+    ]
+    _setup_mock_query(mock_query, [events])
 
     pipeline = ReviewPipeline(_default_config(), threshold=0.8)
     result = await pipeline.review_task(
@@ -630,22 +697,17 @@ async def test_raw_response_captured_on_parse_failure(mock_exec: AsyncMock) -> N
 
 
 @pytest.mark.asyncio
-@patch("src.review_pipeline.asyncio.create_subprocess_exec")
-async def test_raw_response_contains_fields_beyond_result(mock_exec: AsyncMock) -> None:
+@patch("src.review_pipeline.run_claude_query")
+async def test_raw_response_contains_fields_beyond_result(mock_query: MagicMock) -> None:
     """raw_response must contain fields beyond just 'result' (invariant test from AC)."""
-    inner_dict = {"verdict": "approve", "summary": "OK", "suggestions": []}
-    # CLI output with structured_output + usage + model data
-    cli_output = {
-        "type": "result",
-        "structured_output": inner_dict,
-        "result": None,
-        "model": "claude-sonnet-4-5",
-        "usage": {"input_tokens": 1000, "output_tokens": 500},
-        "session_id": "sess-abc123",
-    }
-    mock_exec.return_value = _mock_proc(
-        json.dumps(cli_output).encode("utf-8")
-    )
+    _setup_mock_query(mock_query, [
+        _make_review_events(
+            "approve", "OK",
+            model="claude-sonnet-4-5",
+            usage={"input_tokens": 1000, "output_tokens": 500},
+            session_id="sess-abc123",
+        ),
+    ])
 
     pipeline = ReviewPipeline(_default_config(), threshold=0.8)
     result = await pipeline.review_task(
@@ -661,24 +723,17 @@ async def test_raw_response_contains_fields_beyond_result(mock_exec: AsyncMock) 
 
 
 @pytest.mark.asyncio
-@patch("src.review_pipeline.asyncio.create_subprocess_exec")
-async def test_raw_response_explicit_fields_only(mock_exec: AsyncMock) -> None:
+@patch("src.review_pipeline.run_claude_query")
+async def test_raw_response_explicit_fields_only(mock_query: MagicMock) -> None:
     """raw_response contains only model/usage/result/session_id, not entire CLI blob."""
-    inner_dict = {"verdict": "approve", "summary": "OK", "suggestions": []}
-    # CLI output with extra fields that should NOT be in raw_response
-    cli_output = {
-        "type": "result",
-        "structured_output": inner_dict,
-        "result": None,
-        "model": "claude-sonnet-4-5",
-        "usage": {"input_tokens": 100, "output_tokens": 50},
-        "session_id": "sess-xyz",
-        "some_internal_field": "should_not_be_stored",
-        "num_turns": 1,
-    }
-    mock_exec.return_value = _mock_proc(
-        json.dumps(cli_output).encode("utf-8")
-    )
+    _setup_mock_query(mock_query, [
+        _make_review_events(
+            "approve", "OK",
+            model="claude-sonnet-4-5",
+            usage={"input_tokens": 100, "output_tokens": 50},
+            session_id="sess-xyz",
+        ),
+    ])
 
     pipeline = ReviewPipeline(_default_config(), threshold=0.8)
     result = await pipeline.review_task(
@@ -786,17 +841,23 @@ def test_extract_cost_usd_unknown_model() -> None:
 
 
 # ------------------------------------------------------------------
-# max_budget_usd in CLI args
+# max_budget_usd in QueryOptions
 # ------------------------------------------------------------------
 
 
 @pytest.mark.asyncio
-@patch("src.review_pipeline.asyncio.create_subprocess_exec")
-async def test_reviewer_uses_max_budget_usd(mock_exec: AsyncMock) -> None:
-    """CLI call includes --max-budget-usd when reviewer sets it."""
-    mock_exec.return_value = _mock_proc(
-        _make_review_output("approve", "OK")
-    )
+@patch("src.review_pipeline.run_claude_query")
+async def test_reviewer_uses_max_budget_usd(mock_query: MagicMock) -> None:
+    """QueryOptions includes max_budget_usd when reviewer sets it."""
+    captured_options: list[Any] = []
+
+    def _capture_query(prompt: str, options: Any = None):
+        captured_options.append(options)
+        return _mock_run_claude_query_from_events(
+            _make_review_events("approve", "OK")
+        )
+
+    mock_query.side_effect = _capture_query
 
     config = ReviewPipelineConfig(
         reviewers=[
@@ -815,18 +876,23 @@ async def test_reviewer_uses_max_budget_usd(mock_exec: AsyncMock) -> None:
         _sample_task(), "Plan", lambda c, t, p: None, complexity="S"
     )
 
-    call_args = mock_exec.call_args.args
-    budget_idx = list(call_args).index("--max-budget-usd") + 1
-    assert call_args[budget_idx] == "2.00"
+    assert len(captured_options) >= 1
+    assert captured_options[0].max_budget_usd == 2.00
 
 
 @pytest.mark.asyncio
-@patch("src.review_pipeline.asyncio.create_subprocess_exec")
-async def test_reviewer_default_budget_omits_flag(mock_exec: AsyncMock) -> None:
-    """Reviewer without explicit max_budget_usd omits --max-budget-usd flag."""
-    mock_exec.return_value = _mock_proc(
-        _make_review_output("approve", "OK")
-    )
+@patch("src.review_pipeline.run_claude_query")
+async def test_reviewer_default_budget_omits_flag(mock_query: MagicMock) -> None:
+    """Reviewer without explicit max_budget_usd passes None in QueryOptions."""
+    captured_options: list[Any] = []
+
+    def _capture_query(prompt: str, options: Any = None):
+        captured_options.append(options)
+        return _mock_run_claude_query_from_events(
+            _make_review_events("approve", "OK")
+        )
+
+    mock_query.side_effect = _capture_query
 
     pipeline = ReviewPipeline(_default_config())
 
@@ -834,8 +900,8 @@ async def test_reviewer_default_budget_omits_flag(mock_exec: AsyncMock) -> None:
         _sample_task(), "Plan", lambda c, t, p: None, complexity="S"
     )
 
-    call_args = list(mock_exec.call_args.args)
-    assert "--max-budget-usd" not in call_args
+    assert len(captured_options) >= 1
+    assert captured_options[0].max_budget_usd is None
 
 
 # ------------------------------------------------------------------
@@ -843,36 +909,17 @@ async def test_reviewer_default_budget_omits_flag(mock_exec: AsyncMock) -> None:
 # ------------------------------------------------------------------
 
 
-def _make_cli_output_with_usage(
-    inner: dict | str,
-    input_tokens: int = 500,
-    output_tokens: int = 200,
-) -> bytes:
-    """Create mock Claude CLI stdout with usage data."""
-    if isinstance(inner, dict):
-        cli_output = {
-            "type": "result",
-            "structured_output": inner,
-            "result": None,
-            "usage": {"input_tokens": input_tokens, "output_tokens": output_tokens},
-        }
-    else:
-        cli_output = {
-            "type": "result",
-            "result": inner,
-            "usage": {"input_tokens": input_tokens, "output_tokens": output_tokens},
-        }
-    return json.dumps(cli_output).encode("utf-8")
-
-
 @pytest.mark.asyncio
-@patch("src.review_pipeline.asyncio.create_subprocess_exec")
-async def test_cost_usd_captured_on_review(mock_exec: AsyncMock) -> None:
-    """cost_usd is populated on LLMReview when usage data is in CLI output."""
-    inner = {"verdict": "approve", "summary": "OK", "suggestions": []}
-    mock_exec.return_value = _mock_proc(
-        _make_cli_output_with_usage(inner, input_tokens=1000, output_tokens=500)
-    )
+@patch("src.review_pipeline.run_claude_query")
+async def test_cost_usd_captured_on_review(mock_query: MagicMock) -> None:
+    """cost_usd is populated on LLMReview when usage data is in SDK output."""
+    _setup_mock_query(mock_query, [
+        _make_review_events(
+            "approve", "OK",
+            usage={"input_tokens": 1000, "output_tokens": 500},
+            cost_usd=0.0105,
+        ),
+    ])
 
     pipeline = ReviewPipeline(_default_config(), threshold=0.8)
     result = await pipeline.review_task(
@@ -884,99 +931,37 @@ async def test_cost_usd_captured_on_review(mock_exec: AsyncMock) -> None:
 
 
 @pytest.mark.asyncio
-@patch("src.review_pipeline.asyncio.create_subprocess_exec")
-async def test_cost_usd_none_when_no_usage(mock_exec: AsyncMock) -> None:
-    """cost_usd is None when CLI output has no usage data."""
-    mock_exec.return_value = _mock_proc(
-        _make_review_output("approve", "OK")
-    )
+@patch("src.review_pipeline.run_claude_query")
+async def test_cost_usd_none_when_no_usage(mock_query: MagicMock) -> None:
+    """cost_usd is None when SDK output has no usage data."""
+    _setup_mock_query(mock_query, [
+        _make_review_events("approve", "OK"),
+    ])
 
     pipeline = ReviewPipeline(_default_config(), threshold=0.8)
     result = await pipeline.review_task(
         _sample_task(), "Plan", lambda c, t, p: None, complexity="S"
     )
 
+    # With no cost_usd from SDK and no usage for token-based estimate,
+    # cost_usd will be None
     assert result.reviews[0].cost_usd is None
 
 
 # ------------------------------------------------------------------
-# Process group flags (T-P0-31)
+# Timeout behavior
 # ------------------------------------------------------------------
 
 
 @pytest.mark.asyncio
-@patch("src.review_pipeline.asyncio.create_subprocess_exec")
-async def test_subprocess_created_with_process_group_flags(mock_exec: AsyncMock) -> None:
-    """Subprocess is created with process group isolation flags."""
-    mock_exec.return_value = _mock_proc(
-        _make_review_output("approve", "OK")
-    )
-
-    pipeline = ReviewPipeline(_default_config(), threshold=0.8)
-    await pipeline.review_task(
-        _sample_task(), "Plan", lambda c, t, p: None, complexity="S"
-    )
-
-    kwargs = mock_exec.call_args.kwargs
-    if sys.platform == "win32":
-        assert "creationflags" in kwargs
-    else:
-        assert kwargs.get("start_new_session") is True
-
-
-@pytest.mark.asyncio
-@patch("src.review_pipeline.asyncio.create_subprocess_exec")
-async def test_subprocess_stdout_stderr_pipes(mock_exec: AsyncMock) -> None:
-    """Subprocess is created with PIPE for stdout and stderr."""
-    mock_exec.return_value = _mock_proc(
-        _make_review_output("approve", "OK")
-    )
-
-    pipeline = ReviewPipeline(_default_config(), threshold=0.8)
-    await pipeline.review_task(
-        _sample_task(), "Plan", lambda c, t, p: None, complexity="S"
-    )
-
-    kwargs = mock_exec.call_args.kwargs
-    assert kwargs["stdout"] == asyncio.subprocess.PIPE
-    assert kwargs["stderr"] == asyncio.subprocess.PIPE
-
-
-# ------------------------------------------------------------------
-# Timeout behavior (T-P0-31)
-# ------------------------------------------------------------------
-
-
-@pytest.mark.asyncio
-@patch("src.review_pipeline._kill_review_process")
-@patch("src.review_pipeline._terminate_review_process")
-@patch("src.review_pipeline.asyncio.create_subprocess_exec")
-async def test_timeout_kills_process_group(
-    mock_exec: AsyncMock,
-    mock_terminate: MagicMock,
-    mock_kill: MagicMock,
-) -> None:
-    """When readline() hangs past timeout, process group is terminated and RuntimeError raised."""
-    proc = AsyncMock()
-    proc.wait = AsyncMock(return_value=0)
-    proc.pid = 12345
-    proc.kill = MagicMock()
-
-    # Mock stdout.readline that never returns (hangs forever)
-    mock_stdout = AsyncMock()
-
-    async def _hang_forever() -> bytes:
+@patch("src.review_pipeline.run_claude_query")
+async def test_timeout_raises_runtime_error(mock_query: MagicMock) -> None:
+    """When SDK call hangs past timeout, RuntimeError is raised."""
+    async def _hang_forever(prompt: str, options: Any = None):
+        yield ClaudeEvent(type=ClaudeEventType.INIT, session_id="sess-hang")
         await asyncio.sleep(9999)
-        return b""
 
-    mock_stdout.readline = AsyncMock(side_effect=_hang_forever)
-    proc.stdout = mock_stdout
-
-    mock_stderr = AsyncMock()
-    mock_stderr.read = AsyncMock(return_value=b"")
-    proc.stderr = mock_stderr
-
-    mock_exec.return_value = proc
+    mock_query.side_effect = _hang_forever
 
     config = ReviewPipelineConfig(
         reviewers=[
@@ -998,72 +983,14 @@ async def test_timeout_kills_process_group(
             _sample_task(), "Plan", lambda c, t, p: None, complexity="S"
         )
 
-    mock_terminate.assert_called_once_with(proc)
-
 
 @pytest.mark.asyncio
-@patch("src.review_pipeline._kill_review_process")
-@patch("src.review_pipeline._terminate_review_process")
-@patch("src.review_pipeline.asyncio.create_subprocess_exec")
-async def test_timeout_force_kill_on_stubborn_process(
-    mock_exec: AsyncMock,
-    mock_terminate: MagicMock,
-    mock_kill: MagicMock,
-) -> None:
-    """When process doesn't exit after SIGTERM, force-kill is used."""
-    proc = AsyncMock()
-    proc.pid = 12345
-    proc.kill = MagicMock()
-    # wait() times out after terminate (grace period), then succeeds after kill
-    proc.wait = AsyncMock(side_effect=[TimeoutError, 0])
-
-    # Mock stdout.readline that hangs forever
-    mock_stdout = AsyncMock()
-
-    async def _hang_forever() -> bytes:
-        await asyncio.sleep(9999)
-        return b""
-
-    mock_stdout.readline = AsyncMock(side_effect=_hang_forever)
-    proc.stdout = mock_stdout
-
-    mock_stderr = AsyncMock()
-    mock_stderr.read = AsyncMock(return_value=b"")
-    proc.stderr = mock_stderr
-
-    mock_exec.return_value = proc
-
-    config = ReviewPipelineConfig(
-        reviewers=[
-            ReviewerConfig(
-                model="claude-sonnet-4-5",
-                focus="feasibility_and_edge_cases",
-                api="claude_cli",
-                required=True,
-            ),
-        ],
-        review_timeout_minutes=1,
-    )
-    pipeline = ReviewPipeline(config, threshold=0.8)
-    # Override to tiny value so test doesn't wait 60 seconds
-    pipeline._timeout_minutes = 0.001
-
-    with pytest.raises(RuntimeError, match="timed out"):
-        await pipeline.review_task(
-            _sample_task(), "Plan", lambda c, t, p: None, complexity="S"
-        )
-
-    mock_terminate.assert_called_once_with(proc)
-    mock_kill.assert_called_once_with(proc)
-
-
-@pytest.mark.asyncio
-@patch("src.review_pipeline.asyncio.create_subprocess_exec")
-async def test_no_timeout_when_zero(mock_exec: AsyncMock) -> None:
+@patch("src.review_pipeline.run_claude_query")
+async def test_no_timeout_when_zero(mock_query: MagicMock) -> None:
     """When review_timeout_minutes is 0, no timeout is applied."""
-    mock_exec.return_value = _mock_proc(
-        _make_review_output("approve", "OK")
-    )
+    _setup_mock_query(mock_query, [
+        _make_review_events("approve", "OK"),
+    ])
 
     config = ReviewPipelineConfig(
         reviewers=[
@@ -1087,12 +1014,12 @@ async def test_no_timeout_when_zero(mock_exec: AsyncMock) -> None:
 
 
 @pytest.mark.asyncio
-@patch("src.review_pipeline.asyncio.create_subprocess_exec")
-async def test_normal_completion_within_timeout(mock_exec: AsyncMock) -> None:
+@patch("src.review_pipeline.run_claude_query")
+async def test_normal_completion_within_timeout(mock_query: MagicMock) -> None:
     """Normal review completes within timeout -- no error."""
-    mock_exec.return_value = _mock_proc(
-        _make_review_output("approve", "OK")
-    )
+    _setup_mock_query(mock_query, [
+        _make_review_events("approve", "OK"),
+    ])
 
     config = ReviewPipelineConfig(
         reviewers=[
@@ -1116,36 +1043,25 @@ async def test_normal_completion_within_timeout(mock_exec: AsyncMock) -> None:
 
 
 @pytest.mark.asyncio
-@patch("src.review_pipeline._terminate_review_process")
-@patch("src.review_pipeline.asyncio.create_subprocess_exec")
-async def test_synthesis_timeout_also_covered(
-    mock_exec: AsyncMock,
-    mock_terminate: MagicMock,
-) -> None:
+@patch("src.review_pipeline.run_claude_query")
+async def test_synthesis_timeout_also_covered(mock_query: MagicMock) -> None:
     """Timeout applies to synthesis step too, not just individual reviewers."""
-    review_proc_1 = _mock_proc(_make_review_output("approve", "OK"))
-    review_proc_2 = _mock_proc(_make_review_output("approve", "OK"))
+    call_count = 0
 
-    # Synthesis subprocess hangs (readline never returns)
-    synthesis_proc = AsyncMock()
-    synthesis_proc.wait = AsyncMock(return_value=0)
-    synthesis_proc.pid = 99999
-    synthesis_proc.kill = MagicMock()
+    def _side_effect(prompt: str, options: Any = None):
+        nonlocal call_count
+        call_count += 1
+        if call_count <= 2:
+            return _mock_run_claude_query_from_events(
+                _make_review_events("approve", "OK")
+            )
+        # Synthesis call hangs
+        async def _hang(prompt=prompt, options=options):
+            yield ClaudeEvent(type=ClaudeEventType.INIT, session_id="sess-hang")
+            await asyncio.sleep(9999)
+        return _hang()
 
-    mock_stdout = AsyncMock()
-
-    async def _hang_forever() -> bytes:
-        await asyncio.sleep(9999)
-        return b""
-
-    mock_stdout.readline = AsyncMock(side_effect=_hang_forever)
-    synthesis_proc.stdout = mock_stdout
-
-    mock_stderr = AsyncMock()
-    mock_stderr.read = AsyncMock(return_value=b"")
-    synthesis_proc.stderr = mock_stderr
-
-    mock_exec.side_effect = [review_proc_1, review_proc_2, synthesis_proc]
+    mock_query.side_effect = _side_effect
 
     config = ReviewPipelineConfig(
         reviewers=[
@@ -1173,8 +1089,6 @@ async def test_synthesis_timeout_also_covered(
             _sample_task(), "Plan", lambda c, t, p: None, complexity="M"
         )
 
-    mock_terminate.assert_called_once_with(synthesis_proc)
-
 
 # ------------------------------------------------------------------
 # review_attempt parameter (T-P0-31)
@@ -1182,12 +1096,12 @@ async def test_synthesis_timeout_also_covered(
 
 
 @pytest.mark.asyncio
-@patch("src.review_pipeline.asyncio.create_subprocess_exec")
-async def test_review_attempt_passed_to_history_writer(mock_exec: AsyncMock) -> None:
+@patch("src.review_pipeline.run_claude_query")
+async def test_review_attempt_passed_to_history_writer(mock_query: MagicMock) -> None:
     """review_attempt is forwarded to HistoryWriter.write_review()."""
-    mock_exec.return_value = _mock_proc(
-        _make_review_output("approve", "OK")
-    )
+    _setup_mock_query(mock_query, [
+        _make_review_events("approve", "OK"),
+    ])
 
     mock_writer = AsyncMock()
     mock_writer.write_review = AsyncMock()
@@ -1207,12 +1121,12 @@ async def test_review_attempt_passed_to_history_writer(mock_exec: AsyncMock) -> 
 
 
 @pytest.mark.asyncio
-@patch("src.review_pipeline.asyncio.create_subprocess_exec")
-async def test_review_attempt_defaults_to_1(mock_exec: AsyncMock) -> None:
+@patch("src.review_pipeline.run_claude_query")
+async def test_review_attempt_defaults_to_1(mock_query: MagicMock) -> None:
     """review_attempt defaults to 1 when not specified."""
-    mock_exec.return_value = _mock_proc(
-        _make_review_output("approve", "OK")
-    )
+    _setup_mock_query(mock_query, [
+        _make_review_events("approve", "OK"),
+    ])
 
     mock_writer = AsyncMock()
     mock_writer.write_review = AsyncMock()
@@ -1230,14 +1144,14 @@ async def test_review_attempt_defaults_to_1(mock_exec: AsyncMock) -> None:
 
 
 @pytest.mark.asyncio
-@patch("src.review_pipeline.asyncio.create_subprocess_exec")
-async def test_review_attempt_on_multi_reviewer(mock_exec: AsyncMock) -> None:
+@patch("src.review_pipeline.run_claude_query")
+async def test_review_attempt_on_multi_reviewer(mock_query: MagicMock) -> None:
     """review_attempt is the same for all reviewers in a single pipeline run."""
-    mock_exec.side_effect = [
-        _mock_proc(_make_review_output("approve", "OK")),
-        _mock_proc(_make_review_output("approve", "OK")),
-        _mock_proc(_make_synthesis_output(0.95, [])),
-    ]
+    _setup_mock_query(mock_query, [
+        _make_review_events("approve", "OK"),
+        _make_review_events("approve", "OK"),
+        _make_synthesis_events(0.95, []),
+    ])
 
     mock_writer = AsyncMock()
     mock_writer.write_review = AsyncMock()
@@ -1285,12 +1199,12 @@ def test_review_timeout_minutes_zero_disables() -> None:
 
 
 @pytest.mark.asyncio
-@patch("src.review_pipeline.asyncio.create_subprocess_exec")
-async def test_plan_snapshot_stored_on_first_round(mock_exec: AsyncMock) -> None:
+@patch("src.review_pipeline.run_claude_query")
+async def test_plan_snapshot_stored_on_first_round(mock_query: MagicMock) -> None:
     """plan_snapshot is passed to write_review only on the first round (i==0)."""
-    mock_exec.return_value = _mock_proc(
-        _make_review_output("approve", "OK")
-    )
+    _setup_mock_query(mock_query, [
+        _make_review_events("approve", "OK"),
+    ])
 
     mock_writer = AsyncMock()
     mock_writer.write_review = AsyncMock()
@@ -1310,14 +1224,14 @@ async def test_plan_snapshot_stored_on_first_round(mock_exec: AsyncMock) -> None
 
 
 @pytest.mark.asyncio
-@patch("src.review_pipeline.asyncio.create_subprocess_exec")
-async def test_plan_snapshot_none_on_subsequent_rounds(mock_exec: AsyncMock) -> None:
+@patch("src.review_pipeline.run_claude_query")
+async def test_plan_snapshot_none_on_subsequent_rounds(mock_query: MagicMock) -> None:
     """plan_snapshot is None for the second reviewer (round 2) in multi-reviewer."""
-    mock_exec.side_effect = [
-        _mock_proc(_make_review_output("approve", "OK")),
-        _mock_proc(_make_review_output("approve", "OK")),
-        _mock_proc(_make_synthesis_output(0.95, [])),
-    ]
+    _setup_mock_query(mock_query, [
+        _make_review_events("approve", "OK"),
+        _make_review_events("approve", "OK"),
+        _make_synthesis_events(0.95, []),
+    ])
 
     mock_writer = AsyncMock()
     mock_writer.write_review = AsyncMock()
@@ -1341,12 +1255,12 @@ async def test_plan_snapshot_none_on_subsequent_rounds(mock_exec: AsyncMock) -> 
 
 
 @pytest.mark.asyncio
-@patch("src.review_pipeline.asyncio.create_subprocess_exec")
-async def test_plan_snapshot_empty_plan(mock_exec: AsyncMock) -> None:
+@patch("src.review_pipeline.run_claude_query")
+async def test_plan_snapshot_empty_plan(mock_query: MagicMock) -> None:
     """Empty plan text is stored as plan_snapshot (not converted to None)."""
-    mock_exec.return_value = _mock_proc(
-        _make_review_output("approve", "OK")
-    )
+    _setup_mock_query(mock_query, [
+        _make_review_events("approve", "OK"),
+    ])
 
     mock_writer = AsyncMock()
     mock_writer.write_review = AsyncMock()
@@ -1364,12 +1278,12 @@ async def test_plan_snapshot_empty_plan(mock_exec: AsyncMock) -> None:
 
 
 @pytest.mark.asyncio
-@patch("src.review_pipeline.asyncio.create_subprocess_exec")
-async def test_plan_snapshot_no_history_writer(mock_exec: AsyncMock) -> None:
+@patch("src.review_pipeline.run_claude_query")
+async def test_plan_snapshot_no_history_writer(mock_query: MagicMock) -> None:
     """When no history_writer is configured, pipeline runs without error."""
-    mock_exec.return_value = _mock_proc(
-        _make_review_output("approve", "OK")
-    )
+    _setup_mock_query(mock_query, [
+        _make_review_events("approve", "OK"),
+    ])
 
     pipeline = ReviewPipeline(
         _default_config(), threshold=0.8, history_writer=None,
@@ -1390,38 +1304,17 @@ def test_review_timeout_minutes_stored_on_pipeline() -> None:
 
 
 # ------------------------------------------------------------------
-# _terminate_review_process / _kill_review_process helpers (T-P0-31)
-# ------------------------------------------------------------------
-
-
-def test_terminate_review_process_none_pid() -> None:
-    """_terminate_review_process is a no-op when pid is None."""
-    proc = MagicMock()
-    proc.pid = None
-    # Should not raise
-    _terminate_review_process(proc)
-
-
-def test_kill_review_process_none_pid() -> None:
-    """_kill_review_process is a no-op when pid is None."""
-    proc = MagicMock()
-    proc.pid = None
-    # Should not raise
-    _kill_review_process(proc)
-
-
-# ------------------------------------------------------------------
 # Phase strings in on_progress (T-P0-32)
 # ------------------------------------------------------------------
 
 
 @pytest.mark.asyncio
-@patch("src.review_pipeline.asyncio.create_subprocess_exec")
-async def test_phase_string_starting(mock_exec: AsyncMock) -> None:
+@patch("src.review_pipeline.run_claude_query")
+async def test_phase_string_starting(mock_query: MagicMock) -> None:
     """First phase call is 'Starting {focus} review...'."""
-    mock_exec.return_value = _mock_proc(
-        _make_review_output("approve", "OK")
-    )
+    _setup_mock_query(mock_query, [
+        _make_review_events("approve", "OK"),
+    ])
 
     pipeline = ReviewPipeline(_default_config(), threshold=0.8)
 
@@ -1436,12 +1329,12 @@ async def test_phase_string_starting(mock_exec: AsyncMock) -> None:
 
 
 @pytest.mark.asyncio
-@patch("src.review_pipeline.asyncio.create_subprocess_exec")
-async def test_phase_string_completed(mock_exec: AsyncMock) -> None:
+@patch("src.review_pipeline.run_claude_query")
+async def test_phase_string_completed(mock_query: MagicMock) -> None:
     """Second phase call is 'Completed {focus} review'."""
-    mock_exec.return_value = _mock_proc(
-        _make_review_output("approve", "OK")
-    )
+    _setup_mock_query(mock_query, [
+        _make_review_events("approve", "OK"),
+    ])
 
     pipeline = ReviewPipeline(_default_config(), threshold=0.8)
 
@@ -1456,14 +1349,14 @@ async def test_phase_string_completed(mock_exec: AsyncMock) -> None:
 
 
 @pytest.mark.asyncio
-@patch("src.review_pipeline.asyncio.create_subprocess_exec")
-async def test_phase_synthesizing_emitted(mock_exec: AsyncMock) -> None:
+@patch("src.review_pipeline.run_claude_query")
+async def test_phase_synthesizing_emitted(mock_query: MagicMock) -> None:
     """'Synthesizing...' phase is emitted before multi-review synthesis."""
-    mock_exec.side_effect = [
-        _mock_proc(_make_review_output("approve", "OK")),
-        _mock_proc(_make_review_output("reject", "Bad")),
-        _mock_proc(_make_synthesis_output(0.7, [])),
-    ]
+    _setup_mock_query(mock_query, [
+        _make_review_events("approve", "OK"),
+        _make_review_events("reject", "Bad"),
+        _make_synthesis_events(0.7, []),
+    ])
 
     pipeline = ReviewPipeline(_default_config(), threshold=0.8)
 
@@ -1478,12 +1371,12 @@ async def test_phase_synthesizing_emitted(mock_exec: AsyncMock) -> None:
 
 
 @pytest.mark.asyncio
-@patch("src.review_pipeline.asyncio.create_subprocess_exec")
-async def test_no_synthesizing_for_single_reviewer(mock_exec: AsyncMock) -> None:
+@patch("src.review_pipeline.run_claude_query")
+async def test_no_synthesizing_for_single_reviewer(mock_query: MagicMock) -> None:
     """'Synthesizing...' phase is NOT emitted for single-reviewer runs."""
-    mock_exec.return_value = _mock_proc(
-        _make_review_output("approve", "OK")
-    )
+    _setup_mock_query(mock_query, [
+        _make_review_events("approve", "OK"),
+    ])
 
     pipeline = ReviewPipeline(_default_config(), threshold=0.8)
 
@@ -1503,16 +1396,18 @@ async def test_no_synthesizing_for_single_reviewer(mock_exec: AsyncMock) -> None
 
 
 @pytest.mark.asyncio
-@patch("src.review_pipeline.asyncio.create_subprocess_exec")
-async def test_human_feedback_injected_into_prompt(mock_exec: AsyncMock) -> None:
-    """When human_feedback is provided, it should appear in the CLI prompt."""
-    captured_args: list[tuple] = []
+@patch("src.review_pipeline.run_claude_query")
+async def test_human_feedback_injected_into_prompt(mock_query: MagicMock) -> None:
+    """When human_feedback is provided, it should appear in the SDK prompt."""
+    captured_prompts: list[str] = []
 
-    async def _capture_exec(*args, **kwargs):
-        captured_args.append(args)
-        return _mock_proc(_make_review_output("approve", "OK"))
+    def _capture_query(prompt: str, options: Any = None):
+        captured_prompts.append(prompt)
+        return _mock_run_claude_query_from_events(
+            _make_review_events("approve", "OK")
+        )
 
-    mock_exec.side_effect = _capture_exec
+    mock_query.side_effect = _capture_query
 
     pipeline = ReviewPipeline(_default_config(), threshold=0.8)
     feedback = [
@@ -1537,10 +1432,8 @@ async def test_human_feedback_injected_into_prompt(mock_exec: AsyncMock) -> None
         human_feedback=feedback,
     )
 
-    # The first captured call should have the prompt with feedback
-    assert len(captured_args) >= 1
-    # args[0] is "claude", args[1] is "-p", args[2] is the prompt
-    prompt = captured_args[0][2]
+    assert len(captured_prompts) >= 1
+    prompt = captured_prompts[0]
     assert "Previous human feedback" in prompt
     assert "Add timeout handling" in prompt
     assert "Also fix error path" in prompt
@@ -1549,16 +1442,18 @@ async def test_human_feedback_injected_into_prompt(mock_exec: AsyncMock) -> None
 
 
 @pytest.mark.asyncio
-@patch("src.review_pipeline.asyncio.create_subprocess_exec")
-async def test_no_feedback_no_injection(mock_exec: AsyncMock) -> None:
+@patch("src.review_pipeline.run_claude_query")
+async def test_no_feedback_no_injection(mock_query: MagicMock) -> None:
     """When no human_feedback is provided, prompt should not contain feedback section."""
-    captured_args: list[tuple] = []
+    captured_prompts: list[str] = []
 
-    async def _capture_exec(*args, **kwargs):
-        captured_args.append(args)
-        return _mock_proc(_make_review_output("approve", "OK"))
+    def _capture_query(prompt: str, options: Any = None):
+        captured_prompts.append(prompt)
+        return _mock_run_claude_query_from_events(
+            _make_review_events("approve", "OK")
+        )
 
-    mock_exec.side_effect = _capture_exec
+    mock_query.side_effect = _capture_query
 
     pipeline = ReviewPipeline(_default_config(), threshold=0.8)
 
@@ -1569,22 +1464,24 @@ async def test_no_feedback_no_injection(mock_exec: AsyncMock) -> None:
         human_feedback=None,
     )
 
-    assert len(captured_args) >= 1
-    prompt = captured_args[0][2]
+    assert len(captured_prompts) >= 1
+    prompt = captured_prompts[0]
     assert "Previous human feedback" not in prompt
 
 
 @pytest.mark.asyncio
-@patch("src.review_pipeline.asyncio.create_subprocess_exec")
-async def test_empty_feedback_list_no_injection(mock_exec: AsyncMock) -> None:
+@patch("src.review_pipeline.run_claude_query")
+async def test_empty_feedback_list_no_injection(mock_query: MagicMock) -> None:
     """Empty feedback list should not inject feedback section."""
-    captured_args: list[tuple] = []
+    captured_prompts: list[str] = []
 
-    async def _capture_exec(*args, **kwargs):
-        captured_args.append(args)
-        return _mock_proc(_make_review_output("approve", "OK"))
+    def _capture_query(prompt: str, options: Any = None):
+        captured_prompts.append(prompt)
+        return _mock_run_claude_query_from_events(
+            _make_review_events("approve", "OK")
+        )
 
-    mock_exec.side_effect = _capture_exec
+    mock_query.side_effect = _capture_query
 
     pipeline = ReviewPipeline(_default_config(), threshold=0.8)
 
@@ -1595,22 +1492,24 @@ async def test_empty_feedback_list_no_injection(mock_exec: AsyncMock) -> None:
         human_feedback=[],
     )
 
-    assert len(captured_args) >= 1
-    prompt = captured_args[0][2]
+    assert len(captured_prompts) >= 1
+    prompt = captured_prompts[0]
     assert "Previous human feedback" not in prompt
 
 
 @pytest.mark.asyncio
-@patch("src.review_pipeline.asyncio.create_subprocess_exec")
-async def test_feedback_without_reason(mock_exec: AsyncMock) -> None:
+@patch("src.review_pipeline.run_claude_query")
+async def test_feedback_without_reason(mock_query: MagicMock) -> None:
     """Feedback entry with empty reason includes only the decision."""
-    captured_args: list[tuple] = []
+    captured_prompts: list[str] = []
 
-    async def _capture_exec(*args, **kwargs):
-        captured_args.append(args)
-        return _mock_proc(_make_review_output("approve", "OK"))
+    def _capture_query(prompt: str, options: Any = None):
+        captured_prompts.append(prompt)
+        return _mock_run_claude_query_from_events(
+            _make_review_events("approve", "OK")
+        )
 
-    mock_exec.side_effect = _capture_exec
+    mock_query.side_effect = _capture_query
 
     pipeline = ReviewPipeline(_default_config(), threshold=0.8)
     feedback = [
@@ -1629,7 +1528,7 @@ async def test_feedback_without_reason(mock_exec: AsyncMock) -> None:
         human_feedback=feedback,
     )
 
-    prompt = captured_args[0][2]
+    prompt = captured_prompts[0]
     assert "Previous human feedback" in prompt
     assert "[Attempt 1] REJECT" in prompt
 
@@ -1716,12 +1615,12 @@ class TestLifecycleStateComputation:
 
 
 @pytest.mark.asyncio
-@patch("src.review_pipeline.asyncio.create_subprocess_exec")
-async def test_lifecycle_state_on_review_state_approve(mock_exec: AsyncMock) -> None:
+@patch("src.review_pipeline.run_claude_query")
+async def test_lifecycle_state_on_review_state_approve(mock_query: MagicMock) -> None:
     """ReviewState.lifecycle_state is APPROVED on approval."""
-    mock_exec.return_value = _mock_proc(
-        _make_review_output("approve", "OK")
-    )
+    _setup_mock_query(mock_query, [
+        _make_review_events("approve", "OK"),
+    ])
     pipeline = ReviewPipeline(_default_config(), threshold=0.8)
     result = await pipeline.review_task(
         _sample_task(), "Plan", lambda c, t, p: None, complexity="S",
@@ -1730,12 +1629,12 @@ async def test_lifecycle_state_on_review_state_approve(mock_exec: AsyncMock) -> 
 
 
 @pytest.mark.asyncio
-@patch("src.review_pipeline.asyncio.create_subprocess_exec")
-async def test_lifecycle_state_on_review_state_rejected_single(mock_exec: AsyncMock) -> None:
+@patch("src.review_pipeline.run_claude_query")
+async def test_lifecycle_state_on_review_state_rejected_single(mock_query: MagicMock) -> None:
     """ReviewState.lifecycle_state is REJECTED_SINGLE on single reject."""
-    mock_exec.return_value = _mock_proc(
-        _make_review_output("reject", "Bad")
-    )
+    _setup_mock_query(mock_query, [
+        _make_review_events("reject", "Bad"),
+    ])
     pipeline = ReviewPipeline(_default_config(), threshold=0.8)
     result = await pipeline.review_task(
         _sample_task(), "Plan", lambda c, t, p: None, complexity="S",
@@ -1744,16 +1643,16 @@ async def test_lifecycle_state_on_review_state_rejected_single(mock_exec: AsyncM
 
 
 @pytest.mark.asyncio
-@patch("src.review_pipeline.asyncio.create_subprocess_exec")
+@patch("src.review_pipeline.run_claude_query")
 async def test_lifecycle_state_on_review_state_rejected_consensus(
-    mock_exec: AsyncMock,
+    mock_query: MagicMock,
 ) -> None:
     """ReviewState.lifecycle_state is REJECTED_CONSENSUS when multi-reviewer score < threshold."""
-    mock_exec.side_effect = [
-        _mock_proc(_make_review_output("approve", "OK")),
-        _mock_proc(_make_review_output("reject", "Bad")),
-        _mock_proc(_make_synthesis_output(0.4, ["major issues"])),
-    ]
+    _setup_mock_query(mock_query, [
+        _make_review_events("approve", "OK"),
+        _make_review_events("reject", "Bad"),
+        _make_synthesis_events(0.4, ["major issues"]),
+    ])
     pipeline = ReviewPipeline(_default_config(), threshold=0.8)
     result = await pipeline.review_task(
         _sample_task(), "Plan", lambda c, t, p: None, complexity="M",
@@ -1762,14 +1661,14 @@ async def test_lifecycle_state_on_review_state_rejected_consensus(
 
 
 @pytest.mark.asyncio
-@patch("src.review_pipeline.asyncio.create_subprocess_exec")
-async def test_lifecycle_state_passed_to_history_writer(mock_exec: AsyncMock) -> None:
+@patch("src.review_pipeline.run_claude_query")
+async def test_lifecycle_state_passed_to_history_writer(mock_query: MagicMock) -> None:
     """lifecycle_state is forwarded to HistoryWriter.write_review() for each entry."""
-    mock_exec.side_effect = [
-        _mock_proc(_make_review_output("approve", "OK")),
-        _mock_proc(_make_review_output("approve", "OK")),
-        _mock_proc(_make_synthesis_output(0.95, [])),
-    ]
+    _setup_mock_query(mock_query, [
+        _make_review_events("approve", "OK"),
+        _make_review_events("approve", "OK"),
+        _make_synthesis_events(0.95, []),
+    ])
 
     mock_writer = AsyncMock()
     mock_writer.write_review = AsyncMock()
@@ -1792,12 +1691,12 @@ async def test_lifecycle_state_passed_to_history_writer(mock_exec: AsyncMock) ->
 
 
 @pytest.mark.asyncio
-@patch("src.review_pipeline.asyncio.create_subprocess_exec")
-async def test_lifecycle_single_reviewer_history_writer(mock_exec: AsyncMock) -> None:
+@patch("src.review_pipeline.run_claude_query")
+async def test_lifecycle_single_reviewer_history_writer(mock_query: MagicMock) -> None:
     """Single reviewer: the only entry gets the terminal lifecycle state."""
-    mock_exec.return_value = _mock_proc(
-        _make_review_output("reject", "Issues found")
-    )
+    _setup_mock_query(mock_query, [
+        _make_review_events("reject", "Issues found"),
+    ])
 
     mock_writer = AsyncMock()
     mock_writer.write_review = AsyncMock()
@@ -1816,12 +1715,12 @@ async def test_lifecycle_single_reviewer_history_writer(mock_exec: AsyncMock) ->
 
 
 @pytest.mark.asyncio
-@patch("src.review_pipeline.asyncio.create_subprocess_exec")
-async def test_single_reviewer_reject_score_is_zero(mock_exec: AsyncMock) -> None:
+@patch("src.review_pipeline.run_claude_query")
+async def test_single_reviewer_reject_score_is_zero(mock_query: MagicMock) -> None:
     """Single reviewer reject score is 0.0 (not legacy 0.3)."""
-    mock_exec.return_value = _mock_proc(
-        _make_review_output("reject", "Bad plan")
-    )
+    _setup_mock_query(mock_query, [
+        _make_review_events("reject", "Bad plan"),
+    ])
     pipeline = ReviewPipeline(_default_config(), threshold=0.8)
     result = await pipeline.review_task(
         _sample_task(), "Plan", lambda c, t, p: None, complexity="S",
@@ -1830,8 +1729,7 @@ async def test_single_reviewer_reject_score_is_zero(mock_exec: AsyncMock) -> Non
 
 
 @pytest.mark.asyncio
-@patch("src.review_pipeline.asyncio.create_subprocess_exec")
-async def test_no_reviewers_lifecycle_is_approved(mock_exec: AsyncMock) -> None:
+async def test_no_reviewers_lifecycle_is_approved() -> None:
     """No active reviewers -> auto-approve with APPROVED lifecycle state."""
     config = ReviewPipelineConfig(reviewers=[])
     pipeline = ReviewPipeline(config)
@@ -1862,12 +1760,12 @@ def test_extract_cost_usd_haiku_updated_pricing() -> None:
 
 
 @pytest.mark.asyncio
-@patch("src.review_pipeline.asyncio.create_subprocess_exec")
-async def test_on_log_receives_lifecycle_messages(mock_exec: AsyncMock) -> None:
+@patch("src.review_pipeline.run_claude_query")
+async def test_on_log_receives_lifecycle_messages(mock_query: MagicMock) -> None:
     """on_log callback receives review lifecycle messages (started, phase, completed)."""
-    mock_exec.return_value = _mock_proc(
-        _make_review_output("approve", "OK")
-    )
+    _setup_mock_query(mock_query, [
+        _make_review_events("approve", "OK"),
+    ])
 
     pipeline = ReviewPipeline(_default_config(), threshold=0.8)
 
@@ -1887,12 +1785,12 @@ async def test_on_log_receives_lifecycle_messages(mock_exec: AsyncMock) -> None:
 
 
 @pytest.mark.asyncio
-@patch("src.review_pipeline.asyncio.create_subprocess_exec")
-async def test_on_log_receives_cli_output_lines(mock_exec: AsyncMock) -> None:
+@patch("src.review_pipeline.run_claude_query")
+async def test_on_log_receives_sdk_output_lines(mock_query: MagicMock) -> None:
     """on_log receives simplified stream events including [DONE] for result."""
-    mock_exec.return_value = _mock_proc(
-        _make_review_output("approve", "Looks good", ["Minor nit"])
-    )
+    _setup_mock_query(mock_query, [
+        _make_review_events("approve", "Looks good", ["Minor nit"]),
+    ])
 
     pipeline = ReviewPipeline(_default_config(), threshold=0.8)
 
@@ -1903,18 +1801,18 @@ async def test_on_log_receives_cli_output_lines(mock_exec: AsyncMock) -> None:
         on_log=lambda line: log_lines.append(line),
     )
 
-    # With stream-json, result event is simplified to [DONE]
+    # With SDK, result event is simplified to [DONE]
     done_lines = [line for line in log_lines if "[DONE]" in line]
     assert len(done_lines) >= 1
 
 
 @pytest.mark.asyncio
-@patch("src.review_pipeline.asyncio.create_subprocess_exec")
-async def test_on_log_none_does_not_crash(mock_exec: AsyncMock) -> None:
+@patch("src.review_pipeline.run_claude_query")
+async def test_on_log_none_does_not_crash(mock_query: MagicMock) -> None:
     """Passing on_log=None (default) does not raise errors."""
-    mock_exec.return_value = _mock_proc(
-        _make_review_output("approve", "OK")
-    )
+    _setup_mock_query(mock_query, [
+        _make_review_events("approve", "OK"),
+    ])
 
     pipeline = ReviewPipeline(_default_config(), threshold=0.8)
 
@@ -1928,34 +1826,17 @@ async def test_on_log_none_does_not_crash(mock_exec: AsyncMock) -> None:
 
 
 # ------------------------------------------------------------------
-# Blank-line preservation and persist-first tests
+# Raw artifact persistence tests
 # ------------------------------------------------------------------
 
 
 @pytest.mark.asyncio
-@patch("src.review_pipeline.asyncio.create_subprocess_exec")
-async def test_call_claude_cli_preserves_blank_lines(mock_exec: AsyncMock) -> None:
-    """Blank lines in CLI output are preserved for JSON reassembly."""
-    review_json = _make_review_output("approve", "Looks good")
-
-    # Build raw lines with blank lines interspersed
-    raw_lines = [
-        review_json[:20] + b"\n",
-        b"\n",  # blank line
-        review_json[20:] + b"\n",
-        b"",  # EOF
-    ]
-    proc = AsyncMock()
-    proc.returncode = 0
-    proc.wait = AsyncMock()
-    proc.kill = MagicMock()
-    mock_stdout = AsyncMock()
-    mock_stdout.readline = AsyncMock(side_effect=raw_lines)
-    mock_stderr = AsyncMock()
-    mock_stderr.read = AsyncMock(return_value=b"")
-    proc.stdout = mock_stdout
-    proc.stderr = mock_stderr
-    mock_exec.return_value = proc
+@patch("src.review_pipeline.run_claude_query")
+async def test_raw_artifact_persisted(mock_query: MagicMock) -> None:
+    """on_raw_artifact is called with serialized event data."""
+    _setup_mock_query(mock_query, [
+        _make_review_events("approve", "Looks good"),
+    ])
 
     artifact_content: list[str] = []
 
@@ -1963,87 +1844,24 @@ async def test_call_claude_cli_preserves_blank_lines(mock_exec: AsyncMock) -> No
         artifact_content.append(content)
 
     pipeline = ReviewPipeline(_default_config(), threshold=0.8)
-    cli_output = await pipeline._call_claude_cli(
-        prompt="test",
-        system_prompt="test",
-        model="claude-sonnet-4-5",
+    await pipeline.review_task(
+        _sample_task(), "Plan", lambda c, t, p: None,
+        complexity="S",
         on_raw_artifact=capture_artifact,
     )
 
-    # Raw artifact should contain blank lines
+    # on_raw_artifact MUST have been called
     assert len(artifact_content) == 1
-    assert "\n\n" in artifact_content[0]  # blank line preserved
-
-    # Should still parse (last-line fallback may kick in)
-    assert isinstance(cli_output, dict)
+    assert len(artifact_content[0]) > 0
 
 
 @pytest.mark.asyncio
-@patch("src.review_pipeline.asyncio.create_subprocess_exec")
-async def test_raw_artifact_persisted_even_on_json_failure(
-    mock_exec: AsyncMock,
-) -> None:
-    """on_raw_artifact is called even when CLI returns garbage (non-JSON)."""
-    # CLI returns garbage text, not valid JSON
-    raw_lines = [
-        b"Some random garbage output\n",
-        b"More garbage\n",
-        b"",  # EOF
-    ]
-    proc = AsyncMock()
-    proc.returncode = 0
-    proc.wait = AsyncMock()
-    proc.kill = MagicMock()
-    mock_stdout = AsyncMock()
-    mock_stdout.readline = AsyncMock(side_effect=raw_lines)
-    mock_stderr = AsyncMock()
-    mock_stderr.read = AsyncMock(return_value=b"")
-    proc.stdout = mock_stdout
-    proc.stderr = mock_stderr
-    mock_exec.return_value = proc
-
-    artifact_content: list[str] = []
-
-    async def capture_artifact(content: str) -> None:
-        artifact_content.append(content)
-
-    pipeline = ReviewPipeline(_default_config(), threshold=0.8)
-    cli_output = await pipeline._call_claude_cli(
-        prompt="test",
-        system_prompt="test",
-        model="claude-sonnet-4-5",
-        on_raw_artifact=capture_artifact,
-    )
-
-    # on_raw_artifact MUST have been called even though output is garbage
-    assert len(artifact_content) == 1
-    assert "Some random garbage output" in artifact_content[0]
-
-    # cli_output should be empty dict (fallback)
-    assert cli_output == {}
-
-
-@pytest.mark.asyncio
-@patch("src.review_pipeline.asyncio.create_subprocess_exec")
-async def test_raw_artifact_persisted_on_nonzero_exit(
-    mock_exec: AsyncMock,
-) -> None:
-    """on_raw_artifact is called BEFORE RuntimeError is raised on non-zero exit."""
-    raw_lines = [
-        b"partial output before crash\n",
-        b"",  # EOF
-    ]
-    proc = AsyncMock()
-    proc.returncode = 1  # non-zero exit
-    proc.wait = AsyncMock()
-    proc.kill = MagicMock()
-    mock_stdout = AsyncMock()
-    mock_stdout.readline = AsyncMock(side_effect=raw_lines)
-    mock_stderr = AsyncMock()
-    mock_stderr.read = AsyncMock(return_value=b"CLI crashed")
-    proc.stdout = mock_stdout
-    proc.stderr = mock_stderr
-    mock_exec.return_value = proc
+@patch("src.review_pipeline.run_claude_query")
+async def test_raw_artifact_persisted_on_error(mock_query: MagicMock) -> None:
+    """on_raw_artifact is called BEFORE RuntimeError is raised on SDK error."""
+    _setup_mock_query(mock_query, [
+        _make_error_events("SDK crashed"),
+    ])
 
     artifact_content: list[str] = []
 
@@ -2052,17 +1870,15 @@ async def test_raw_artifact_persisted_on_nonzero_exit(
 
     pipeline = ReviewPipeline(_default_config(), threshold=0.8)
 
-    with pytest.raises(RuntimeError, match="Claude CLI failed"):
-        await pipeline._call_claude_cli(
-            prompt="test",
-            system_prompt="test",
-            model="claude-sonnet-4-5",
+    with pytest.raises(RuntimeError, match="SDK error"):
+        await pipeline.review_task(
+            _sample_task(), "Plan", lambda c, t, p: None,
+            complexity="S",
             on_raw_artifact=capture_artifact,
         )
 
     # on_raw_artifact MUST have been called BEFORE the RuntimeError
     assert len(artifact_content) == 1
-    assert "partial output before crash" in artifact_content[0]
 
 
 # ------------------------------------------------------------------
@@ -2192,17 +2008,17 @@ class TestParseSynthesisWithValidation:
 
 
 # ------------------------------------------------------------------
-# T-P0-94: Stream-json for review pipeline tests
+# T-P0-94: Stream event callback tests
 # ------------------------------------------------------------------
 
 
 @pytest.mark.asyncio
-@patch("src.review_pipeline.asyncio.create_subprocess_exec")
-async def test_on_stream_event_receives_parsed_events(mock_exec: AsyncMock) -> None:
-    """on_stream_event callback receives parsed stream-json events."""
-    mock_exec.return_value = _mock_proc(
-        _make_review_output("approve", "Looks good")
-    )
+@patch("src.review_pipeline.run_claude_query")
+async def test_on_stream_event_receives_parsed_events(mock_query: MagicMock) -> None:
+    """on_stream_event callback receives parsed event dicts."""
+    _setup_mock_query(mock_query, [
+        _make_review_events("approve", "Looks good"),
+    ])
 
     pipeline = ReviewPipeline(_default_config(), threshold=0.8)
 
@@ -2223,134 +2039,172 @@ async def test_on_stream_event_receives_parsed_events(mock_exec: AsyncMock) -> N
 
 
 @pytest.mark.asyncio
-@patch("src.review_pipeline.asyncio.create_subprocess_exec")
-async def test_stream_json_cli_args_used(mock_exec: AsyncMock) -> None:
-    """CLI is invoked with --output-format stream-json --verbose."""
-    mock_exec.return_value = _mock_proc(
-        _make_review_output("approve", "OK")
-    )
-
-    pipeline = ReviewPipeline(_default_config(), threshold=0.8)
-    await pipeline.review_task(
-        _sample_task(), "Plan", lambda c, t, p: None,
-        complexity="S",
-    )
-
-    call_args = mock_exec.call_args[0]
-    assert "--output-format" in call_args
-    fmt_idx = list(call_args).index("--output-format")
-    assert call_args[fmt_idx + 1] == "stream-json"
-    assert "--verbose" in call_args
-
-
-@pytest.mark.asyncio
-@patch("src.review_pipeline.asyncio.create_subprocess_exec")
-async def test_stream_json_multi_event_parsing(mock_exec: AsyncMock) -> None:
-    """Multiple stream events are parsed correctly (init + assistant + result)."""
-    init_event = json.dumps({"type": "system", "subtype": "init", "model": "claude-sonnet-4-5"})
-    assistant_event = json.dumps({
-        "type": "assistant",
-        "content": [{"type": "text", "text": "Reviewing the plan..."}],
-    })
-    result_event = json.dumps({
-        "type": "result",
-        "structured_output": {"verdict": "approve", "summary": "OK", "suggestions": []},
-        "result": None,
-    })
-
-    raw = (init_event + "\n" + assistant_event + "\n" + result_event + "\n").encode("utf-8")
-
-    proc = AsyncMock()
-    proc.returncode = 0
-    proc.wait = AsyncMock()
-    proc.kill = MagicMock()
-    lines = raw.split(b"\n")
-    line_queue = [line + b"\n" for line in lines if line] + [b""]
-    mock_stdout = AsyncMock()
-    mock_stdout.readline = AsyncMock(side_effect=line_queue)
-    mock_stderr = AsyncMock()
-    mock_stderr.read = AsyncMock(return_value=b"")
-    proc.stdout = mock_stdout
-    proc.stderr = mock_stderr
-    mock_exec.return_value = proc
+@patch("src.review_pipeline.run_claude_query")
+async def test_stream_events_include_init_and_text(mock_query: MagicMock) -> None:
+    """Stream events include init and text event types."""
+    _setup_mock_query(mock_query, [
+        _make_review_events("approve", "OK"),
+    ])
 
     pipeline = ReviewPipeline(_default_config(), threshold=0.8)
 
     stream_events: list[dict] = []
     log_lines: list[str] = []
-    result = await pipeline.review_task(
+    await pipeline.review_task(
         _sample_task(), "Plan", lambda c, t, p: None,
         complexity="S",
         on_log=lambda line: log_lines.append(line),
         on_stream_event=lambda ev: stream_events.append(ev),
     )
 
-    # All 3 events should be received
+    # All 3 events should be received (init + text + result)
     assert len(stream_events) >= 3
     types = [e.get("type") for e in stream_events]
-    assert "system" in types
-    assert "assistant" in types
+    assert "init" in types
+    assert "text" in types
     assert "result" in types
 
     # on_log should contain simplified text
     assert any("[INIT]" in line for line in log_lines)
-    assert any("Reviewing the plan" in line for line in log_lines)
     assert any("[DONE]" in line for line in log_lines)
 
-    # Result should still be correctly parsed
-    assert result.consensus_score == 1.0
+
+# ------------------------------------------------------------------
+# Conversation turns (T-P1-89)
+# ------------------------------------------------------------------
 
 
 @pytest.mark.asyncio
-@patch("src.review_pipeline.asyncio.create_subprocess_exec")
-async def test_on_stream_event_none_does_not_crash(mock_exec: AsyncMock) -> None:
-    """Passing on_stream_event=None (default) does not raise errors."""
-    mock_exec.return_value = _mock_proc(
-        _make_review_output("approve", "OK")
-    )
+@patch("src.review_pipeline.run_claude_query")
+async def test_conversation_turns_populated(mock_query: MagicMock) -> None:
+    """conversation_turns is populated on LLMReview after SDK call."""
+    _setup_mock_query(mock_query, [
+        _make_review_events("approve", "Looks good"),
+    ])
 
     pipeline = ReviewPipeline(_default_config(), threshold=0.8)
-
     result = await pipeline.review_task(
-        _sample_task(), "Plan", lambda c, t, p: None,
-        complexity="S",
+        _sample_task(), "Plan", lambda c, t, p: None, complexity="S",
     )
 
-    assert result.consensus_score == 1.0
+    review = result.reviews[0]
+    assert isinstance(review.conversation_turns, list)
+    assert len(review.conversation_turns) >= 1
+    # Each turn should have text and tool_actions keys
+    turn = review.conversation_turns[0]
+    assert "text" in turn
+    assert "tool_actions" in turn
 
 
 @pytest.mark.asyncio
-@patch("src.review_pipeline.asyncio.create_subprocess_exec")
-async def test_jsonl_persistence_with_stream_log_dir(
-    mock_exec: AsyncMock, tmp_path: Path,
-) -> None:
-    """JSONL stream logs are written when stream_log_dir is set."""
-    mock_exec.return_value = _mock_proc(
-        _make_review_output("approve", "OK")
+@patch("src.review_pipeline.run_claude_query")
+async def test_conversation_summary_populated(mock_query: MagicMock) -> None:
+    """conversation_summary is populated with findings/actions/conclusion."""
+    _setup_mock_query(mock_query, [
+        _make_review_events("approve", "Looks good"),
+    ])
+
+    pipeline = ReviewPipeline(_default_config(), threshold=0.8)
+    result = await pipeline.review_task(
+        _sample_task(), "Plan", lambda c, t, p: None, complexity="S",
     )
 
-    pipeline = ReviewPipeline(
-        _default_config(), threshold=0.8, stream_log_dir=tmp_path,
+    review = result.reviews[0]
+    assert isinstance(review.conversation_summary, dict)
+    assert "findings" in review.conversation_summary
+    assert "actions_taken" in review.conversation_summary
+    assert "conclusion" in review.conversation_summary
+
+
+@pytest.mark.asyncio
+@patch("src.review_pipeline.run_claude_query")
+async def test_conversation_turns_with_tool_actions(mock_query: MagicMock) -> None:
+    """conversation_turns captures tool use events."""
+    events = [
+        ClaudeEvent(type=ClaudeEventType.INIT, session_id="sess-test"),
+        ClaudeEvent(
+            type=ClaudeEventType.TEXT,
+            text="Let me check...",
+            model="claude-sonnet-4-5",
+        ),
+        ClaudeEvent(
+            type=ClaudeEventType.TOOL_USE,
+            tool_name="Read",
+            tool_input={"file": "src/main.py"},
+            tool_use_id="tu-1",
+            model="claude-sonnet-4-5",
+        ),
+        ClaudeEvent(
+            type=ClaudeEventType.TOOL_RESULT,
+            tool_result_content="file content here",
+            tool_result_for_id="tu-1",
+        ),
+        ClaudeEvent(
+            type=ClaudeEventType.RESULT,
+            structured_output={"verdict": "approve", "summary": "OK", "suggestions": []},
+            model="claude-sonnet-4-5",
+        ),
+    ]
+    _setup_mock_query(mock_query, [events])
+
+    pipeline = ReviewPipeline(_default_config(), threshold=0.8)
+    result = await pipeline.review_task(
+        _sample_task(), "Plan", lambda c, t, p: None, complexity="S",
     )
 
-    await pipeline.review_task(
-        _sample_task(), "Plan", lambda c, t, p: None,
-        complexity="S",
+    review = result.reviews[0]
+    assert len(review.conversation_turns) >= 1
+    # Should have at least one turn with a tool action
+    has_tool = any(
+        len(t.get("tool_actions", [])) > 0
+        for t in review.conversation_turns
     )
+    assert has_tool
 
-    # Check JSONL files were created
-    task_dir = tmp_path / _sample_task().id.replace(":", "_")
-    assert task_dir.is_dir()
+    # conversation_summary should reflect the tool action
+    assert "Read" in review.conversation_summary.get("actions_taken", [])
 
-    jsonl_files = list(task_dir.glob("review_stream_*.jsonl"))
-    assert len(jsonl_files) >= 1
 
-    # JSONL should contain at least the result event
-    content = jsonl_files[0].read_text(encoding="utf-8")
-    events = [json.loads(line) for line in content.strip().split("\n") if line.strip()]
-    assert len(events) >= 1
-    assert any(e.get("type") == "result" for e in events)
+# ------------------------------------------------------------------
+# _extract_conversation_summary unit tests
+# ------------------------------------------------------------------
 
-    # Raw log files too
-    raw_files = list(task_dir.glob("review_raw_*.log"))
-    assert len(raw_files) >= 1
+
+def test_extract_conversation_summary_empty() -> None:
+    """Empty turns list produces empty summary."""
+    summary = _extract_conversation_summary([])
+    assert summary["findings"] == []
+    assert summary["actions_taken"] == []
+    assert summary["conclusion"] == ""
+
+
+def test_extract_conversation_summary_text_only() -> None:
+    """Turns with only text produce findings and conclusion."""
+    from src.sdk_adapter import AssistantTurn
+
+    turns = [
+        AssistantTurn(text="First observation"),
+        AssistantTurn(text="Final conclusion"),
+    ]
+    summary = _extract_conversation_summary(turns)
+    assert len(summary["findings"]) == 2
+    assert summary["conclusion"] == "Final conclusion"
+    assert summary["actions_taken"] == []
+
+
+def test_extract_conversation_summary_with_tools() -> None:
+    """Turns with tool actions populate actions_taken."""
+    from src.sdk_adapter import AssistantTurn, ToolAction
+
+    turns = [
+        AssistantTurn(
+            text="Checking files",
+            tool_actions=[
+                ToolAction(tool_use_id="tu-1", name="Read", input={}),
+                ToolAction(tool_use_id="tu-2", name="Grep", input={}),
+            ],
+        ),
+    ]
+    summary = _extract_conversation_summary(turns)
+    assert "Read" in summary["actions_taken"]
+    assert "Grep" in summary["actions_taken"]

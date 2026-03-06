@@ -1,12 +1,13 @@
 """Integration test: BACKLOG -> review -> REVIEW_NEEDS_HUMAN -> decide -> QUEUED.
 
-Tests the review pipeline flow with subprocess mocking for Claude CLI.
+Tests the review pipeline flow with SDK adapter mocking for Claude Agent SDK.
+Migrated from subprocess mocking to SDK mocking in T-P1-89.
 """
 
 from __future__ import annotations
 
-import json
-from unittest.mock import AsyncMock, MagicMock, patch
+from typing import Any
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -16,42 +17,78 @@ from src.config import (
 from src.events import EventBus
 from src.models import ExecutorType, ReviewState, Task, TaskStatus
 from src.review_pipeline import ReviewPipeline
+from src.sdk_adapter import ClaudeEvent, ClaudeEventType
 from src.task_manager import TaskManager
 
 
-def _make_cli_output(inner_json: str) -> bytes:
-    """Create mock Claude CLI stdout bytes."""
-    cli_output = {"type": "result", "result": inner_json}
-    return json.dumps(cli_output).encode("utf-8")
+def _make_review_events(
+    verdict: str,
+    summary: str,
+    suggestions: list[str] | None = None,
+) -> list[ClaudeEvent]:
+    """Create ClaudeEvent objects simulating a review response."""
+    inner = {
+        "verdict": verdict,
+        "summary": summary,
+        "suggestions": suggestions or [],
+    }
+    return [
+        ClaudeEvent(type=ClaudeEventType.INIT, session_id="sess-integ"),
+        ClaudeEvent(
+            type=ClaudeEventType.RESULT,
+            structured_output=inner,
+            result_text=None,
+            model="claude-sonnet-4-5",
+        ),
+    ]
 
 
-def _mock_proc(stdout: bytes) -> AsyncMock:
-    """Create a mock subprocess with readline-based stdout."""
-    proc = AsyncMock()
-    proc.returncode = 0
-    proc.wait = AsyncMock()
-    proc.kill = MagicMock()
+def _make_synthesis_events(
+    score: float,
+    disagreements: list[str] | None = None,
+) -> list[ClaudeEvent]:
+    """Create ClaudeEvent objects simulating a synthesis response."""
+    inner = {
+        "score": score,
+        "disagreements": disagreements or [],
+    }
+    return [
+        ClaudeEvent(type=ClaudeEventType.INIT, session_id="sess-synth"),
+        ClaudeEvent(
+            type=ClaudeEventType.RESULT,
+            structured_output=inner,
+            result_text=None,
+            model="claude-sonnet-4-5",
+        ),
+    ]
 
-    lines = stdout.split(b"\n") if stdout else []
-    line_queue: list[bytes] = [line + b"\n" for line in lines if line]
-    line_queue.append(b"")  # EOF sentinel
 
-    mock_stdout = AsyncMock()
-    mock_stdout.readline = AsyncMock(side_effect=line_queue)
+async def _mock_run_claude_query_from_events(events: list[ClaudeEvent]):
+    """Create an async generator that yields events from a list."""
+    for event in events:
+        yield event
 
-    mock_stderr = AsyncMock()
-    mock_stderr.read = AsyncMock(return_value=b"")
 
-    proc.stdout = mock_stdout
-    proc.stderr = mock_stderr
+def _setup_mock_query(
+    mock_query: MagicMock,
+    event_sequences: list[list[ClaudeEvent]],
+) -> None:
+    """Configure mock run_claude_query to yield events from sequences."""
+    call_count = 0
 
-    return proc
+    def _side_effect(prompt: str, options: Any = None):
+        nonlocal call_count
+        idx = min(call_count, len(event_sequences) - 1)
+        call_count += 1
+        return _mock_run_claude_query_from_events(event_sequences[idx])
+
+    mock_query.side_effect = _side_effect
 
 
 @pytest.mark.integration
-@patch("src.review_pipeline.asyncio.create_subprocess_exec")
+@patch("src.review_pipeline.run_claude_query")
 async def test_review_approve_auto(
-    mock_exec: AsyncMock,
+    mock_query: MagicMock,
     task_manager: TaskManager,
     event_bus: EventBus,
     make_config,
@@ -82,9 +119,10 @@ async def test_review_approve_auto(
     # Transition BACKLOG -> REVIEW
     await task_manager.update_status(task.id, TaskStatus.REVIEW)
 
-    # Mock Claude CLI subprocess that approves
-    inner = json.dumps({"verdict": "approve", "summary": "Looks good", "suggestions": []})
-    mock_exec.return_value = _mock_proc(_make_cli_output(inner))
+    # Mock SDK that approves
+    _setup_mock_query(mock_query, [
+        _make_review_events("approve", "Looks good"),
+    ])
 
     pipeline = ReviewPipeline(
         config=config.review_pipeline,
@@ -118,9 +156,9 @@ async def test_review_approve_auto(
 
 
 @pytest.mark.integration
-@patch("src.review_pipeline.asyncio.create_subprocess_exec")
+@patch("src.review_pipeline.run_claude_query")
 async def test_review_reject_needs_human(
-    mock_exec: AsyncMock,
+    mock_query: MagicMock,
     task_manager: TaskManager,
     event_bus: EventBus,
     make_config,
@@ -148,11 +186,10 @@ async def test_review_reject_needs_human(
     await task_manager.create_task(task)
     await task_manager.update_status(task.id, TaskStatus.REVIEW)
 
-    # Mock Claude CLI subprocess that rejects
-    inner = json.dumps(
-        {"verdict": "reject", "summary": "Too risky", "suggestions": ["Add tests"]}
-    )
-    mock_exec.return_value = _mock_proc(_make_cli_output(inner))
+    # Mock SDK that rejects
+    _setup_mock_query(mock_query, [
+        _make_review_events("reject", "Too risky", ["Add tests"]),
+    ])
 
     pipeline = ReviewPipeline(
         config=config.review_pipeline,
@@ -196,9 +233,9 @@ async def test_review_reject_needs_human(
 
 
 @pytest.mark.integration
-@patch("src.review_pipeline.asyncio.create_subprocess_exec")
+@patch("src.review_pipeline.run_claude_query")
 async def test_review_reject_then_human_rejects(
-    mock_exec: AsyncMock,
+    mock_query: MagicMock,
     task_manager: TaskManager,
     make_config,
 ) -> None:
@@ -225,10 +262,9 @@ async def test_review_reject_then_human_rejects(
     await task_manager.create_task(task)
     await task_manager.update_status(task.id, TaskStatus.REVIEW)
 
-    inner = json.dumps(
-        {"verdict": "reject", "summary": "Bad idea", "suggestions": ["Dont do this"]}
-    )
-    mock_exec.return_value = _mock_proc(_make_cli_output(inner))
+    _setup_mock_query(mock_query, [
+        _make_review_events("reject", "Bad idea", ["Dont do this"]),
+    ])
 
     pipeline = ReviewPipeline(
         config=config.review_pipeline,
@@ -252,9 +288,9 @@ async def test_review_reject_then_human_rejects(
 
 
 @pytest.mark.integration
-@patch("src.review_pipeline.asyncio.create_subprocess_exec")
+@patch("src.review_pipeline.run_claude_query")
 async def test_multi_reviewer_synthesis(
-    mock_exec: AsyncMock,
+    mock_query: MagicMock,
     task_manager: TaskManager,
     make_config,
 ) -> None:
@@ -286,20 +322,11 @@ async def test_multi_reviewer_synthesis(
     await task_manager.create_task(task)
 
     # First reviewer approves, second (adversarial) rejects, synthesis returns 0.6
-    approve_inner = json.dumps(
-        {"verdict": "approve", "summary": "OK", "suggestions": []}
-    )
-    reject_inner = json.dumps(
-        {"verdict": "reject", "summary": "Risky", "suggestions": ["Watch out"]}
-    )
-    synth_inner = json.dumps(
-        {"score": 0.6, "disagreements": ["Security concern"]}
-    )
-    mock_exec.side_effect = [
-        _mock_proc(_make_cli_output(approve_inner)),
-        _mock_proc(_make_cli_output(reject_inner)),
-        _mock_proc(_make_cli_output(synth_inner)),
-    ]
+    _setup_mock_query(mock_query, [
+        _make_review_events("approve", "OK"),
+        _make_review_events("reject", "Risky", ["Watch out"]),
+        _make_synthesis_events(0.6, ["Security concern"]),
+    ])
 
     pipeline = ReviewPipeline(
         config=config.review_pipeline,

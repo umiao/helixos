@@ -1,7 +1,8 @@
 """Review pipeline for HelixOS orchestrator.
 
 Implements LLM-based task plan review per PRD Section 9. Reviews are opt-in
-and run as background tasks. Uses Claude CLI (``claude -p``) for LLM calls.
+and run as background tasks. Uses Claude Agent SDK via ``sdk_adapter`` for
+LLM calls. Migrated from raw subprocess in T-P1-89.
 """
 
 from __future__ import annotations
@@ -10,25 +11,25 @@ import asyncio
 import contextlib
 import json
 import logging
-import os
-import signal
-import sys
 import time
-from collections.abc import Awaitable, Callable
+from collections.abc import AsyncIterator, Awaitable, Callable
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import BaseModel, ValidationError
 
-from src.config import SUBPROCESS_STREAM_LIMIT, ReviewerConfig, ReviewPipelineConfig
-from src.executors.code_executor import (
-    _LazyFileWriter,
-    _simplify_stream_event,
-    _StreamJsonBuffer,
-)
+from src.config import ReviewerConfig, ReviewPipelineConfig
+from src.executors.code_executor import _LazyFileWriter
 from src.history_writer import HistoryWriter
 from src.models import LLMReview, ReviewLifecycleState, ReviewState, Task
+from src.sdk_adapter import (
+    ClaudeEvent,
+    ClaudeEventType,
+    QueryOptions,
+    collect_turns,
+    run_claude_query,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -187,37 +188,6 @@ def _extract_cost_usd(cli_output: dict, model: str) -> float | None:
     return round(cost, 6)
 
 
-# ------------------------------------------------------------------
-# Process group helpers (same pattern as CodeExecutor / T-P0-30)
-# ------------------------------------------------------------------
-
-_IS_WINDOWS = sys.platform == "win32"
-
-
-def _terminate_review_process(proc: asyncio.subprocess.Process) -> None:
-    """Send SIGTERM to the entire process group (or CTRL_BREAK on Windows)."""
-    pid = proc.pid
-    if pid is None:
-        return
-    if _IS_WINDOWS:
-        with contextlib.suppress(OSError):
-            os.kill(pid, signal.CTRL_BREAK_EVENT)  # type: ignore[attr-defined]
-    else:
-        with contextlib.suppress(ProcessLookupError):
-            os.killpg(os.getpgid(pid), signal.SIGTERM)
-
-
-def _kill_review_process(proc: asyncio.subprocess.Process) -> None:
-    """Send SIGKILL to the entire process group (force-kill)."""
-    pid = proc.pid
-    if pid is None:
-        return
-    if _IS_WINDOWS:
-        with contextlib.suppress(OSError):
-            proc.kill()
-    else:
-        with contextlib.suppress(ProcessLookupError):
-            os.killpg(os.getpgid(pid), signal.SIGKILL)
 
 
 # ------------------------------------------------------------------
@@ -424,7 +394,7 @@ class ReviewPipeline:
             return ReviewLifecycleState.APPROVED
         return ReviewLifecycleState.REJECTED_CONSENSUS
 
-    async def _call_claude_cli(
+    async def _call_claude_sdk(
         self,
         prompt: str,
         system_prompt: str,
@@ -436,68 +406,39 @@ class ReviewPipeline:
         on_raw_artifact: Callable[[str], Awaitable[None]] | None = None,
         on_stream_event: Callable[[dict], None] | None = None,
         task_id: str | None = None,
-    ) -> dict:
-        """Call the Claude CLI subprocess and return the parsed JSON output.
+    ) -> tuple[dict, list[ClaudeEvent]]:
+        """Call Claude via the Agent SDK and return parsed output + raw events.
 
-        Invokes ``claude -p`` with ``--output-format stream-json --verbose``
-        and parses stream events in real-time.  Emits events via
-        *on_stream_event* for SSE and persists to JSONL files.  The final
-        ``result`` event contains the structured output.
-
-        Uses process group isolation (same pattern as CodeExecutor / T-P0-30)
-        and ``asyncio.timeout`` to enforce ``review_timeout_minutes``.
+        Uses ``run_claude_query()`` with a producer-task + queue pattern for
+        heartbeat support.  Emits events via *on_stream_event* for SSE and
+        persists to JSONL files.
 
         Args:
             prompt: The user prompt to send.
             system_prompt: The system prompt.
             model: Model identifier (e.g., ``"claude-sonnet-4-5"``).
-            max_budget_usd: Maximum budget for this CLI call.
+            max_budget_usd: Maximum budget for this call.
             json_schema: Optional JSON schema for structured output.
             on_log: Optional per-line callback for real-time streaming.
             heartbeat_seconds: Seconds without output before emitting a
                 heartbeat via *on_log*.  Set to 0 to disable.
-            on_raw_artifact: Optional callback to persist full raw output.
+            on_raw_artifact: Optional async callback to persist raw event output.
             on_stream_event: Optional callback for parsed stream-json events.
             task_id: Optional task ID for JSONL log file naming.
 
         Returns:
-            Dict with ``structured_output`` / ``result`` and full CLI metadata
-            extracted from the final ``result`` stream event.
+            Tuple of (result_dict, all_events) where result_dict contains
+            ``structured_output`` / ``result`` and metadata, and all_events
+            is the list of raw ``ClaudeEvent`` objects for turn reconstruction.
 
         Raises:
-            RuntimeError: If the subprocess exits with a non-zero code or
-                times out.
+            RuntimeError: If the SDK returns an error or times out.
         """
-        args = [
-            "claude", "-p", prompt,
-            "--system-prompt", system_prompt,
-            "--model", model,
-            "--output-format", "stream-json",
-            "--verbose",
-            "--no-session-persistence",
-        ]
-        if max_budget_usd is not None:
-            args.extend(["--max-budget-usd", f"{max_budget_usd:.2f}"])
-        if json_schema is not None:
-            args.extend(["--json-schema", json_schema])
-
-        # Platform-specific process group flags
-        kwargs: dict[str, object] = {
-            "stdout": asyncio.subprocess.PIPE,
-            "stderr": asyncio.subprocess.PIPE,
-        }
-        if _IS_WINDOWS:
-            import subprocess as _subprocess
-            kwargs["creationflags"] = (
-                _subprocess.CREATE_NEW_PROCESS_GROUP  # type: ignore[attr-defined]
-            )
-        else:
-            kwargs["start_new_session"] = True
-
-        proc = await asyncio.create_subprocess_exec(
-            *args,
-            limit=SUBPROCESS_STREAM_LIMIT,
-            **kwargs,  # type: ignore[arg-type]
+        options = QueryOptions(
+            model=model,
+            system_prompt=system_prompt,
+            max_budget_usd=max_budget_usd,
+            json_schema=json_schema,
         )
 
         # -- JSONL log persistence (lazy: files created on first write) --
@@ -510,121 +451,108 @@ class ReviewPipeline:
             raw_file = _LazyFileWriter(log_dir / f"review_raw_{ts}.log")
 
         timeout_seconds = self._timeout_minutes * 60 if self._timeout_minutes > 0 else None
-        log_lines: list[str] = []
+        all_events: list[ClaudeEvent] = []
+        all_event_dicts: list[dict] = []
+        cli_output: dict[str, Any] = {}
         last_output_time = time.monotonic()
-        buffer = _StreamJsonBuffer()
-        cli_output: dict = {}  # Will be populated from the result event
+        has_error = False
+        error_detail = ""
 
         def _emit(line: str) -> None:
             if on_log is not None:
                 on_log(line)
 
-        def _process_parsed_events(parsed_events: list[dict], non_json: list[str]) -> None:
-            """Write parsed events to JSONL and call callbacks."""
-            nonlocal cli_output
-            for event_dict in parsed_events:
-                if jsonl_file is not None:
-                    jsonl_file.write(
-                        json.dumps(event_dict, ensure_ascii=False) + "\n"
-                    )
-                    jsonl_file.flush()
-
-                if on_stream_event is not None:
-                    on_stream_event(event_dict)
-
-                # Capture the result event as the final CLI output
-                if event_dict.get("type") == "result":
-                    cli_output = event_dict
-
-                simplified = _simplify_stream_event(event_dict)
-                if simplified:
-                    _emit(simplified)
-
-            for raw_text in non_json:
-                _emit(raw_text)
-
         try:
             async with asyncio.timeout(timeout_seconds):
-                assert proc.stdout is not None
-                while True:
-                    try:
-                        if heartbeat_seconds > 0:
-                            raw_line = await asyncio.wait_for(
-                                proc.stdout.readline(),
-                                timeout=heartbeat_seconds,
-                            )
-                        else:
-                            raw_line = await proc.stdout.readline()
-                    except TimeoutError:
-                        elapsed = int(time.monotonic() - last_output_time)
-                        _emit(
-                            f"[PROGRESS] heartbeat -- no output for {elapsed}s"
-                        )
-                        continue
+                event_queue: asyncio.Queue[object] = asyncio.Queue()
+                _sentinel = object()
 
-                    if not raw_line:  # EOF
-                        break
+                async def _produce() -> None:
+                    async for ev in run_claude_query(prompt, options):
+                        await event_queue.put(ev)
+                    await event_queue.put(_sentinel)
 
-                    decoded = raw_line.decode("utf-8", errors="replace").rstrip("\r\n")
-
-                    # Always preserve for raw artifact assembly
-                    log_lines.append(decoded)
-
-                    if not decoded.strip():
-                        continue
-
-                    # Persist raw line
-                    if raw_file is not None:
-                        raw_file.write(decoded + "\n")
-                        raw_file.flush()
-
-                    last_output_time = time.monotonic()
-
-                    # Parse stream-json events
-                    parsed_events = buffer.feed(decoded + "\n")
-                    _process_parsed_events(parsed_events, buffer.non_json)
-
-                # -- EOF: flush partial buffer --
-                if buffer._partial:
-                    remainder = buffer._partial.strip()
-                    buffer._partial = ""
-                    if remainder:
-                        if raw_file is not None:
-                            raw_file.write(remainder + "\n")
-                            raw_file.flush()
+                producer = asyncio.create_task(_produce())
+                try:
+                    while True:
                         try:
-                            obj = json.loads(remainder)
-                            if isinstance(obj, dict):
-                                if jsonl_file is not None:
-                                    jsonl_file.write(
-                                        json.dumps(obj, ensure_ascii=False) + "\n"
-                                    )
-                                    jsonl_file.flush()
-                                if on_stream_event is not None:
-                                    on_stream_event(obj)
-                                if obj.get("type") == "result":
-                                    cli_output = obj
-                                simplified = _simplify_stream_event(obj)
-                                if simplified:
-                                    _emit(simplified)
-                        except (json.JSONDecodeError, ValueError):
-                            pass
+                            hb_timeout = (
+                                heartbeat_seconds if heartbeat_seconds > 0 else None
+                            )
+                            item = await asyncio.wait_for(
+                                event_queue.get(), timeout=hb_timeout,
+                            )
+                        except TimeoutError:
+                            elapsed = int(time.monotonic() - last_output_time)
+                            _emit(
+                                f"[PROGRESS] heartbeat -- no output for {elapsed}s"
+                            )
+                            continue
 
-                await proc.wait()
+                        if item is _sentinel:
+                            break
+
+                        event: ClaudeEvent = item  # type: ignore[assignment]
+                        last_output_time = time.monotonic()
+                        all_events.append(event)
+                        event_dict = event.model_dump(exclude_none=True)
+                        all_event_dicts.append(event_dict)
+
+                        # JSONL persistence
+                        if jsonl_file is not None:
+                            jsonl_file.write(
+                                json.dumps(event_dict, ensure_ascii=False) + "\n"
+                            )
+                            jsonl_file.flush()
+                        if raw_file is not None:
+                            raw_file.write(
+                                json.dumps(event_dict, ensure_ascii=False) + "\n"
+                            )
+                            raw_file.flush()
+
+                        # Stream event callback
+                        if on_stream_event is not None:
+                            on_stream_event(event_dict)
+
+                        # Process by event type
+                        if event.type == ClaudeEventType.RESULT:
+                            cli_output = {
+                                "type": "result",
+                                "structured_output": event.structured_output,
+                                "result": event.result_text,
+                                "model": event.model,
+                                "usage": event.usage,
+                                "session_id": event.session_id,
+                                "cost_usd": event.cost_usd,
+                                "duration_ms": event.duration_ms,
+                                "num_turns": event.num_turns,
+                            }
+                            _emit("[DONE]")
+                        elif event.type == ClaudeEventType.ERROR:
+                            has_error = True
+                            error_detail = event.error_message or "Unknown error"
+                        elif event.type == ClaudeEventType.TEXT:
+                            if event.text:
+                                _emit(event.text)
+                        elif event.type == ClaudeEventType.TOOL_USE:
+                            input_str = json.dumps(event.tool_input or {})[:200]
+                            _emit(f"[TOOL] {event.tool_name}({input_str})")
+                        elif event.type == ClaudeEventType.TOOL_RESULT:
+                            content = (event.tool_result_content or "")[:200]
+                            _emit(f"[RESULT] {content}")
+                        elif event.type == ClaudeEventType.INIT:
+                            _emit(f"[INIT] session={event.session_id}")
+                finally:
+                    producer.cancel()
+                    with contextlib.suppress(asyncio.CancelledError):
+                        await producer
         except TimeoutError:
             logger.warning(
-                "Review subprocess timed out after %d minutes (model=%s), "
-                "killing process group",
+                "Review SDK call timed out after %d minutes (model=%s)",
                 self._timeout_minutes, model,
             )
-            _terminate_review_process(proc)
-            try:
-                await asyncio.wait_for(proc.wait(), timeout=5)
-            except TimeoutError:
-                _kill_review_process(proc)
-                await proc.wait()
             raise RuntimeError(
-                f"Review subprocess timed out after {self._timeout_minutes} "
+                f"Review SDK call timed out after {self._timeout_minutes} "
                 f"minutes (model={model})"
             ) from None
         finally:
@@ -633,8 +561,10 @@ class ReviewPipeline:
             if raw_file is not None:
                 raw_file.close()
 
-        # PERSIST-FIRST: save raw output BEFORE returncode check.
-        full_output = "\n".join(log_lines)
+        # PERSIST-FIRST: save raw output BEFORE error check.
+        full_output = "\n".join(
+            json.dumps(e, ensure_ascii=False) for e in all_event_dicts
+        )
         if on_raw_artifact is not None:
             try:
                 await on_raw_artifact(full_output)
@@ -644,35 +574,16 @@ class ReviewPipeline:
                     exc_info=True,
                 )
 
-        if proc.returncode != 0:
-            stderr_bytes = b""
-            if proc.stderr is not None:
-                stderr_bytes = await proc.stderr.read()
-            stderr_text = stderr_bytes.decode("utf-8", errors="replace")
-            raise RuntimeError(
-                f"Claude CLI failed (exit {proc.returncode}): {stderr_text}"
-            )
-
-        # If we didn't capture a result event, try parsing full output as JSON
-        # (fallback for edge cases where stream-json emits a single blob)
-        if not cli_output:
-            try:
-                cli_output = json.loads(full_output)
-            except json.JSONDecodeError:
-                for line in reversed(log_lines):
-                    try:
-                        cli_output = json.loads(line)
-                        break
-                    except json.JSONDecodeError:
-                        continue
+        if has_error:
+            raise RuntimeError(f"Claude SDK error: {error_detail}")
 
         if not cli_output:
             logger.warning(
-                "Failed to parse any JSON from CLI output (%d chars). Raw: %.500s",
-                len(full_output), full_output,
+                "No result event from SDK (%d events). Raw: %.500s",
+                len(all_event_dicts), full_output,
             )
 
-        return cli_output
+        return cli_output, all_events
 
     async def _call_reviewer(
         self,
@@ -684,7 +595,7 @@ class ReviewPipeline:
         on_raw_artifact: Callable[[str], Awaitable[None]] | None = None,
         on_stream_event: Callable[[dict], None] | None = None,
     ) -> LLMReview:
-        """Call a reviewer via the Claude CLI.
+        """Call a reviewer via the Claude Agent SDK.
 
         Args:
             reviewer: Reviewer configuration (model, focus).
@@ -696,7 +607,8 @@ class ReviewPipeline:
             on_stream_event: Optional callback for parsed stream-json events.
 
         Returns:
-            LLMReview with parsed verdict, summary, suggestions, and cost_usd.
+            LLMReview with parsed verdict, summary, suggestions, cost_usd,
+            and conversation_turns.
         """
         system_prompt = self._build_review_prompt(reviewer.focus)
 
@@ -725,7 +637,7 @@ class ReviewPipeline:
                 "\nPlease address the above feedback in your review."
             )
 
-        cli_output = await self._call_claude_cli(
+        cli_output, all_events = await self._call_claude_sdk(
             prompt=user_content,
             system_prompt=system_prompt,
             model=reviewer.model,
@@ -741,10 +653,18 @@ class ReviewPipeline:
         result_data = cli_output.get("structured_output") or cli_output.get("result", "")
         review = self._parse_review(result_data, reviewer)
 
-        # Build raw_response from explicit CLI fields (not the full
-        # cli_output blob).  This decouples the DB schema from the CLI
-        # contract and ensures raw_response contains metadata (model,
-        # usage, session_id) NOT already present in summary/suggestions.
+        # Reconstruct conversation turns from raw events
+        turns, sdk_result = await collect_turns(_events_to_aiter(all_events))
+        conversation_turns = [t.model_dump() for t in turns]
+        review.conversation_turns = conversation_turns
+
+        # Extract structured summary from turns
+        review.conversation_summary = _extract_conversation_summary(turns)
+
+        # Build raw_response from explicit fields (not the full blob).
+        # This decouples the DB schema from the SDK contract and ensures
+        # raw_response contains metadata (model, usage, session_id) NOT
+        # already present in summary/suggestions.
         raw_response_dict = {
             "model": cli_output.get("model"),
             "usage": cli_output.get("usage"),
@@ -754,7 +674,11 @@ class ReviewPipeline:
         review.raw_response = _truncate_raw_response(
             json.dumps(raw_response_dict, indent=2)
         )
-        review.cost_usd = _extract_cost_usd(cli_output, reviewer.model)
+
+        # Use SDK-reported cost if available, fall back to token-based estimate
+        review.cost_usd = sdk_result.cost_usd or _extract_cost_usd(
+            cli_output, reviewer.model,
+        )
         return review
 
     def _build_review_prompt(self, focus: str) -> str:
@@ -839,7 +763,7 @@ class ReviewPipeline:
             'Respond in JSON: {{"score": 0.85, "disagreements": ["..."]}}'
         )
 
-        cli_output = await self._call_claude_cli(
+        cli_output, _events = await self._call_claude_sdk(
             prompt=synthesis_prompt,
             system_prompt="You are a review synthesis engine.",
             model="claude-sonnet-4-5",
@@ -880,3 +804,67 @@ class ReviewPipeline:
         score = max(0.0, min(1.0, score))
 
         return SynthesisResult(score=score, disagreements=disagreements)
+
+
+# ------------------------------------------------------------------
+# Helpers for conversation turn reconstruction
+# ------------------------------------------------------------------
+
+
+async def _events_to_aiter(
+    events: list[ClaudeEvent],
+) -> AsyncIterator[ClaudeEvent]:
+    """Convert a list of ClaudeEvent objects to an async iterator.
+
+    This allows reuse of ``collect_turns()`` which expects an async iterator.
+
+    Args:
+        events: List of ClaudeEvent objects.
+
+    Yields:
+        Each ClaudeEvent in order.
+    """
+    for event in events:
+        yield event
+
+
+def _extract_conversation_summary(
+    turns: list[Any],
+) -> dict[str, Any]:
+    """Extract a structured summary from conversation turns.
+
+    Post-processes ``AssistantTurn`` objects to produce a summary dict with
+    findings, actions taken, and conclusion.
+
+    Args:
+        turns: List of ``AssistantTurn`` objects from ``collect_turns()``.
+
+    Returns:
+        Dict with ``findings`` (list[str]), ``actions_taken`` (list[str]),
+        and ``conclusion`` (str).
+    """
+    findings: list[str] = []
+    actions_taken: list[str] = []
+    conclusion = ""
+
+    for turn in turns:
+        # Extract tool actions as "actions taken"
+        for action in getattr(turn, "tool_actions", []):
+            action_name = getattr(action, "name", "")
+            if action_name:
+                actions_taken.append(action_name)
+
+        # Extract text content as findings / conclusion
+        text = getattr(turn, "text", "").strip()
+        if text:
+            findings.append(text)
+
+    # Last non-empty text is the conclusion
+    if findings:
+        conclusion = findings[-1]
+
+    return {
+        "findings": findings,
+        "actions_taken": actions_taken,
+        "conclusion": conclusion,
+    }

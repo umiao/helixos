@@ -8,7 +8,6 @@ call sites pass limit=SUBPROCESS_STREAM_LIMIT.
 
 from __future__ import annotations
 
-import contextlib
 from unittest.mock import AsyncMock, patch
 
 import pytest
@@ -73,27 +72,38 @@ async def test_code_executor_uses_sdk_not_subprocess() -> None:
 
 
 @pytest.mark.asyncio
-async def test_review_pipeline_passes_stream_limit() -> None:
-    """ReviewPipeline._call_claude_cli() passes limit=SUBPROCESS_STREAM_LIMIT."""
+async def test_review_pipeline_uses_sdk_not_subprocess() -> None:
+    """ReviewPipeline._call_claude_sdk() uses run_claude_query, not subprocess.
+
+    T-P1-89 migrated ReviewPipeline from asyncio.create_subprocess_exec to
+    the Agent SDK.  This test verifies the migration is complete.
+    """
     from src.config import ReviewPipelineConfig
     from src.review_pipeline import ReviewPipeline
+    from src.sdk_adapter import ClaudeEvent, ClaudeEventType
+
+    async def _mock_events(*_args, **_kwargs):  # noqa: ANN002, ANN003
+        yield ClaudeEvent(
+            type=ClaudeEventType.RESULT,
+            result_text="done",
+            structured_output={"verdict": "approve", "summary": "ok", "suggestions": []},
+            model="claude-sonnet-4-5",
+        )
 
     config = ReviewPipelineConfig()
     pipeline = ReviewPipeline(config=config)
-    mock_proc = _make_mock_proc()
 
-    with patch("src.review_pipeline.asyncio.create_subprocess_exec",
-               return_value=mock_proc) as mock_exec, \
-         patch("shutil.which", return_value="/usr/bin/claude"):
-        with contextlib.suppress(Exception):
-            await pipeline._call_claude_cli(
-                prompt="test prompt",
-                model="claude-sonnet-4-5",
-                system_prompt="test",
-            )
+    with patch("src.review_pipeline.run_claude_query",
+               side_effect=_mock_events) as mock_query:
+        cli_output, events = await pipeline._call_claude_sdk(
+            prompt="test prompt",
+            model="claude-sonnet-4-5",
+            system_prompt="test",
+        )
 
-        mock_exec.assert_called_once()
-        assert mock_exec.call_args.kwargs.get("limit") == SUBPROCESS_STREAM_LIMIT
+        mock_query.assert_called_once()
+        assert isinstance(cli_output, dict)
+        assert isinstance(events, list)
 
 
 def test_subprocess_stream_limit_value() -> None:
