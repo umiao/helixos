@@ -26,6 +26,49 @@
 ## Active Tasks
 
 ### P0 -- Must Have (core functionality)
+#### T-P0-87: Backend stream-json + Log Persistence
+- **Priority**: P1
+- **Complexity**: M
+- **Depends on**: None
+- **Description**: Switch Claude CLI from `--output-format json` to `--output-format stream-json` for real-time structured streaming. Add incremental buffer-based JSON parsing (`_StreamJsonBuffer`), `on_stream_event` callback through executor chain, JSONL log persistence to `data/logs/{task_id}/`, and `GET /api/tasks/{task_id}/stream-log` endpoint. New SSE event type `execution_stream` with `origin="execution"`.
+- **Acceptance Criteria**:
+  1. `code_executor.py`: `--output-format stream-json` replaces `--output-format json`
+  2. `_StreamJsonBuffer` class accumulates raw bytes and yields complete JSON objects (handles split lines)
+  3. `on_stream_event: Callable[[dict], None] | None = None` param added to `BaseExecutor.execute()` and `CodeExecutor.execute()`
+  4. Simplified text derived from parsed events for backward-compat `on_log()`: assistant text -> emit text, tool_use -> `[TOOL] {name}(...)`, tool_result -> `[RESULT] {content[:200]}`, result -> `[DONE]`
+  5. Non-JSON lines fall back to `on_log()` as raw text (no crash)
+  6. JSONL file created at `data/logs/{task_id}/stream_{YYYYMMDDTHHMMSS}.jsonl`, flushed per line, closed in `finally`
+  7. `stream_log_dir: Path` added to `OrchestratorSettings` (default `Path("data/logs")`)
+  8. `GET /api/tasks/{task_id}/stream-log` returns `{task_id, file, events}` from most recent JSONL
+  9. `scheduler.py` wires `on_stream_event` callback that emits `execution_stream` SSE event
+  10. Tests: mock subprocess stdout with known stream-json lines, assert `on_stream_event` called with parsed dicts, assert `on_log` called with simplified text, assert JSONL file valid, assert API endpoint returns parsed events, assert malformed lines don't crash
+
+#### T-P0-89: Frontend Conversation View
+- **Priority**: P1
+- **Complexity**: M
+- **Depends on**: T-P1-87
+- **Description**: New React component `ConversationView.tsx` replacing plain `ExecutionLog` when a task is selected. Renders structured conversation: assistant text in dark bubbles with markdown, tool calls as collapsible color-coded badges, tool results indented below matching tool call. Merges persisted + live SSE events. Toggle between conversation and plain log view.
+- **Acceptance Criteria**:
+  1. `frontend/src/components/ConversationView.tsx` renders assistant text blocks (markdown), tool_use blocks (collapsible, color-coded by tool name), tool_result blocks (indented, matched by `tool_use_id`), and result banner
+  2. On mount: `fetchStreamLog(taskId)` loads persisted events; merges with live SSE events (live events with timestamp > latest persisted)
+  3. `frontend/src/types.ts` has `StreamEvent`, `StreamContentBlock`, `StreamDisplayItem`, `StreamLogResponse` types
+  4. `frontend/src/api.ts` has `fetchStreamLog(taskId)` function
+  5. `App.tsx` handles `execution_stream` SSE event type, stores in `streamEvents: Record<string, StreamDisplayItem[]>` state, caps at 2000 events per task
+  6. `App.tsx` has `viewMode` state (`"conversation" | "log"`), conditionally renders `ConversationView` or `ExecutionLog`
+  7. Auto-scroll with manual-scroll-pause detection (same pattern as `ExecutionLog.tsx`)
+  8. Header shows task_id, elapsed timer, "Plain Log" toggle button
+  9. Manual smoke test: run a task -> watch conversation build in real-time -> toggle to plain log and back
+
+#### T-P0-90: Frontend Popover Enhancement
+- **Priority**: P2
+- **Complexity**: S
+- **Depends on**: T-P1-87, T-P1-89
+- **Description**: Enhance `TaskCardPopover.tsx` for running tasks: show latest log line / current tool being used (from `execution_stream` events), progress indicator with tool call count and elapsed time.
+- **Acceptance Criteria**:
+  1. Running tasks show latest log line or current tool name in popover
+  2. Progress indicator: "X tool calls | Y minutes elapsed"
+  3. `App.tsx` passes last `execution_stream` event per task to `TaskCardPopover` via prop
+  4. Non-running tasks unaffected (existing popover behavior preserved)
 
 
 #### T-P1-70: Extract `_is_process_alive()` to shared module
@@ -168,6 +211,7 @@
   8. Tests: gate ON -> REVIEW, gate OFF -> QUEUED, no planned tasks -> started=0, concurrent request -> skipped via optimistic lock
   9. Manual smoke test: click "Start N Planned" -> tasks move to correct column -> SSE updates UI in real-time
 
+
 ### P1-UX -- Polish
 
 ## Dependency Graph
@@ -175,7 +219,10 @@
 > Full historical dependency graph relocated to [docs/architecture/dependency-graph-history.md](docs/architecture/dependency-graph-history.md).
 
 ### Current
+- T-P0-89 depends on T-P0-87
+- T-P0-90 depends on T-P0-87, T-P0-89
 - T-P1-85 depends on T-P1-84
+
 
 ---
 
@@ -239,6 +286,9 @@
 
 #### [x] T-P1-86: Fix stop hook JSON error + harden LLM JSON validation -- 2026-03-05
 - Fixed run_hook() to emit {"ok": true/false} JSON stdout on all exit paths (stop hooks were producing empty stdout). Added Pydantic validation models (EnrichmentResult, PlanResult, ReviewResult) to all 4 LLM JSON parsers with raw content logging on failure. 23 new tests, 1099 total passing, ruff clean.
+
+#### [x] T-P1-88: Timeout and limit relaxation -- 2026-03-05
+- Relaxed defaults: session_timeout 60->720min, inactivity_timeout 20->0 (disabled), max_total_subprocesses 5->100. Made max_budget_usd optional (None=omit flag). Removed MAX_CONCURRENT_EXECUTIONS=2 hard cap from scheduler. Removed --max-budget-usd from enrichment CLI args. Updated orchestrator_config.yaml and 4 test files. 1099 tests passing.
 
 #### [x] T-P0-55: Execution log visual markers for review activity -- 2026-03-04
 - Added purple "REVIEW" badge on review-originated log entries. Extended LogEntry with source field, SSE handlers pass source="review" for review_started/review_progress events. Uses SSE event type for origin detection.
