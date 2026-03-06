@@ -16,8 +16,9 @@ import logging
 from datetime import UTC, datetime
 
 from src.events import EventBus
+from src.platform_utils import is_process_alive as _is_process_alive
 from src.process_manager import ProcessManager
-from src.subprocess_registry import SubprocessEntry, SubprocessRegistry, _is_process_alive
+from src.subprocess_registry import SubprocessEntry, SubprocessRegistry
 
 logger = logging.getLogger(__name__)
 
