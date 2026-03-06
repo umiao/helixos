@@ -61,6 +61,9 @@
   Windows, `os.kill(pid, 0)` only on Unix, behind a `sys.platform` guard.
 - **Never duplicate utility functions across files.** If the same helper
   exists in >1 file, extract it to a shared module and import it.
+- **Never invent new task ID formats.** Task IDs must match `T-P{priority}-{number}`
+  (e.g., T-P0-1, T-P1-42). Do not create alternative prefixes like T-TD, T-BUG, etc.
+  Use the Priority field inside the task spec for categorization instead.
 <!-- CUSTOMIZE: Add your project-specific prohibitions -->
 
 ## Behavior Rules

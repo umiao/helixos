@@ -28,10 +28,7 @@
 ### P0 -- Must Have (core functionality)
 
 
-
-### Tech Debt -- Phase 1: Type Safety & Shared Utils (enables later phases)
-
-#### T-TD-01: Extract `_is_process_alive()` to shared module
+#### T-P1-70: Extract `_is_process_alive()` to shared module
 - **Priority**: P1
 - **Complexity**: S
 - **Depends on**: None
@@ -41,7 +38,7 @@
   2. All 3 callsites import from shared module
   3. Existing tests pass unchanged
 
-#### T-TD-02: Unified TaskEvent Pydantic model for SSE contract
+#### T-P1-71: Unified TaskEvent Pydantic model for SSE contract
 - **Priority**: P1
 - **Complexity**: S
 - **Depends on**: None
@@ -51,18 +48,17 @@
   2. EventBus.emit() uses the model for validation
   3. Tests verify schema enforcement
 
-#### T-TD-03: SSE origin field for log categorization
+#### T-P1-72: SSE origin field for log categorization
 - **Priority**: P1
 - **Complexity**: S
-- **Depends on**: T-TD-02
+- **Depends on**: T-P1-71
 - **Description**: Add explicit `origin` field (execution/review/scheduler/plan) to SSE event payloads for clean log categorization (from T-P0-55).
 - **Acceptance Criteria**:
   1. All SSE events include `origin` field
   2. Frontend uses `origin` instead of inferring from event type
 
-### Tech Debt -- Phase 2: Operational Reliability
 
-#### T-TD-04: Log retention/purge policy
+#### T-P1-73: Log retention/purge policy
 - **Priority**: P1
 - **Complexity**: S
 - **Depends on**: None
@@ -72,7 +68,7 @@
   2. Purge runs on app startup or scheduled interval
   3. Test verifies old entries are cleaned
 
-#### T-TD-05: Plan generation error taxonomy + retry strategy
+#### T-P1-74: Plan generation error taxonomy + retry strategy
 - **Priority**: P1
 - **Complexity**: S
 - **Depends on**: None
@@ -82,7 +78,7 @@
   2. API returns structured error type in 503 response
   3. Frontend shows actionable error message per type
 
-#### T-TD-06: T-P0-28 postmortem integration test
+#### T-P2-75: Raw-response decoupling postmortem integration test
 - **Priority**: P2
 - **Complexity**: S
 - **Depends on**: None
@@ -91,9 +87,8 @@
   1. Test in `tests/test_review_pipeline.py` with mocked CLI
   2. Asserts raw_response dict keys are distinct from parsed review fields
 
-### Tech Debt -- Phase 3: Race Condition Hardening
 
-#### T-TD-07: State machine transition race condition audit
+#### T-P1-76: State machine transition race condition audit
 - **Priority**: P1
 - **Complexity**: M
 - **Depends on**: None
@@ -103,49 +98,46 @@
   2. Each race window has mitigation strategy (optimistic lock, epoch ID, etc.)
   3. Critical races have test coverage
 
-#### T-TD-08: Scheduler finalization epoch ID
+#### T-P1-77: Scheduler finalization epoch ID
 - **Priority**: P1
 - **Complexity**: M
-- **Depends on**: T-TD-07
+- **Depends on**: T-P1-76
 - **Description**: Prevent race conditions where concurrent paths both try to finalize a task. Add execution epoch ID to scheduler (from T-P0-49).
 - **Acceptance Criteria**:
   1. Epoch ID column on task model
   2. Finalization checks epoch match before state transition
   3. Test for concurrent finalization attempt
 
-### Tech Debt -- Phase 4: Subprocess Abstraction
-
-#### T-TD-09: SubprocessRunner design doc
+#### T-P2-78: SubprocessRunner design doc
 - **Priority**: P2
 - **Complexity**: S
-- **Depends on**: T-TD-01
+- **Depends on**: T-P1-70
 - **Description**: Design shared `SubprocessRunner` abstraction unifying subprocess management patterns across enrichment.py, review_pipeline.py, code_executor.py, process_manager.py.
 - **Acceptance Criteria**:
   1. Design doc in `docs/architecture/subprocess-runner.md`
   2. Covers: process group isolation, timeout, readline streaming, persist-first, platform guards
 
-#### T-TD-10: SubprocessRunner implementation + refactor
+#### T-P2-79: SubprocessRunner implementation + refactor
 - **Priority**: P2
 - **Complexity**: M
-- **Depends on**: T-TD-09
+- **Depends on**: T-P2-78
 - **Description**: Implement SubprocessRunner and refactor 4 callsites to use it.
 - **Acceptance Criteria**:
   1. `src/subprocess_runner.py` with shared abstraction
   2. All 4 callsites refactored
   3. Existing tests pass unchanged
 
-### Tech Debt -- Phase 5: Documentation & Polish
 
-#### T-TD-11: State machine diagram documentation
+#### T-P2-80: State machine diagram documentation
 - **Priority**: P2
 - **Complexity**: S
-- **Depends on**: T-TD-07
+- **Depends on**: T-P1-76
 - **Description**: Document all valid states, triggers, and side-effects in review state machine.
 - **Acceptance Criteria**:
   1. Diagram in `docs/architecture/state-machine.md`
   2. All transitions from ReviewLifecycleState enum covered
 
-#### T-TD-12: PRD clarification (Pause/Gate/Launch semantics)
+#### T-P2-81: PRD clarification (Pause/Gate/Launch semantics)
 - **Priority**: P2
 - **Complexity**: S
 - **Depends on**: None
@@ -154,7 +146,7 @@
   1. Updated PRD section with clear definitions
   2. Edge cases documented
 
-#### T-TD-13: UX audit + smoke test enforcement
+#### T-P2-82: UX audit + smoke test enforcement
 - **Priority**: P2
 - **Complexity**: S
 - **Depends on**: None
@@ -164,7 +156,7 @@
   2. CLAUDE.md enforcement rule added
   3. Gap list for any missing coverage
 
-#### T-TD-14: Done column ordering investigation
+#### T-P3-83: Done column ordering investigation
 - **Priority**: P3
 - **Complexity**: S
 - **Depends on**: None
@@ -231,7 +223,7 @@
 - Persist raw CLI output before parsing (write_raw_artifact, no truncation). plan_json column for structured data. Structural validation rejects empty plans. Atomic update_plan() method. Removed --permission-mode plan (conflicts with --json-schema). 1040 tests passing (9 new).
 
 #### [x] T-P0-68: Investigate and design fix for tech debts -- 2026-03-04
-- Investigated all 14 tech debt items, designed 5-phase remediation plan (type safety, operational reliability, race condition hardening, subprocess abstraction, documentation). Broke into 14 prioritized sub-tasks (T-TD-01 through T-TD-14) with dependencies, acceptance criteria, and complexity estimates.
+- Investigated all 14 tech debt items, designed 5-phase remediation plan (type safety, operational reliability, race condition hardening, subprocess abstraction, documentation). Broke into 14 prioritized sub-tasks (T-P1-70 through T-P3-83) with dependencies, acceptance criteria, and complexity estimates.
 
 #### [x] T-P0-55: Execution log visual markers for review activity -- 2026-03-04
 - Added purple "REVIEW" badge on review-originated log entries. Extended LogEntry with source field, SSE handlers pass source="review" for review_started/review_progress events. Uses SSE event type for origin detection.

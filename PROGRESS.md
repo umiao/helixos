@@ -761,8 +761,15 @@
 - **Request**: Move T-P0-68 to Completed in TASKS.md
 
 ## 2026-03-04 24:00 -- [T-P0-69] Harden plan generation & review pipelines against data loss
-- **What I did**: (1) Fixed blank-line dropping in stdout capture -- both enrichment.py and review_pipeline.py used `if decoded:` which dropped empty lines, corrupting multi-line JSON reassembly. Changed to `.rstrip("\r\n")` + always-append + emit-only-non-blank. (2) Added persist-first to review pipeline -- `_call_claude_cli()` now accepts `on_raw_artifact` callback, assembles `full_output` and persists BEFORE returncode check. Threaded through `_call_reviewer()` and `review_task()`. Wired in `api.py` `_run_review_bg()` with `review_cli_output` artifact type. (3) Added try/except safety net around `on_raw_artifact` in both enrichment.py and review_pipeline.py so persist failures never crash the pipeline. (4) Recovered T-P0-68 tech debt plan into TASKS.md -- broke 14 items into T-TD-01 through T-TD-14 with 5 phases, dependencies, complexity, and acceptance criteria.
+- **What I did**: (1) Fixed blank-line dropping in stdout capture -- both enrichment.py and review_pipeline.py used `if decoded:` which dropped empty lines, corrupting multi-line JSON reassembly. Changed to `.rstrip("\r\n")` + always-append + emit-only-non-blank. (2) Added persist-first to review pipeline -- `_call_claude_cli()` now accepts `on_raw_artifact` callback, assembles `full_output` and persists BEFORE returncode check. Threaded through `_call_reviewer()` and `review_task()`. Wired in `api.py` `_run_review_bg()` with `review_cli_output` artifact type. (3) Added try/except safety net around `on_raw_artifact` in both enrichment.py and review_pipeline.py so persist failures never crash the pipeline. (4) Recovered T-P0-68 tech debt plan into TASKS.md -- broke 14 items into T-P1-70 through T-P3-83 with 5 phases, dependencies, complexity, and acceptance criteria.
 - **Deliverables**: src/enrichment.py, src/review_pipeline.py, src/api.py, tests/test_enrichment.py (2 new tests), tests/test_review_pipeline.py (3 new tests), TASKS.md (14 tech debt sub-tasks)
 - **Sanity check result**: Ruff clean. All 1045 tests passing (1040 existing + 5 new). TASKS.md at 237 lines (under 300 invariant).
 - **Status**: [DONE]
 - **Request**: No change (T-P0-68 already moved to Completed above)
+
+## 2026-03-05 00:00 -- Fix task ID naming convention (T-TD-XX -> T-PX-XX)
+- **What I did**: Renamed all 14 tech debt tasks from T-TD-01..T-TD-14 to T-P1-70..T-P3-83 (matching parser regex `T-P\d+-\d+`). Fixed T-P2-75 title to remove embedded task ID pattern. Updated all dependency references. Added prohibited action to CLAUDE.md preventing future ID format invention. Added lesson #18 to LESSONS.md.
+- **Deliverables**: TASKS.md, CLAUDE.md, LESSONS.md, PROGRESS.md
+- **Sanity check result**: Zero T-TD matches in TASKS.md. All 14 new IDs found by regex. 45/45 tasks_parser tests pass. Ruff clean.
+- **Status**: [DONE]
+- **Request**: No change

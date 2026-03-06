@@ -72,6 +72,13 @@
   - Fix: Add `sys.path.insert(0, project_root)` in run_server.py before calling uvicorn.run(). Add a smoke test that verifies `src` is importable after main() runs.
   - Rule: When writing a launcher script, always include at least one smoke test that exercises the real import path (e.g. `importlib.util.find_spec("src") is not None`). Mock tests verify kwargs but not environment setup.
 
+  18. Task IDs must match the parser's grammar -- never invent new formats
+  - Context: T-P0-68 created 14 tech debt tasks with `T-TD-XX` IDs. The entire parsing system (tasks_parser.py, session_context.py, task_dedup_check.py) uses `T-P\d+-\d+` regex. The T-TD format was invisible to all tooling -- tasks couldn't be synced to DB, detected in session context, validated for orphans, or tracked in autonomous mode.
+  - Root cause: AI invented a categorization prefix (T-TD for "tech debt") outside the established ID grammar. The format looked reasonable to a human but was structurally incompatible with every regex in the codebase.
+  - Fix: Renamed all 14 tasks from T-TD-01..T-TD-14 to T-P1-70..T-P3-83 (using actual priority in the ID). Added prohibited action to CLAUDE.md: "Never invent new task ID formats."
+  - Rule: Task IDs are a machine-parseable contract, not a human categorization tool. Use the Priority field inside the task spec for categorization. The ID format is `T-P{priority}-{number}` and nothing else.
+  - Tags: #task-ids #parsing #naming-convention #tooling-compatibility
+
   11. "Tests pass" != "it works" -- verify what you ship
   - 650 mock tests passed but `python scripts/run_server.py` crashed on real invocation. DB schema crash (missing review_gate_enabled column) was dismissed as "unrelated" during a dry run that showed a full traceback.
   - Rule: if the dry run shows ANY crash, it is a bug -- not "unrelated." Fix it or explicitly document it as a known issue requiring user action.
