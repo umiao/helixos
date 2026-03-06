@@ -162,3 +162,10 @@
   - Parser gap: `system`, `stream_event`, `rate_limit_event`, `user` are silently dropped (return None). This is mostly harmless for logging but means the JSONL files miss simplified representations.
   - Note: `content_block_delta` in our parser maps to `stream_event.event.delta` in actual CLI output. The event nesting is different than assumed.
   - Tags: #stream-json #event-types #parser #code-executor
+
+  22. `--verbose` is REQUIRED for stream-json to emit intermediate events
+  - Context: T-P0-91 addendum. Official docs say: "Use `--output-format stream-json` with `--verbose` and `--include-partial-messages` to receive tokens as they're generated."
+  - Our code_executor.py (line 271-280) uses `--output-format stream-json` and `--include-partial-messages` but does NOT include `--verbose`. Without `--verbose`, stream-json likely only emits the final `result` event -- no `system`, `assistant`, `stream_event` events appear during execution.
+  - This explains why 47/57 log files were effectively empty: only a single result line was captured.
+  - Fix: Add `--verbose` to the CLI args in code_executor.py (and review_pipeline/enrichment when they switch to stream-json).
+  - Tags: #claude-cli #stream-json #verbose #missing-flag

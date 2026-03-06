@@ -45,22 +45,24 @@
   3. Existing tests updated to mock `structured_output` field instead of `result`
   4. Manual verification: run plan/review on a real task, check DB has meaningful content
 
-#### T-P0-93: Harden stream-json event parser
+#### T-P0-93: Harden stream-json event parser + add --verbose flag
 - **Priority**: P0
 - **Complexity**: S
 - **Depends on**: None (T-P0-91 complete)
-- **Description**: T-P0-91 found parser coverage gaps. `_simplify_stream_event` handles 5 types but real CLI emits 6+. Missing: `system` (init/hooks), `stream_event` (token deltas -- different nesting than assumed `content_block_delta`), `rate_limit_event`, `user` (synthetic). Also: `content_block_delta` handler doesn't match real `stream_event.event.delta` nesting.
+- **Description**: T-P0-91 found TWO issues: (1) `--verbose` flag is MISSING from code_executor.py CLI args -- without it, stream-json only emits the final result event (explains empty logs). (2) Parser coverage gaps: `_simplify_stream_event` handles 5 types but real CLI emits 6+.
 - **Findings from T-P0-91**:
+  - **CRITICAL**: `--verbose` is required for stream-json to emit intermediate events (system, assistant, stream_event). Without it, only final `result` appears. Our code_executor.py line 271-280 is missing `--verbose`.
   - Real event types: system, assistant, stream_event, result, rate_limit_event, user
   - `stream_event` wraps delta as `event.delta.type == "text_delta"`, not top-level `content_block_delta`
   - `system` with subtype `init` contains model/tools info (useful for log enrichment)
   - `result` event contains `structured_output` field when `--json-schema` used
 - **Acceptance Criteria**:
-  1. `_simplify_stream_event` handles all 6 real event types
-  2. `stream_event` delta nesting correctly parsed (`.event.delta.text`)
-  3. `system` init events logged as `[INIT] model=X`
-  4. Execution JSONL files contain complete stream events (verified with real CLI)
-  5. ConversationView shows real content for execution tasks
+  1. `--verbose` added to CLI args in code_executor.py
+  2. `_simplify_stream_event` handles all 6 real event types
+  3. `stream_event` delta nesting correctly parsed (`.event.delta.text`)
+  4. `system` init events logged as `[INIT] model=X`
+  5. Execution JSONL files contain complete stream events (verified with real CLI)
+  6. ConversationView shows real content for execution tasks
 
 #### T-P0-94: Enable stream-json for review pipeline + ConversationView
 - **Priority**: P0
