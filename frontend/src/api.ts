@@ -13,6 +13,7 @@ import type {
   ProcessStatus,
   Project,
   ReviewHistoryResponse,
+  StreamLogResponse,
   SyncResult,
   Task,
   TaskStatus,
@@ -378,6 +379,15 @@ export async function fetchExecutionLogs(
   const url = `/api/tasks/${encodeURIComponent(taskId)}/logs${qs ? `?${qs}` : ""}`;
   const res = await fetch(url);
   return handleResponse<ExecutionLogsResponse>(res);
+}
+
+/** Fetch the stream-json log (persisted JSONL events) for a task. */
+export async function fetchStreamLog(
+  taskId: string,
+): Promise<StreamLogResponse> {
+  const url = `/api/tasks/${encodeURIComponent(taskId)}/stream-log`;
+  const res = await fetch(url);
+  return handleResponse<StreamLogResponse>(res);
 }
 
 /** Fetch paginated review history for a task. */

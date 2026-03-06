@@ -808,3 +808,10 @@
 - **Sanity check result**: 26/26 new stream-json tests pass. Full suite 1124 tests pass. Ruff clean.
 - **Status**: [DONE]
 - **Request**: Move T-P0-87 to Completed
+
+## 2026-03-06 03:00 -- [T-P0-89] Frontend Conversation View
+- **What I did**: Created `ConversationView.tsx` component rendering structured conversation from stream-json events: assistant text in dark bubbles with full markdown (ReactMarkdown), tool_use blocks as collapsible color-coded badges (10 tool colors), tool_result blocks indented below matching tool_use (matched by tool_use_id), result banner. Added `normalizeStreamEvents()` helper to parse raw stream events into `StreamDisplayItem` display items. Added `StreamEvent`, `StreamContentBlock`, `StreamDisplayItem`, `StreamLogResponse` types to `types.ts`. Added `fetchStreamLog(taskId)` API function to `api.ts`. Updated `App.tsx`: handles `execution_stream` SSE event type, stores in `streamEvents: Record<string, StreamDisplayItem[]>` state (capped at 2000 per task), added `viewMode` state ("conversation" | "log") with separate Conversation and Plain Log tabs, conditionally renders `ConversationView` or `ExecutionLog`. Auto-scroll with manual-scroll-pause detection. Header shows task_id, elapsed timer, tool call count, and "Plain Log" toggle button.
+- **Deliverables**: frontend/src/components/ConversationView.tsx (new), frontend/src/types.ts, frontend/src/api.ts, frontend/src/App.tsx, TASKS.md, PROGRESS.md
+- **Sanity check result**: TypeScript type check passes (tsc --noEmit clean). Vite build succeeds. 26/26 stream-json backend tests pass. Ruff clean.
+- **Status**: [DONE]
+- **Request**: Move T-P0-89 to Completed

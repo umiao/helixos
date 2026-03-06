@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import SwimLane from "./components/SwimLane";
 import ExecutionLog, { type LogEntry } from "./components/ExecutionLog";
+import ConversationView, { normalizeStreamEvents } from "./components/ConversationView";
 import ReviewPanel from "./components/ReviewPanel";
 import RunningJobsPanel from "./components/RunningJobsPanel";
 import ResizableDivider, {
@@ -25,7 +26,7 @@ import {
   updateTaskStatus,
   ApiError,
 } from "./api";
-import type { Project, Task, TaskStatus } from "./types";
+import type { Project, Task, TaskStatus, StreamDisplayItem } from "./types";
 
 let toastIdCounter = 0;
 let logIdCounter = 0;
@@ -53,6 +54,8 @@ function App() {
   const [reviewSubmitTask, setReviewSubmitTask] = useState<Task | null>(null);
   const [editTask, setEditTask] = useState<Task | null>(null);
   const [reviewPhase, setReviewPhase] = useState("");
+  const [streamEvents, setStreamEvents] = useState<Record<string, StreamDisplayItem[]>>({});
+  const [viewMode, setViewMode] = useState<"conversation" | "log">("conversation");
 
   // Keep a ref to tasks for SSE handler (avoid stale closure)
   const tasksRef = useRef(tasks);
@@ -295,6 +298,26 @@ function App() {
               );
             })
             .catch(() => { /* ignore */ });
+          break;
+        }
+        case "execution_stream": {
+          // Normalize the raw event_dict and append to streamEvents for this task
+          const normalized = normalizeStreamEvents(
+            [event.data as Record<string, unknown>],
+            `sse-${Date.now()}`,
+            event.timestamp,
+          );
+          if (normalized.length > 0) {
+            setStreamEvents((prev) => {
+              const existing = prev[event.task_id] ?? [];
+              const updated = [...existing, ...normalized];
+              // Cap at 2000 events per task
+              return {
+                ...prev,
+                [event.task_id]: updated.length > 2000 ? updated.slice(-2000) : updated,
+              };
+            });
+          }
           break;
         }
         case "process_failed": {
@@ -816,15 +839,26 @@ function App() {
         {/* Panel tabs */}
         <div className="flex items-center border-b border-gray-200 px-4">
           <button
-            onClick={() => setBottomPanel("log")}
+            onClick={() => { setBottomPanel("log"); setViewMode("conversation"); }}
             className={`px-3 py-1.5 text-xs font-medium border-b-2 transition-colors ${
-              bottomPanel === "log"
+              bottomPanel === "log" && viewMode === "conversation"
                 ? "border-indigo-500 text-indigo-700"
                 : "border-transparent text-gray-500 hover:text-gray-700"
             }`}
-            title="View real-time execution logs from task runners"
+            title="View structured conversation from task execution"
           >
-            Execution Log
+            Conversation
+          </button>
+          <button
+            onClick={() => { setBottomPanel("log"); setViewMode("log"); }}
+            className={`px-3 py-1.5 text-xs font-medium border-b-2 transition-colors ${
+              bottomPanel === "log" && viewMode === "log"
+                ? "border-indigo-500 text-indigo-700"
+                : "border-transparent text-gray-500 hover:text-gray-700"
+            }`}
+            title="View plain execution log entries"
+          >
+            Plain Log
           </button>
           <button
             onClick={() => setBottomPanel("review")}
@@ -869,7 +903,15 @@ function App() {
 
         {/* Panel content */}
         <div className="flex-1 min-h-0">
-          {bottomPanel === "log" ? (
+          {bottomPanel === "log" && viewMode === "conversation" && selectedTask ? (
+            <ConversationView
+              taskId={selectedTask.id}
+              taskStatus={selectedTask.status}
+              executionStartedAt={selectedTask.execution?.started_at}
+              liveItems={streamEvents[selectedTask.id] ?? []}
+              onToggleView={() => setViewMode("log")}
+            />
+          ) : bottomPanel === "log" ? (
             <ExecutionLog
               entries={logEntries}
               taskIds={taskIds}

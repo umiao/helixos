@@ -26,24 +26,9 @@
 ## Active Tasks
 
 ### P0 -- Must Have (core functionality)
-#### T-P0-89: Frontend Conversation View
-- **Priority**: P1
-- **Complexity**: M
-- **Depends on**: T-P1-87
-- **Description**: New React component `ConversationView.tsx` replacing plain `ExecutionLog` when a task is selected. Renders structured conversation: assistant text in dark bubbles with markdown, tool calls as collapsible color-coded badges, tool results indented below matching tool call. Merges persisted + live SSE events. Toggle between conversation and plain log view.
-- **Acceptance Criteria**:
-  1. `frontend/src/components/ConversationView.tsx` renders assistant text blocks (markdown), tool_use blocks (collapsible, color-coded by tool name), tool_result blocks (indented, matched by `tool_use_id`), and result banner
-  2. On mount: `fetchStreamLog(taskId)` loads persisted events; merges with live SSE events (live events with timestamp > latest persisted)
-  3. `frontend/src/types.ts` has `StreamEvent`, `StreamContentBlock`, `StreamDisplayItem`, `StreamLogResponse` types
-  4. `frontend/src/api.ts` has `fetchStreamLog(taskId)` function
-  5. `App.tsx` handles `execution_stream` SSE event type, stores in `streamEvents: Record<string, StreamDisplayItem[]>` state, caps at 2000 events per task
-  6. `App.tsx` has `viewMode` state (`"conversation" | "log"`), conditionally renders `ConversationView` or `ExecutionLog`
-  7. Auto-scroll with manual-scroll-pause detection (same pattern as `ExecutionLog.tsx`)
-  8. Header shows task_id, elapsed timer, "Plain Log" toggle button
-  9. Manual smoke test: run a task -> watch conversation build in real-time -> toggle to plain log and back
 
 #### T-P0-90: Frontend Popover Enhancement
-- **Priority**: P2
+- **Priority**: P0
 - **Complexity**: S
 - **Depends on**: T-P1-87, T-P1-89
 - **Description**: Enhance `TaskCardPopover.tsx` for running tasks: show latest log line / current tool being used (from `execution_stream` events), progress indicator with tool call count and elapsed time.
@@ -215,6 +200,9 @@
 ## Completed Tasks
 
 > 79 completed tasks archived to [archive/completed_tasks.md](archive/completed_tasks.md).
+
+#### [x] T-P0-89: Frontend Conversation View -- 2026-03-06
+- Created `ConversationView.tsx` with markdown assistant bubbles, collapsible color-coded tool badges, tool results matched by `tool_use_id`, result banner. Added `StreamEvent`/`StreamDisplayItem`/`StreamLogResponse` types, `fetchStreamLog` API. App.tsx handles `execution_stream` SSE (capped 2000/task), `viewMode` toggle between Conversation and Plain Log. TypeScript clean, Vite build clean.
 
 #### [x] T-P0-87: Backend stream-json + Log Persistence -- 2026-03-06
 - Switched `--output-format json` to `stream-json`. Added `_StreamJsonBuffer` for incremental JSON parsing, `on_stream_event` callback through executor chain, `_simplify_stream_event` for backward-compat `on_log`, JSONL persistence to `data/logs/{task_id}/`, `GET /api/tasks/{task_id}/stream-log` endpoint, `execution_stream` SSE event type. 26 new tests, 1124 total passing, ruff clean.

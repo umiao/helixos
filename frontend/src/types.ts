@@ -265,3 +265,53 @@ export interface ReviewHistoryResponse {
   limit: number;
   entries: ReviewHistoryEntry[];
 }
+
+// ------------------------------------------------------------------
+// Stream event types (execution_stream / stream-log)
+// ------------------------------------------------------------------
+
+/** A single content block inside an assistant message. */
+export interface StreamContentBlock {
+  type: "text" | "tool_use" | "tool_result";
+  text?: string;
+  id?: string;           // tool_use_id for tool_use blocks
+  name?: string;         // tool name for tool_use blocks
+  input?: unknown;       // tool input for tool_use blocks
+  tool_use_id?: string;  // matching tool_use_id for tool_result blocks
+  content?: unknown;     // tool result content
+}
+
+/** Raw stream-json event from the backend. */
+export interface StreamEvent {
+  type: string;
+  /** Varies by event type: assistant has content blocks, tool_use/tool_result are top-level. */
+  [key: string]: unknown;
+}
+
+/** Normalized display item for ConversationView. */
+export interface StreamDisplayItem {
+  key: string;
+  type: "text" | "tool_use" | "tool_result" | "result";
+  timestamp: string;
+  /** For text blocks: the markdown content. */
+  text?: string;
+  /** For tool_use blocks: tool name. */
+  toolName?: string;
+  /** For tool_use blocks: tool input. */
+  toolInput?: unknown;
+  /** For tool_use blocks: unique ID to match results. */
+  toolUseId?: string;
+  /** For tool_result blocks: the result content. */
+  resultContent?: string;
+  /** For tool_result blocks: matching tool_use_id. */
+  matchToolUseId?: string;
+  /** For result blocks: final result text. */
+  resultText?: string;
+}
+
+/** Response from /api/tasks/{task_id}/stream-log endpoint. */
+export interface StreamLogResponse {
+  task_id: string;
+  file: string;
+  events: StreamEvent[];
+}
