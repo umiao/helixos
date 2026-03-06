@@ -5,8 +5,8 @@
  */
 
 import { createPortal } from "react-dom";
-import { useLayoutEffect, useRef, useState } from "react";
-import type { Task, TaskStatus } from "../types";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import type { Task, TaskStatus, StreamSummary } from "../types";
 import { generatePlan, ApiError } from "../api";
 import type { PlanStatus } from "../types";
 
@@ -15,6 +15,8 @@ interface TaskCardPopoverProps {
   anchorRect: DOMRect;
   /** Called after plan generation succeeds with the refreshed task. */
   onTaskUpdated?: (task: Task) => void;
+  /** Stream summary for live activity display. */
+  streamSummary?: StreamSummary;
 }
 
 const STATUS_COLORS: Record<TaskStatus, string> = {
@@ -61,7 +63,7 @@ function Section({ label, children }: { label: string; children: React.ReactNode
   );
 }
 
-export default function TaskCardPopover({ task, anchorRect, onTaskUpdated }: TaskCardPopoverProps) {
+export default function TaskCardPopover({ task, anchorRect, onTaskUpdated, streamSummary }: TaskCardPopoverProps) {
   const popoverRef = useRef<HTMLDivElement>(null);
   const [pos, setPos] = useState<{ top: number; left: number }>({ top: 0, left: 0 });
   const [generating, setGenerating] = useState(false);
@@ -94,6 +96,20 @@ export default function TaskCardPopover({ task, anchorRect, onTaskUpdated }: Tas
 
     setPos({ top, left });
   }, [anchorRect]);
+
+  const isRunning = task.status === "running";
+  const startedAt = task.execution?.started_at;
+
+  // Live elapsed timer for running tasks
+  const [elapsedMin, setElapsedMin] = useState(0);
+  useEffect(() => {
+    if (!isRunning || !startedAt) return;
+    const start = new Date(startedAt).getTime();
+    const update = () => setElapsedMin(Math.floor((Date.now() - start) / 60000));
+    update();
+    const interval = setInterval(update, 10000); // update every 10s
+    return () => clearInterval(interval);
+  }, [isRunning, startedAt]);
 
   const hasNoPlan = task.plan_status === "none";
   const isDone = task.status === "done" || task.status === "failed" || task.status === "blocked";
@@ -146,6 +162,28 @@ export default function TaskCardPopover({ task, anchorRect, onTaskUpdated }: Tas
           {label}
         </span>
       </div>
+
+      {/* Live activity for running tasks */}
+      {isRunning && streamSummary && (
+        <Section label="Live Activity">
+          <div className="space-y-1">
+            <div className="flex items-center gap-2 text-xs">
+              <span className="text-gray-500 tabular-nums">
+                {streamSummary.toolCallCount} tool calls
+              </span>
+              <span className="text-gray-300">|</span>
+              <span className="text-gray-500 tabular-nums">
+                {elapsedMin} min elapsed
+              </span>
+            </div>
+            {streamSummary.lastActivity && (
+              <p className="text-xs text-indigo-700 bg-indigo-50 rounded px-1.5 py-1 truncate font-mono">
+                {streamSummary.lastActivity}
+              </p>
+            )}
+          </div>
+        </Section>
+      )}
 
       {/* Generate Plan button */}
       {showGenerateButton && (

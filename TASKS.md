@@ -27,18 +27,6 @@
 
 ### P0 -- Must Have (core functionality)
 
-#### T-P0-90: Frontend Popover Enhancement
-- **Priority**: P0
-- **Complexity**: S
-- **Depends on**: T-P1-87, T-P1-89
-- **Description**: Enhance `TaskCardPopover.tsx` for running tasks: show latest log line / current tool being used (from `execution_stream` events), progress indicator with tool call count and elapsed time.
-- **Acceptance Criteria**:
-  1. Running tasks show latest log line or current tool name in popover
-  2. Progress indicator: "X tool calls | Y minutes elapsed"
-  3. `App.tsx` passes last `execution_stream` event per task to `TaskCardPopover` via prop
-  4. Non-running tasks unaffected (existing popover behavior preserved)
-
-
 #### T-P1-70: Extract `_is_process_alive()` to shared module
 - **Priority**: P1
 - **Complexity**: S
@@ -188,7 +176,6 @@
 
 ### Current
 - T-P0-89 depends on T-P0-87
-- T-P0-90 depends on T-P0-87, T-P0-89
 - T-P1-85 depends on T-P1-84
 
 
@@ -200,6 +187,9 @@
 ## Completed Tasks
 
 > 79 completed tasks archived to [archive/completed_tasks.md](archive/completed_tasks.md).
+
+#### [x] T-P0-90: Frontend Popover Enhancement -- 2026-03-06
+- Enhanced TaskCardPopover with "Live Activity" section for running tasks: shows tool call count, elapsed minutes, and last activity (tool name or text snippet). Added StreamSummary type, computed via useMemo in App.tsx from streamEvents, threaded through SwimLane->KanbanBoard->TaskCard->TaskCardPopover. Non-running tasks unaffected. TypeScript clean, Vite build clean.
 
 #### [x] T-P0-89: Frontend Conversation View -- 2026-03-06
 - Created `ConversationView.tsx` with markdown assistant bubbles, collapsible color-coded tool badges, tool results matched by `tool_use_id`, result banner. Added `StreamEvent`/`StreamDisplayItem`/`StreamLogResponse` types, `fetchStreamLog` API. App.tsx handles `execution_stream` SSE (capped 2000/task), `viewMode` toggle between Conversation and Plain Log. TypeScript clean, Vite build clean.

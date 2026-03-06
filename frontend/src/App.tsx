@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import SwimLane from "./components/SwimLane";
 import ExecutionLog, { type LogEntry } from "./components/ExecutionLog";
 import ConversationView, { normalizeStreamEvents } from "./components/ConversationView";
@@ -26,7 +26,7 @@ import {
   updateTaskStatus,
   ApiError,
 } from "./api";
-import type { Project, Task, TaskStatus, StreamDisplayItem } from "./types";
+import type { Project, Task, TaskStatus, StreamDisplayItem, StreamSummary } from "./types";
 
 let toastIdCounter = 0;
 let logIdCounter = 0;
@@ -56,6 +56,29 @@ function App() {
   const [reviewPhase, setReviewPhase] = useState("");
   const [streamEvents, setStreamEvents] = useState<Record<string, StreamDisplayItem[]>>({});
   const [viewMode, setViewMode] = useState<"conversation" | "log">("conversation");
+
+  // Derive per-task stream summaries for popover display
+  const streamSummaries = useMemo(() => {
+    const result: Record<string, StreamSummary> = {};
+    for (const [taskId, items] of Object.entries(streamEvents)) {
+      let toolCallCount = 0;
+      let lastActivity = "";
+      for (const item of items) {
+        if (item.type === "tool_use") {
+          toolCallCount++;
+          lastActivity = item.toolName ?? "tool";
+        } else if (item.type === "text" && item.text) {
+          // Take last ~80 chars of the latest text block
+          const trimmed = item.text.trim();
+          lastActivity = trimmed.length > 80
+            ? "..." + trimmed.slice(-77)
+            : trimmed;
+        }
+      }
+      result[taskId] = { lastActivity, toolCallCount };
+    }
+    return result;
+  }, [streamEvents]);
 
   // Keep a ref to tasks for SSE handler (avoid stale closure)
   const tasksRef = useRef(tasks);
@@ -820,6 +843,7 @@ function App() {
                         prev.map((t) => (t.id === updated.id ? updated : t)),
                       )
                     }
+                    streamSummaries={streamSummaries}
                   />
                 </div>
               );

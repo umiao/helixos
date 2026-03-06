@@ -4,7 +4,7 @@
  * drag-drop is scoped per project -- no cross-project dragging.
  */
 
-import type { Project, Task, TaskStatus } from "../types";
+import type { Project, Task, TaskStatus, StreamSummary } from "../types";
 import KanbanBoard from "./KanbanBoard";
 import SwimLaneHeader from "./SwimLaneHeader";
 
@@ -32,6 +32,8 @@ interface SwimLaneProps {
   onEditTask?: (task: Task) => void;
   /** Called when a task is updated (e.g., plan generated from popover). */
   onTaskUpdated?: (task: Task) => void;
+  /** Per-task stream summaries for popover live activity display. */
+  streamSummaries?: Record<string, StreamSummary>;
 }
 
 export default function SwimLane({
@@ -52,6 +54,7 @@ export default function SwimLane({
   onSendToReview,
   onEditTask,
   onTaskUpdated,
+  streamSummaries,
 }: SwimLaneProps) {
   return (
     <div
@@ -84,6 +87,7 @@ export default function SwimLane({
           onSendToReview={onSendToReview}
           onEditTask={onEditTask}
           onTaskUpdated={onTaskUpdated}
+          streamSummaries={streamSummaries}
         />
       </div>
     </div>

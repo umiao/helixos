@@ -15,7 +15,7 @@ import {
 } from "@dnd-kit/core";
 import { useDroppable } from "@dnd-kit/core";
 import { useCallback, useMemo, useState } from "react";
-import type { Task, KanbanColumn, TaskStatus } from "../types";
+import type { Task, KanbanColumn, TaskStatus, StreamSummary } from "../types";
 import { KANBAN_COLUMNS, STATUS_TO_COLUMN, COLUMN_TO_STATUS } from "../types";
 
 /** Sort orders available for the DONE column. */
@@ -108,6 +108,8 @@ interface KanbanBoardProps {
   onEditTask?: (task: Task) => void;
   /** Called when a task is updated (e.g., plan generated from popover). */
   onTaskUpdated?: (task: Task) => void;
+  /** Per-task stream summaries for popover live activity display. */
+  streamSummaries?: Record<string, StreamSummary>;
 }
 
 /** Column index for detecting backward drags. */
@@ -273,6 +275,7 @@ export default function KanbanBoard({
   onSendToReview,
   onEditTask,
   onTaskUpdated,
+  streamSummaries,
 }: KanbanBoardProps) {
   const columns = groupByColumn(tasks);
   const [activeTask, setActiveTask] = useState<Task | null>(null);
@@ -460,6 +463,7 @@ export default function KanbanBoard({
                       }
                       onContextMenu={handleContextMenu}
                       onTaskUpdated={onTaskUpdated}
+                      streamSummary={streamSummaries?.[task.id]}
                     />
                   ))
                 )}

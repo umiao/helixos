@@ -309,6 +309,14 @@ export interface StreamDisplayItem {
   resultText?: string;
 }
 
+/** Lightweight summary of stream events for a task (popover display). */
+export interface StreamSummary {
+  /** Most recent text snippet or tool name. */
+  lastActivity: string;
+  /** Number of tool_use events seen so far. */
+  toolCallCount: number;
+}
+
 /** Response from /api/tasks/{task_id}/stream-log endpoint. */
 export interface StreamLogResponse {
   task_id: string;

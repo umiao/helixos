@@ -8,7 +8,7 @@
 import { useDraggable } from "@dnd-kit/core";
 import { CSS } from "@dnd-kit/utilities";
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { Task, TaskStatus, PlanStatus } from "../types";
+import type { Task, TaskStatus, PlanStatus, StreamSummary } from "../types";
 import { generatePlan } from "../api";
 import TaskCardPopover from "./TaskCardPopover";
 
@@ -18,6 +18,8 @@ interface TaskCardProps {
   onContextMenu?: (task: Task, position: { x: number; y: number }) => void;
   /** Bubbled from popover after plan generation succeeds. */
   onTaskUpdated?: (task: Task) => void;
+  /** Stream summary for live activity display in popover. */
+  streamSummary?: StreamSummary;
 }
 
 const STATUS_COLORS: Record<TaskStatus, string> = {
@@ -70,7 +72,7 @@ function ElapsedTimer({ startedAt }: { startedAt: string }) {
   );
 }
 
-export default function TaskCard({ task, onClick, onContextMenu, onTaskUpdated }: TaskCardProps) {
+export default function TaskCard({ task, onClick, onContextMenu, onTaskUpdated, streamSummary }: TaskCardProps) {
   const { attributes, listeners, setNodeRef, transform, isDragging } =
     useDraggable({
       id: task.id,
@@ -278,7 +280,7 @@ export default function TaskCard({ task, onClick, onContextMenu, onTaskUpdated }
 
       {/* Hover popover via portal */}
       {showPopover && anchorRect && !isDragging && (
-        <TaskCardPopover task={task} anchorRect={anchorRect} onTaskUpdated={onTaskUpdated} />
+        <TaskCardPopover task={task} anchorRect={anchorRect} onTaskUpdated={onTaskUpdated} streamSummary={streamSummary} />
       )}
     </div>
   );

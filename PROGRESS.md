@@ -815,3 +815,10 @@
 - **Sanity check result**: TypeScript type check passes (tsc --noEmit clean). Vite build succeeds. 26/26 stream-json backend tests pass. Ruff clean.
 - **Status**: [DONE]
 - **Request**: Move T-P0-89 to Completed
+
+## 2026-03-06 04:00 -- [T-P0-90] Frontend Popover Enhancement
+- **What I did**: Enhanced `TaskCardPopover.tsx` with a "Live Activity" section for running tasks. Added `StreamSummary` type to `types.ts` (lastActivity string + toolCallCount). Computed per-task summaries via `useMemo` in `App.tsx` from `streamEvents`. Threaded `streamSummaries` prop through SwimLane -> KanbanBoard -> TaskCard -> TaskCardPopover. Popover shows "X tool calls | Y min elapsed" progress indicator and last activity (tool name or text snippet) in an indigo-styled badge. Non-running tasks unaffected. Added elapsed timer with 10s refresh interval.
+- **Deliverables**: frontend/src/types.ts, frontend/src/App.tsx, frontend/src/components/SwimLane.tsx, frontend/src/components/KanbanBoard.tsx, frontend/src/components/TaskCard.tsx, frontend/src/components/TaskCardPopover.tsx, TASKS.md, PROGRESS.md
+- **Sanity check result**: TypeScript type check passes (tsc --noEmit clean). Vite build succeeds. 1124 backend tests pass. Ruff clean.
+- **Status**: [DONE]
+- **Request**: Move T-P0-90 to Completed
