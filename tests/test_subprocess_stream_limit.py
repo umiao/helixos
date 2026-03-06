@@ -76,25 +76,6 @@ async def test_code_executor_passes_stream_limit() -> None:
         assert mock_exec.call_args.kwargs.get("limit") == SUBPROCESS_STREAM_LIMIT
 
 
-@pytest.mark.asyncio
-async def test_enrichment_generate_task_plan_passes_stream_limit() -> None:
-    """generate_task_plan() passes limit=SUBPROCESS_STREAM_LIMIT."""
-    from src.enrichment import generate_task_plan
-
-    mock_proc = _make_mock_proc()
-
-    with patch("src.enrichment.asyncio.create_subprocess_exec",
-               return_value=mock_proc) as mock_exec, \
-         patch("shutil.which", return_value="/usr/bin/claude"):
-        with contextlib.suppress(Exception):
-            await generate_task_plan(
-                title="test task",
-                description="test desc",
-            )
-
-        assert mock_exec.call_count >= 1
-        assert mock_exec.call_args.kwargs.get("limit") == SUBPROCESS_STREAM_LIMIT
-
 
 @pytest.mark.asyncio
 async def test_review_pipeline_passes_stream_limit() -> None:

@@ -1,41 +1,34 @@
-"""AI-assisted task enrichment and plan generation via Claude CLI.
+"""AI-assisted task enrichment and plan generation via Claude Agent SDK.
 
 Provides two capabilities:
 1. **Enrichment**: Takes a task title and returns AI-generated description
    and priority suggestion.
 2. **Plan generation**: Takes task title + description + optional codebase
-   path and returns a structured implementation plan. Uses ``claude -p``
-   with ``--add-dir`` for codebase context and ``--json-schema`` for
-   structured output.
+   path and returns a structured implementation plan. Uses the Agent SDK
+   ``run_claude_query()`` with ``QueryOptions`` for model, system prompt,
+   JSON schema, and codebase context (``add_dirs``).
 
-Note on ``--plan`` flag: Claude CLI does not have a ``--plan`` flag.
-Instead, plan generation uses standard CLI features (``-p``,
-``--system-prompt``, ``--json-schema``, ``--add-dir``) which are stable
-and documented.  ``--permission-mode plan`` is NOT used because it
-conflicts with ``--json-schema`` (ExitPlanMode denied in structured mode).
+Migrated from raw ``asyncio.create_subprocess_exec`` (CLI) to the Agent
+SDK adapter (``src.sdk_adapter``) in T-P1-87.
 """
 
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import enum
 import json
 import logging
-import shutil
 import time
 from collections.abc import Awaitable, Callable
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import BaseModel, ValidationError
 
-from src.config import SUBPROCESS_STREAM_LIMIT
-from src.executors.code_executor import (
-    _LazyFileWriter,
-    _simplify_stream_event,
-    _StreamJsonBuffer,
-)
+from src.executors.code_executor import _LazyFileWriter
+from src.sdk_adapter import ClaudeEventType, QueryOptions, run_claude_query
 
 logger = logging.getLogger(__name__)
 
@@ -168,70 +161,66 @@ _ENRICHMENT_SYSTEM_PROMPT = (
 
 
 def is_claude_cli_available() -> bool:
-    """Check whether the ``claude`` CLI binary is on PATH.
+    """Check whether the Claude Agent SDK is importable.
 
-    Reuses the same pre-flight pattern as CodeExecutor.
+    Legacy name retained for API compatibility; checks SDK availability
+    rather than ``claude`` CLI binary on PATH.
     """
-    return shutil.which("claude") is not None
+    try:
+        import claude_agent_sdk  # type: ignore[import-untyped]  # noqa: F401
+
+        return True
+    except ImportError:
+        return False
 
 
 async def enrich_task_title(
     title: str,
     timeout_minutes: int = 60,
 ) -> dict[str, str]:
-    """Call Claude CLI to generate a description and priority for a task title.
+    """Call Claude Agent SDK to generate a description and priority for a task title.
 
     Args:
         title: The raw task title to enrich.
-        timeout_minutes: Maximum time in minutes before the subprocess is
-            killed. 0 disables the timeout.
+        timeout_minutes: Maximum time in minutes before the operation is
+            cancelled. 0 disables the timeout.
 
     Returns:
         Dict with ``description`` (str) and ``priority`` (str, e.g. "P0").
 
     Raises:
-        RuntimeError: If the Claude CLI subprocess fails or times out.
+        PlanGenerationError: If the SDK call fails or times out.
     """
-    args = [
-        "claude", "-p", f"Task title: {title}",
-        "--system-prompt", _ENRICHMENT_SYSTEM_PROMPT,
-        "--model", "claude-haiku-4-5-20251001",
-        "--output-format", "json",
-        "--no-session-persistence",
-        "--json-schema", _ENRICHMENT_JSON_SCHEMA,
-    ]
-
-    proc = await asyncio.create_subprocess_exec(
-        *args,
-        stdout=asyncio.subprocess.PIPE,
-        stderr=asyncio.subprocess.PIPE,
-        limit=SUBPROCESS_STREAM_LIMIT,
+    options = QueryOptions(
+        model="claude-haiku-4-5-20251001",
+        system_prompt=_ENRICHMENT_SYSTEM_PROMPT,
+        json_schema=_ENRICHMENT_JSON_SCHEMA,
     )
+
     timeout_seconds = timeout_minutes * 60 if timeout_minutes > 0 else None
+    result_data: Any = ""
+
     try:
-        stdout_bytes, stderr_bytes = await asyncio.wait_for(
-            proc.communicate(), timeout=timeout_seconds,
-        )
+        async with asyncio.timeout(timeout_seconds):
+            async for event in run_claude_query(
+                f"Task title: {title}", options,
+            ):
+                if event.type == ClaudeEventType.RESULT:
+                    result_data = (
+                        event.structured_output or event.result_text or ""
+                    )
+                elif event.type == ClaudeEventType.ERROR:
+                    error_msg = event.error_message or "Unknown error"
+                    error_type = _classify_cli_error(0, error_msg)
+                    raise PlanGenerationError(
+                        error_type,
+                        f"Claude SDK error: {error_msg}",
+                    )
     except TimeoutError:
-        proc.kill()
-        await proc.wait()
         raise PlanGenerationError(
             PlanGenerationErrorType.TIMEOUT,
-            f"Enrichment subprocess timed out after {timeout_minutes} minutes",
+            f"Enrichment timed out after {timeout_minutes} minutes",
         ) from None
-
-    if proc.returncode != 0:
-        stderr_text = stderr_bytes.decode("utf-8", errors="replace")
-        error_type = _classify_cli_error(proc.returncode, stderr_text)
-        raise PlanGenerationError(
-            error_type,
-            f"Claude CLI failed (exit {proc.returncode}): {stderr_text}",
-        )
-
-    # When --json-schema is used, CLI puts structured output in
-    # "structured_output" (already a dict), NOT "result" (which is null).
-    cli_output = json.loads(stdout_bytes.decode("utf-8"))
-    result_data = cli_output.get("structured_output") or cli_output.get("result", "")
 
     return _parse_enrichment(result_data)
 
@@ -338,27 +327,27 @@ async def generate_task_plan(
     stream_log_dir: Path | None = None,
     task_id: str | None = None,
 ) -> dict:
-    """Call Claude CLI to generate a structured implementation plan.
+    """Call Claude Agent SDK to generate a structured implementation plan.
 
-    Uses ``claude -p`` with ``--add-dir`` for codebase context when
-    *repo_path* is provided.  Uses ``--output-format stream-json --verbose``
-    for real-time streaming with JSONL persistence.
+    Uses ``run_claude_query()`` with ``add_dirs`` for codebase context when
+    *repo_path* is provided.  Streams typed ``ClaudeEvent`` objects for
+    real-time callbacks and JSONL persistence.
 
     Args:
         title: The task title.
         description: Existing task description (may be empty).
         repo_path: Optional path to the project repository for codebase
-            context via ``--add-dir``.
-        timeout_minutes: Maximum time in minutes before the subprocess is
-            killed. 0 disables the timeout.
+            context via ``add_dirs``.
+        timeout_minutes: Maximum time in minutes before the operation is
+            cancelled. 0 disables the timeout.
         on_log: Optional callback invoked per simplified log line for
             real-time streaming.  Signature: ``(line: str) -> None``.
-        heartbeat_seconds: If no stdout line arrives within this many
+        heartbeat_seconds: If no SDK event arrives within this many
             seconds, emit a synthetic ``[PROGRESS] heartbeat`` line via
             *on_log*.  Set to 0 to disable.
-        on_raw_artifact: Optional async callback to persist raw CLI output.
-        on_stream_event: Optional callback invoked for each parsed
-            stream-json event dict.  Signature: ``(event: dict) -> None``.
+        on_raw_artifact: Optional async callback to persist raw event output.
+        on_stream_event: Optional callback invoked for each event dict.
+            Signature: ``(event: dict) -> None``.
         stream_log_dir: Optional directory for JSONL stream log persistence.
         task_id: Optional task ID used for log file naming.
 
@@ -367,34 +356,20 @@ async def generate_task_plan(
         ``acceptance_criteria`` (list of str).
 
     Raises:
-        RuntimeError: If the Claude CLI subprocess fails or times out.
+        PlanGenerationError: If the SDK call fails or times out.
     """
     user_prompt = f"Task: {title}"
     if description.strip():
         user_prompt += f"\n\nExisting description:\n{description}"
 
-    args = [
-        "claude", "-p", user_prompt,
-        "--system-prompt", _PLAN_SYSTEM_PROMPT,
-        "--model", "claude-sonnet-4-5",
-        "--output-format", "stream-json",
-        "--verbose",
-        "--no-session-persistence",
-        "--json-schema", _PLAN_JSON_SCHEMA,
-    ]
-
-    # Give Claude codebase context if repo_path exists
-    # NOTE: --permission-mode plan is NOT used here because it conflicts
-    # with --json-schema (ExitPlanMode gets denied in structured output mode).
-    if repo_path is not None and repo_path.is_dir():
-        args.extend(["--add-dir", str(repo_path)])
-
-    proc = await asyncio.create_subprocess_exec(
-        *args,
-        stdout=asyncio.subprocess.PIPE,
-        stderr=asyncio.subprocess.PIPE,
-        limit=SUBPROCESS_STREAM_LIMIT,
+    options = QueryOptions(
+        model="claude-sonnet-4-5",
+        system_prompt=_PLAN_SYSTEM_PROMPT,
+        json_schema=_PLAN_JSON_SCHEMA,
     )
+
+    if repo_path is not None and repo_path.is_dir():
+        options.add_dirs = [str(repo_path)]
 
     # -- JSONL log persistence (lazy: files created on first write) --
     jsonl_file: _LazyFileWriter | None = None
@@ -406,115 +381,97 @@ async def generate_task_plan(
         raw_file = _LazyFileWriter(log_dir / f"plan_raw_{ts}.log")
 
     timeout_seconds = timeout_minutes * 60 if timeout_minutes > 0 else None
-    log_lines: list[str] = []
+    all_event_dicts: list[dict] = []
+    result_data: Any = ""
     last_output_time = time.monotonic()
-    buffer = _StreamJsonBuffer()
-    cli_output: dict = {}  # Will be populated from the result event
+    has_error = False
+    error_detail = ""
 
     def _emit(line: str) -> None:
         if on_log is not None:
             on_log(line)
 
-    def _process_parsed_events(
-        parsed_events: list[dict], non_json: list[str],
-    ) -> None:
-        """Write parsed events to JSONL and call callbacks."""
-        nonlocal cli_output
-        for event_dict in parsed_events:
-            if jsonl_file is not None:
-                jsonl_file.write(
-                    json.dumps(event_dict, ensure_ascii=False) + "\n"
-                )
-                jsonl_file.flush()
-
-            if on_stream_event is not None:
-                on_stream_event(event_dict)
-
-            # Capture the result event as the final CLI output
-            if event_dict.get("type") == "result":
-                cli_output = event_dict
-
-            simplified = _simplify_stream_event(event_dict)
-            if simplified:
-                _emit(simplified)
-
-        for raw_text in non_json:
-            _emit(raw_text)
-
     try:
         async with asyncio.timeout(timeout_seconds):
-            assert proc.stdout is not None
-            while True:
-                # Per-line read with heartbeat timeout
-                try:
-                    if heartbeat_seconds > 0:
-                        raw_line = await asyncio.wait_for(
-                            proc.stdout.readline(),
-                            timeout=heartbeat_seconds,
-                        )
-                    else:
-                        raw_line = await proc.stdout.readline()
-                except TimeoutError:
-                    # No output for heartbeat_seconds -- emit heartbeat
-                    elapsed = int(time.monotonic() - last_output_time)
-                    _emit(
-                        f"[PROGRESS] heartbeat -- no output for {elapsed}s"
-                    )
-                    continue
+            # Use a producer task + queue so heartbeat timeout does not
+            # cancel the underlying async generator.
+            event_queue: asyncio.Queue[object] = asyncio.Queue()
+            _sentinel = object()
 
-                if not raw_line:  # EOF: subprocess closed stdout
-                    break
+            async def _produce() -> None:
+                async for ev in run_claude_query(user_prompt, options):
+                    await event_queue.put(ev)
+                await event_queue.put(_sentinel)
 
-                decoded = raw_line.decode("utf-8", errors="replace").rstrip("\r\n")
-                log_lines.append(decoded)  # always preserve for raw artifact
-
-                if not decoded.strip():
-                    continue
-
-                # Persist raw line
-                if raw_file is not None:
-                    raw_file.write(decoded + "\n")
-                    raw_file.flush()
-
-                last_output_time = time.monotonic()
-
-                # Parse stream-json events
-                parsed_events = buffer.feed(decoded + "\n")
-                _process_parsed_events(parsed_events, buffer.non_json)
-
-            # -- EOF: flush partial buffer --
-            if buffer._partial:
-                remainder = buffer._partial.strip()
-                buffer._partial = ""
-                if remainder:
-                    if raw_file is not None:
-                        raw_file.write(remainder + "\n")
-                        raw_file.flush()
+            producer = asyncio.create_task(_produce())
+            try:
+                while True:
                     try:
-                        obj = json.loads(remainder)
-                        if isinstance(obj, dict):
-                            if jsonl_file is not None:
-                                jsonl_file.write(
-                                    json.dumps(obj, ensure_ascii=False) + "\n"
-                                )
-                                jsonl_file.flush()
-                            if on_stream_event is not None:
-                                on_stream_event(obj)
-                            if obj.get("type") == "result":
-                                cli_output = obj
-                            simplified = _simplify_stream_event(obj)
-                            if simplified:
-                                _emit(simplified)
-                    except (json.JSONDecodeError, ValueError):
-                        pass
+                        hb_timeout = (
+                            heartbeat_seconds if heartbeat_seconds > 0 else None
+                        )
+                        item = await asyncio.wait_for(
+                            event_queue.get(), timeout=hb_timeout,
+                        )
+                    except TimeoutError:
+                        elapsed = int(time.monotonic() - last_output_time)
+                        _emit(
+                            f"[PROGRESS] heartbeat -- no output for {elapsed}s"
+                        )
+                        continue
 
-            await proc.wait()
+                    if item is _sentinel:
+                        break
+
+                    event = item  # ClaudeEvent
+                    last_output_time = time.monotonic()
+                    event_dict = event.model_dump(exclude_none=True)
+                    all_event_dicts.append(event_dict)
+
+                    # JSONL persistence
+                    if jsonl_file is not None:
+                        jsonl_file.write(
+                            json.dumps(event_dict, ensure_ascii=False) + "\n"
+                        )
+                        jsonl_file.flush()
+                    if raw_file is not None:
+                        raw_file.write(
+                            json.dumps(event_dict, ensure_ascii=False) + "\n"
+                        )
+                        raw_file.flush()
+
+                    # Stream event callback
+                    if on_stream_event is not None:
+                        on_stream_event(event_dict)
+
+                    # Process by event type
+                    if event.type == ClaudeEventType.RESULT:
+                        result_data = (
+                            event.structured_output or event.result_text or ""
+                        )
+                        _emit("[DONE]")
+                    elif event.type == ClaudeEventType.ERROR:
+                        has_error = True
+                        error_detail = event.error_message or "Unknown error"
+                    elif event.type == ClaudeEventType.TEXT:
+                        if event.text:
+                            _emit(event.text)
+                    elif event.type == ClaudeEventType.TOOL_USE:
+                        input_str = json.dumps(event.tool_input or {})[:200]
+                        _emit(f"[TOOL] {event.tool_name}({input_str})")
+                    elif event.type == ClaudeEventType.TOOL_RESULT:
+                        content = (event.tool_result_content or "")[:200]
+                        _emit(f"[RESULT] {content}")
+                    elif event.type == ClaudeEventType.INIT:
+                        _emit(f"[INIT] session={event.session_id}")
+            finally:
+                producer.cancel()
+                with contextlib.suppress(asyncio.CancelledError):
+                    await producer
     except TimeoutError:
-        proc.kill()
-        await proc.wait()
         raise PlanGenerationError(
             PlanGenerationErrorType.TIMEOUT,
-            f"Plan generation subprocess timed out after {timeout_minutes} minutes",
+            f"Plan generation timed out after {timeout_minutes} minutes",
         ) from None
     finally:
         if jsonl_file is not None:
@@ -523,8 +480,9 @@ async def generate_task_plan(
             raw_file.close()
 
     # PERSIST-FIRST: save full raw output before ANY parsing or validation.
-    # Even if returncode != 0 or JSON parsing fails, the raw output is recoverable.
-    full_output = "\n".join(log_lines)
+    full_output = "\n".join(
+        json.dumps(e, ensure_ascii=False) for e in all_event_dicts
+    )
     if on_raw_artifact is not None:
         try:
             await on_raw_artifact(full_output)
@@ -534,33 +492,13 @@ async def generate_task_plan(
                 exc_info=True,
             )
 
-    if proc.returncode != 0:
-        stderr_bytes = b""
-        if proc.stderr is not None:
-            stderr_bytes = await proc.stderr.read()
-        stderr_text = stderr_bytes.decode("utf-8", errors="replace")
-        error_type = _classify_cli_error(proc.returncode, stderr_text)
+    if has_error:
+        error_type = _classify_cli_error(0, error_detail)
         raise PlanGenerationError(
             error_type,
-            f"Claude CLI failed (exit {proc.returncode}): {stderr_text}",
+            f"Claude SDK error: {error_detail}",
         )
 
-    # If we captured a result event from stream-json, extract from it.
-    # Otherwise fall back to parsing full output as JSON.
-    if not cli_output:
-        try:
-            cli_output = json.loads(full_output)
-        except json.JSONDecodeError:
-            cli_output = {}
-            for line in reversed(log_lines):
-                try:
-                    cli_output = json.loads(line)
-                    break
-                except json.JSONDecodeError:
-                    continue
-
-    # structured_output is a dict when --json-schema was used; fall back to result
-    result_data = cli_output.get("structured_output") or cli_output.get("result", "")
     plan_data = _parse_plan(result_data)
 
     # Structural validation: reject empty/incomplete plans before caller marks "ready"

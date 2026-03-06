@@ -905,3 +905,10 @@
 - **Sanity check result**: 33 new tests pass (event translation, turn reconstruction, options mapping, model validation, mocked query). Full suite: 1219 tests pass + 4 skipped (cli_integration). Ruff clean.
 - **Status**: [DONE]
 - **Request**: Move T-P1-86 to Completed (REMOVE spec from Active, ADD summary to Completed Tasks)
+
+## 2026-03-06 -- [T-P1-87] Migrate enrichment.py to Agent SDK
+- **What I did**: Replaced both `asyncio.create_subprocess_exec` calls in `enrichment.py` with `run_claude_query()` from `src/sdk_adapter`. `enrich_task_title()` now iterates SDK events and extracts `ClaudeResult.structured_output`. `generate_task_plan()` uses a producer-task + queue pattern for heartbeat-safe streaming, emitting `ClaudeEvent` dicts to `on_stream_event`/`on_log` callbacks and JSONL logs. `is_claude_cli_available()` updated to check SDK importability instead of CLI binary on PATH. Removed `_StreamJsonBuffer` and `_simplify_stream_event` imports (no longer needed). Updated 94 tests to mock `run_claude_query` instead of subprocess. Removed obsolete subprocess stream-limit test for enrichment.
+- **Deliverables**: `src/enrichment.py`, `tests/test_enrichment.py`, `tests/test_subprocess_stream_limit.py`
+- **Sanity check result**: 94 enrichment tests pass. Full suite: 1218 tests pass + 4 skipped (cli_integration). Ruff clean.
+- **Status**: [DONE]
+- **Request**: Move T-P1-87 to Completed (REMOVE spec from Active, ADD summary to Completed Tasks)

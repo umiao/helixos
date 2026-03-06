@@ -2,11 +2,11 @@
 
 Tests cover:
 - _parse_enrichment with valid/invalid/malformed JSON
-- enrich_task_title with mocked subprocess (success + failure)
-- is_claude_cli_available pre-flight check
-- POST /api/tasks/enrich endpoint (success, CLI unavailable 503, CLI error 503)
+- enrich_task_title with mocked SDK (success + failure)
+- is_claude_cli_available pre-flight check (SDK import)
+- POST /api/tasks/enrich endpoint (success, SDK unavailable 503, error 503)
 - _parse_plan with valid/invalid/malformed JSON
-- generate_task_plan with mocked subprocess (success + failure + codebase context)
+- generate_task_plan with mocked SDK (success + failure + codebase context)
 - format_plan_as_text formatting
 - POST /api/tasks/{id}/generate-plan endpoint (success, 404, 503)
 """
@@ -15,7 +15,8 @@ from __future__ import annotations
 
 import asyncio
 import json
-from collections.abc import AsyncGenerator
+import sys
+from collections.abc import AsyncGenerator, AsyncIterator
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -47,70 +48,58 @@ from src.enrichment import (
 from src.models import ExecutorType
 from src.process_manager import ProcessStatus
 from src.scheduler import Scheduler
+from src.sdk_adapter import ClaudeEvent, ClaudeEventType
 from src.task_manager import TaskManager
 
 # ------------------------------------------------------------------
-# Helpers
+# Helpers -- SDK event builders
 # ------------------------------------------------------------------
 
 
-def _make_cli_output(inner: dict | str) -> bytes:
-    """Create mock Claude CLI stdout bytes.
-
-    When ``inner`` is a dict, simulates ``--json-schema`` mode where
-    ``structured_output`` is already a parsed object and ``result`` is null.
-    When ``inner`` is a str, simulates legacy mode with ``result`` as string.
-    """
-    if isinstance(inner, dict):
-        cli_output = {"type": "result", "structured_output": inner, "result": None}
-    else:
-        cli_output = {"type": "result", "result": inner}
-    return json.dumps(cli_output).encode("utf-8")
+async def _mock_sdk_events(
+    *events: ClaudeEvent,
+) -> AsyncIterator[ClaudeEvent]:
+    """Create a mock async iterator yielding ClaudeEvent objects."""
+    for event in events:
+        yield event
 
 
-def _make_enrichment_output(description: str, priority: str) -> bytes:
-    """Create mock Claude CLI stdout for an enrichment response."""
-    inner = {"description": description, "priority": priority}
-    return _make_cli_output(inner)
+def _make_enrichment_events(
+    description: str, priority: str,
+) -> list[ClaudeEvent]:
+    """Create ClaudeEvent list simulating enrichment result."""
+    return [
+        ClaudeEvent(
+            type=ClaudeEventType.RESULT,
+            structured_output={"description": description, "priority": priority},
+        ),
+    ]
 
 
-def _mock_proc(stdout: bytes, returncode: int = 0) -> AsyncMock:
-    """Create a mock subprocess with given stdout and return code.
+def _make_plan_events(
+    plan: str,
+    steps: list[dict],
+    acceptance_criteria: list[str],
+) -> list[ClaudeEvent]:
+    """Create ClaudeEvent list simulating plan generation result."""
+    return [
+        ClaudeEvent(
+            type=ClaudeEventType.RESULT,
+            structured_output={
+                "plan": plan,
+                "steps": steps,
+                "acceptance_criteria": acceptance_criteria,
+            },
+        ),
+    ]
 
-    Used for communicate()-based functions (enrich_task_title).
-    """
-    proc = AsyncMock()
-    proc.communicate = AsyncMock(return_value=(stdout, b""))
-    proc.returncode = returncode
-    return proc
 
-
-def _mock_readline_proc(stdout: bytes, returncode: int = 0) -> AsyncMock:
-    """Create a mock subprocess with readline-based stdout.
-
-    Used for generate_task_plan() which reads line-by-line.
-    """
-    proc = AsyncMock()
-    proc.returncode = returncode
-    proc.wait = AsyncMock()
-    proc.kill = MagicMock()
-
-    # Build a mock stdout that yields lines then EOF
-    lines = stdout.split(b"\n") if stdout else []
-    line_queue: list[bytes] = [line + b"\n" for line in lines if line]
-    line_queue.append(b"")  # EOF sentinel
-
-    mock_stdout = AsyncMock()
-    mock_stdout.readline = AsyncMock(side_effect=line_queue)
-
-    # stderr for error cases
-    mock_stderr = AsyncMock()
-    mock_stderr.read = AsyncMock(return_value=b"")
-
-    proc.stdout = mock_stdout
-    proc.stderr = mock_stderr
-
-    return proc
+def _make_error_event(message: str) -> ClaudeEvent:
+    """Create a ClaudeEvent for an SDK error."""
+    return ClaudeEvent(
+        type=ClaudeEventType.ERROR,
+        error_message=message,
+    )
 
 
 def _make_config(tmp_path: Path) -> OrchestratorConfig:
@@ -211,16 +200,16 @@ class TestParseEnrichment:
 
 
 class TestClaudeCliAvailable:
-    """Tests for the is_claude_cli_available pre-flight check."""
+    """Tests for the is_claude_cli_available pre-flight check (SDK import)."""
 
     def test_available(self) -> None:
-        """Returns True when claude is on PATH."""
-        with patch("src.enrichment.shutil.which", return_value="/usr/bin/claude"):
+        """Returns True when claude_agent_sdk is importable."""
+        with patch.dict(sys.modules, {"claude_agent_sdk": MagicMock()}):
             assert is_claude_cli_available() is True
 
     def test_unavailable(self) -> None:
-        """Returns False when claude is not on PATH."""
-        with patch("src.enrichment.shutil.which", return_value=None):
+        """Returns False when claude_agent_sdk is not importable."""
+        with patch.dict(sys.modules, {"claude_agent_sdk": None}):
             assert is_claude_cli_available() is False
 
 
@@ -230,48 +219,48 @@ class TestClaudeCliAvailable:
 
 
 class TestEnrichTaskTitle:
-    """Tests for the enrich_task_title async function."""
+    """Tests for the enrich_task_title async function (SDK-based)."""
 
     @pytest.mark.asyncio
     async def test_success(self) -> None:
         """Successful enrichment returns description and priority."""
-        stdout = _make_enrichment_output(
-            "Implement user authentication with JWT",
-            "P0",
+        events = _make_enrichment_events(
+            "Implement user authentication with JWT", "P0",
         )
-        mock_proc = _mock_proc(stdout)
 
         with patch(
-            "src.enrichment.asyncio.create_subprocess_exec",
-            return_value=mock_proc,
+            "src.enrichment.run_claude_query",
+            return_value=_mock_sdk_events(*events),
         ):
             result = await enrich_task_title("Add auth")
             assert result["description"] == "Implement user authentication with JWT"
             assert result["priority"] == "P0"
 
     @pytest.mark.asyncio
-    async def test_cli_failure_raises(self) -> None:
-        """Non-zero exit code raises PlanGenerationError."""
-        mock_proc = _mock_proc(b"", returncode=1)
-        mock_proc.communicate = AsyncMock(
-            return_value=(b"", b"CLI error message"),
-        )
+    async def test_sdk_error_raises(self) -> None:
+        """SDK error event raises PlanGenerationError."""
+        events = [_make_error_event("SDK error message")]
 
         with patch(
-            "src.enrichment.asyncio.create_subprocess_exec",
-            return_value=mock_proc,
-        ), pytest.raises(PlanGenerationError, match="Claude CLI failed"):
+            "src.enrichment.run_claude_query",
+            return_value=_mock_sdk_events(*events),
+        ), pytest.raises(PlanGenerationError, match="Claude SDK error"):
             await enrich_task_title("Something")
 
     @pytest.mark.asyncio
-    async def test_malformed_json_uses_defaults(self) -> None:
-        """Malformed inner JSON uses safe defaults (legacy result-as-string)."""
-        cli_output = json.dumps({"result": "not valid json", "structured_output": None}).encode("utf-8")
-        mock_proc = _mock_proc(cli_output)
+    async def test_malformed_structured_output_uses_defaults(self) -> None:
+        """Malformed structured_output uses safe defaults."""
+        events = [
+            ClaudeEvent(
+                type=ClaudeEventType.RESULT,
+                result_text="not valid json",
+                structured_output=None,
+            ),
+        ]
 
         with patch(
-            "src.enrichment.asyncio.create_subprocess_exec",
-            return_value=mock_proc,
+            "src.enrichment.run_claude_query",
+            return_value=_mock_sdk_events(*events),
         ):
             result = await enrich_task_title("Some title")
             assert result["description"] == ""
@@ -366,19 +355,17 @@ class TestEnrichEndpoint:
     @pytest.mark.asyncio
     async def test_success(self, client: AsyncClient) -> None:
         """Successful enrichment returns 200 with description + priority."""
-        stdout = _make_enrichment_output(
-            "Add user authentication flow with OAuth2",
-            "P0",
+        events = _make_enrichment_events(
+            "Add user authentication flow with OAuth2", "P0",
         )
-        mock_proc = _mock_proc(stdout)
 
         with (
             patch(
-                "src.enrichment.shutil.which", return_value="/usr/bin/claude",
+                "src.api.is_claude_cli_available", return_value=True,
             ),
             patch(
-                "src.enrichment.asyncio.create_subprocess_exec",
-                return_value=mock_proc,
+                "src.enrichment.run_claude_query",
+                return_value=_mock_sdk_events(*events),
             ),
         ):
             resp = await client.post(
@@ -392,9 +379,9 @@ class TestEnrichEndpoint:
 
     @pytest.mark.asyncio
     async def test_cli_unavailable_503(self, client: AsyncClient) -> None:
-        """Returns 503 when Claude CLI is not on PATH."""
+        """Returns 503 when Claude SDK is not available."""
         with patch(
-            "src.enrichment.shutil.which", return_value=None,
+            "src.api.is_claude_cli_available", return_value=False,
         ):
             resp = await client.post(
                 "/api/tasks/enrich",
@@ -405,19 +392,16 @@ class TestEnrichEndpoint:
 
     @pytest.mark.asyncio
     async def test_cli_error_503(self, client: AsyncClient) -> None:
-        """Returns 503 when Claude CLI subprocess fails."""
-        mock_proc = _mock_proc(b"", returncode=1)
-        mock_proc.communicate = AsyncMock(
-            return_value=(b"", b"error"),
-        )
+        """Returns 503 when Claude SDK returns error."""
+        events = [_make_error_event("SDK error")]
 
         with (
             patch(
-                "src.enrichment.shutil.which", return_value="/usr/bin/claude",
+                "src.api.is_claude_cli_available", return_value=True,
             ),
             patch(
-                "src.enrichment.asyncio.create_subprocess_exec",
-                return_value=mock_proc,
+                "src.enrichment.run_claude_query",
+                return_value=_mock_sdk_events(*events),
             ),
         ):
             resp = await client.post(
@@ -447,17 +431,21 @@ class TestEnrichEndpoint:
 
     @pytest.mark.asyncio
     async def test_enrichment_p1_default(self, client: AsyncClient) -> None:
-        """Invalid priority from CLI falls back to P1."""
-        stdout = _make_cli_output({"description": "desc", "priority": "CRITICAL"})
-        mock_proc = _mock_proc(stdout)
+        """Invalid priority from SDK falls back to P1."""
+        events = [
+            ClaudeEvent(
+                type=ClaudeEventType.RESULT,
+                structured_output={"description": "desc", "priority": "CRITICAL"},
+            ),
+        ]
 
         with (
             patch(
-                "src.enrichment.shutil.which", return_value="/usr/bin/claude",
+                "src.api.is_claude_cli_available", return_value=True,
             ),
             patch(
-                "src.enrichment.asyncio.create_subprocess_exec",
-                return_value=mock_proc,
+                "src.enrichment.run_claude_query",
+                return_value=_mock_sdk_events(*events),
             ),
         ):
             resp = await client.post(
@@ -477,24 +465,6 @@ class TestEnrichEndpoint:
 _VALID_STEPS = [{"step": "Implement feature", "files": ["src/main.py"]}]
 _VALID_AC = ["Feature works as expected"]
 
-
-def _make_valid_plan_output() -> bytes:
-    """Create mock plan output that passes structural validation."""
-    return _make_plan_output("A valid plan summary", _VALID_STEPS, _VALID_AC)
-
-
-def _make_plan_output(
-    plan: str,
-    steps: list[dict],
-    acceptance_criteria: list[str],
-) -> bytes:
-    """Create mock Claude CLI stdout for a plan generation response."""
-    inner = {
-        "plan": plan,
-        "steps": steps,
-        "acceptance_criteria": acceptance_criteria,
-    }
-    return _make_cli_output(inner)
 
 
 # ------------------------------------------------------------------
@@ -670,21 +640,20 @@ class TestFormatPlanAsText:
 
 
 class TestGenerateTaskPlan:
-    """Tests for the generate_task_plan async function (readline-based)."""
+    """Tests for the generate_task_plan async function (SDK-based)."""
 
     @pytest.mark.asyncio
     async def test_success(self) -> None:
         """Successful plan generation returns structured data."""
-        stdout = _make_plan_output(
+        events = _make_plan_events(
             "Implement dark mode",
             [{"step": "Add theme context", "files": ["src/theme.ts"]}],
             ["Theme toggle works"],
         )
-        mock_proc = _mock_readline_proc(stdout)
 
         with patch(
-            "src.enrichment.asyncio.create_subprocess_exec",
-            return_value=mock_proc,
+            "src.enrichment.run_claude_query",
+            return_value=_mock_sdk_events(*events),
         ):
             result = await generate_task_plan("Add dark mode")
             assert result["plan"] == "Implement dark mode"
@@ -693,136 +662,124 @@ class TestGenerateTaskPlan:
 
     @pytest.mark.asyncio
     async def test_with_repo_path(self, tmp_path: Path) -> None:
-        """repo_path is passed as --add-dir when it exists."""
+        """repo_path is passed as add_dirs in QueryOptions."""
         repo = tmp_path / "repo"
         repo.mkdir()
-        stdout = _make_valid_plan_output()
-        mock_proc = _mock_readline_proc(stdout)
+        events = _make_plan_events(
+            "A valid plan summary", _VALID_STEPS, _VALID_AC,
+        )
 
         with patch(
-            "src.enrichment.asyncio.create_subprocess_exec",
-            return_value=mock_proc,
-        ) as mock_exec:
+            "src.enrichment.run_claude_query",
+            return_value=_mock_sdk_events(*events),
+        ) as mock_query:
             await generate_task_plan("Task", repo_path=repo)
-            call_args = mock_exec.call_args[0]
-            assert "--add-dir" in call_args
-            assert str(repo) in call_args
-            # --permission-mode plan was removed: it conflicts with --json-schema
-            assert "--permission-mode" not in call_args
+            call_args = mock_query.call_args
+            options = call_args[1].get("options") or call_args[0][1]
+            assert str(repo) in options.add_dirs
 
     @pytest.mark.asyncio
     async def test_without_repo_path(self) -> None:
-        """No --add-dir when repo_path is None."""
-        stdout = _make_valid_plan_output()
-        mock_proc = _mock_readline_proc(stdout)
+        """No add_dirs when repo_path is None."""
+        events = _make_plan_events(
+            "A valid plan summary", _VALID_STEPS, _VALID_AC,
+        )
 
         with patch(
-            "src.enrichment.asyncio.create_subprocess_exec",
-            return_value=mock_proc,
-        ) as mock_exec:
+            "src.enrichment.run_claude_query",
+            return_value=_mock_sdk_events(*events),
+        ) as mock_query:
             await generate_task_plan("Task")
-            call_args = mock_exec.call_args[0]
-            assert "--add-dir" not in call_args
+            call_args = mock_query.call_args
+            options = call_args[1].get("options") or call_args[0][1]
+            assert options.add_dirs == []
 
     @pytest.mark.asyncio
-    async def test_cli_failure_raises(self) -> None:
-        """Non-zero exit code raises PlanGenerationError."""
-        mock_proc = _mock_readline_proc(b"", returncode=1)
-        mock_proc.stderr.read = AsyncMock(return_value=b"error")
+    async def test_sdk_error_raises(self) -> None:
+        """SDK error event raises PlanGenerationError."""
+        events = [_make_error_event("SDK error")]
 
         with (
             patch(
-                "src.enrichment.asyncio.create_subprocess_exec",
-                return_value=mock_proc,
+                "src.enrichment.run_claude_query",
+                return_value=_mock_sdk_events(*events),
             ),
-            pytest.raises(PlanGenerationError, match="Claude CLI failed"),
+            pytest.raises(PlanGenerationError, match="Claude SDK error"),
         ):
             await generate_task_plan("Broken task")
 
     @pytest.mark.asyncio
     async def test_with_description(self) -> None:
         """Existing description is included in the prompt."""
-        stdout = _make_valid_plan_output()
-        mock_proc = _mock_readline_proc(stdout)
+        events = _make_plan_events(
+            "A valid plan summary", _VALID_STEPS, _VALID_AC,
+        )
 
         with patch(
-            "src.enrichment.asyncio.create_subprocess_exec",
-            return_value=mock_proc,
-        ) as mock_exec:
+            "src.enrichment.run_claude_query",
+            return_value=_mock_sdk_events(*events),
+        ) as mock_query:
             await generate_task_plan("Task", description="Existing desc")
-            call_args = mock_exec.call_args[0]
-            # The prompt should contain the description
-            prompt_arg = call_args[2]  # claude, -p, <prompt>
+            prompt_arg = mock_query.call_args[0][0]
             assert "Existing desc" in prompt_arg
 
     @pytest.mark.asyncio
     async def test_on_log_callback_called(self) -> None:
-        """on_log callback is called for each stdout line."""
-        stdout = _make_valid_plan_output()
-        mock_proc = _mock_readline_proc(stdout)
+        """on_log callback is called for SDK events."""
+        events = _make_plan_events(
+            "A valid plan summary", _VALID_STEPS, _VALID_AC,
+        )
         logged: list[str] = []
 
         with patch(
-            "src.enrichment.asyncio.create_subprocess_exec",
-            return_value=mock_proc,
+            "src.enrichment.run_claude_query",
+            return_value=_mock_sdk_events(*events),
         ):
             result = await generate_task_plan(
                 "Task", on_log=logged.append,
             )
             assert result["plan"] == "A valid plan summary"
-            # on_log should have been called with the output line
+            # on_log should have been called (at least [DONE] for result event)
             assert len(logged) >= 1
 
     @pytest.mark.asyncio
     async def test_heartbeat_on_no_output(self) -> None:
-        """Heartbeat emitted when no output for heartbeat_seconds."""
-        # Mock proc that times out once then returns a line then EOF
-        mock_proc = AsyncMock()
-        mock_proc.returncode = 0
-        mock_proc.wait = AsyncMock()
-
-        stdout_data = _make_valid_plan_output()
-        mock_stdout = AsyncMock()
-        mock_stdout.readline = AsyncMock(
-            side_effect=[
-                TimeoutError(),  # first read times out
-                stdout_data.split(b"\n")[0] + b"\n",  # then real line
-                b"",  # EOF
-            ],
+        """Heartbeat emitted when no SDK events for heartbeat_seconds."""
+        events = _make_plan_events(
+            "A valid plan summary", _VALID_STEPS, _VALID_AC,
         )
-        mock_proc.stdout = mock_stdout
-        mock_proc.stderr = AsyncMock()
-        mock_proc.stderr.read = AsyncMock(return_value=b"")
-
         logged: list[str] = []
 
+        # Create an async generator that delays before yielding
+        async def _slow_events() -> AsyncIterator[ClaudeEvent]:
+            await asyncio.sleep(0.3)  # Exceed heartbeat timeout
+            for ev in events:
+                yield ev
+
         with patch(
-            "src.enrichment.asyncio.create_subprocess_exec",
-            return_value=mock_proc,
-        ), patch(
-            "src.enrichment.asyncio.wait_for",
-            side_effect=mock_stdout.readline.side_effect,
+            "src.enrichment.run_claude_query",
+            return_value=_slow_events(),
         ):
             await generate_task_plan(
-                "Task", on_log=logged.append, heartbeat_seconds=1,
+                "Task", on_log=logged.append, heartbeat_seconds=0.1,
             )
-            # Should have a heartbeat line
             heartbeats = [line for line in logged if "[PROGRESS] heartbeat" in line]
             assert len(heartbeats) >= 1
 
     @pytest.mark.asyncio
     async def test_on_raw_artifact_called(self) -> None:
-        """on_raw_artifact callback is called with full output before parsing."""
-        stdout = _make_valid_plan_output()
-        mock_proc = _mock_readline_proc(stdout)
+        """on_raw_artifact callback is called with serialized events."""
+        events = _make_plan_events(
+            "A valid plan summary", _VALID_STEPS, _VALID_AC,
+        )
         artifacts: list[str] = []
 
         async def capture_artifact(content: str) -> None:
             artifacts.append(content)
 
         with patch(
-            "src.enrichment.asyncio.create_subprocess_exec",
-            return_value=mock_proc,
+            "src.enrichment.run_claude_query",
+            return_value=_mock_sdk_events(*events),
         ):
             await generate_task_plan(
                 "Task", on_raw_artifact=capture_artifact,
@@ -832,9 +789,11 @@ class TestGenerateTaskPlan:
 
     @pytest.mark.asyncio
     async def test_on_raw_artifact_called_even_on_failure(self) -> None:
-        """on_raw_artifact persists output even when CLI exits non-zero."""
-        mock_proc = _mock_readline_proc(b"partial output\n", returncode=1)
-        mock_proc.stderr.read = AsyncMock(return_value=b"error")
+        """on_raw_artifact persists output even when SDK returns error."""
+        events = [
+            ClaudeEvent(type=ClaudeEventType.TEXT, text="partial output"),
+            _make_error_event("SDK error"),
+        ]
         artifacts: list[str] = []
 
         async def capture_artifact(content: str) -> None:
@@ -842,79 +801,80 @@ class TestGenerateTaskPlan:
 
         with (
             patch(
-                "src.enrichment.asyncio.create_subprocess_exec",
-                return_value=mock_proc,
+                "src.enrichment.run_claude_query",
+                return_value=_mock_sdk_events(*events),
             ),
-            pytest.raises(PlanGenerationError, match="Claude CLI failed"),
+            pytest.raises(PlanGenerationError, match="Claude SDK error"),
         ):
             await generate_task_plan(
                 "Broken task", on_raw_artifact=capture_artifact,
             )
-        # Raw artifact should still be persisted despite CLI failure
+        # Raw artifact should still be persisted despite error
         assert len(artifacts) == 1
         assert "partial output" in artifacts[0]
 
     @pytest.mark.asyncio
     async def test_structural_validation_rejects_empty_plan(self) -> None:
         """Plan with empty steps is rejected after parsing."""
-        stdout = _make_plan_output("Plan text", [], ["criteria"])
-        mock_proc = _mock_readline_proc(stdout)
+        events = _make_plan_events("Plan text", [], ["criteria"])
 
         with (
             patch(
-                "src.enrichment.asyncio.create_subprocess_exec",
-                return_value=mock_proc,
+                "src.enrichment.run_claude_query",
+                return_value=_mock_sdk_events(*events),
             ),
             pytest.raises(PlanGenerationError, match="invalid structure.*empty_steps"),
         ):
             await generate_task_plan("Task")
 
     @pytest.mark.asyncio
-    async def test_cli_args_use_stream_json_and_verbose(self) -> None:
-        """CLI args include --output-format stream-json --verbose."""
-        stdout = _make_valid_plan_output()
-        mock_proc = _mock_readline_proc(stdout)
+    async def test_query_options_configured(self) -> None:
+        """QueryOptions are configured with model, system_prompt, json_schema."""
+        events = _make_plan_events(
+            "A valid plan summary", _VALID_STEPS, _VALID_AC,
+        )
 
         with patch(
-            "src.enrichment.asyncio.create_subprocess_exec",
-            return_value=mock_proc,
-        ) as mock_exec:
+            "src.enrichment.run_claude_query",
+            return_value=_mock_sdk_events(*events),
+        ) as mock_query:
             await generate_task_plan("Task")
-            call_args = mock_exec.call_args[0]
-            assert "--output-format" in call_args
-            fmt_idx = list(call_args).index("--output-format")
-            assert call_args[fmt_idx + 1] == "stream-json"
-            assert "--verbose" in call_args
+            call_args = mock_query.call_args
+            options = call_args[1].get("options") or call_args[0][1]
+            assert options.model == "claude-sonnet-4-5"
+            assert options.system_prompt is not None
+            assert options.json_schema is not None
 
     @pytest.mark.asyncio
     async def test_on_stream_event_callback(self) -> None:
-        """on_stream_event callback is called for each parsed event."""
-        stdout = _make_valid_plan_output()
-        mock_proc = _mock_readline_proc(stdout)
-        events: list[dict] = []
+        """on_stream_event callback is called for each SDK event."""
+        events = _make_plan_events(
+            "A valid plan summary", _VALID_STEPS, _VALID_AC,
+        )
+        received: list[dict] = []
 
         with patch(
-            "src.enrichment.asyncio.create_subprocess_exec",
-            return_value=mock_proc,
+            "src.enrichment.run_claude_query",
+            return_value=_mock_sdk_events(*events),
         ):
             result = await generate_task_plan(
-                "Task", on_stream_event=events.append,
+                "Task", on_stream_event=received.append,
             )
             assert result["plan"] == "A valid plan summary"
-            # Should have received the result event
-            assert len(events) >= 1
-            result_events = [e for e in events if e.get("type") == "result"]
+            assert len(received) >= 1
+            result_events = [e for e in received if e.get("type") == "result"]
             assert len(result_events) == 1
 
     @pytest.mark.asyncio
     async def test_on_stream_event_none_is_safe(self) -> None:
         """on_stream_event=None does not crash."""
-        stdout = _make_valid_plan_output()
-        mock_proc = _mock_readline_proc(stdout)
+        events = _make_plan_events(
+            "A valid plan summary", _VALID_STEPS, _VALID_AC,
+        )
 
         with patch(
-            "src.enrichment.asyncio.create_subprocess_exec",
-            return_value=mock_proc,
+            "src.enrichment.run_claude_query",
+            return_value=_mock_sdk_events(*events),
         ):
             result = await generate_task_plan(
                 "Task", on_stream_event=None,
@@ -923,46 +883,44 @@ class TestGenerateTaskPlan:
 
     @pytest.mark.asyncio
     async def test_multi_event_stream(self) -> None:
-        """Multiple stream-json events are parsed and dispatched."""
-        # Simulate assistant event + result event on separate lines
-        assistant_event = json.dumps({
-            "type": "assistant",
-            "message": {"content": [{"type": "text", "text": "Planning..."}]},
-        })
-        result_event = json.dumps({
-            "type": "result",
-            "structured_output": {
-                "plan": "Multi-event plan",
-                "steps": [{"step": "Step 1", "files": []}],
-                "acceptance_criteria": ["AC 1"],
-            },
-            "result": None,
-        })
-        stdout = (assistant_event + "\n" + result_event + "\n").encode("utf-8")
-        mock_proc = _mock_readline_proc(stdout)
-        events: list[dict] = []
+        """Multiple SDK events are dispatched to on_stream_event."""
+        events = [
+            ClaudeEvent(type=ClaudeEventType.INIT, session_id="test-session"),
+            ClaudeEvent(type=ClaudeEventType.TEXT, text="Planning..."),
+            ClaudeEvent(
+                type=ClaudeEventType.RESULT,
+                structured_output={
+                    "plan": "Multi-event plan",
+                    "steps": [{"step": "Step 1", "files": []}],
+                    "acceptance_criteria": ["AC 1"],
+                },
+            ),
+        ]
+        received: list[dict] = []
 
         with patch(
-            "src.enrichment.asyncio.create_subprocess_exec",
-            return_value=mock_proc,
+            "src.enrichment.run_claude_query",
+            return_value=_mock_sdk_events(*events),
         ):
             result = await generate_task_plan(
-                "Task", on_stream_event=events.append,
+                "Task", on_stream_event=received.append,
             )
             assert result["plan"] == "Multi-event plan"
-            assert len(events) == 2
-            assert events[0]["type"] == "assistant"
-            assert events[1]["type"] == "result"
+            assert len(received) == 3
+            assert received[0]["type"] == "init"
+            assert received[1]["type"] == "text"
+            assert received[2]["type"] == "result"
 
     @pytest.mark.asyncio
     async def test_jsonl_file_persistence(self, tmp_path: Path) -> None:
         """JSONL log files are created when stream_log_dir + task_id given."""
-        stdout = _make_valid_plan_output()
-        mock_proc = _mock_readline_proc(stdout)
+        events = _make_plan_events(
+            "A valid plan summary", _VALID_STEPS, _VALID_AC,
+        )
 
         with patch(
-            "src.enrichment.asyncio.create_subprocess_exec",
-            return_value=mock_proc,
+            "src.enrichment.run_claude_query",
+            return_value=_mock_sdk_events(*events),
         ):
             await generate_task_plan(
                 "Task",
@@ -998,7 +956,7 @@ class TestGeneratePlanEndpoint:
     async def test_task_not_found_404(self, client: AsyncClient) -> None:
         """Returns 404 for non-existent task."""
         with patch(
-            "src.enrichment.shutil.which", return_value="/usr/bin/claude",
+            "src.api.is_claude_cli_available", return_value=True,
         ):
             resp = await client.post(
                 "/api/tasks/nonexistent-id/generate-plan",
@@ -1007,9 +965,9 @@ class TestGeneratePlanEndpoint:
 
     @pytest.mark.asyncio
     async def test_cli_unavailable_503(self, client: AsyncClient) -> None:
-        """Returns 503 when Claude CLI is not available."""
+        """Returns 503 when Claude SDK is not available."""
         with patch(
-            "src.enrichment.shutil.which", return_value=None,
+            "src.api.is_claude_cli_available", return_value=False,
         ):
             resp = await client.post(
                 "/api/tasks/any-id/generate-plan",
@@ -1032,20 +990,19 @@ class TestGeneratePlanEndpoint:
         tasks = await task_manager.list_tasks(project_id=project.id)
         task = tasks[0]
 
-        stdout = _make_plan_output(
+        events = _make_plan_events(
             "Add authentication flow",
             [{"step": "Create auth module", "files": ["src/auth.py"]}],
             ["Login returns token"],
         )
-        mock_proc = _mock_readline_proc(stdout)
 
         with (
             patch(
-                "src.enrichment.shutil.which", return_value="/usr/bin/claude",
+                "src.api.is_claude_cli_available", return_value=True,
             ),
             patch(
-                "src.enrichment.asyncio.create_subprocess_exec",
-                return_value=mock_proc,
+                "src.enrichment.run_claude_query",
+                return_value=_mock_sdk_events(*events),
             ),
         ):
             resp = await client.post(
@@ -1069,7 +1026,7 @@ class TestGeneratePlanEndpoint:
     async def test_cli_error_sets_failed(
         self, test_app, client: AsyncClient,
     ) -> None:
-        """CLI failure in background sets plan_status to 'failed'."""
+        """SDK error in background sets plan_status to 'failed'."""
         from src.sync.tasks_parser import sync_project_tasks
 
         task_manager: TaskManager = test_app.state.task_manager
@@ -1080,16 +1037,15 @@ class TestGeneratePlanEndpoint:
         tasks = await task_manager.list_tasks(project_id=project.id)
         task = tasks[0]
 
-        mock_proc = _mock_readline_proc(b"", returncode=1)
-        mock_proc.stderr.read = AsyncMock(return_value=b"error")
+        events = [_make_error_event("SDK error")]
 
         with (
             patch(
-                "src.enrichment.shutil.which", return_value="/usr/bin/claude",
+                "src.api.is_claude_cli_available", return_value=True,
             ),
             patch(
-                "src.enrichment.asyncio.create_subprocess_exec",
-                return_value=mock_proc,
+                "src.enrichment.run_claude_query",
+                return_value=_mock_sdk_events(*events),
             ),
         ):
             resp = await client.post(
@@ -1124,7 +1080,7 @@ class TestGeneratePlanEndpoint:
         await task_manager.update_task(task)
 
         with patch(
-            "src.enrichment.shutil.which", return_value="/usr/bin/claude",
+            "src.api.is_claude_cli_available", return_value=True,
         ):
             resp = await client.post(
                 f"/api/tasks/{task.id}/generate-plan",
@@ -1169,8 +1125,9 @@ class TestGeneratePlanEndpoint:
         tasks = await task_manager.list_tasks(project_id=project.id)
         task = tasks[0]
 
-        stdout = _make_valid_plan_output()
-        mock_proc = _mock_readline_proc(stdout)
+        events = _make_plan_events(
+            "A valid plan summary", _VALID_STEPS, _VALID_AC,
+        )
 
         # Collect emitted events
         emitted: list[tuple[str, str, dict]] = []
@@ -1184,11 +1141,11 @@ class TestGeneratePlanEndpoint:
 
         with (
             patch(
-                "src.enrichment.shutil.which", return_value="/usr/bin/claude",
+                "src.api.is_claude_cli_available", return_value=True,
             ),
             patch(
-                "src.enrichment.asyncio.create_subprocess_exec",
-                return_value=mock_proc,
+                "src.enrichment.run_claude_query",
+                return_value=_mock_sdk_events(*events),
             ),
         ):
             resp = await client.post(
@@ -1245,77 +1202,61 @@ class TestEnrichmentTimeoutConfig:
 
 
 class TestEnrichmentTimeout:
-    """Tests for timeout behavior in enrichment subprocess calls."""
+    """Tests for timeout behavior in enrichment SDK calls."""
 
     @pytest.mark.asyncio
     async def test_enrich_task_title_timeout(self) -> None:
         """enrich_task_title raises PlanGenerationError on timeout."""
-        proc = AsyncMock()
-        proc.communicate = AsyncMock(
-            side_effect=TimeoutError(),
-        )
-        proc.kill = MagicMock()
-        proc.wait = AsyncMock()
+        # Simulate an SDK query that never completes
+        async def _hanging_query() -> AsyncIterator[ClaudeEvent]:
+            await asyncio.sleep(10)  # Hang forever (will be timed out)
+            yield ClaudeEvent(type=ClaudeEventType.RESULT)  # Never reached
 
-        with patch(  # noqa: SIM117
-            "src.enrichment.asyncio.create_subprocess_exec",
-            return_value=proc,
-        ):
-            with pytest.raises(PlanGenerationError, match="timed out") as exc_info:
-                await enrich_task_title("Title", timeout_minutes=1)
-
-        assert exc_info.value.error_type == PlanGenerationErrorType.TIMEOUT
-
-        proc.kill.assert_called_once()
-
-    @pytest.mark.asyncio
-    async def test_generate_task_plan_timeout(self) -> None:
-        """generate_task_plan raises PlanGenerationError on overall timeout."""
-        proc = AsyncMock()
-        proc.kill = MagicMock()
-        proc.wait = AsyncMock()
-
-        # Mock stdout.readline that never returns (hangs forever)
-        mock_stdout = AsyncMock()
-        mock_stdout.readline = AsyncMock(side_effect=asyncio.CancelledError())
-        proc.stdout = mock_stdout
-        proc.stderr = AsyncMock()
-        proc.stderr.read = AsyncMock(return_value=b"")
-
-        # Patch asyncio.timeout to raise TimeoutError immediately
-        with (  # noqa: SIM117
+        with (
             patch(
-                "src.enrichment.asyncio.create_subprocess_exec",
-                return_value=proc,
+                "src.enrichment.run_claude_query",
+                return_value=_hanging_query(),
             ),
             patch(
                 "src.enrichment.asyncio.timeout",
                 side_effect=TimeoutError(),
             ),
+            pytest.raises(PlanGenerationError, match="timed out") as exc_info,
         ):
-            with pytest.raises(PlanGenerationError, match="timed out") as exc_info:
-                await generate_task_plan("Title", timeout_minutes=1)
+            await enrich_task_title("Title", timeout_minutes=1)
 
         assert exc_info.value.error_type == PlanGenerationErrorType.TIMEOUT
-        proc.kill.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_generate_task_plan_timeout(self) -> None:
+        """generate_task_plan raises PlanGenerationError on overall timeout."""
+        # Patch asyncio.timeout to raise TimeoutError immediately
+        with (
+            patch(
+                "src.enrichment.asyncio.timeout",
+                side_effect=TimeoutError(),
+            ),
+            pytest.raises(PlanGenerationError, match="timed out") as exc_info,
+        ):
+            await generate_task_plan("Title", timeout_minutes=1)
+
+        assert exc_info.value.error_type == PlanGenerationErrorType.TIMEOUT
 
     @pytest.mark.asyncio
     async def test_zero_timeout_disables(self) -> None:
         """timeout_minutes=0 passes timeout=None (no timeout) for enrich."""
-        stdout = _make_enrichment_output("desc", "P0")
-        mock_proc = _mock_proc(stdout)
+        events = _make_enrichment_events("desc", "P0")
 
         with patch(
-            "src.enrichment.asyncio.create_subprocess_exec",
-            return_value=mock_proc,
+            "src.enrichment.run_claude_query",
+            return_value=_mock_sdk_events(*events),
         ), patch(
-            "src.enrichment.asyncio.wait_for",
-            wraps=asyncio.wait_for,
-        ) as mock_wait_for:
+            "src.enrichment.asyncio.timeout",
+            wraps=asyncio.timeout,
+        ) as mock_timeout:
             await enrich_task_title("Title", timeout_minutes=0)
             # timeout=None means no timeout
-            _, kwargs = mock_wait_for.call_args
-            assert kwargs.get("timeout") is None
+            mock_timeout.assert_called_once_with(None)
 
 
 # ------------------------------------------------------------------
@@ -1403,64 +1344,46 @@ class TestPlanDataRoundTripIntegrity:
         assert "Tests pass" in formatted
 
 
-class TestBlankLinePreservation:
-    """Blank lines in CLI output must not corrupt JSON reassembly."""
+class TestSdkEventSerialization:
+    """SDK event dicts are properly serialized in raw artifacts."""
 
     @pytest.mark.asyncio
-    @patch("src.enrichment.asyncio.create_subprocess_exec")
-    async def test_generate_plan_preserves_blank_lines_in_json(
-        self, mock_exec: AsyncMock,
-    ) -> None:
-        """Blank lines in CLI output are preserved in raw artifact and don't break parsing.
-
-        The CLI outputs JSON on a single line, but may emit blank lines
-        before/after.  The old ``if decoded:`` filter dropped blank lines
-        entirely; the fix preserves them for reassembly.  Parsing succeeds
-        via the last-line fallback.
-        """
-        inner = json.dumps({
-            "plan": "Do the thing",
-            "steps": [{"step": "Step 1", "files": []}],
-            "acceptance_criteria": ["AC1"],
-        })
-        cli_json = json.dumps({"type": "result", "structured_output": json.loads(inner), "result": None})
-
-        # Simulate CLI output: blank lines before/after the JSON blob
-        raw_lines = [
-            b"\n",  # blank line (progress output gap)
-            b"\n",  # another blank line
-            cli_json.encode("utf-8") + b"\n",  # the actual JSON
-            b"\n",  # trailing blank
-            b"",  # EOF
+    async def test_multiple_events_serialized_to_artifact(self) -> None:
+        """Multiple SDK events are serialized as newline-delimited JSON in artifact."""
+        events = [
+            ClaudeEvent(type=ClaudeEventType.INIT, session_id="s1"),
+            ClaudeEvent(type=ClaudeEventType.TEXT, text="Planning..."),
+            ClaudeEvent(
+                type=ClaudeEventType.RESULT,
+                structured_output={
+                    "plan": "Do the thing",
+                    "steps": [{"step": "Step 1", "files": []}],
+                    "acceptance_criteria": ["AC1"],
+                },
+            ),
         ]
-
-        proc = AsyncMock()
-        proc.returncode = 0
-        proc.wait = AsyncMock()
-        proc.kill = MagicMock()
-        mock_stdout = AsyncMock()
-        mock_stdout.readline = AsyncMock(side_effect=raw_lines)
-        mock_stderr = AsyncMock()
-        mock_stderr.read = AsyncMock(return_value=b"")
-        proc.stdout = mock_stdout
-        proc.stderr = mock_stderr
-        mock_exec.return_value = proc
-
         artifact_content: list[str] = []
 
         async def capture_artifact(content: str) -> None:
             artifact_content.append(content)
 
-        result = await generate_task_plan(
-            "Test", description="desc",
-            on_raw_artifact=capture_artifact,
-        )
+        with patch(
+            "src.enrichment.run_claude_query",
+            return_value=_mock_sdk_events(*events),
+        ):
+            result = await generate_task_plan(
+                "Test", description="desc",
+                on_raw_artifact=capture_artifact,
+            )
 
-        # The blank lines should be preserved in the raw artifact
         assert len(artifact_content) == 1
-        assert "\n\n" in artifact_content[0]  # blank lines preserved
+        # Each event is a separate JSON line
+        lines = artifact_content[0].split("\n")
+        assert len(lines) == 3
+        for line in lines:
+            parsed = json.loads(line)
+            assert isinstance(parsed, dict)
 
-        # The plan should still parse correctly (last-line fallback)
         assert result["plan"] == "Do the thing"
         assert len(result["steps"]) == 1
 
@@ -1574,7 +1497,7 @@ class TestStructuredErrorInApi:
         self, client: AsyncClient,
     ) -> None:
         """Enrich 503 response includes error_type and retryable fields."""
-        with patch("src.enrichment.shutil.which", return_value=None):
+        with patch("src.api.is_claude_cli_available", return_value=False):
             resp = await client.post(
                 "/api/tasks/enrich", json={"title": "Something"},
             )
@@ -1587,19 +1510,16 @@ class TestStructuredErrorInApi:
     async def test_enrich_cli_error_has_error_type(
         self, client: AsyncClient,
     ) -> None:
-        """Enrich CLI failure 503 includes structured error_type."""
-        mock_proc = _mock_proc(b"", returncode=1)
-        mock_proc.communicate = AsyncMock(
-            return_value=(b"", b"some error"),
-        )
+        """Enrich SDK error 503 includes structured error_type."""
+        events = [_make_error_event("some error")]
         with (
             patch(
-                "src.enrichment.shutil.which",
-                return_value="/usr/bin/claude",
+                "src.api.is_claude_cli_available",
+                return_value=True,
             ),
             patch(
-                "src.enrichment.asyncio.create_subprocess_exec",
-                return_value=mock_proc,
+                "src.enrichment.run_claude_query",
+                return_value=_mock_sdk_events(*events),
             ),
         ):
             resp = await client.post(
@@ -1625,7 +1545,7 @@ class TestStructuredErrorInApi:
         tasks = await task_manager.list_tasks(project_id=project.id)
         task = tasks[0]
 
-        with patch("src.enrichment.shutil.which", return_value=None):
+        with patch("src.api.is_claude_cli_available", return_value=False):
             resp = await client.post(
                 f"/api/tasks/{task.id}/generate-plan",
             )
