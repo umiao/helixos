@@ -5,7 +5,10 @@ from __future__ import annotations
 import asyncio
 from datetime import UTC, datetime
 
-from src.events import MAX_QUEUE_SIZE, Event, EventBus
+import pytest
+from pydantic import ValidationError
+
+from src.events import MAX_QUEUE_SIZE, Event, EventBus, TaskEvent
 
 
 class TestEvent:
@@ -214,3 +217,66 @@ class TestEventBus:
 
         assert bus.subscriber_count == 0
         bus.emit("log", "t1", "nobody listening")  # Should not crash
+
+
+class TestTaskEventSchema:
+    """Tests for TaskEvent Pydantic model schema enforcement."""
+
+    def test_task_event_is_pydantic_model(self) -> None:
+        """TaskEvent should be a Pydantic BaseModel."""
+        from pydantic import BaseModel
+
+        assert issubclass(TaskEvent, BaseModel)
+
+    def test_event_alias_is_task_event(self) -> None:
+        """Event should be an alias for TaskEvent."""
+        assert Event is TaskEvent
+
+    def test_missing_type_raises_validation_error(self) -> None:
+        """Omitting 'type' should raise a ValidationError."""
+        with pytest.raises(ValidationError):
+            TaskEvent(task_id="t1", data="x")  # type: ignore[call-arg]
+
+    def test_missing_task_id_raises_validation_error(self) -> None:
+        """Omitting 'task_id' should raise a ValidationError."""
+        with pytest.raises(ValidationError):
+            TaskEvent(type="log", data="x")  # type: ignore[call-arg]
+
+    def test_missing_data_raises_validation_error(self) -> None:
+        """Omitting 'data' should raise a ValidationError."""
+        with pytest.raises(ValidationError):
+            TaskEvent(type="log", task_id="t1")  # type: ignore[call-arg]
+
+    def test_timestamp_auto_generated(self) -> None:
+        """Timestamp should be auto-generated when not provided."""
+        event = TaskEvent(type="log", task_id="t1", data="hello")
+        assert event.timestamp is not None
+        assert event.timestamp.tzinfo is not None
+
+    def test_timestamp_string_coerced(self) -> None:
+        """Pydantic should coerce an ISO string into a datetime."""
+        event = TaskEvent(
+            type="log",
+            task_id="t1",
+            data="x",
+            timestamp="2026-01-01T00:00:00+00:00",  # type: ignore[arg-type]
+        )
+        assert isinstance(event.timestamp, datetime)
+
+    def test_model_dump_produces_expected_keys(self) -> None:
+        """model_dump() should produce the SSE contract keys."""
+        event = TaskEvent(type="log", task_id="t1", data={"msg": "hi"})
+        dumped = event.model_dump()
+        assert set(dumped.keys()) == {"type", "task_id", "data", "timestamp"}
+
+    def test_emit_rejects_invalid_type(self) -> None:
+        """EventBus.emit() should reject non-string event_type via Pydantic."""
+        bus = EventBus()
+        with pytest.raises(ValidationError):
+            bus.emit(123, "t1", "data")  # type: ignore[arg-type]
+
+    def test_emit_rejects_invalid_task_id(self) -> None:
+        """EventBus.emit() should reject non-string task_id via Pydantic."""
+        bus = EventBus()
+        with pytest.raises(ValidationError):
+            bus.emit("log", 456, "data")  # type: ignore[arg-type]

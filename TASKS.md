@@ -38,16 +38,6 @@
   2. All 3 callsites import from shared module
   3. Existing tests pass unchanged
 
-#### T-P1-71: Unified TaskEvent Pydantic model for SSE contract
-- **Priority**: P1
-- **Complexity**: S
-- **Depends on**: None
-- **Description**: Formalize the SSE event contract `{type, task_id, data, timestamp}` into a shared Pydantic model. Currently just a convention from T-P0-63a.
-- **Acceptance Criteria**:
-  1. Pydantic model in `src/models.py` or `src/events.py`
-  2. EventBus.emit() uses the model for validation
-  3. Tests verify schema enforcement
-
 #### T-P1-72: SSE origin field for log categorization
 - **Priority**: P1
 - **Complexity**: S
@@ -224,6 +214,9 @@
 
 #### [x] T-P0-68: Investigate and design fix for tech debts -- 2026-03-04
 - Investigated all 14 tech debt items, designed 5-phase remediation plan (type safety, operational reliability, race condition hardening, subprocess abstraction, documentation). Broke into 14 prioritized sub-tasks (T-P1-70 through T-P3-83) with dependencies, acceptance criteria, and complexity estimates.
+
+#### [x] T-P1-71: Unified TaskEvent Pydantic model for SSE contract -- 2026-03-05
+- Converted Event dataclass to TaskEvent Pydantic BaseModel in src/events.py. EventBus.emit() validates via Pydantic on construction. Backward-compatible Event alias. 10 new schema enforcement tests (22 total in test_events.py). All tests passing.
 
 #### [x] T-P0-55: Execution log visual markers for review activity -- 2026-03-04
 - Added purple "REVIEW" badge on review-originated log entries. Extended LogEntry with source field, SSE handlers pass source="review" for review_started/review_progress events. Uses SSE event type for origin detection.

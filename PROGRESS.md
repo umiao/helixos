@@ -773,3 +773,10 @@
 - **Sanity check result**: Zero T-TD matches in TASKS.md. All 14 new IDs found by regex. 45/45 tasks_parser tests pass. Ruff clean.
 - **Status**: [DONE]
 - **Request**: No change
+
+## 2026-03-05 00:00 -- [T-P1-71] Unified TaskEvent Pydantic model for SSE contract
+- **What I did**: Converted the Event dataclass in src/events.py to a TaskEvent Pydantic BaseModel, formalizing the SSE contract {type, task_id, data, timestamp}. EventBus.emit() now validates through Pydantic on construction. Added backward-compatible Event alias. Added 10 new schema enforcement tests covering missing fields, type coercion, model_dump keys, and emit rejection of invalid types.
+- **Deliverables**: src/events.py, tests/test_events.py, TASKS.md, PROGRESS.md
+- **Sanity check result**: All 22 test_events.py tests pass. Full test suite passes. Ruff clean.
+- **Status**: [DONE]
+- **Request**: Move T-P1-71 to Completed
