@@ -898,3 +898,10 @@
 - **Sanity check result**: 1186 tests pass + 4 skipped (cli_integration), ruff clean.
 - **Status**: [DONE]
 - **Request**: Move T-P1-84 to Completed (REMOVE spec from Active, ADD summary to Completed Tasks)
+
+## 2026-03-06 -- [T-P1-86] Claude Agent SDK adapter layer
+- **What I did**: Added `claude-agent-sdk>=0.1.40` to requirements.txt. Created `src/sdk_adapter.py` with Pydantic models (`ClaudeEvent`, `AssistantTurn`, `ToolAction`, `ClaudeResult`, `QueryOptions`), `run_claude_query()` async iterator wrapping the SDK's `query()`, `collect_turns()` for conversation turn reconstruction (pairs tool_use with tool_result across turn boundaries), and `_build_sdk_options()` for options mapping. SDK flag spike documented in module docstring: `permission_mode`, `add_dirs`, `max_budget_usd` map directly to `ClaudeAgentOptions` fields. Adapter returns async iterator only -- no JSONL logging.
+- **Deliverables**: `requirements.txt`, `src/sdk_adapter.py`, `tests/test_sdk_adapter.py`
+- **Sanity check result**: 33 new tests pass (event translation, turn reconstruction, options mapping, model validation, mocked query). Full suite: 1219 tests pass + 4 skipped (cli_integration). Ruff clean.
+- **Status**: [DONE]
+- **Request**: Move T-P1-86 to Completed (REMOVE spec from Active, ADD summary to Completed Tasks)

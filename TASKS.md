@@ -137,20 +137,6 @@
   8. Tests: gate ON -> REVIEW, gate OFF -> QUEUED, no planned tasks -> started=0, concurrent request -> skipped via optimistic lock
   9. Manual smoke test: click "Start N Planned" -> tasks move to correct column -> SSE updates UI in real-time
 
-#### T-P1-86: Claude Agent SDK adapter layer
-- **Priority**: P1
-- **Complexity**: M
-- **Depends on**: None
-- **Description**: Add `claude-agent-sdk` to requirements.txt. Create `src/sdk_adapter.py` with typed event models (`ClaudeEvent`, `AssistantTurn`, `ToolAction`, `ClaudeResult`) and `run_claude_query(prompt, options) -> AsyncIterator[ClaudeEvent]` wrapping the SDK's `query()`. Include `collect_turns()` utility for conversation reconstruction. Spike SDK flag compatibility (`permission_mode`, `add_dirs`, `max_budget_usd`) before implementation. Adapter returns an async iterator -- no callbacks. JSONL logging is consumer's responsibility, not adapter's.
-- **Acceptance Criteria**:
-  1. `claude-agent-sdk` in requirements.txt, importable
-  2. `ClaudeEvent`, `AssistantTurn`, `ToolAction`, `ClaudeResult` Pydantic models in `src/sdk_adapter.py`
-  3. `run_claude_query()` returns `AsyncIterator[ClaudeEvent]` translating SDK messages to typed events
-  4. `collect_turns()` reconstructs conversation turns from event stream (handles tool_use -> tool_result across turn boundaries)
-  5. SDK flag spike documented: verify `permission_mode`, `add_dirs`, `max_budget_usd` behave as expected
-  6. Unit tests with mocked `query()` verify event translation and turn reconstruction
-  7. Adapter does NOT do JSONL logging
-
 #### T-P1-87: Migrate enrichment.py to Agent SDK
 - **Priority**: P1
 - **Complexity**: S
@@ -243,6 +229,9 @@
 ## Completed Tasks
 
 > 99 completed tasks archived to [archive/completed_tasks.md](archive/completed_tasks.md).
+
+#### [x] T-P1-86: Claude Agent SDK adapter layer -- 2026-03-06
+- Added `claude-agent-sdk>=0.1.40` to requirements.txt. Created `src/sdk_adapter.py` with Pydantic models (ClaudeEvent, AssistantTurn, ToolAction, ClaudeResult, QueryOptions), `run_claude_query()` async iterator wrapping SDK `query()`, and `collect_turns()` for conversation reconstruction. SDK flag spike documented inline (permission_mode, add_dirs, max_budget_usd). No JSONL logging in adapter. 33 new tests in `tests/test_sdk_adapter.py`. 1219 tests pass + 4 skipped, ruff clean.
 
 #### [x] T-P1-84: Persist plan_status to TASKS.md (bidirectional sync) -- 2026-03-06
 - Added `plan_status: str | None` to ParsedTask, parser extracts `- **Plan**: <value>` with whitelist validation. TasksWriter.update_task_plan_status() inserts/updates Plan field with .bak backup. upsert_task() respects None=DB-wins semantics. API generate_plan writes Plan=ready to TASKS.md (non-fatal). 23 new tests. 1186 tests pass + 4 skipped, ruff clean.
