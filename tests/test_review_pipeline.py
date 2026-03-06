@@ -11,6 +11,7 @@ import asyncio
 import json
 import sys
 from datetime import UTC, datetime
+from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -1888,7 +1889,7 @@ async def test_on_log_receives_lifecycle_messages(mock_exec: AsyncMock) -> None:
 @pytest.mark.asyncio
 @patch("src.review_pipeline.asyncio.create_subprocess_exec")
 async def test_on_log_receives_cli_output_lines(mock_exec: AsyncMock) -> None:
-    """on_log callback receives individual stdout lines from CLI subprocess."""
+    """on_log receives simplified stream events including [DONE] for result."""
     mock_exec.return_value = _mock_proc(
         _make_review_output("approve", "Looks good", ["Minor nit"])
     )
@@ -1902,10 +1903,9 @@ async def test_on_log_receives_cli_output_lines(mock_exec: AsyncMock) -> None:
         on_log=lambda line: log_lines.append(line),
     )
 
-    # CLI output JSON should appear as a line in the on_log stream
-    # (the JSON blob emitted by the mock subprocess)
-    cli_output_lines = [line for line in log_lines if "approve" in line and "Looks good" in line]
-    assert len(cli_output_lines) >= 1
+    # With stream-json, result event is simplified to [DONE]
+    done_lines = [line for line in log_lines if "[DONE]" in line]
+    assert len(done_lines) >= 1
 
 
 @pytest.mark.asyncio
@@ -2189,3 +2189,168 @@ class TestParseSynthesisWithValidation:
             result = pipeline._parse_synthesis(text)
         assert result.score == 0.5  # default fallback
         assert "Raw" in caplog.text
+
+
+# ------------------------------------------------------------------
+# T-P0-94: Stream-json for review pipeline tests
+# ------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+@patch("src.review_pipeline.asyncio.create_subprocess_exec")
+async def test_on_stream_event_receives_parsed_events(mock_exec: AsyncMock) -> None:
+    """on_stream_event callback receives parsed stream-json events."""
+    mock_exec.return_value = _mock_proc(
+        _make_review_output("approve", "Looks good")
+    )
+
+    pipeline = ReviewPipeline(_default_config(), threshold=0.8)
+
+    stream_events: list[dict] = []
+    await pipeline.review_task(
+        _sample_task(), "Plan", lambda c, t, p: None,
+        complexity="S",
+        on_stream_event=lambda ev: stream_events.append(ev),
+    )
+
+    # Should have received at least the result event
+    assert len(stream_events) >= 1
+    result_events = [e for e in stream_events if e.get("type") == "result"]
+    assert len(result_events) >= 1
+    assert result_events[0].get("structured_output") == {
+        "verdict": "approve", "summary": "Looks good", "suggestions": [],
+    }
+
+
+@pytest.mark.asyncio
+@patch("src.review_pipeline.asyncio.create_subprocess_exec")
+async def test_stream_json_cli_args_used(mock_exec: AsyncMock) -> None:
+    """CLI is invoked with --output-format stream-json --verbose."""
+    mock_exec.return_value = _mock_proc(
+        _make_review_output("approve", "OK")
+    )
+
+    pipeline = ReviewPipeline(_default_config(), threshold=0.8)
+    await pipeline.review_task(
+        _sample_task(), "Plan", lambda c, t, p: None,
+        complexity="S",
+    )
+
+    call_args = mock_exec.call_args[0]
+    assert "--output-format" in call_args
+    fmt_idx = list(call_args).index("--output-format")
+    assert call_args[fmt_idx + 1] == "stream-json"
+    assert "--verbose" in call_args
+
+
+@pytest.mark.asyncio
+@patch("src.review_pipeline.asyncio.create_subprocess_exec")
+async def test_stream_json_multi_event_parsing(mock_exec: AsyncMock) -> None:
+    """Multiple stream events are parsed correctly (init + assistant + result)."""
+    init_event = json.dumps({"type": "system", "subtype": "init", "model": "claude-sonnet-4-5"})
+    assistant_event = json.dumps({
+        "type": "assistant",
+        "content": [{"type": "text", "text": "Reviewing the plan..."}],
+    })
+    result_event = json.dumps({
+        "type": "result",
+        "structured_output": {"verdict": "approve", "summary": "OK", "suggestions": []},
+        "result": None,
+    })
+
+    raw = (init_event + "\n" + assistant_event + "\n" + result_event + "\n").encode("utf-8")
+
+    proc = AsyncMock()
+    proc.returncode = 0
+    proc.wait = AsyncMock()
+    proc.kill = MagicMock()
+    lines = raw.split(b"\n")
+    line_queue = [line + b"\n" for line in lines if line] + [b""]
+    mock_stdout = AsyncMock()
+    mock_stdout.readline = AsyncMock(side_effect=line_queue)
+    mock_stderr = AsyncMock()
+    mock_stderr.read = AsyncMock(return_value=b"")
+    proc.stdout = mock_stdout
+    proc.stderr = mock_stderr
+    mock_exec.return_value = proc
+
+    pipeline = ReviewPipeline(_default_config(), threshold=0.8)
+
+    stream_events: list[dict] = []
+    log_lines: list[str] = []
+    result = await pipeline.review_task(
+        _sample_task(), "Plan", lambda c, t, p: None,
+        complexity="S",
+        on_log=lambda line: log_lines.append(line),
+        on_stream_event=lambda ev: stream_events.append(ev),
+    )
+
+    # All 3 events should be received
+    assert len(stream_events) >= 3
+    types = [e.get("type") for e in stream_events]
+    assert "system" in types
+    assert "assistant" in types
+    assert "result" in types
+
+    # on_log should contain simplified text
+    assert any("[INIT]" in line for line in log_lines)
+    assert any("Reviewing the plan" in line for line in log_lines)
+    assert any("[DONE]" in line for line in log_lines)
+
+    # Result should still be correctly parsed
+    assert result.consensus_score == 1.0
+
+
+@pytest.mark.asyncio
+@patch("src.review_pipeline.asyncio.create_subprocess_exec")
+async def test_on_stream_event_none_does_not_crash(mock_exec: AsyncMock) -> None:
+    """Passing on_stream_event=None (default) does not raise errors."""
+    mock_exec.return_value = _mock_proc(
+        _make_review_output("approve", "OK")
+    )
+
+    pipeline = ReviewPipeline(_default_config(), threshold=0.8)
+
+    result = await pipeline.review_task(
+        _sample_task(), "Plan", lambda c, t, p: None,
+        complexity="S",
+    )
+
+    assert result.consensus_score == 1.0
+
+
+@pytest.mark.asyncio
+@patch("src.review_pipeline.asyncio.create_subprocess_exec")
+async def test_jsonl_persistence_with_stream_log_dir(
+    mock_exec: AsyncMock, tmp_path: Path,
+) -> None:
+    """JSONL stream logs are written when stream_log_dir is set."""
+    mock_exec.return_value = _mock_proc(
+        _make_review_output("approve", "OK")
+    )
+
+    pipeline = ReviewPipeline(
+        _default_config(), threshold=0.8, stream_log_dir=tmp_path,
+    )
+
+    await pipeline.review_task(
+        _sample_task(), "Plan", lambda c, t, p: None,
+        complexity="S",
+    )
+
+    # Check JSONL files were created
+    task_dir = tmp_path / _sample_task().id.replace(":", "_")
+    assert task_dir.is_dir()
+
+    jsonl_files = list(task_dir.glob("review_stream_*.jsonl"))
+    assert len(jsonl_files) >= 1
+
+    # JSONL should contain at least the result event
+    content = jsonl_files[0].read_text(encoding="utf-8")
+    events = [json.loads(line) for line in content.strip().split("\n") if line.strip()]
+    assert len(events) >= 1
+    assert any(e.get("type") == "result" for e in events)
+
+    # Raw log files too
+    raw_files = list(task_dir.glob("review_raw_*.log"))
+    assert len(raw_files) >= 1

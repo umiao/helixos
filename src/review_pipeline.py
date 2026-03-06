@@ -16,11 +16,13 @@ import sys
 import time
 from collections.abc import Awaitable, Callable
 from datetime import UTC, datetime
+from pathlib import Path
 from typing import Literal
 
 from pydantic import BaseModel, ValidationError
 
 from src.config import ReviewerConfig, ReviewPipelineConfig
+from src.executors.code_executor import _simplify_stream_event, _StreamJsonBuffer
 from src.history_writer import HistoryWriter
 from src.models import LLMReview, ReviewLifecycleState, ReviewState, Task
 
@@ -232,6 +234,7 @@ class ReviewPipeline:
         config: ReviewPipelineConfig,
         threshold: float = 0.8,
         history_writer: HistoryWriter | None = None,
+        stream_log_dir: Path | None = None,
     ) -> None:
         """Initialize the review pipeline.
 
@@ -239,12 +242,16 @@ class ReviewPipeline:
             config: Review pipeline configuration (reviewers list).
             threshold: Consensus score threshold for auto-approval.
             history_writer: Optional DB-first review history writer.
+            stream_log_dir: Directory for JSONL stream log persistence.
+                When set, each CLI call writes ``review_stream_*.jsonl``
+                and ``review_raw_*.log`` files under ``{stream_log_dir}/{task_id}/``.
         """
         self.reviewers = [r for r in config.reviewers if r.required]
         self.optional_reviewers = [r for r in config.reviewers if not r.required]
         self.threshold = threshold
         self._history_writer = history_writer
         self._timeout_minutes = config.review_timeout_minutes
+        self._stream_log_dir = stream_log_dir
 
     async def review_task(
         self,
@@ -256,6 +263,7 @@ class ReviewPipeline:
         human_feedback: list[dict] | None = None,
         on_log: Callable[[str], None] | None = None,
         on_raw_artifact: Callable[[str], Awaitable[None]] | None = None,
+        on_stream_event: Callable[[dict], None] | None = None,
     ) -> ReviewState:
         """Run the review pipeline for a task plan.
 
@@ -275,6 +283,9 @@ class ReviewPipeline:
             on_log: Optional per-line callback for real-time streaming of
                 Claude CLI output.  Each line from every reviewer subprocess
                 is passed to this callback as it arrives.
+            on_stream_event: Optional callback for parsed stream-json events.
+                Each parsed JSON dict is passed to this callback for SSE
+                emission and ConversationView updates.
 
         Returns:
             ReviewState with all reviews, consensus score, and human decision flag.
@@ -314,6 +325,7 @@ class ReviewPipeline:
                 human_feedback=human_feedback,
                 on_log=on_log,
                 on_raw_artifact=on_raw_artifact,
+                on_stream_event=on_stream_event,
             )
             reviews.append(review)
             completed_msg = f"Completed {reviewer.focus} review"
@@ -323,7 +335,10 @@ class ReviewPipeline:
         # Synthesize (only if multiple reviews)
         if len(reviews) > 1:
             on_progress(len(reviews), len(active_reviewers), "Synthesizing...")
-            synthesis = await self._synthesize(reviews, plan_content)
+            synthesis = await self._synthesize(
+                reviews, plan_content, task_id=task.id,
+                on_stream_event=on_stream_event,
+            )
             score = synthesis.score
             disagreements = synthesis.disagreements
         else:
@@ -415,12 +430,15 @@ class ReviewPipeline:
         on_log: Callable[[str], None] | None = None,
         heartbeat_seconds: int = 30,
         on_raw_artifact: Callable[[str], Awaitable[None]] | None = None,
+        on_stream_event: Callable[[dict], None] | None = None,
+        task_id: str | None = None,
     ) -> dict:
         """Call the Claude CLI subprocess and return the parsed JSON output.
 
-        Invokes ``claude -p`` with ``--output-format json`` and streams
-        stdout line-by-line via *on_log* for real-time progress.  Parses
-        the assembled output as JSON to extract ``result`` and ``usage``.
+        Invokes ``claude -p`` with ``--output-format stream-json --verbose``
+        and parses stream events in real-time.  Emits events via
+        *on_stream_event* for SSE and persists to JSONL files.  The final
+        ``result`` event contains the structured output.
 
         Uses process group isolation (same pattern as CodeExecutor / T-P0-30)
         and ``asyncio.timeout`` to enforce ``review_timeout_minutes``.
@@ -434,9 +452,13 @@ class ReviewPipeline:
             on_log: Optional per-line callback for real-time streaming.
             heartbeat_seconds: Seconds without output before emitting a
                 heartbeat via *on_log*.  Set to 0 to disable.
+            on_raw_artifact: Optional callback to persist full raw output.
+            on_stream_event: Optional callback for parsed stream-json events.
+            task_id: Optional task ID for JSONL log file naming.
 
         Returns:
-            Dict with ``result`` (str) and full CLI output for usage extraction.
+            Dict with ``structured_output`` / ``result`` and full CLI metadata
+            extracted from the final ``result`` stream event.
 
         Raises:
             RuntimeError: If the subprocess exits with a non-zero code or
@@ -446,7 +468,8 @@ class ReviewPipeline:
             "claude", "-p", prompt,
             "--system-prompt", system_prompt,
             "--model", model,
-            "--output-format", "json",
+            "--output-format", "stream-json",
+            "--verbose",
             "--no-session-persistence",
         ]
         if max_budget_usd is not None:
@@ -472,13 +495,53 @@ class ReviewPipeline:
             **kwargs,  # type: ignore[arg-type]
         )
 
+        # -- JSONL log persistence --
+        jsonl_file = None
+        raw_file = None
+        if task_id is not None and self._stream_log_dir is not None:
+            log_dir = self._stream_log_dir / task_id.replace(":", "_")
+            log_dir.mkdir(parents=True, exist_ok=True)
+            ts = datetime.now(UTC).strftime("%Y%m%dT%H%M%S")
+            jsonl_file = open(  # noqa: SIM115
+                log_dir / f"review_stream_{ts}.jsonl", "w", encoding="utf-8",
+            )
+            raw_file = open(  # noqa: SIM115
+                log_dir / f"review_raw_{ts}.log", "w", encoding="utf-8",
+            )
+
         timeout_seconds = self._timeout_minutes * 60 if self._timeout_minutes > 0 else None
         log_lines: list[str] = []
         last_output_time = time.monotonic()
+        buffer = _StreamJsonBuffer()
+        cli_output: dict = {}  # Will be populated from the result event
 
         def _emit(line: str) -> None:
             if on_log is not None:
                 on_log(line)
+
+        def _process_parsed_events(parsed_events: list[dict], non_json: list[str]) -> None:
+            """Write parsed events to JSONL and call callbacks."""
+            nonlocal cli_output
+            for event_dict in parsed_events:
+                if jsonl_file is not None:
+                    jsonl_file.write(
+                        json.dumps(event_dict, ensure_ascii=False) + "\n"
+                    )
+                    jsonl_file.flush()
+
+                if on_stream_event is not None:
+                    on_stream_event(event_dict)
+
+                # Capture the result event as the final CLI output
+                if event_dict.get("type") == "result":
+                    cli_output = event_dict
+
+                simplified = _simplify_stream_event(event_dict)
+                if simplified:
+                    _emit(simplified)
+
+            for raw_text in non_json:
+                _emit(raw_text)
 
         try:
             async with asyncio.timeout(timeout_seconds):
@@ -503,10 +566,49 @@ class ReviewPipeline:
                         break
 
                     decoded = raw_line.decode("utf-8", errors="replace").rstrip("\r\n")
-                    log_lines.append(decoded)  # always preserve for JSON reassembly
-                    if decoded.strip():  # only emit non-blank for progress
-                        _emit(decoded)
-                        last_output_time = time.monotonic()
+
+                    # Always preserve for raw artifact assembly
+                    log_lines.append(decoded)
+
+                    if not decoded.strip():
+                        continue
+
+                    # Persist raw line
+                    if raw_file is not None:
+                        raw_file.write(decoded + "\n")
+                        raw_file.flush()
+
+                    last_output_time = time.monotonic()
+
+                    # Parse stream-json events
+                    parsed_events = buffer.feed(decoded + "\n")
+                    _process_parsed_events(parsed_events, buffer.non_json)
+
+                # -- EOF: flush partial buffer --
+                if buffer._partial:
+                    remainder = buffer._partial.strip()
+                    buffer._partial = ""
+                    if remainder:
+                        if raw_file is not None:
+                            raw_file.write(remainder + "\n")
+                            raw_file.flush()
+                        try:
+                            obj = json.loads(remainder)
+                            if isinstance(obj, dict):
+                                if jsonl_file is not None:
+                                    jsonl_file.write(
+                                        json.dumps(obj, ensure_ascii=False) + "\n"
+                                    )
+                                    jsonl_file.flush()
+                                if on_stream_event is not None:
+                                    on_stream_event(obj)
+                                if obj.get("type") == "result":
+                                    cli_output = obj
+                                simplified = _simplify_stream_event(obj)
+                                if simplified:
+                                    _emit(simplified)
+                        except (json.JSONDecodeError, ValueError):
+                            pass
 
                 await proc.wait()
         except TimeoutError:
@@ -525,9 +627,13 @@ class ReviewPipeline:
                 f"Review subprocess timed out after {self._timeout_minutes} "
                 f"minutes (model={model})"
             ) from None
+        finally:
+            if jsonl_file is not None:
+                jsonl_file.close()
+            if raw_file is not None:
+                raw_file.close()
 
-        # PERSIST-FIRST: assemble and save raw output BEFORE returncode check.
-        # Even if process failed (non-zero exit), the raw output is recoverable.
+        # PERSIST-FIRST: save raw output BEFORE returncode check.
         full_output = "\n".join(log_lines)
         if on_raw_artifact is not None:
             try:
@@ -547,18 +653,18 @@ class ReviewPipeline:
                 f"Claude CLI failed (exit {proc.returncode}): {stderr_text}"
             )
 
-        # Parse the JSON result
-        try:
-            cli_output = json.loads(full_output)
-        except json.JSONDecodeError:
-            # Some CLIs emit progress text before the final JSON blob
-            cli_output = {}
-            for line in reversed(log_lines):
-                try:
-                    cli_output = json.loads(line)
-                    break
-                except json.JSONDecodeError:
-                    continue
+        # If we didn't capture a result event, try parsing full output as JSON
+        # (fallback for edge cases where stream-json emits a single blob)
+        if not cli_output:
+            try:
+                cli_output = json.loads(full_output)
+            except json.JSONDecodeError:
+                for line in reversed(log_lines):
+                    try:
+                        cli_output = json.loads(line)
+                        break
+                    except json.JSONDecodeError:
+                        continue
 
         if not cli_output:
             logger.warning(
@@ -576,6 +682,7 @@ class ReviewPipeline:
         human_feedback: list[dict] | None = None,
         on_log: Callable[[str], None] | None = None,
         on_raw_artifact: Callable[[str], Awaitable[None]] | None = None,
+        on_stream_event: Callable[[dict], None] | None = None,
     ) -> LLMReview:
         """Call a reviewer via the Claude CLI.
 
@@ -585,6 +692,8 @@ class ReviewPipeline:
             plan_content: The plan to review.
             human_feedback: Optional list of previous human feedback entries.
             on_log: Optional per-line callback for real-time streaming.
+            on_raw_artifact: Optional callback to persist full raw output.
+            on_stream_event: Optional callback for parsed stream-json events.
 
         Returns:
             LLMReview with parsed verdict, summary, suggestions, and cost_usd.
@@ -624,6 +733,8 @@ class ReviewPipeline:
             json_schema=_REVIEW_JSON_SCHEMA,
             on_log=on_log,
             on_raw_artifact=on_raw_artifact,
+            on_stream_event=on_stream_event,
+            task_id=task.id,
         )
 
         # structured_output is a dict when --json-schema was used; fall back to result
@@ -697,6 +808,8 @@ class ReviewPipeline:
         self,
         reviews: list[LLMReview],
         plan_content: str,
+        task_id: str | None = None,
+        on_stream_event: Callable[[dict], None] | None = None,
     ) -> SynthesisResult:
         """Synthesize multiple reviews into a consensus score.
 
@@ -706,6 +819,8 @@ class ReviewPipeline:
         Args:
             reviews: List of individual reviewer verdicts.
             plan_content: The original plan being reviewed.
+            task_id: Optional task ID for JSONL log file naming.
+            on_stream_event: Optional callback for parsed stream-json events.
 
         Returns:
             SynthesisResult with score and disagreements.
@@ -729,6 +844,8 @@ class ReviewPipeline:
             system_prompt="You are a review synthesis engine.",
             model="claude-sonnet-4-5",
             json_schema=_SYNTHESIS_JSON_SCHEMA,
+            on_stream_event=on_stream_event,
+            task_id=task_id,
         )
 
         # structured_output is a dict when --json-schema was used; fall back to result

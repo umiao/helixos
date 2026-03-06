@@ -278,6 +278,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
                 config=config.review_pipeline,
                 threshold=config.orchestrator.review_consensus_threshold,
                 history_writer=history_writer,
+                stream_log_dir=config.orchestrator.stream_log_dir,
             )
         else:
             logger.warning(
@@ -1331,6 +1332,13 @@ def _enqueue_review_pipeline(
                         metadata_json=json.dumps({"chars": len(content)}),
                     )
 
+            def on_review_stream_event(event_dict: dict) -> None:
+                """Emit parsed stream-json events as SSE for ConversationView."""
+                event_bus.emit(
+                    "execution_stream", task_id, event_dict,
+                    origin="review",
+                )
+
             review_state = await review_pipeline.review_task(
                 task=task,
                 plan_content=task.description,
@@ -1339,6 +1347,7 @@ def _enqueue_review_pipeline(
                 human_feedback=human_feedback,
                 on_log=on_review_log,
                 on_raw_artifact=on_review_raw_artifact,
+                on_stream_event=on_review_stream_event,
             )
 
             updated_task = task.model_copy(update={"review": review_state})

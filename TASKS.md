@@ -28,17 +28,6 @@
 ### P0 -- Must Have (core functionality)
 
 
-#### T-P0-94: Enable stream-json for review pipeline + ConversationView
-- **Priority**: P0
-- **Complexity**: M
-- **Depends on**: T-P0-92, T-P0-93
-- **Description**: Switch review_pipeline from `--output-format json` to `stream-json`. Wire `on_stream_event` callback through review_task -> _call_claude_cli. Add JSONL persistence. Emit `execution_stream` SSE events during review. T-P0-91 CONFIRMED: stream-json + --json-schema are compatible. JSON schema result appears at end in `result` event's `structured_output` field. Natural language text streams normally via `stream_event` deltas.
-- **Acceptance Criteria**:
-  1. Review execution produces JSONL stream log files with real content
-  2. SSE `execution_stream` events emitted during review
-  3. ConversationView shows real-time review progress
-  4. Review result still correctly parsed from stream output
-  5. Manual smoke test: start review -> see live updates in ConversationView
 
 #### T-P0-95: Enable stream-json for plan generation + ConversationView
 - **Priority**: P0
@@ -239,6 +228,9 @@
 ## Completed Tasks
 
 > 99 completed tasks archived to [archive/completed_tasks.md](archive/completed_tasks.md).
+
+#### [x] T-P0-94: Enable stream-json for review pipeline + ConversationView -- 2026-03-06
+- Switched `_call_claude_cli` from `--output-format json` to `stream-json --verbose`. Added `_StreamJsonBuffer` parsing, JSONL persistence (`review_stream_*.jsonl`), `on_stream_event` callback threaded through `review_task` -> `_call_reviewer` -> `_call_claude_cli` -> `_synthesize`. Wired SSE `execution_stream` emission in `api.py`. Result still correctly extracted from `result` event's `structured_output`. Added 5 new tests. 1143 tests pass, ruff clean. AC5 (manual smoke test) deferred to T-P0-97 (end-to-end verification).
 
 #### [x] T-P0-93: Harden stream-json event parser + add --verbose flag -- 2026-03-06
 - Replaced `--include-partial-messages` with `--verbose` in CLI args. Extended `_simplify_stream_event` to handle all 6 real event types: added `stream_event` (nested delta parsing), `system` init (`[INIT] model=X`), `user` (suppressed), `rate_limit_event` (suppressed). Added 8 new tests. 1138 tests pass, ruff clean. AC5/AC6 (real CLI verification) deferred to T-P0-97.

@@ -857,3 +857,10 @@
 - **Sanity check result**: 1138 tests pass, ruff clean. All 40 stream JSON tests pass.
 - **Status**: [DONE]
 - **Request**: Move T-P0-93 to Completed (REMOVE spec from In Progress, ADD summary to Completed Tasks)
+
+## 2026-03-06 10:30 -- [T-P0-94] Enable stream-json for review pipeline + ConversationView
+- **What I did**: Switched `_call_claude_cli` from `--output-format json` to `--output-format stream-json --verbose`. Imported `_StreamJsonBuffer` and `_simplify_stream_event` from code_executor. Added stream-json event parsing loop with JSONL persistence (`review_stream_*.jsonl` + `review_raw_*.log`). Threaded `on_stream_event` callback through `review_task` -> `_call_reviewer` -> `_call_claude_cli` and `_synthesize`. Added `stream_log_dir` param to `ReviewPipeline.__init__`. Wired SSE `execution_stream` event emission via `on_review_stream_event` in `api.py._enqueue_review_pipeline`. Result event captures `structured_output` correctly. Added 5 new tests covering: event callback, CLI args, multi-event parsing, None safety, JSONL file persistence.
+- **Deliverables**: `src/review_pipeline.py`, `src/api.py`, `tests/test_review_pipeline.py`
+- **Sanity check result**: 1143 tests pass, ruff clean. All 101 review pipeline tests pass.
+- **Status**: [DONE]
+- **Request**: Move T-P0-94 to Completed (REMOVE spec from Active, ADD summary to Completed Tasks)
