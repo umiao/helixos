@@ -32,7 +32,7 @@ from collections.abc import Callable
 from datetime import UTC, datetime
 from pathlib import Path
 
-from src.config import OrchestratorSettings
+from src.config import SUBPROCESS_STREAM_LIMIT, OrchestratorSettings
 from src.executors.base import BaseExecutor, ErrorType, ExecutorResult
 from src.models import Project, Task
 
@@ -399,6 +399,7 @@ class CodeExecutor(BaseExecutor):
 
         self._proc = await asyncio.create_subprocess_exec(
             *cmd,
+            limit=SUBPROCESS_STREAM_LIMIT,
             **kwargs,  # type: ignore[arg-type]
         )
 

@@ -180,3 +180,10 @@
     Step 4: THEN investigate output format, event types, field names, etc.
   - Generalized rule: When given a working reference and a broken implementation, the FIRST action is a mechanical diff between the two. Analysis of "why" comes after identifying "what's different."
   - Tags: #investigation #process #diff-first #cli #root-cause-analysis
+
+  24. Always set limit= on asyncio.create_subprocess_exec with PIPE + readline()
+  - Context: Claude CLI with --output-format stream-json can emit single JSON lines >64KB (large result events with review text, code diffs, tool output). asyncio.create_subprocess_exec defaults its internal StreamReader buffer to 64KB. When readline() encounters a line exceeding this limit, it raises LimitOverrunError (surfaced as ValueError: "Separator is found, but chunk is longer than limit"), crashing the pipeline.
+  - Root cause: Three create_subprocess_exec calls (review_pipeline.py, enrichment.py, code_executor.py) never set the limit= parameter, inheriting the 64KB default.
+  - Fix: Added SUBPROCESS_STREAM_LIMIT = 8 MiB constant to src/config.py and passed limit=SUBPROCESS_STREAM_LIMIT to all three call sites. 8 MiB is generous but memory impact is trivial (one buffer per subprocess).
+  - Rule: Any asyncio.create_subprocess_exec using PIPE + readline() must set limit= to a value larger than the maximum expected line size. The 64KB default is a landmine for LLM streaming pipelines where single JSON lines can be arbitrarily large.
+  - Tags: #asyncio #subprocess #streaming #buffer-limit #readline

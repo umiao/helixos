@@ -30,6 +30,7 @@ from typing import Literal
 
 from pydantic import BaseModel, ValidationError
 
+from src.config import SUBPROCESS_STREAM_LIMIT
 from src.executors.code_executor import (
     _LazyFileWriter,
     _simplify_stream_event,
@@ -204,6 +205,7 @@ async def enrich_task_title(
         *args,
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE,
+        limit=SUBPROCESS_STREAM_LIMIT,
     )
     timeout_seconds = timeout_minutes * 60 if timeout_minutes > 0 else None
     try:
@@ -391,6 +393,7 @@ async def generate_task_plan(
         *args,
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE,
+        limit=SUBPROCESS_STREAM_LIMIT,
     )
 
     # -- JSONL log persistence (lazy: files created on first write) --

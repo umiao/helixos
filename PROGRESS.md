@@ -885,3 +885,9 @@
 - **Sanity check result**: 1159 tests pass + 4 skipped (cli_integration), ruff clean.
 - **Status**: [DONE]
 - **Request**: Move T-P0-97 to Completed (REMOVE spec from Active, ADD summary to Completed Tasks)
+
+## 2026-03-06 14:00 -- Fix asyncio StreamReader LimitOverrunError on large CLI output
+- **What I did**: Added `SUBPROCESS_STREAM_LIMIT = 8 MiB` constant to `src/config.py` and passed `limit=SUBPROCESS_STREAM_LIMIT` to all three `asyncio.create_subprocess_exec` call sites (`review_pipeline.py`, `enrichment.py`, `code_executor.py`). This prevents `LimitOverrunError` when the Claude CLI emits single JSON lines >64KB. Added 4 regression tests verifying the limit kwarg is passed.
+- **Deliverables**: `src/config.py`, `src/review_pipeline.py`, `src/enrichment.py`, `src/executors/code_executor.py`, `tests/test_subprocess_stream_limit.py`, `LESSONS.md`
+- **Sanity check result**: 1163 tests pass + 4 skipped (cli_integration), ruff clean.
+- **Status**: [DONE]

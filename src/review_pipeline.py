@@ -21,7 +21,7 @@ from typing import Literal
 
 from pydantic import BaseModel, ValidationError
 
-from src.config import ReviewerConfig, ReviewPipelineConfig
+from src.config import SUBPROCESS_STREAM_LIMIT, ReviewerConfig, ReviewPipelineConfig
 from src.executors.code_executor import (
     _LazyFileWriter,
     _simplify_stream_event,
@@ -496,6 +496,7 @@ class ReviewPipeline:
 
         proc = await asyncio.create_subprocess_exec(
             *args,
+            limit=SUBPROCESS_STREAM_LIMIT,
             **kwargs,  # type: ignore[arg-type]
         )
 
