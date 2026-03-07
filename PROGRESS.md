@@ -1128,3 +1128,10 @@
 - **Sanity check result**: 1350 passed, 6 skipped. Vite build clean. [AUTO-VERIFIED] grep confirms remarkGfm, rehypePrism, REMARK_PLUGINS, REHYPE_PLUGINS, CODE_SIZE_LIMIT, stripLargeCodeBlockLanguages, prism-one-dark all present in source. Dependencies installed in package.json.
 - **Status**: [DONE]
 - **Request**: Move T-P2-102 to Completed
+
+## 2026-03-07 -- [T-P2-103] Tool block structured rendering
+- **What I did**: Refactored tool_use + tool_result rendering in ConversationView to display as visually connected bordered blocks. Tools default to collapsed, showing a compact summary (e.g., "Read: .../foo.py (42 lines)", "Bash: npm test (12 lines)"). Single expand/collapse per tool block reveals Input and Output sections. Added `toolSummary()` function that extracts details from common input fields (file_path, command, pattern, query, url) and appends line count from result. Orphaned tool_results also render as collapsible blocks.
+- **Deliverables**: `frontend/src/components/ConversationView.tsx` (mod)
+- **Sanity check result**: 1350 passed, 6 skipped. TypeScript clean. Vite build clean. [AUTO-VERIFIED] grep confirms toolSummary, toggleExpand, expandedTools, shortenPath all present in source. Tool_use + tool_result rendered within single bordered div. No nested accordions.
+- **Status**: [DONE]
+- **Request**: Move T-P2-103 to Completed

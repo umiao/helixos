@@ -43,22 +43,6 @@
 ### P2 -- Nice to Have
 
 
-#### T-P2-103: Tool block structured rendering
-- **Priority**: P2
-- **Complexity**: M (1-2 sessions)
-- **Depends on**: T-P2-101
-- **Description**: Render tool_use + tool_result pairs as visually connected, bordered blocks
-  in ConversationView. Each tool block shows a collapsed summary preview (e.g.,
-  "Read src/foo.py (42 lines)") that expands to show full input/output. No double-collapse
-  layers -- a single expand/collapse per tool invocation.
-- **Acceptance Criteria**:
-  1. tool_use and its matching tool_result rendered as a single bordered block (visual pairing)
-  2. Collapsed state shows tool name + summary (e.g., "Read src/foo.py", "Bash: npm test (12 lines)")
-  3. Expand/collapse toggle reveals full tool input and output content
-  4. Only one level of collapse per tool block (no nested accordions)
-  5. Unmatched tool_use or tool_result still renders gracefully (no crash, shows available data)
-  6. User journey: view conversation with 5+ tool calls -> each tool is a compact summary line, click one -> full I/O expands inline
-  7. [AUTO-VERIFIED] Build succeeds, TypeScript clean, tool pairing logic verified via grep
 
 
 ## Dependency Graph
@@ -72,7 +56,7 @@
 - T-P2-100 depends on None [DONE]
 - T-P2-101 depends on None [DONE]
 - T-P2-102 depends on T-P2-101 [DONE]
-- T-P2-103 depends on T-P2-101 [DONE]
+- T-P2-103 depends on T-P2-101 [DONE] [DONE]
 - T-P2-104 depends on None [DONE]
 
 
@@ -84,6 +68,9 @@
 ## Completed Tasks
 
 > 99 completed tasks archived to [archive/completed_tasks.md](archive/completed_tasks.md).
+
+#### [x] T-P2-103: Tool block structured rendering -- 2026-03-07
+- Refactored tool_use + tool_result into single bordered blocks with collapsed-by-default summary (tool name + input detail + line count). Single expand/collapse per block, no nested accordions. Orphaned tool_results render gracefully. 1350 pass, TS clean, Vite build clean.
 
 #### [x] T-P2-102: Markdown + code syntax highlighting via Prism -- 2026-03-07
 - Added rehype-prism-plus, remark-gfm, prism-themes to frontend. Wired remark-gfm + rehype-prism-plus into ReactMarkdown in ConversationView. Imported prism-one-dark CSS theme. Added 5KB size guard (strips language tag from large code blocks). 1350 pass, Vite build clean.

@@ -25,6 +25,70 @@ const MAX_ITEMS = 2000;
 /** Code blocks larger than this (in bytes) skip Prism highlighting. */
 const CODE_SIZE_LIMIT = 5 * 1024;
 
+/** Generate a compact summary for a tool_use block.
+ *  e.g., "Read src/foo.py", "Bash: npm test", "Edit config.ts" */
+function toolSummary(
+  toolName: string | undefined,
+  toolInput: unknown,
+  resultContent?: string,
+): string {
+  const name = toolName ?? "unknown";
+  let detail = "";
+
+  if (toolInput && typeof toolInput === "object") {
+    const inp = toolInput as Record<string, unknown>;
+    // Try common input field patterns
+    if (typeof inp.file_path === "string") {
+      detail = shortenPath(inp.file_path);
+    } else if (typeof inp.command === "string") {
+      const cmd = inp.command as string;
+      detail = cmd.length > 60 ? cmd.slice(0, 57) + "..." : cmd;
+    } else if (typeof inp.pattern === "string") {
+      detail = inp.pattern as string;
+    } else if (typeof inp.query === "string") {
+      const q = inp.query as string;
+      detail = q.length > 50 ? q.slice(0, 47) + "..." : q;
+    } else if (typeof inp.url === "string") {
+      detail = inp.url as string;
+    }
+  } else if (typeof toolInput === "string") {
+    try {
+      const parsed = JSON.parse(toolInput);
+      if (parsed && typeof parsed === "object") {
+        return toolSummary(toolName, parsed, resultContent);
+      }
+    } catch {
+      // Not JSON, use as-is
+      if (toolInput.length > 60) {
+        detail = toolInput.slice(0, 57) + "...";
+      } else {
+        detail = toolInput;
+      }
+    }
+  }
+
+  // Append line count from result if available
+  let lineInfo = "";
+  if (resultContent) {
+    const lineCount = resultContent.split("\n").length;
+    if (lineCount > 1) {
+      lineInfo = ` (${lineCount} lines)`;
+    }
+  }
+
+  if (detail) {
+    return `${name}: ${detail}${lineInfo}`;
+  }
+  return lineInfo ? `${name}${lineInfo}` : name;
+}
+
+/** Shorten a file path to just the last 2-3 segments. */
+function shortenPath(p: string): string {
+  const parts = p.replace(/\\/g, "/").split("/").filter(Boolean);
+  if (parts.length <= 3) return parts.join("/");
+  return ".../" + parts.slice(-2).join("/");
+}
+
 /** Strip language tag from fenced code blocks larger than CODE_SIZE_LIMIT
  *  so rehype-prism-plus skips them (renders as plain <pre>). */
 function stripLargeCodeBlockLanguages(md: string): string {
@@ -154,7 +218,7 @@ export default function ConversationView({
   const [autoScroll, setAutoScroll] = useState(true);
   const containerRef = useRef<HTMLDivElement>(null);
   const prevScrollTop = useRef(0);
-  const [collapsedTools, setCollapsedTools] = useState<Set<string>>(new Set());
+  const [expandedTools, setExpandedTools] = useState<Set<string>>(new Set());
 
   // Elapsed timer
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
@@ -181,7 +245,7 @@ export default function ConversationView({
     let cancelled = false;
     setLoading(true);
     setPersistedItems([]);
-    setCollapsedTools(new Set());
+    setExpandedTools(new Set());
 
     fetchStreamLog(taskId)
       .then((resp) => {
@@ -231,8 +295,8 @@ export default function ConversationView({
     prevScrollTop.current = el.scrollTop;
   }, []);
 
-  const toggleCollapse = (key: string) => {
-    setCollapsedTools((prev) => {
+  const toggleExpand = (key: string) => {
+    setExpandedTools((prev) => {
       const next = new Set(prev);
       if (next.has(key)) {
         next.delete(key);
@@ -377,44 +441,52 @@ export default function ConversationView({
 
             if (item.type === "tool_use") {
               const colors = getToolColor(item.toolName);
-              const isCollapsed = collapsedTools.has(item.key);
+              const isExpanded = expandedTools.has(item.key);
               const matchedResult = item.toolUseId ? findToolResult(item.toolUseId) : null;
+              const summary = toolSummary(item.toolName, item.toolInput, matchedResult?.resultContent);
 
               return (
-                <div key={item.key} className="pl-2">
-                  {/* Tool use badge */}
+                <div key={item.key} className={`rounded border ${colors.border} overflow-hidden ml-2`}>
+                  {/* Collapsed summary header -- always visible */}
                   <button
-                    onClick={() => toggleCollapse(item.key)}
-                    className={`flex items-center gap-1.5 px-2 py-1 rounded text-xs font-mono cursor-pointer border ${colors.bg} ${colors.text} ${colors.border} hover:opacity-80 transition-opacity`}
+                    onClick={() => toggleExpand(item.key)}
+                    className={`flex items-center gap-1.5 w-full px-2 py-1.5 text-xs font-mono cursor-pointer ${colors.bg} ${colors.text} hover:opacity-90 transition-opacity text-left`}
                   >
-                    <span className="text-xs">{isCollapsed ? "+" : "-"}</span>
-                    <span className="font-semibold">{item.toolName}</span>
+                    <span className="flex-shrink-0 text-[10px] opacity-70">{isExpanded ? "\u25BC" : "\u25B6"}</span>
+                    <span className="truncate">{summary}</span>
                   </button>
 
-                  {/* Tool input (collapsible) */}
-                  {!isCollapsed && item.toolInput && (
-                    <div className="ml-4 mt-1 bg-gray-850 rounded border border-gray-700 overflow-hidden">
-                      <pre className="p-2 text-xs text-gray-300 font-mono overflow-x-auto whitespace-pre-wrap max-h-40 overflow-y-auto bg-gray-800/50 leading-relaxed">
-                        {typeof item.toolInput === "string"
-                          ? item.toolInput.length > 2000
-                            ? item.toolInput.slice(0, 2000) + "\n... (truncated)"
-                            : item.toolInput
-                          : JSON.stringify(item.toolInput, null, 2)}
-                      </pre>
-                    </div>
-                  )}
-
-                  {/* Matched tool result (indented below) */}
-                  {!isCollapsed && matchedResult && (
-                    <div className="ml-4 mt-1 bg-gray-800/30 rounded border border-gray-700/50 overflow-hidden">
-                      <div className="px-2 py-1 bg-gray-800/50 border-b border-gray-700/50 text-xs text-gray-400 uppercase font-medium">
-                        Result
-                      </div>
-                      <pre className="p-2 text-xs text-gray-300 font-mono overflow-x-auto whitespace-pre-wrap max-h-48 overflow-y-auto leading-relaxed">
-                        {(matchedResult.resultContent ?? "").length > 3000
-                          ? (matchedResult.resultContent ?? "").slice(0, 3000) + "\n... (truncated)"
-                          : matchedResult.resultContent ?? "(empty)"}
-                      </pre>
+                  {/* Expanded: tool input + result */}
+                  {isExpanded && (
+                    <div className="border-t border-gray-700/50">
+                      {/* Tool input */}
+                      {item.toolInput && (
+                        <div className="bg-gray-800/50">
+                          <div className="px-2 py-0.5 text-[10px] text-gray-500 uppercase font-medium border-b border-gray-700/30">
+                            Input
+                          </div>
+                          <pre className="p-2 text-xs text-gray-300 font-mono overflow-x-auto whitespace-pre-wrap max-h-40 overflow-y-auto leading-relaxed">
+                            {typeof item.toolInput === "string"
+                              ? item.toolInput.length > 2000
+                                ? item.toolInput.slice(0, 2000) + "\n... (truncated)"
+                                : item.toolInput
+                              : JSON.stringify(item.toolInput, null, 2)}
+                          </pre>
+                        </div>
+                      )}
+                      {/* Matched tool result */}
+                      {matchedResult && (
+                        <div className="bg-gray-800/30">
+                          <div className="px-2 py-0.5 text-[10px] text-gray-500 uppercase font-medium border-t border-b border-gray-700/30">
+                            Output
+                          </div>
+                          <pre className="p-2 text-xs text-gray-300 font-mono overflow-x-auto whitespace-pre-wrap max-h-48 overflow-y-auto leading-relaxed">
+                            {(matchedResult.resultContent ?? "").length > 3000
+                              ? (matchedResult.resultContent ?? "").slice(0, 3000) + "\n... (truncated)"
+                              : matchedResult.resultContent ?? "(empty)"}
+                          </pre>
+                        </div>
+                      )}
                     </div>
                   )}
                 </div>
@@ -423,18 +495,28 @@ export default function ConversationView({
 
             // Orphaned tool_result (no matching tool_use)
             if (item.type === "tool_result") {
+              const lineCount = (item.resultContent ?? "").split("\n").length;
+              const orphanSummary = `Result${lineCount > 1 ? ` (${lineCount} lines)` : ""}`;
+              const isExpanded = expandedTools.has(item.key);
+
               return (
-                <div key={item.key} className="pl-6">
-                  <div className="bg-gray-800/30 rounded border border-gray-700/50 overflow-hidden">
-                    <div className="px-2 py-1 bg-gray-800/50 border-b border-gray-700/50 text-xs text-gray-400 uppercase font-medium">
-                      Result
+                <div key={item.key} className="rounded border border-gray-600 overflow-hidden ml-2">
+                  <button
+                    onClick={() => toggleExpand(item.key)}
+                    className="flex items-center gap-1.5 w-full px-2 py-1.5 text-xs font-mono cursor-pointer bg-gray-800 text-gray-400 hover:opacity-90 transition-opacity text-left"
+                  >
+                    <span className="flex-shrink-0 text-[10px] opacity-70">{isExpanded ? "\u25BC" : "\u25B6"}</span>
+                    <span className="truncate">{orphanSummary}</span>
+                  </button>
+                  {isExpanded && (
+                    <div className="border-t border-gray-700/50 bg-gray-800/30">
+                      <pre className="p-2 text-xs text-gray-300 font-mono overflow-x-auto whitespace-pre-wrap max-h-48 overflow-y-auto leading-relaxed">
+                        {(item.resultContent ?? "").length > 3000
+                          ? (item.resultContent ?? "").slice(0, 3000) + "\n... (truncated)"
+                          : item.resultContent ?? "(empty)"}
+                      </pre>
                     </div>
-                    <pre className="p-2 text-xs text-gray-300 font-mono overflow-x-auto whitespace-pre-wrap max-h-48 overflow-y-auto leading-relaxed">
-                      {(item.resultContent ?? "").length > 3000
-                        ? (item.resultContent ?? "").slice(0, 3000) + "\n... (truncated)"
-                        : item.resultContent ?? "(empty)"}
-                    </pre>
-                  </div>
+                  )}
                 </div>
               );
             }
