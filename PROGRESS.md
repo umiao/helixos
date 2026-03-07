@@ -1024,3 +1024,10 @@
 - **Sanity check result**: 1210 tests pass, 1 pre-existing failure (uvicorn LOOP_CHOICES). Ruff clean. No emoji.
 - **Status**: [DONE]
 - **Request**: Move T-P2-82 to Completed (REMOVE spec from Active, ADD summary to Completed Tasks)
+
+## 2026-03-06 -- [T-P3-83] Done column ordering investigation
+- **What I did**: Investigated random ordering in Done column. Root cause: `completed_at` was only set for `TaskStatus.DONE` transitions, not `FAILED` or `BLOCKED`. Since all three appear in the Done column and the frontend sorts by `completed_at ?? updated_at`, failed/blocked tasks sorted inconsistently. Fix: set `completed_at` on all terminal-state transitions (DONE, FAILED, BLOCKED) and clear it on backward transitions (DONE/FAILED/BLOCKED -> QUEUED). Frontend already had sort/filter UI (newest/oldest/by_task_id + sub-status filter badges).
+- **Deliverables**: `src/task_manager.py` (mod), `tests/test_task_manager.py` (mod -- 3 tests updated with completed_at assertions)
+- **Sanity check result**: 1210 tests pass, 1 pre-existing failure (uvicorn LOOP_CHOICES). Ruff clean.
+- **Status**: [DONE]
+- **Request**: Move T-P3-83 to Completed (REMOVE spec from Active, ADD summary to Completed Tasks)

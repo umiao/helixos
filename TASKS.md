@@ -36,15 +36,6 @@
 
 
 
-#### T-P3-83: Done column ordering investigation
-- **Priority**: P3
-- **Complexity**: S
-- **Depends on**: None
-- **Description**: Investigate random ordering in Done column. Add sort/filter capability.
-- **Acceptance Criteria**:
-  1. Root cause identified (missing ORDER BY or frontend sort)
-  2. Fix applied or task spec written for fix
-
 ### P1-UX -- Polish
 
 ## Dependency Graph
@@ -71,6 +62,9 @@
 ## Completed Tasks
 
 > 99 completed tasks archived to [archive/completed_tasks.md](archive/completed_tasks.md).
+
+#### [x] T-P3-83: Done column ordering fix -- 2026-03-06
+- Root cause: `completed_at` only set for DONE status, not FAILED/BLOCKED. Fixed to set on all terminal transitions and clear on backward transitions. Frontend sort/filter already existed.
 
 #### [x] T-P2-82: UX audit + smoke test enforcement -- 2026-03-06
 - Audited 34 completed UX tasks against 5 Task Planning Rules. Key finding: 0/34 tasks had manual browser smoke tests documented. Added "Smoke Test Enforcement" section (3 rules) and planning rule #6 "New-field consumer audit" to CLAUDE.md. Full audit at docs/audits/ux-task-audit.md.

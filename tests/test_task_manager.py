@@ -135,25 +135,30 @@ class TestStateMachine:
         assert updated.completed_at is not None
 
     async def test_running_to_failed(self, session_factory) -> None:
-        """RUNNING -> FAILED is valid."""
+        """RUNNING -> FAILED is valid and sets completed_at."""
         tm = TaskManager(session_factory)
         await tm.create_task(_make_task(status=TaskStatus.RUNNING))
         updated = await tm.update_status("P0:T-P0-1", TaskStatus.FAILED)
         assert updated.status == TaskStatus.FAILED
+        assert updated.completed_at is not None
 
     async def test_failed_to_queued(self, session_factory) -> None:
-        """FAILED -> QUEUED (retry) is valid."""
+        """FAILED -> QUEUED (retry) is valid and clears completed_at."""
         tm = TaskManager(session_factory)
-        await tm.create_task(_make_task(status=TaskStatus.FAILED))
-        updated = await tm.update_status("P0:T-P0-1", TaskStatus.QUEUED)
-        assert updated.status == TaskStatus.QUEUED
+        await tm.create_task(_make_task(status=TaskStatus.RUNNING))
+        failed = await tm.update_status("P0:T-P0-1", TaskStatus.FAILED)
+        assert failed.completed_at is not None
+        retried = await tm.update_status("P0:T-P0-1", TaskStatus.QUEUED)
+        assert retried.status == TaskStatus.QUEUED
+        assert retried.completed_at is None
 
     async def test_failed_to_blocked(self, session_factory) -> None:
-        """FAILED -> BLOCKED (max retries exhausted) is valid."""
+        """FAILED -> BLOCKED (max retries exhausted) is valid and sets completed_at."""
         tm = TaskManager(session_factory)
         await tm.create_task(_make_task(status=TaskStatus.FAILED))
         updated = await tm.update_status("P0:T-P0-1", TaskStatus.BLOCKED)
         assert updated.status == TaskStatus.BLOCKED
+        assert updated.completed_at is not None
 
     async def test_review_to_auto_approved(self, session_factory) -> None:
         """REVIEW -> REVIEW_AUTO_APPROVED is valid."""

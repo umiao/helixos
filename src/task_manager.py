@@ -365,7 +365,11 @@ class TaskManager:
             row.status = new_status.value
             row.updated_at = now
 
-            if new_status == TaskStatus.DONE:
+            if new_status in (
+                TaskStatus.DONE,
+                TaskStatus.FAILED,
+                TaskStatus.BLOCKED,
+            ):
                 row.completed_at = now
 
             # Initialize execution state when entering RUNNING
@@ -427,13 +431,13 @@ class TaskManager:
                 # Clear the whole execution state for clean slate
                 row.execution_json = None
 
-        # DONE -> QUEUED: clear completed_at, execution_state
-        elif current == TaskStatus.DONE and target == TaskStatus.QUEUED:
+        # DONE/FAILED/BLOCKED -> QUEUED: clear completed_at, execution_state
+        elif current in (
+            TaskStatus.DONE,
+            TaskStatus.FAILED,
+            TaskStatus.BLOCKED,
+        ) and target == TaskStatus.QUEUED:
             row.completed_at = None
-            row.execution_json = None
-
-        # FAILED -> QUEUED: clear error_summary, execution_state
-        elif current == TaskStatus.FAILED and target == TaskStatus.QUEUED:
             row.execution_json = None
 
         # QUEUED -> REVIEW: no cleanup needed (just status change)
