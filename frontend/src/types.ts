@@ -319,6 +319,15 @@ export interface StreamSummary {
   toolCallCount: number;
 }
 
+/** Response from /api/projects/{project_id}/start-all-planned endpoint. */
+export interface StartAllPlannedResponse {
+  project_id: string;
+  started: number;
+  skipped: number;
+  skipped_details: { task_id: string; reason: string; message: string }[];
+  detail: string;
+}
+
 /** Response from /api/tasks/{task_id}/stream-log endpoint. */
 export interface StreamLogResponse {
   task_id: string;

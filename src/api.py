@@ -35,7 +35,7 @@ from src.enrichment import (
 from src.env_loader import EnvLoader
 from src.events import EventBus, sse_router
 from src.history_writer import HistoryWriter
-from src.models import Project, ReviewLifecycleState, ReviewState, Task, TaskStatus
+from src.models import PlanStatus, Project, ReviewLifecycleState, ReviewState, Task, TaskStatus
 from src.port_registry import PortRegistry
 from src.process_manager import ProcessManager
 from src.process_monitor import ProcessMonitor
@@ -66,6 +66,7 @@ from src.schemas import (
     ReviewHistoryEntry,
     ReviewHistoryResponse,
     ReviewStateResponse,
+    StartAllPlannedResponse,
     StatusTransitionRequest,
     StreamLogResponse,
     SyncAllResponse,
@@ -1205,6 +1206,93 @@ async def resume_execution(
     await scheduler.resume_project(project_id)
 
     return {"detail": "Execution resumed", "project_id": project_id, "paused": False}
+
+
+# ------------------------------------------------------------------
+# Start all planned tasks
+# ------------------------------------------------------------------
+
+
+@api_router.post(
+    "/api/projects/{project_id}/start-all-planned",
+    responses={404: {"model": ErrorResponse}},
+)
+async def start_all_planned(
+    project_id: str,
+    request: Request,
+) -> StartAllPlannedResponse:
+    """Batch-move all BACKLOG tasks with plan_status=ready into the pipeline.
+
+    Review gate ON: tasks move to REVIEW (triggers review pipeline).
+    Review gate OFF: tasks move to QUEUED (scheduler picks up).
+    Uses optimistic locking (expected_updated_at) per-task for concurrent safety.
+    """
+    registry: ProjectRegistry = request.app.state.registry
+    task_manager: TaskManager = request.app.state.task_manager
+    scheduler: Scheduler = request.app.state.scheduler
+    event_bus: EventBus = request.app.state.event_bus
+    review_pipeline: ReviewPipeline | None = request.app.state.review_pipeline
+    history_writer: HistoryWriter = request.app.state.history_writer
+
+    try:
+        registry.get_project(project_id)
+    except KeyError:
+        raise HTTPException(
+            status_code=404, detail=f"Project not found: {project_id}",
+        ) from None
+
+    # Fetch all BACKLOG tasks with plan_status=ready
+    all_tasks = await task_manager.list_tasks(project_id=project_id, status=TaskStatus.BACKLOG)
+    planned_tasks = [t for t in all_tasks if t.plan_status == PlanStatus.READY]
+
+    gate_enabled = scheduler.is_review_gate_enabled(project_id)
+    target_status = TaskStatus.REVIEW if gate_enabled else TaskStatus.QUEUED
+
+    started = 0
+    skipped_details: list[dict] = []
+
+    for task in planned_tasks:
+        try:
+            updated = await task_manager.update_status(
+                task.id,
+                target_status,
+                review_gate_enabled=gate_enabled,
+                expected_updated_at=task.updated_at.isoformat(),
+            )
+            started += 1
+
+            event_bus.emit(
+                "status_change", task.id,
+                {"status": target_status.value}, origin="api",
+            )
+
+            # Enqueue review pipeline when entering REVIEW
+            if target_status == TaskStatus.REVIEW:
+                _enqueue_review_pipeline(
+                    task_manager, review_pipeline, event_bus, updated, task.id,
+                    history_writer=history_writer,
+                )
+
+        except OptimisticLockError:
+            skipped_details.append({
+                "task_id": task.id,
+                "reason": "concurrent_edit",
+                "message": f"Task {task.id} was updated by another request",
+            })
+        except (ValueError, ReviewGateBlockedError, PlanInvalidError) as exc:
+            skipped_details.append({
+                "task_id": task.id,
+                "reason": "transition_error",
+                "message": str(exc),
+            })
+
+    return StartAllPlannedResponse(
+        project_id=project_id,
+        started=started,
+        skipped=len(skipped_details),
+        skipped_details=skipped_details,
+        detail=f"Started {started} planned task(s)",
+    )
 
 
 # ------------------------------------------------------------------

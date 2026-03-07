@@ -989,3 +989,10 @@
 - **Sanity check result**: 1201 tests pass, 1 pre-existing failure (uvicorn LOOP_SETUPS). Ruff clean.
 - **Status**: [DONE]
 - **Request**: Move T-P1-77 to Completed (REMOVE spec from Active, ADD summary to Completed Tasks)
+
+## 2026-03-06 -- [T-P1-85] Replace Launch button with "Start All Planned Tasks"
+- **What I did**: Added `POST /api/projects/{project_id}/start-all-planned` endpoint that batch-moves all BACKLOG tasks with plan_status=ready into the pipeline. Gate ON -> REVIEW (triggers review pipeline), gate OFF -> QUEUED. Uses optimistic locking per-task. Created `StartAllPlanned.tsx` frontend component showing "Start N Planned" count. Replaced `LaunchControl` in `SwimLaneHeader` with `StartAllPlanned`, passing tasks prop through `SwimLane`. Deleted `LaunchControl.tsx`. Backend launch/stop endpoints kept (API-only). Added `StartAllPlannedResponse` schema. 8 new tests covering gate ON/OFF, no planned tasks, concurrent edit skip, mixed plan statuses, SSE events.
+- **Deliverables**: `src/api.py`, `src/schemas.py`, `frontend/src/components/StartAllPlanned.tsx`, `frontend/src/components/SwimLaneHeader.tsx`, `frontend/src/components/SwimLane.tsx`, `frontend/src/api.ts`, `frontend/src/types.ts`, `tests/test_start_all_planned.py`. Deleted: `frontend/src/components/LaunchControl.tsx`.
+- **Sanity check result**: 1209 tests pass, 1 pre-existing failure (uvicorn LOOP_SETUPS). Ruff clean. TypeScript clean. Vite build clean.
+- **Status**: [DONE]
+- **Request**: Move T-P1-85 to Completed (REMOVE spec from Active, ADD summary to Completed Tasks)

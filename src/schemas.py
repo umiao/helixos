@@ -445,6 +445,21 @@ class StreamLogResponse(BaseModel):
 
 
 # ------------------------------------------------------------------
+# Start-all-planned schemas
+# ------------------------------------------------------------------
+
+
+class StartAllPlannedResponse(BaseModel):
+    """Response from starting all planned tasks."""
+
+    project_id: str
+    started: int
+    skipped: int
+    skipped_details: list[dict] = Field(default_factory=list)
+    detail: str = "Start all planned tasks processed"
+
+
+# ------------------------------------------------------------------
 # Error schemas
 # ------------------------------------------------------------------
 

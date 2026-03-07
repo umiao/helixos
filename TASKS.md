@@ -81,23 +81,6 @@
   1. Root cause identified (missing ORDER BY or frontend sort)
   2. Fix applied or task spec written for fix
 
-#### T-P1-85: Replace Launch button with "Start All Planned Tasks"
-- **Priority**: P1
-- **Complexity**: M
-- **Depends on**: T-P1-84
-- **Description**: Replace dev server Launch/Stop button (LaunchControl.tsx) with a "Start N Planned" button that batch-moves all BACKLOG tasks with plan_status=ready into the pipeline. Respects review gate: gate ON -> REVIEW (triggers review pipeline), gate OFF -> QUEUED (scheduler picks up). Uses optimistic locking (expected_updated_at) per-task for concurrent safety.
-- **Acceptance Criteria**:
-  1. `POST /api/projects/{project_id}/start-all-planned` endpoint with `StartAllPlannedResponse` schema
-  2. Endpoint queries BACKLOG tasks with plan_status=ready, reads `updated_at`, passes `expected_updated_at` to `update_status()`
-  3. `OptimisticLockError` caught per-task and reported in `skipped_details`
-  4. Review gate ON: tasks move to REVIEW + review pipeline enqueued; gate OFF: tasks move to QUEUED
-  5. Frontend `StartAllPlanned.tsx` component shows "Start N Planned" (count from client-side task list), disabled when N=0, loading spinner during request
-  6. `SwimLaneHeader.tsx` uses StartAllPlanned instead of LaunchControl (tasks prop passed from parent)
-  7. `LaunchControl.tsx` deleted; backend launch/stop endpoints kept (no UI, API-only)
-  8. Tests: gate ON -> REVIEW, gate OFF -> QUEUED, no planned tasks -> started=0, concurrent request -> skipped via optimistic lock
-  9. Manual smoke test: click "Start N Planned" -> tasks move to correct column -> SSE updates UI in real-time
-
-
 ### P1-UX -- Polish
 
 ## Dependency Graph
@@ -110,7 +93,7 @@
 - T-P0-94 depends on T-P0-92, T-P0-93
 - T-P0-95 depends on T-P0-92, T-P0-93
 - T-P0-96 depends on T-P0-93
-- T-P1-85 depends on T-P1-84
+- T-P1-85 depends on T-P1-84 (complete)
 - T-P1-87 depends on T-P1-86
 - T-P1-88 depends on T-P1-86 (complete)
 - T-P2-91 depends on T-P1-89 (complete)
@@ -124,6 +107,9 @@
 ## Completed Tasks
 
 > 99 completed tasks archived to [archive/completed_tasks.md](archive/completed_tasks.md).
+
+#### [x] T-P1-85: Replace Launch button with "Start All Planned Tasks" -- 2026-03-06
+- Added `POST /api/projects/{project_id}/start-all-planned` endpoint. Batch-moves BACKLOG tasks with plan_status=ready: gate ON -> REVIEW + pipeline, gate OFF -> QUEUED. Optimistic locking per-task. Created `StartAllPlanned.tsx`, replaced LaunchControl in SwimLaneHeader, deleted `LaunchControl.tsx`. 8 new tests. 1209 pass, ruff clean, TS clean.
 
 #### [x] T-P1-77: Scheduler finalization epoch ID -- 2026-03-06
 - Added `execution_epoch_id` to TaskRow/Task model. Scheduler generates UUID epoch on dispatch, verifies before DONE/FAILED finalization. Epoch cleared on backward transitions. 11 new tests. 1201 pass, ruff clean.

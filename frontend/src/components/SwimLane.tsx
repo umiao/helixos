@@ -64,6 +64,7 @@ export default function SwimLane({
       {/* Project header bar with actions */}
       <SwimLaneHeader
         project={project}
+        tasks={tasks}
         taskCount={tasks.length}
         syncing={syncing}
         onSync={onSync}

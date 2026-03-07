@@ -1,15 +1,16 @@
 /**
- * SwimLaneHeader -- per-project action bar with Review Gate, Pause/Resume, Launch, New Task, Sync.
+ * SwimLaneHeader -- per-project action bar with Review Gate, Pause/Resume, Start All Planned, New Task, Sync.
  * Also shows warning badges for limited-mode projects (missing TASKS.md or CLAUDE.md).
  */
 
 import { useState } from "react";
 import { pauseExecution, resumeExecution, setReviewGate } from "../api";
-import type { Project } from "../types";
-import LaunchControl from "./LaunchControl";
+import type { Project, Task } from "../types";
+import StartAllPlanned from "./StartAllPlanned";
 
 interface SwimLaneHeaderProps {
   project: Project;
+  tasks: Task[];
   taskCount: number;
   syncing: boolean;
   onSync: () => void;
@@ -21,6 +22,7 @@ interface SwimLaneHeaderProps {
 
 export default function SwimLaneHeader({
   project,
+  tasks,
   taskCount,
   syncing,
   onSync,
@@ -167,7 +169,7 @@ export default function SwimLaneHeader({
       </button>
 
       {/* Action buttons */}
-      <LaunchControl projectId={project.id} onError={onError} />
+      <StartAllPlanned projectId={project.id} tasks={tasks} onError={onError} />
 
       <button
         onClick={onNewTask}

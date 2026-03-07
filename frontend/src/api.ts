@@ -13,6 +13,7 @@ import type {
   ProcessStatus,
   Project,
   ReviewHistoryResponse,
+  StartAllPlannedResponse,
   StreamLogResponse,
   SyncResult,
   Task,
@@ -290,6 +291,17 @@ export async function resumeExecution(
     { method: "POST" },
   );
   return handleResponse(res);
+}
+
+/** Start all planned (BACKLOG + plan_status=ready) tasks for a project. */
+export async function startAllPlanned(
+  projectId: string,
+): Promise<StartAllPlannedResponse> {
+  const res = await fetch(
+    `/api/projects/${encodeURIComponent(projectId)}/start-all-planned`,
+    { method: "POST" },
+  );
+  return handleResponse<StartAllPlannedResponse>(res);
 }
 
 /** Toggle the review gate for a project. */
