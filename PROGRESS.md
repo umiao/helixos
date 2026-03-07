@@ -1031,3 +1031,10 @@
 - **Sanity check result**: 1210 tests pass, 1 pre-existing failure (uvicorn LOOP_CHOICES). Ruff clean.
 - **Status**: [DONE]
 - **Request**: Move T-P3-83 to Completed (REMOVE spec from Active, ADD summary to Completed Tasks)
+
+## 2026-03-06 -- [T-P0-98] Decompose into focused tasks + plan/review architecture
+- **What I did**: Decomposed T-P0-98 (multi-concern meta-task) into 9 focused tasks: 3 P0 (auto-sync T-P0-99, stop signal T-P0-100, scheduler T-P0-101), 5 P1 (plan mode T-P1-100, plan prompt T-P1-101, review prompt T-P1-102, selective hooks T-P1-103, task generator T-P1-104), 1 P2 (log cleanup T-P2-100). Established corrected architecture: LLM output is proposal, deterministic Task Generator validates/allocates IDs, human approves before TASKS.md write. Updated dependency graph.
+- **Deliverables**: `TASKS.md` (mod -- removed T-P0-98, added 9 tasks, updated dependency graph)
+- **Sanity check result**: TASKS.md at 285 lines (under 300 limit). All tasks follow schema template with required fields.
+- **Status**: [DONE]
+- **Request**: No further TASKS.md changes needed (already applied)

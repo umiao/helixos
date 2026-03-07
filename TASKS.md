@@ -33,25 +33,162 @@
 
 
 
+#### T-P0-99: Auto-sync frontend board after drag and task completion
+- **Priority**: P0
+- **Complexity**: M (1-2 sessions)
+- **Depends on**: None
+- **Description**: Frontend board does not refresh after drag-drop or task
+  completion. Backend should emit `board_sync` SSE event on every task state
+  change; frontend listens and re-fetches board state. Drag-drop handler must
+  call sync after successful API update. This is P0 because a kanban-driven
+  agentic workflow with stale board state leads to wrong operator decisions.
+- **Acceptance Criteria**:
+  1. After dragging a task card to a new column, board reflects new state without manual refresh
+  2. After a task completes (DONE/FAILED/BLOCKED), board updates within 2s
+  3. After "Start All Planned" batch operation, board reflects all moved tasks
+  4. Manual smoke test: drag task Backlog -> Queued -> card appears immediately
 
+#### T-P0-100: Fix stop/cancel task signal propagation (20-min bar)
+- **Priority**: P0
+- **Complexity**: S (< 1 session)
+- **Depends on**: None
+- **Description**: Stop button shows "stopping" bar for up to 20 minutes.
+  Investigate cancel signal propagation: frontend -> API -> SDK session.
+  Ensure cancel terminates the SDK query and updates task state promptly.
+- **Acceptance Criteria**:
+  1. Clicking stop terminates execution within 10 seconds
+  2. Task transitions to appropriate terminal state after stop
+  3. Frontend "stopping" bar disappears after task stops
+  4. Manual smoke test: click Stop -> bar gone within 10s -> task shows stopped
 
+#### T-P0-101: Priority-based dependency-aware queue scheduling + cycle detection
+- **Priority**: P0
+- **Complexity**: S (< 1 session)
+- **Depends on**: None
+- **Description**: Scheduler should pick highest-priority task with no unmet
+  dependencies. Also add dependency graph validation: detect cycles and
+  missing task references. Without cycle detection, scheduler will deadlock.
+- **Acceptance Criteria**:
+  1. Given P0 and P2 tasks both QUEUED, scheduler picks P0 first
+  2. Given P0 task with unmet dep and P1 with no deps, scheduler picks P1
+  3. Circular dependency (A->B->A) detected and reported as error
+  4. Reference to non-existent task ID in dependency detected and reported
+  5. Test: queue 3 tasks with mixed priorities, verify dispatch order
 
-### P1-UX -- Polish
+### P1 -- Should Have (agentic intelligence)
+
+#### T-P1-100: Enable plan mode + upgrade plan model to opus 4.6
+- **Priority**: P1
+- **Complexity**: S (< 1 session)
+- **Depends on**: None
+- **Description**: Plan agent uses standard query mode (sonnet 4.5). Switch to
+  `permission_mode="plan"` (read-only: Read/Glob/Grep/LS) and upgrade model
+  to `claude-opus-4-6` for deeper architectural analysis. Plan mode prevents
+  accidental file edits during planning.
+- **Acceptance Criteria**:
+  1. `generate_task_plan()` passes `permission_mode="plan"` in QueryOptions
+  2. Model changed from `claude-sonnet-4-5` to `claude-opus-4-6`
+  3. Plan agent can Read/Glob/Grep but cannot Write/Edit
+  4. Existing plan generation tests pass with updated settings
+
+#### T-P1-101: Enrich plan prompt with project context + proposed_tasks schema
+- **Priority**: P1
+- **Complexity**: M (1-2 sessions)
+- **Depends on**: T-P1-100
+- **Description**: Plan prompt is generic. Inject: CLAUDE.md rules (relevant
+  subset), TASKS.md schema template, existing task IDs for dependency refs.
+  Extend plan JSON schema with `proposed_tasks[]` field containing title,
+  description, suggested_priority, suggested_complexity, dependencies (by
+  title or ID), and acceptance_criteria. Plan agent outputs PROPOSALS, not
+  final TASKS.md entries -- ID allocation and validation happen downstream.
+- **Acceptance Criteria**:
+  1. Plan prompt includes CLAUDE.md content (or relevant subset) as context
+  2. Plan prompt includes TASKS.md schema template and conventions
+  3. JSON schema extended with `proposed_tasks[]` (title, description,
+     suggested_priority, suggested_complexity, dependencies, ACs)
+  4. Plan output contains structured task proposals (not final IDs)
+  5. `max_tasks_per_plan = 8` enforced in schema validation
+
+#### T-P1-102: Enrich review prompt with project conventions
+- **Priority**: P1
+- **Complexity**: S (< 1 session)
+- **Depends on**: None
+- **Description**: Review prompts are generic. Inject CLAUDE.md rules (task
+  planning rules, state machine rules, smoke test enforcement) so reviewers
+  evaluate plans against actual project standards. Also upgrade review model
+  config to use opus 4.6 for both reviewers.
+- **Acceptance Criteria**:
+  1. Review system prompts include relevant CLAUDE.md sections
+  2. Reviewers check plans against task planning rules
+  3. Review model config updated to opus 4.6
+  4. Existing review tests pass with updated prompts
+
+#### T-P1-103: Selective hooks loading for plan/review agents
+- **Priority**: P1
+- **Complexity**: S (< 1 session)
+- **Depends on**: None
+- **Description**: Plan/review SDK sessions load no hooks. Add selective hook
+  loading: plan agent gets context hooks only (session_context.py); review
+  agent gets context hooks only. Execution agent keeps all hooks. Safety
+  hooks like block_dangerous.py should NOT run during planning (they may
+  interfere with read-only exploration).
+- **Acceptance Criteria**:
+  1. Plan agent session loads session_context.py hook
+  2. Review agent session loads session_context.py hook
+  3. Execution agent continues loading all hooks
+  4. block_dangerous.py does NOT run during plan/review sessions
+
+#### T-P1-104: Task Generator -- deterministic proposal-to-TASKS.md pipeline
+- **Priority**: P1
+- **Complexity**: M (1-2 sessions)
+- **Depends on**: T-P1-101
+- **Description**: After review approval, if plan contains `proposed_tasks[]`,
+  a deterministic Task Generator (NOT LLM) processes proposals:
+  1. Allocate next available T-PX-NN IDs
+  2. Resolve dependencies (validate targets exist)
+  3. Validate schema (all required fields)
+  4. Enforce max_tasks_per_plan = 8
+  5. Detect dependency cycles
+  6. Generate diff for human approval
+  7. On approval: write to TASKS.md + auto-pause pipeline
+  Human-in-the-loop is mandatory. No auto-write without approval.
+- **Acceptance Criteria**:
+  1. Task Generator is pure Python (no LLM calls)
+  2. IDs auto-allocated as next available number per priority level
+  3. Invalid dependency references rejected with error message
+  4. Circular dependencies rejected with error message
+  5. > 8 proposed tasks rejected with error message
+  6. Diff shown to user before TASKS.md write
+  7. Pipeline auto-pauses after task insertion (configurable)
+  8. Parent task status updated to reflect decomposition complete
+
+### P2 -- Nice to Have
+
+#### T-P2-100: Clean up plan log display (hide raw JSON artifacts)
+- **Priority**: P2
+- **Complexity**: S (< 1 session)
+- **Depends on**: None
+- **Description**: `[plan_cli_output]` artifacts show as unreadable JSON in
+  log view. Keep persistence for forensics but filter from plain log display.
+- **Acceptance Criteria**:
+  1. Plain log view does not show raw JSON artifact entries
+  2. Artifacts still persisted in DB for forensic access
+  3. Stream/conversation view unaffected
 
 ## Dependency Graph
 
 > Full historical dependency graph relocated to [docs/architecture/dependency-graph-history.md](docs/architecture/dependency-graph-history.md).
 
 ### Current
-- T-P0-92 depends on None (T-P0-91 complete)
-- T-P0-93 depends on None (T-P0-91 complete)
-- T-P0-94 depends on T-P0-92, T-P0-93
-- T-P0-95 depends on T-P0-92, T-P0-93
-- T-P0-96 depends on T-P0-93
-- T-P1-85 depends on T-P1-84 (complete)
-- T-P1-87 depends on T-P1-86
-- T-P1-88 depends on T-P1-86 (complete)
-- T-P2-91 depends on T-P1-89 (complete)
+- T-P0-99 depends on None
+- T-P0-100 depends on None
+- T-P0-101 depends on None
+- T-P1-100 depends on None
+- T-P1-101 depends on T-P1-100
+- T-P1-102 depends on None
+- T-P1-103 depends on None
+- T-P1-104 depends on T-P1-101
+- T-P2-100 depends on None
 
 
 ---
