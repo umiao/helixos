@@ -15,6 +15,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import type { StreamDisplayItem } from "../types";
 import { fetchStreamLog } from "../api";
+import { getToolColor } from "../utils/streamUtils";
 
 /** Max display items to keep (prevents DOM overload). */
 const MAX_ITEMS = 2000;
@@ -30,26 +31,6 @@ interface ConversationViewProps {
   liveItems: StreamDisplayItem[];
   /** Callback to toggle back to plain log view. */
   onToggleView: () => void;
-}
-
-/** Color map for tool names -- consistent colors per tool. */
-const TOOL_COLORS: Record<string, { bg: string; text: string; border: string }> = {
-  Read: { bg: "bg-blue-900/50", text: "text-blue-300", border: "border-blue-700" },
-  Write: { bg: "bg-green-900/50", text: "text-green-300", border: "border-green-700" },
-  Edit: { bg: "bg-yellow-900/50", text: "text-yellow-300", border: "border-yellow-700" },
-  Bash: { bg: "bg-orange-900/50", text: "text-orange-300", border: "border-orange-700" },
-  Glob: { bg: "bg-purple-900/50", text: "text-purple-300", border: "border-purple-700" },
-  Grep: { bg: "bg-pink-900/50", text: "text-pink-300", border: "border-pink-700" },
-  WebFetch: { bg: "bg-cyan-900/50", text: "text-cyan-300", border: "border-cyan-700" },
-  WebSearch: { bg: "bg-teal-900/50", text: "text-teal-300", border: "border-teal-700" },
-  Agent: { bg: "bg-indigo-900/50", text: "text-indigo-300", border: "border-indigo-700" },
-};
-
-const DEFAULT_TOOL_COLOR = { bg: "bg-gray-800", text: "text-gray-300", border: "border-gray-600" };
-
-function getToolColor(name?: string) {
-  if (!name) return DEFAULT_TOOL_COLOR;
-  return TOOL_COLORS[name] ?? DEFAULT_TOOL_COLOR;
 }
 
 /** Parse raw stream events into normalized display items. */

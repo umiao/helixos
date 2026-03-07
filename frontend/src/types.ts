@@ -255,6 +255,8 @@ export interface ReviewHistoryEntry {
   plan_snapshot: string | null;
   lifecycle_state: ReviewLifecycleState;
   timestamp: string;
+  conversation_turns: Record<string, unknown>[];
+  conversation_summary: Record<string, unknown>;
 }
 
 /** Paginated review history response. */

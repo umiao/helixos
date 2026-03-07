@@ -961,3 +961,10 @@
 - **Sanity check result**: `pytest tests/test_smoke.py` passes (5/5). Full suite: 1171 passed, 1 pre-existing failure (unrelated uvicorn LOOP_SETUPS). Ruff clean.
 - **Status**: [DONE]
 - **Request**: Move T-P1-98 to Completed (REMOVE spec from Active, ADD summary to Completed Tasks)
+
+## 2026-03-06 -- [T-P2-99] Expose review conversation_turns in API + ReviewPanel
+- **What I did**: Added `conversation_turns_json` and `conversation_summary_json` nullable TEXT columns to `ReviewHistoryRow` (auto-migrated by `init_db()`). Updated `write_review()` to serialize and `get_reviews()` to deserialize conversation data. Added fields to `ReviewHistoryEntry` schema (Python + TypeScript). Extracted `TOOL_COLORS`/`getToolColor` from `ConversationView.tsx` to `frontend/src/utils/streamUtils.ts` shared module. Added collapsible "Conversation (N turns)" section to `ReviewPanel.tsx` with tool-action badges. 4 new tests in `test_history_writer.py`.
+- **Deliverables**: `src/db.py`, `src/history_writer.py`, `src/schemas.py`, `frontend/src/types.ts`, `frontend/src/utils/streamUtils.ts` (new), `frontend/src/components/ConversationView.tsx`, `frontend/src/components/ReviewPanel.tsx`, `tests/test_history_writer.py`
+- **Sanity check result**: 1175 tests pass, 1 pre-existing failure (uvicorn LOOP_SETUPS). TypeScript clean. Vite build clean. Ruff clean.
+- **Status**: [DONE]
+- **Request**: Move T-P2-99 to Completed (REMOVE spec from Active, ADD summary to Completed Tasks)

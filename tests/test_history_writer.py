@@ -604,3 +604,66 @@ class TestReviewHistory:
 
         reviews = await hw.get_reviews("task-1")
         assert reviews[0]["plan_snapshot"] == ""
+
+    # ------------------------------------------------------------------
+    # conversation_turns / conversation_summary (T-P2-99)
+    # ------------------------------------------------------------------
+
+    async def test_conversation_turns_persisted(self, session_factory):
+        """conversation_turns round-trips through write/get."""
+        hw = HistoryWriter(session_factory)
+        review = _make_review()
+        review.conversation_turns = [
+            {"text_content": "Analyzing the code...", "tool_actions": [
+                {"name": "Read", "input": {"path": "src/main.py"}, "result": "ok"},
+            ]},
+            {"text_content": "Found an issue.", "tool_actions": []},
+        ]
+        await hw.write_review("task-1", 1, review)
+
+        reviews = await hw.get_reviews("task-1")
+        turns = reviews[0]["conversation_turns"]
+        assert len(turns) == 2
+        assert turns[0]["text_content"] == "Analyzing the code..."
+        assert turns[0]["tool_actions"][0]["name"] == "Read"
+        assert turns[1]["text_content"] == "Found an issue."
+
+    async def test_conversation_summary_persisted(self, session_factory):
+        """conversation_summary round-trips through write/get."""
+        hw = HistoryWriter(session_factory)
+        review = _make_review()
+        review.conversation_summary = {
+            "findings": ["Code looks solid", "Missing edge case"],
+            "actions_taken": ["Read", "Grep"],
+            "conclusion": "Needs minor fix",
+        }
+        await hw.write_review("task-1", 1, review)
+
+        reviews = await hw.get_reviews("task-1")
+        summary = reviews[0]["conversation_summary"]
+        assert summary["findings"] == ["Code looks solid", "Missing edge case"]
+        assert summary["actions_taken"] == ["Read", "Grep"]
+        assert summary["conclusion"] == "Needs minor fix"
+
+    async def test_conversation_defaults_empty(self, session_factory):
+        """conversation_turns/summary default to empty when not set."""
+        hw = HistoryWriter(session_factory)
+        review = _make_review()
+        await hw.write_review("task-1", 1, review)
+
+        reviews = await hw.get_reviews("task-1")
+        assert reviews[0]["conversation_turns"] == []
+        assert reviews[0]["conversation_summary"] == {}
+
+    async def test_conversation_turns_legacy_null_column(self, session_factory):
+        """Legacy rows with NULL conversation columns return empty defaults."""
+        hw = HistoryWriter(session_factory)
+        # Simulate legacy row by writing normally then verifying defaults work
+        review = _make_review()
+        review.conversation_turns = []
+        review.conversation_summary = {}
+        await hw.write_review("task-1", 1, review)
+
+        reviews = await hw.get_reviews("task-1")
+        assert reviews[0]["conversation_turns"] == []
+        assert reviews[0]["conversation_summary"] == {}

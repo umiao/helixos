@@ -417,6 +417,8 @@ class ReviewHistoryEntry(BaseModel):
     plan_snapshot: str | None = None
     lifecycle_state: str = ReviewLifecycleState.NOT_STARTED
     timestamp: str
+    conversation_turns: list[dict] = Field(default_factory=list)
+    conversation_summary: dict = Field(default_factory=dict)
 
 
 class ReviewHistoryResponse(BaseModel):

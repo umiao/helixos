@@ -31,6 +31,7 @@ import {
 } from "../api";
 import PlanDiffView from "./PlanDiffView";
 import MarkdownRenderer from "./MarkdownRenderer";
+import { getToolColor } from "../utils/streamUtils";
 
 type DecisionType = "approve" | "reject" | "request_changes";
 
@@ -72,6 +73,7 @@ export default function ReviewPanel({
   );
   const [historyLoading, setHistoryLoading] = useState(false);
   const [expandedRaw, setExpandedRaw] = useState<Record<number, boolean>>({});
+  const [expandedConvo, setExpandedConvo] = useState<Record<number, boolean>>({});
   const [planExpanded, setPlanExpanded] = useState(true);
 
   // Inline plan editor state
@@ -114,6 +116,10 @@ export default function ReviewPanel({
     setExpandedRaw((prev) => ({ ...prev, [entryId]: !prev[entryId] }));
   }, []);
 
+  const toggleConversation = useCallback((entryId: number) => {
+    setExpandedConvo((prev) => ({ ...prev, [entryId]: !prev[entryId] }));
+  }, []);
+
   // Fetch review history when task changes
   useEffect(() => {
     if (!task) {
@@ -121,11 +127,13 @@ export default function ReviewPanel({
       setReason("");
       setSelectedDecision(null);
       setExpandedRaw({});
+      setExpandedConvo({});
       setEditing(false);
       setGenerating(false);
       return;
     }
     setExpandedRaw({});
+    setExpandedConvo({});
     setSelectedDecision(null);
     setReason("");
     setEditing(false);
@@ -519,6 +527,61 @@ export default function ReviewPanel({
             <p className="text-[10px] text-gray-500 mt-0.5 italic">
               {entry.human_reason}
             </p>
+          )}
+        </div>
+      )}
+
+      {/* Collapsible conversation section -- hidden when empty/legacy */}
+      {entry.conversation_turns && entry.conversation_turns.length > 0 && (
+        <div className="mt-1.5 pt-1.5 border-t border-gray-200">
+          <button
+            onClick={() => toggleConversation(entry.id)}
+            className="text-[10px] text-gray-400 hover:text-gray-600 transition-colors flex items-center gap-1"
+          >
+            <span className="inline-block transition-transform" style={{
+              transform: expandedConvo[entry.id] ? "rotate(90deg)" : "rotate(0deg)",
+            }}>
+              &#9654;
+            </span>
+            Conversation ({entry.conversation_turns.length} turn{entry.conversation_turns.length !== 1 ? "s" : ""})
+          </button>
+          {expandedConvo[entry.id] && (
+            <div className="mt-1.5 space-y-1.5 max-h-64 overflow-y-auto">
+              {entry.conversation_turns.map((turn, idx) => {
+                const turnObj = turn as Record<string, unknown>;
+                const textContent = (turnObj.text_content as string) ?? "";
+                const toolActions = (turnObj.tool_actions as Record<string, unknown>[]) ?? [];
+                return (
+                  <div key={idx} className="rounded bg-gray-100 p-1.5">
+                    {/* Assistant text */}
+                    {textContent.trim() && (
+                      <p className="text-xs text-gray-700 whitespace-pre-wrap leading-relaxed">
+                        {textContent.length > 500
+                          ? textContent.slice(0, 500) + "..."
+                          : textContent}
+                      </p>
+                    )}
+                    {/* Tool actions as compact badges */}
+                    {toolActions.length > 0 && (
+                      <div className="flex flex-wrap gap-1 mt-1">
+                        {toolActions.map((action, ai) => {
+                          const toolName = (action.name as string) ?? "tool";
+                          const color = getToolColor(toolName);
+                          return (
+                            <span
+                              key={ai}
+                              className={`inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium border ${color.bg} ${color.text} ${color.border}`}
+                            >
+                              {toolName}
+                            </span>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
           )}
         </div>
       )}

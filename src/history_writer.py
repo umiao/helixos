@@ -234,6 +234,12 @@ class HistoryWriter:
                 plan_snapshot=plan_snapshot,
                 lifecycle_state=lifecycle_state.value,
                 timestamp=review.timestamp.isoformat(),
+                conversation_turns_json=json.dumps(
+                    getattr(review, "conversation_turns", []) or [],
+                ),
+                conversation_summary_json=json.dumps(
+                    getattr(review, "conversation_summary", {}) or {},
+                ),
             )
             session.add(row)
 
@@ -311,6 +317,12 @@ class HistoryWriter:
                         r, "lifecycle_state", ReviewLifecycleState.NOT_STARTED,
                     ),
                     "timestamp": r.timestamp,
+                    "conversation_turns": json.loads(
+                        getattr(r, "conversation_turns_json", None) or "[]",
+                    ),
+                    "conversation_summary": json.loads(
+                        getattr(r, "conversation_summary_json", None) or "{}",
+                    ),
                 }
                 for r in rows
             ]

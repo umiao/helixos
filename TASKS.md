@@ -128,21 +128,6 @@
   9. Manual smoke test: click "Start N Planned" -> tasks move to correct column -> SSE updates UI in real-time
 
 
-#### T-P2-99: Expose review conversation_turns in API + ReviewPanel
-- **Priority**: P2
-- **Complexity**: M (1-2 sessions)
-- **Depends on**: None
-- **Description**: LLMReview.conversation_turns and conversation_summary are populated by review_pipeline.py (lines 657-662) but not serialized to API responses. ReviewHistoryEntry schema (schemas.py:400) lacks these fields. Add them to the schema and display in ReviewPanel.tsx. Reuse ConversationView's rendering logic (extract shared rendering functions rather than duplicating the component, since execution streams and review conversations have different data structures -- reviews lack streaming/live SSE).
-- **Acceptance Criteria**:
-  1. ReviewHistoryEntry schema adds `conversation_turns: list[dict] = []` and `conversation_summary: dict = {}` (with Field defaults)
-  2. DB migration adds nullable JSON columns (`conversation_turns`, `conversation_summary`) to review history table. Existing rows unaffected (NULL = empty). Uses the `init_db()` ALTER TABLE pattern for backward-compatible schema evolution.
-  3. `history_writer.py:write_review_history()` persists conversation_turns and conversation_summary to DB
-  4. API `GET /api/tasks/{task_id}/reviews` returns conversation data in response entries
-  5. Integration test: write a review with conversation_turns -> GET reviews -> assert conversation_turns field present and structurally correct in response
-  6. ReviewPanel.tsx shows collapsible "Conversation" section per review entry. Extract shared rendering functions (tool badge colors from TOOL_COLORS, markdown rendering) from ConversationView.tsx into a shared util rather than duplicating the full component
-  7. When conversation_turns is empty (legacy reviews), conversation section hidden
-  8. Manual smoke test: trigger a review -> expand conversation section in ReviewPanel -> see tool calls and assistant text from review session
-
 ### P1-UX -- Polish
 
 ## Dependency Graph
@@ -169,6 +154,9 @@
 ## Completed Tasks
 
 > 99 completed tasks archived to [archive/completed_tasks.md](archive/completed_tasks.md).
+
+#### [x] T-P2-99: Expose review conversation_turns in API + ReviewPanel -- 2026-03-06
+- Added `conversation_turns_json`/`conversation_summary_json` columns to ReviewHistoryRow (auto-migrated). Updated write/get in history_writer. Added to ReviewHistoryEntry schema (Python + TS). Extracted TOOL_COLORS to shared `streamUtils.ts`. Added collapsible conversation section to ReviewPanel. 4 new tests. 1175 pass, ruff clean.
 
 #### [x] T-P1-98: Add claude-agent-sdk to dependency smoke test -- 2026-03-06
 - Added `claude_agent_sdk`, `ruamel.yaml`, `filelock` to `test_core_dependencies_importable()`. Synced `pyproject.toml` dependencies with `requirements.txt` (added 3 missing packages). Documented dependency source-of-truth convention in CLAUDE.md. 1171 tests pass, ruff clean.
