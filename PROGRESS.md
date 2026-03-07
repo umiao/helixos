@@ -947,3 +947,10 @@
 - **Sanity check result**: 1211 tests pass + 4 skipped. Ruff clean.
 - **Status**: [DONE]
 - **Request**: Move T-P2-91 to Completed (REMOVE spec from Active, ADD summary to Completed Tasks)
+
+## 2026-03-06 -- [TASKS.md] Add T-P1-98 and T-P2-99 task specs
+- **What I did**: Added two new tasks to TASKS.md: T-P1-98 (add claude-agent-sdk to dependency smoke test) and T-P2-99 (expose review conversation_turns in API + ReviewPanel). Both identified during T-P1-85 investigation. No dependencies on other tasks.
+- **Deliverables**: TASKS.md updated (235 lines, under 300 limit)
+- **Sanity check result**: Task IDs 98/99 don't conflict (highest was 97). Line count within bounds.
+- **Status**: [DONE]
+- **Request**: No change (tasks added to Active, nothing to move)
