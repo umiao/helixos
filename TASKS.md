@@ -42,20 +42,6 @@
 
 ### P2 -- Nice to Have
 
-#### T-P2-101: Typography + contrast improvements for log display
-- **Priority**: P2
-- **Complexity**: S (< 1 session)
-- **Depends on**: None
-- **Description**: Log display (ConversationView + ExecutionLog) uses tiny fonts (10-12px)
-  with poor contrast, making logs hard to read. Bump font sizes to readable defaults,
-  improve text/background contrast ratios, and normalize badge sizes for consistency.
-- **Acceptance Criteria**:
-  1. ConversationView body text >= 14px, tool badge text >= 12px
-  2. All text meets WCAG AA contrast ratio (4.5:1 for normal text, 3:1 for large text)
-  3. ExecutionLog message text >= 13px with consistent line-height
-  4. Badge/pill sizes normalized (no mixed 10px/12px within same view)
-  5. User journey: open a task with execution logs -> text is comfortably readable without zooming
-  6. [AUTO-VERIFIED] Build succeeds, TypeScript clean, visual grep confirms font-size values
 
 #### T-P2-102: Markdown + code syntax highlighting via Prism
 - **Priority**: P2
@@ -115,9 +101,9 @@
 - T-P1-103 depends on None [DONE]
 - T-P1-104 depends on T-P1-101 [DONE] [DONE]
 - T-P2-100 depends on None [DONE]
-- T-P2-101 depends on None
-- T-P2-102 depends on T-P2-101
-- T-P2-103 depends on T-P2-101
+- T-P2-101 depends on None [DONE]
+- T-P2-102 depends on T-P2-101 [DONE]
+- T-P2-103 depends on T-P2-101 [DONE]
 - T-P2-104 depends on None
 
 
@@ -129,6 +115,9 @@
 ## Completed Tasks
 
 > 99 completed tasks archived to [archive/completed_tasks.md](archive/completed_tasks.md).
+
+#### [x] T-P2-101: Typography + contrast improvements for log display -- 2026-03-07
+- ConversationView body text bumped to 14px (`text-sm`), headings scaled up. ExecutionLog message text bumped to 13px. All badges normalized to 12px (`text-xs`). Contrast improved across both components. 1350 pass, ruff clean, TS clean.
 
 #### [x] T-P2-100: Clean up plan log display (hide raw JSON artifacts) -- 2026-03-07
 - Excluded `level='artifact'` entries from `get_logs()`/`count_logs()` by default. Added `include_artifacts` param to both methods + API endpoint. Artifacts still persisted in DB for forensic access. 5 new tests. 1312 pass, ruff clean.

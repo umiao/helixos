@@ -301,14 +301,14 @@ export default function ConversationView({
             if (item.type === "text") {
               return (
                 <div key={item.key} className="flex justify-start">
-                  <div className="max-w-[85%] bg-gray-800 rounded-lg px-3 py-2 text-xs text-gray-200 leading-relaxed border border-gray-700">
+                  <div className="max-w-[85%] bg-gray-800 rounded-lg px-3 py-2 text-sm text-gray-200 leading-relaxed border border-gray-700">
                     <div className="prose-conversation">
                       <ReactMarkdown
                         components={{
                           p: ({ children }) => <p className="text-gray-200 mb-1.5 last:mb-0">{children}</p>,
-                          h1: ({ children }) => <h1 className="font-bold text-gray-100 mb-1 mt-1.5 text-sm">{children}</h1>,
-                          h2: ({ children }) => <h2 className="font-bold text-gray-100 mb-1 mt-1.5 text-xs">{children}</h2>,
-                          h3: ({ children }) => <h3 className="font-semibold text-gray-200 mb-1 mt-1 text-xs">{children}</h3>,
+                          h1: ({ children }) => <h1 className="font-bold text-gray-100 mb-1 mt-1.5 text-base">{children}</h1>,
+                          h2: ({ children }) => <h2 className="font-bold text-gray-100 mb-1 mt-1.5 text-sm">{children}</h2>,
+                          h3: ({ children }) => <h3 className="font-semibold text-gray-200 mb-1 mt-1 text-sm">{children}</h3>,
                           ul: ({ children }) => <ul className="list-disc list-inside text-gray-300 mb-1.5 space-y-0.5 pl-1">{children}</ul>,
                           ol: ({ children }) => <ol className="list-decimal list-inside text-gray-300 mb-1.5 space-y-0.5 pl-1">{children}</ol>,
                           li: ({ children }) => <li className="text-gray-300">{children}</li>,
@@ -365,14 +365,14 @@ export default function ConversationView({
                     onClick={() => toggleCollapse(item.key)}
                     className={`flex items-center gap-1.5 px-2 py-1 rounded text-xs font-mono cursor-pointer border ${colors.bg} ${colors.text} ${colors.border} hover:opacity-80 transition-opacity`}
                   >
-                    <span className="text-[10px]">{isCollapsed ? "+" : "-"}</span>
+                    <span className="text-xs">{isCollapsed ? "+" : "-"}</span>
                     <span className="font-semibold">{item.toolName}</span>
                   </button>
 
                   {/* Tool input (collapsible) */}
                   {!isCollapsed && item.toolInput && (
                     <div className="ml-4 mt-1 bg-gray-850 rounded border border-gray-700 overflow-hidden">
-                      <pre className="p-2 text-[10px] text-gray-400 font-mono overflow-x-auto whitespace-pre-wrap max-h-40 overflow-y-auto bg-gray-800/50">
+                      <pre className="p-2 text-xs text-gray-300 font-mono overflow-x-auto whitespace-pre-wrap max-h-40 overflow-y-auto bg-gray-800/50 leading-relaxed">
                         {typeof item.toolInput === "string"
                           ? item.toolInput.length > 2000
                             ? item.toolInput.slice(0, 2000) + "\n... (truncated)"
@@ -385,10 +385,10 @@ export default function ConversationView({
                   {/* Matched tool result (indented below) */}
                   {!isCollapsed && matchedResult && (
                     <div className="ml-4 mt-1 bg-gray-800/30 rounded border border-gray-700/50 overflow-hidden">
-                      <div className="px-2 py-1 bg-gray-800/50 border-b border-gray-700/50 text-[10px] text-gray-500 uppercase font-medium">
+                      <div className="px-2 py-1 bg-gray-800/50 border-b border-gray-700/50 text-xs text-gray-400 uppercase font-medium">
                         Result
                       </div>
-                      <pre className="p-2 text-[10px] text-gray-400 font-mono overflow-x-auto whitespace-pre-wrap max-h-48 overflow-y-auto">
+                      <pre className="p-2 text-xs text-gray-300 font-mono overflow-x-auto whitespace-pre-wrap max-h-48 overflow-y-auto leading-relaxed">
                         {(matchedResult.resultContent ?? "").length > 3000
                           ? (matchedResult.resultContent ?? "").slice(0, 3000) + "\n... (truncated)"
                           : matchedResult.resultContent ?? "(empty)"}
@@ -404,10 +404,10 @@ export default function ConversationView({
               return (
                 <div key={item.key} className="pl-6">
                   <div className="bg-gray-800/30 rounded border border-gray-700/50 overflow-hidden">
-                    <div className="px-2 py-1 bg-gray-800/50 border-b border-gray-700/50 text-[10px] text-gray-500 uppercase font-medium">
+                    <div className="px-2 py-1 bg-gray-800/50 border-b border-gray-700/50 text-xs text-gray-400 uppercase font-medium">
                       Result
                     </div>
-                    <pre className="p-2 text-[10px] text-gray-400 font-mono overflow-x-auto whitespace-pre-wrap max-h-48 overflow-y-auto">
+                    <pre className="p-2 text-xs text-gray-300 font-mono overflow-x-auto whitespace-pre-wrap max-h-48 overflow-y-auto leading-relaxed">
                       {(item.resultContent ?? "").length > 3000
                         ? (item.resultContent ?? "").slice(0, 3000) + "\n... (truncated)"
                         : item.resultContent ?? "(empty)"}

@@ -1107,3 +1107,10 @@
 - **Deliverables**: `tests/test_windows_asyncio.py` (mod -- 3 test fixes)
 - **Sanity check result**: 1350 passed, 6 skipped (full suite). Ruff clean.
 - **Status**: [DONE]
+
+## 2026-03-07 -- [T-P2-101] Typography + contrast improvements for log display
+- **What I did**: Improved readability of ConversationView and ExecutionLog components. ConversationView body text bumped from `text-xs` (12px) to `text-sm` (14px), headings scaled up. ExecutionLog message text bumped to `text-[13px]` with consistent `leading-relaxed`. All `text-[10px]` badges/labels in both components normalized to `text-xs` (12px). Improved contrast: tool input/output text from gray-400 to gray-300, timestamps from gray-500 to gray-400, debug level text from gray-500 to gray-400.
+- **Deliverables**: `frontend/src/components/ConversationView.tsx` (mod), `frontend/src/components/ExecutionLog.tsx` (mod)
+- **Sanity check result**: 1350 passed, 6 skipped. Ruff clean. TypeScript clean. Vite build clean. [AUTO-VERIFIED] grep confirms no text-[10px] in either component, body text-sm (14px), log text-[13px].
+- **Status**: [DONE]
+- **Request**: Move T-P2-101 to Completed

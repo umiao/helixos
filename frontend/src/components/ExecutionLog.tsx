@@ -226,7 +226,7 @@ export default function ExecutionLog({
       case "warn":
         return "text-yellow-400";
       case "debug":
-        return "text-gray-500";
+        return "text-gray-400";
       default:
         return "text-gray-200";
     }
@@ -318,7 +318,7 @@ export default function ExecutionLog({
       <div
         ref={containerRef}
         onScroll={handleScroll}
-        className="flex-1 overflow-y-auto p-2 font-mono text-xs leading-relaxed"
+        className="flex-1 overflow-y-auto p-2 font-mono text-[13px] leading-relaxed"
       >
         {displayEntries.length === 0 ? (
           <p className="text-gray-500 text-center py-4">
@@ -332,26 +332,26 @@ export default function ExecutionLog({
               key={entry.key}
               className="flex gap-2 py-0.5 hover:bg-gray-800"
             >
-              <span className="text-gray-500 whitespace-nowrap shrink-0">
+              <span className="text-gray-400 whitespace-nowrap shrink-0">
                 {formatTime(entry.timestamp)}
               </span>
               {entry.source === "review" && (
                 <span
-                  className="px-1 rounded text-[10px] uppercase font-medium shrink-0 bg-purple-900 text-purple-300"
+                  className="px-1 rounded text-xs uppercase font-medium shrink-0 bg-purple-900 text-purple-300"
                 >
                   review
                 </span>
               )}
               {entry.source === "plan" && (
                 <span
-                  className="px-1 rounded text-[10px] uppercase font-medium shrink-0 bg-violet-900 text-violet-300"
+                  className="px-1 rounded text-xs uppercase font-medium shrink-0 bg-violet-900 text-violet-300"
                 >
                   plan
                 </span>
               )}
               {entry.level && (
                 <span
-                  className={`px-1 rounded text-[10px] uppercase font-medium shrink-0 ${levelBadgeClass(entry.level)}`}
+                  className={`px-1 rounded text-xs uppercase font-medium shrink-0 ${levelBadgeClass(entry.level)}`}
                 >
                   {entry.level}
                 </span>
