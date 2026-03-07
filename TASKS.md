@@ -76,21 +76,6 @@
   6. User journey: view conversation with 5+ tool calls -> each tool is a compact summary line, click one -> full I/O expands inline
   7. [AUTO-VERIFIED] Build succeeds, TypeScript clean, tool pairing logic verified via grep
 
-#### T-P2-104: ExecutionLog filter UX improvement
-- **Priority**: P2
-- **Complexity**: S (< 1 session)
-- **Depends on**: None
-- **Description**: Replace the level filter dropdown in ExecutionLog with a segmented control
-  or toggle chips for the most common log levels (INFO, WARN, ERROR). Keep a "More" dropdown
-  or overflow menu for less common levels to maintain extensibility.
-- **Acceptance Criteria**:
-  1. Common levels (INFO, WARN, ERROR) rendered as toggle chips or segmented control (not dropdown)
-  2. Clicking a chip toggles that level on/off (multi-select, not single-select)
-  3. Less common levels accessible via "More" dropdown or overflow
-  4. Active filter state visually distinct (e.g., filled vs outlined chip)
-  5. Filter state persists during the session (not reset on re-render)
-  6. User journey: open ExecutionLog -> click ERROR chip -> only error entries shown -> click WARN chip -> both ERROR and WARN entries shown
-  7. [AUTO-VERIFIED] Build succeeds, TypeScript clean, chip/segmented control component present in source
 
 ## Dependency Graph
 
@@ -104,7 +89,7 @@
 - T-P2-101 depends on None [DONE]
 - T-P2-102 depends on T-P2-101 [DONE]
 - T-P2-103 depends on T-P2-101 [DONE]
-- T-P2-104 depends on None
+- T-P2-104 depends on None [DONE]
 
 
 ---
@@ -115,6 +100,9 @@
 ## Completed Tasks
 
 > 99 completed tasks archived to [archive/completed_tasks.md](archive/completed_tasks.md).
+
+#### [x] T-P2-104: ExecutionLog filter UX improvement -- 2026-03-07
+- Replaced level filter dropdown with multi-select toggle chips (ERROR, WARN, INFO) + "More" dropdown (DEBUG). Active chips show colored ring. Clear button resets filters. 1350 pass, TS clean, Vite build clean.
 
 #### [x] T-P2-101: Typography + contrast improvements for log display -- 2026-03-07
 - ConversationView body text bumped to 14px (`text-sm`), headings scaled up. ExecutionLog message text bumped to 13px. All badges normalized to 12px (`text-xs`). Contrast improved across both components. 1350 pass, ruff clean, TS clean.

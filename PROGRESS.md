@@ -1114,3 +1114,10 @@
 - **Sanity check result**: 1350 passed, 6 skipped. Ruff clean. TypeScript clean. Vite build clean. [AUTO-VERIFIED] grep confirms no text-[10px] in either component, body text-sm (14px), log text-[13px].
 - **Status**: [DONE]
 - **Request**: Move T-P2-101 to Completed
+
+## 2026-03-07 -- [T-P2-104] ExecutionLog filter UX improvement
+- **What I did**: Replaced the single-select level filter dropdown in ExecutionLog with multi-select toggle chips for common levels (ERROR, WARN, INFO) and a "More" dropdown for less common levels (DEBUG). Active chips show colored ring + background matching level severity. A "Clear" button appears when filters are active. Filter state persists during session (React state). Outside-click closes the More dropdown.
+- **Deliverables**: `frontend/src/components/ExecutionLog.tsx` (mod)
+- **Sanity check result**: 1350 passed, 6 skipped. TypeScript clean. Vite build clean. [AUTO-VERIFIED] grep confirms chipClass, COMMON_LEVELS, MORE_LEVELS, toggleLevel, filterLevels all present in source. No old single-select filterLevel references remain.
+- **Status**: [DONE]
+- **Request**: Move T-P2-104 to Completed

@@ -51,8 +51,10 @@ export default function ExecutionLog({
   executionStartedAt,
 }: ExecutionLogProps) {
   const [filterTaskId, setFilterTaskId] = useState("");
-  const [filterLevel, setFilterLevel] = useState("");
+  const [filterLevels, setFilterLevels] = useState<Set<string>>(new Set());
+  const [showMoreLevels, setShowMoreLevels] = useState(false);
   const [autoScroll, setAutoScroll] = useState(true);
+  const moreDropdownRef = useRef<HTMLDivElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const prevScrollTop = useRef(0);
 
@@ -179,10 +181,10 @@ export default function ExecutionLog({
     }));
   }
 
-  // Apply level filter in task-focused mode
-  if (filterLevel && selectedTaskId) {
+  // Apply level filter in task-focused mode (multi-select: empty set = show all)
+  if (filterLevels.size > 0 && selectedTaskId) {
     displayEntries = displayEntries.filter(
-      (e) => !e.level || e.level.toLowerCase() === filterLevel.toLowerCase(),
+      (e) => !e.level || filterLevels.has(e.level.toLowerCase()),
     );
   }
 
@@ -232,6 +234,53 @@ export default function ExecutionLog({
     }
   };
 
+  const toggleLevel = useCallback((level: string) => {
+    setFilterLevels((prev) => {
+      const next = new Set(prev);
+      if (next.has(level)) {
+        next.delete(level);
+      } else {
+        next.add(level);
+      }
+      return next;
+    });
+  }, []);
+
+  // Close "More" dropdown on outside click
+  useEffect(() => {
+    if (!showMoreLevels) return;
+    const handleClick = (e: MouseEvent) => {
+      if (
+        moreDropdownRef.current &&
+        !moreDropdownRef.current.contains(e.target as Node)
+      ) {
+        setShowMoreLevels(false);
+      }
+    };
+    document.addEventListener("mousedown", handleClick);
+    return () => document.removeEventListener("mousedown", handleClick);
+  }, [showMoreLevels]);
+
+  const COMMON_LEVELS = ["error", "warn", "info"] as const;
+  const MORE_LEVELS = ["debug"] as const;
+
+  const chipClass = (level: string, active: boolean) => {
+    const base = "px-2 py-0.5 rounded text-xs font-medium cursor-pointer select-none transition-colors";
+    if (!active) return `${base} bg-gray-700 text-gray-400 hover:bg-gray-600`;
+    switch (level) {
+      case "error":
+        return `${base} bg-red-900 text-red-300 ring-1 ring-red-700`;
+      case "warn":
+        return `${base} bg-yellow-900 text-yellow-300 ring-1 ring-yellow-700`;
+      case "info":
+        return `${base} bg-blue-900 text-blue-300 ring-1 ring-blue-700`;
+      case "debug":
+        return `${base} bg-gray-600 text-gray-300 ring-1 ring-gray-500`;
+      default:
+        return `${base} bg-gray-600 text-gray-300 ring-1 ring-gray-500`;
+    }
+  };
+
   const levelBadgeClass = (level: string) => {
     switch (level.toLowerCase()) {
       case "error":
@@ -271,17 +320,56 @@ export default function ExecutionLog({
         </div>
         <div className="flex items-center gap-2">
           {selectedTaskId ? (
-            <select
-              value={filterLevel}
-              onChange={(e) => setFilterLevel(e.target.value)}
-              className="rounded border border-gray-600 bg-gray-700 px-2 py-0.5 text-xs text-gray-200"
-            >
-              <option value="">All levels</option>
-              <option value="error">Error</option>
-              <option value="warn">Warn</option>
-              <option value="info">Info</option>
-              <option value="debug">Debug</option>
-            </select>
+            <div className="flex items-center gap-1">
+              {COMMON_LEVELS.map((level) => (
+                <button
+                  key={level}
+                  onClick={() => toggleLevel(level)}
+                  className={chipClass(level, filterLevels.has(level))}
+                >
+                  {level.toUpperCase()}
+                </button>
+              ))}
+              <div className="relative" ref={moreDropdownRef}>
+                <button
+                  onClick={() => setShowMoreLevels((v) => !v)}
+                  className={`px-2 py-0.5 rounded text-xs font-medium cursor-pointer select-none transition-colors ${
+                    MORE_LEVELS.some((l) => filterLevels.has(l))
+                      ? "bg-gray-600 text-gray-200 ring-1 ring-gray-500"
+                      : "bg-gray-700 text-gray-400 hover:bg-gray-600"
+                  }`}
+                >
+                  More
+                </button>
+                {showMoreLevels && (
+                  <div className="absolute right-0 top-full mt-1 bg-gray-700 border border-gray-600 rounded shadow-lg z-10 min-w-[100px]">
+                    {MORE_LEVELS.map((level) => (
+                      <button
+                        key={level}
+                        onClick={() => toggleLevel(level)}
+                        className={`block w-full text-left px-3 py-1.5 text-xs hover:bg-gray-600 ${
+                          filterLevels.has(level)
+                            ? "text-gray-200 font-medium"
+                            : "text-gray-400"
+                        }`}
+                      >
+                        {filterLevels.has(level) ? "[x] " : "[ ] "}
+                        {level.toUpperCase()}
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+              {filterLevels.size > 0 && (
+                <button
+                  onClick={() => setFilterLevels(new Set())}
+                  className="px-1.5 py-0.5 rounded text-xs text-gray-400 hover:text-gray-200 hover:bg-gray-600"
+                  title="Clear all filters"
+                >
+                  Clear
+                </button>
+              )}
+            </div>
           ) : (
             <select
               value={filterTaskId}
