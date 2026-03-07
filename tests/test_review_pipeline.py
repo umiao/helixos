@@ -744,6 +744,67 @@ async def test_raw_response_explicit_fields_only(mock_query: MagicMock) -> None:
     assert set(raw.keys()) == {"model", "usage", "result", "session_id"}
 
 
+@pytest.mark.asyncio
+@patch("src.review_pipeline.run_claude_query")
+async def test_raw_response_decoupled_from_parsed_fields(mock_query: MagicMock) -> None:
+    """Integration test: raw_response metadata keys are disjoint from parsed review fields.
+
+    Validates the decoupling invariant (T-P2-75 postmortem): raw_response
+    contains metadata (model, usage, session_id) NOT present in summary/
+    suggestions, and the parsed fields (verdict, summary, suggestions) are
+    extracted independently from the structured result -- not copied from
+    raw_response top-level keys.
+    """
+    review_usage = {"input_tokens": 2500, "output_tokens": 800}
+    review_suggestions = ["Add error handling", "Improve naming"]
+    _setup_mock_query(mock_query, [
+        _make_review_events(
+            "approve",
+            "Implementation is solid with minor nits",
+            suggestions=review_suggestions,
+            model="claude-sonnet-4-5",
+            usage=review_usage,
+            session_id="sess-decoupling-test",
+        ),
+    ])
+
+    pipeline = ReviewPipeline(_default_config(), threshold=0.8)
+    result = await pipeline.review_task(
+        _sample_task(), "Plan text", lambda c, t, p: None, complexity="S"
+    )
+
+    review = result.reviews[0]
+    raw = json.loads(review.raw_response)
+
+    # -- Invariant 1: raw_response metadata keys are disjoint from parsed fields --
+    raw_metadata_keys = set(raw.keys()) - {"result"}  # {model, usage, session_id}
+    parsed_field_names = {"verdict", "summary", "suggestions"}
+    assert raw_metadata_keys.isdisjoint(parsed_field_names), (
+        f"raw_response metadata keys {raw_metadata_keys} overlap with "
+        f"parsed field names {parsed_field_names}"
+    )
+
+    # -- Invariant 2: raw_response metadata contains expected SDK fields --
+    assert raw["model"] == "claude-sonnet-4-5"
+    assert raw["usage"] == review_usage
+    assert raw["session_id"] == "sess-decoupling-test"
+
+    # -- Invariant 3: parsed fields come from structured result, not raw top-level --
+    assert review.verdict == "approve"
+    assert review.summary == "Implementation is solid with minor nits"
+    assert review.suggestions == review_suggestions
+
+    # -- Invariant 4: raw_response["result"] mirrors structured output (not parsed) --
+    assert raw["result"]["verdict"] == review.verdict
+    assert raw["result"]["summary"] == review.summary
+    assert raw["result"]["suggestions"] == review.suggestions
+
+    # -- Invariant 5: parsed fields are NOT among raw_response top-level keys --
+    assert "verdict" not in raw
+    assert "summary" not in raw
+    assert "suggestions" not in raw
+
+
 # ------------------------------------------------------------------
 # _truncate_raw_response
 # ------------------------------------------------------------------

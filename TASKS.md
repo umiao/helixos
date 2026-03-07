@@ -33,15 +33,6 @@
 
 
 
-#### T-P2-75: Raw-response decoupling postmortem integration test
-- **Priority**: P2
-- **Complexity**: S
-- **Depends on**: None
-- **Description**: Integration test asserting raw_response contains fields (model, usage, session_id) not present in summary/suggestions. Validates decoupled raw_response design.
-- **Acceptance Criteria**:
-  1. Test in `tests/test_review_pipeline.py` with mocked CLI
-  2. Asserts raw_response dict keys are distinct from parsed review fields
-
 
 
 #### T-P2-80: State machine diagram documentation
@@ -107,6 +98,9 @@
 ## Completed Tasks
 
 > 99 completed tasks archived to [archive/completed_tasks.md](archive/completed_tasks.md).
+
+#### [x] T-P2-75: Raw-response decoupling postmortem integration test -- 2026-03-06
+- Integration test `test_raw_response_decoupled_from_parsed_fields` validates 5 decoupling invariants: raw_response metadata keys disjoint from parsed fields, correct SDK metadata, correct parsed extraction, result mirroring, and no field leakage. 1248 pass, ruff clean.
 
 #### [x] T-P1-85: Replace Launch button with "Start All Planned Tasks" -- 2026-03-06
 - Added `POST /api/projects/{project_id}/start-all-planned` endpoint. Batch-moves BACKLOG tasks with plan_status=ready: gate ON -> REVIEW + pipeline, gate OFF -> QUEUED. Optimistic locking per-task. Created `StartAllPlanned.tsx`, replaced LaunchControl in SwimLaneHeader, deleted `LaunchControl.tsx`. 8 new tests. 1209 pass, ruff clean, TS clean.

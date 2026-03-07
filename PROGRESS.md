@@ -996,3 +996,10 @@
 - **Sanity check result**: 1209 tests pass, 1 pre-existing failure (uvicorn LOOP_SETUPS). Ruff clean. TypeScript clean. Vite build clean.
 - **Status**: [DONE]
 - **Request**: Move T-P1-85 to Completed (REMOVE spec from Active, ADD summary to Completed Tasks)
+
+## 2026-03-06 -- [T-P2-75] Raw-response decoupling postmortem integration test
+- **What I did**: Added `test_raw_response_decoupled_from_parsed_fields` integration test to `tests/test_review_pipeline.py`. Test runs full review pipeline with mocked SDK and validates 5 decoupling invariants: (1) raw_response metadata keys (model, usage, session_id) are disjoint from parsed field names (verdict, summary, suggestions), (2) metadata contains expected SDK fields, (3) parsed fields are correctly extracted, (4) raw_response["result"] mirrors structured output, (5) parsed fields are NOT among raw_response top-level keys.
+- **Deliverables**: `tests/test_review_pipeline.py` (1 new test)
+- **Sanity check result**: 1248 tests pass, 2 pre-existing failures (uvicorn LOOP_CHOICES), 4 skipped. Ruff clean.
+- **Status**: [DONE]
+- **Request**: Move T-P2-75 to Completed (REMOVE spec from Active, ADD summary to Completed Tasks)
