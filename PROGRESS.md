@@ -1094,3 +1094,10 @@
 - **Sanity check result**: 1308 tests pass + pre-existing test_windows_asyncio failure (unrelated). Ruff clean. [AUTO-VERIFIED]
 - **Status**: [DONE]
 - **Request**: Move T-P1-104 to Completed (REMOVE spec from Active, ADD summary to Completed Tasks)
+
+## 2026-03-07 -- [T-P2-100] Clean up plan log display (hide raw JSON artifacts)
+- **What I did**: Modified `get_logs()` and `count_logs()` in `history_writer.py` to exclude `level='artifact'` entries by default. Added `include_artifacts` parameter (default False) to both methods. Updated `GET /api/tasks/{task_id}/logs` endpoint with `include_artifacts` query param. Artifacts remain persisted in DB and accessible via `level=artifact` filter or `include_artifacts=true`.
+- **Deliverables**: `src/history_writer.py` (mod -- artifact filtering in get_logs/count_logs), `src/api.py` (mod -- include_artifacts query param), `tests/test_history_writer.py` (mod -- 5 new tests)
+- **Sanity check result**: 1312 tests pass + pre-existing test_windows_asyncio failure (unrelated). Ruff clean. [AUTO-VERIFIED]
+- **Status**: [DONE]
+- **Request**: Move T-P2-100 to Completed (REMOVE spec from Active, ADD summary to Completed Tasks)

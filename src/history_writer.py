@@ -139,6 +139,7 @@ class HistoryWriter:
         limit: int = 100,
         offset: int = 0,
         level: str | None = None,
+        include_artifacts: bool = False,
     ) -> list[dict]:
         """Retrieve execution logs for a task.
 
@@ -147,6 +148,9 @@ class HistoryWriter:
             limit: Maximum number of entries to return.
             offset: Number of entries to skip.
             level: Optional filter by log level.
+            include_artifacts: If False (default), exclude level='artifact'
+                entries from results.  Artifacts contain raw JSON blobs
+                persisted for forensic access and are not human-readable.
 
         Returns:
             List of log entry dicts with id, timestamp, level, message, source.
@@ -158,6 +162,8 @@ class HistoryWriter:
             )
             if level is not None:
                 stmt = stmt.where(ExecutionLogRow.level == level)
+            elif not include_artifacts:
+                stmt = stmt.where(ExecutionLogRow.level != "artifact")
             stmt = (
                 stmt
                 .order_by(ExecutionLogRow.id)
@@ -179,12 +185,24 @@ class HistoryWriter:
                 for r in rows
             ]
 
-    async def count_logs(self, task_id: str) -> int:
-        """Count total log entries for a task."""
+    async def count_logs(
+        self,
+        task_id: str,
+        include_artifacts: bool = False,
+    ) -> int:
+        """Count total log entries for a task.
+
+        Args:
+            task_id: The task to count logs for.
+            include_artifacts: If False (default), exclude level='artifact'
+                entries from the count.
+        """
         async with get_session(self._sf) as session:
             stmt = select(ExecutionLogRow).where(
                 ExecutionLogRow.task_id == task_id,
             )
+            if not include_artifacts:
+                stmt = stmt.where(ExecutionLogRow.level != "artifact")
             result = await session.execute(stmt)
             return len(result.scalars().all())
 

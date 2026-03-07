@@ -161,6 +161,48 @@ class TestExecutionLogs:
         await hw.write_logs_batch("task-1", [])
         assert await hw.count_logs("task-1") == 0
 
+    async def test_artifacts_excluded_by_default(self, session_factory):
+        """get_logs excludes level='artifact' entries by default."""
+        hw = HistoryWriter(session_factory)
+        await hw.write_log("task-1", "Normal log", level="info")
+        await hw.write_raw_artifact("task-1", "plan_cli_output", '{"big": "json"}')
+        await hw.write_log("task-1", "Another log", level="warn")
+
+        logs = await hw.get_logs("task-1")
+        assert len(logs) == 2
+        assert all(entry["level"] != "artifact" for entry in logs)
+
+    async def test_artifacts_included_when_requested(self, session_factory):
+        """get_logs includes artifacts when include_artifacts=True."""
+        hw = HistoryWriter(session_factory)
+        await hw.write_log("task-1", "Normal log", level="info")
+        await hw.write_raw_artifact("task-1", "plan_cli_output", '{"big": "json"}')
+
+        logs = await hw.get_logs("task-1", include_artifacts=True)
+        assert len(logs) == 2
+        artifact = [e for e in logs if e["level"] == "artifact"]
+        assert len(artifact) == 1
+        assert artifact[0]["source"] == "plan_cli_output"
+
+    async def test_artifacts_accessible_via_level_filter(self, session_factory):
+        """Explicit level='artifact' filter returns only artifact entries."""
+        hw = HistoryWriter(session_factory)
+        await hw.write_log("task-1", "Normal log", level="info")
+        await hw.write_raw_artifact("task-1", "plan_cli_output", '{"big": "json"}')
+
+        logs = await hw.get_logs("task-1", level="artifact")
+        assert len(logs) == 1
+        assert logs[0]["level"] == "artifact"
+
+    async def test_count_logs_excludes_artifacts_by_default(self, session_factory):
+        """count_logs excludes artifact entries by default."""
+        hw = HistoryWriter(session_factory)
+        await hw.write_log("task-1", "Normal log")
+        await hw.write_raw_artifact("task-1", "plan_cli_output", '{"big": "json"}')
+
+        assert await hw.count_logs("task-1") == 1
+        assert await hw.count_logs("task-1", include_artifacts=True) == 2
+
 
 # ---------------------------------------------------------------------------
 # ReviewHistory tests

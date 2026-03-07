@@ -2211,13 +2211,15 @@ async def get_task_logs(
     limit: int = 100,
     offset: int = 0,
     level: str | None = None,
+    include_artifacts: bool = False,
 ) -> ExecutionLogsResponse:
     """Get paginated execution logs for a task.
 
     Query params:
         limit: Max entries to return (default 100).
         offset: Number of entries to skip (default 0).
-        level: Optional filter by log level (info, warn, error).
+        level: Optional filter by log level (info, warn, error, artifact).
+        include_artifacts: If true, include raw artifact entries (default false).
     """
     task_manager: TaskManager = request.app.state.task_manager
     history_writer: HistoryWriter = request.app.state.history_writer
@@ -2228,8 +2230,11 @@ async def get_task_logs(
 
     entries = await history_writer.get_logs(
         task_id, limit=limit, offset=offset, level=level,
+        include_artifacts=include_artifacts,
     )
-    total = await history_writer.count_logs(task_id)
+    total = await history_writer.count_logs(
+        task_id, include_artifacts=include_artifacts,
+    )
 
     return ExecutionLogsResponse(
         task_id=task_id,

@@ -42,17 +42,6 @@
 
 ### P2 -- Nice to Have
 
-#### T-P2-100: Clean up plan log display (hide raw JSON artifacts)
-- **Priority**: P2
-- **Complexity**: S (< 1 session)
-- **Depends on**: None
-- **Description**: `[plan_cli_output]` artifacts show as unreadable JSON in
-  log view. Keep persistence for forensics but filter from plain log display.
-- **Acceptance Criteria**:
-  1. Plain log view does not show raw JSON artifact entries
-  2. Artifacts still persisted in DB for forensic access
-  3. Stream/conversation view unaffected
-
 ## Dependency Graph
 
 > Full historical dependency graph relocated to [docs/architecture/dependency-graph-history.md](docs/architecture/dependency-graph-history.md).
@@ -61,7 +50,7 @@
 - T-P1-102 depends on None [DONE]
 - T-P1-103 depends on None [DONE]
 - T-P1-104 depends on T-P1-101 [DONE] [DONE]
-- T-P2-100 depends on None
+- T-P2-100 depends on None [DONE]
 
 
 ---
@@ -72,6 +61,9 @@
 ## Completed Tasks
 
 > 99 completed tasks archived to [archive/completed_tasks.md](archive/completed_tasks.md).
+
+#### [x] T-P2-100: Clean up plan log display (hide raw JSON artifacts) -- 2026-03-07
+- Excluded `level='artifact'` entries from `get_logs()`/`count_logs()` by default. Added `include_artifacts` param to both methods + API endpoint. Artifacts still persisted in DB for forensic access. 5 new tests. 1312 pass, ruff clean.
 
 #### [x] T-P1-104: Task Generator -- deterministic proposal-to-TASKS.md pipeline -- 2026-03-07
 - Pure Python task generator: extracts `proposed_tasks[]` from plan_json, allocates sequential IDs per priority, validates schema/dependencies, detects cycles (DFS), enforces max 8 tasks, generates human-readable diff. Two API endpoints: preview (GET diff) and confirm (write + auto-pause). Added `DECOMPOSED` plan status. 43 new tests. 1308 pass, ruff clean.
