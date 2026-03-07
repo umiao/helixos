@@ -13,12 +13,32 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
+import rehypePrism from "rehype-prism-plus";
 import type { StreamDisplayItem } from "../types";
 import { fetchStreamLog } from "../api";
 import { getToolColor } from "../utils/streamUtils";
 
 /** Max display items to keep (prevents DOM overload). */
 const MAX_ITEMS = 2000;
+
+/** Code blocks larger than this (in bytes) skip Prism highlighting. */
+const CODE_SIZE_LIMIT = 5 * 1024;
+
+/** Strip language tag from fenced code blocks larger than CODE_SIZE_LIMIT
+ *  so rehype-prism-plus skips them (renders as plain <pre>). */
+function stripLargeCodeBlockLanguages(md: string): string {
+  return md.replace(
+    /^(```)\w+\n([\s\S]*?)^```/gm,
+    (_match, fence: string, body: string) =>
+      body.length > CODE_SIZE_LIMIT ? `${fence}\n${body}\`\`\`` : _match,
+  );
+}
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const REMARK_PLUGINS: any[] = [remarkGfm];
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const REHYPE_PLUGINS: any[] = [[rehypePrism, { ignoreMissing: true }]];
 
 interface ConversationViewProps {
   /** Task ID to display conversation for. */
@@ -304,6 +324,8 @@ export default function ConversationView({
                   <div className="max-w-[85%] bg-gray-800 rounded-lg px-3 py-2 text-sm text-gray-200 leading-relaxed border border-gray-700">
                     <div className="prose-conversation">
                       <ReactMarkdown
+                        remarkPlugins={REMARK_PLUGINS}
+                        rehypePlugins={REHYPE_PLUGINS}
                         components={{
                           p: ({ children }) => <p className="text-gray-200 mb-1.5 last:mb-0">{children}</p>,
                           h1: ({ children }) => <h1 className="font-bold text-gray-100 mb-1 mt-1.5 text-base">{children}</h1>,
@@ -317,7 +339,7 @@ export default function ConversationView({
                             if (isBlock) {
                               return (
                                 <code
-                                  className="block bg-gray-950 text-gray-100 rounded p-2 my-1.5 overflow-x-auto font-mono text-[0.9em] whitespace-pre"
+                                  className={`${codeClassName} block bg-gray-950 rounded p-2 my-1.5 overflow-x-auto font-mono text-[0.9em] whitespace-pre`}
                                   {...props}
                                 >
                                   {children}
@@ -345,7 +367,7 @@ export default function ConversationView({
                           ),
                         }}
                       >
-                        {item.text ?? ""}
+                        {stripLargeCodeBlockLanguages(item.text ?? "")}
                       </ReactMarkdown>
                     </div>
                   </div>

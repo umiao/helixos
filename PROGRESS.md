@@ -1121,3 +1121,10 @@
 - **Sanity check result**: 1350 passed, 6 skipped. TypeScript clean. Vite build clean. [AUTO-VERIFIED] grep confirms chipClass, COMMON_LEVELS, MORE_LEVELS, toggleLevel, filterLevels all present in source. No old single-select filterLevel references remain.
 - **Status**: [DONE]
 - **Request**: Move T-P2-104 to Completed
+
+## 2026-03-07 -- [T-P2-102] Markdown + code syntax highlighting via Prism
+- **What I did**: Added rehype-prism-plus, remark-gfm, and prism-themes packages to the frontend. Wired remarkGfm and rehypePrism plugins into the ReactMarkdown pipeline in ConversationView.tsx. Imported prism-one-dark CSS theme in main.tsx. Added 5KB size guard that strips language tags from oversized fenced code blocks so Prism skips them. Preserved language-* class on code elements so Prism CSS selectors apply correctly.
+- **Deliverables**: `frontend/src/components/ConversationView.tsx` (mod), `frontend/src/main.tsx` (mod), `frontend/package.json` (mod), `frontend/package-lock.json` (mod)
+- **Sanity check result**: 1350 passed, 6 skipped. Vite build clean. [AUTO-VERIFIED] grep confirms remarkGfm, rehypePrism, REMARK_PLUGINS, REHYPE_PLUGINS, CODE_SIZE_LIMIT, stripLargeCodeBlockLanguages, prism-one-dark all present in source. Dependencies installed in package.json.
+- **Status**: [DONE]
+- **Request**: Move T-P2-102 to Completed

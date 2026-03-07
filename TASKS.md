@@ -43,22 +43,6 @@
 ### P2 -- Nice to Have
 
 
-#### T-P2-102: Markdown + code syntax highlighting via Prism
-- **Priority**: P2
-- **Complexity**: M (1-2 sessions)
-- **Depends on**: T-P2-101
-- **Description**: Add rehype-prism-plus and remark-gfm to the react-markdown pipeline in
-  ConversationView for syntax highlighting of code blocks and JSON tool I/O. Include a
-  performance guard: render blocks > 5KB as plain preformatted text to avoid highlighting lag.
-- **Acceptance Criteria**:
-  1. `rehype-prism-plus` and `remark-gfm` added to package.json and wired into react-markdown
-  2. Fenced code blocks (```python, ```json, etc.) render with syntax highlighting
-  3. Tool result content containing JSON is highlighted as JSON
-  4. Code blocks > 5KB rendered as plain `<pre>` without Prism processing
-  5. A Prism CSS theme is imported (e.g., prism-one-dark) matching the app's dark UI
-  6. User journey: view a task conversation with code in assistant response -> code has colored syntax highlighting
-  7. [AUTO-VERIFIED] Build succeeds, TypeScript clean, dependency installed, size-guard logic present in source
-
 #### T-P2-103: Tool block structured rendering
 - **Priority**: P2
 - **Complexity**: M (1-2 sessions)
@@ -100,6 +84,9 @@
 ## Completed Tasks
 
 > 99 completed tasks archived to [archive/completed_tasks.md](archive/completed_tasks.md).
+
+#### [x] T-P2-102: Markdown + code syntax highlighting via Prism -- 2026-03-07
+- Added rehype-prism-plus, remark-gfm, prism-themes to frontend. Wired remark-gfm + rehype-prism-plus into ReactMarkdown in ConversationView. Imported prism-one-dark CSS theme. Added 5KB size guard (strips language tag from large code blocks). 1350 pass, Vite build clean.
 
 #### [x] T-P2-104: ExecutionLog filter UX improvement -- 2026-03-07
 - Replaced level filter dropdown with multi-select toggle chips (ERROR, WARN, INFO) + "More" dropdown (DEBUG). Active chips show colored ring. Clear button resets filters. 1350 pass, TS clean, Vite build clean.
