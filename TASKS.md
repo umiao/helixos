@@ -36,15 +36,6 @@
 
 
 
-#### T-P2-81: PRD clarification (Pause/Gate/Launch semantics)
-- **Priority**: P2
-- **Complexity**: S
-- **Depends on**: None
-- **Description**: Clarify Pause/Gate/Launch semantic boundaries in PRD. Does Pause affect review pipeline?
-- **Acceptance Criteria**:
-  1. Updated PRD section with clear definitions
-  2. Edge cases documented
-
 #### T-P2-82: UX audit + smoke test enforcement
 - **Priority**: P2
 - **Complexity**: S
@@ -90,6 +81,9 @@
 ## Completed Tasks
 
 > 99 completed tasks archived to [archive/completed_tasks.md](archive/completed_tasks.md).
+
+#### [x] T-P2-81: PRD clarification (Pause/Gate/Start All Planned semantics) -- 2026-03-06
+- Added PRD section 5.4 defining Pause (scheduler dispatch only), Review Gate (two-layer review enforcement), and Start All Planned (batch operation). Includes per-control behavior tables and 7 edge case combinations. Answers: Pause does NOT affect review pipeline.
 
 #### [x] T-P2-80: State machine diagram documentation -- 2026-03-06
 - Created `docs/architecture/state-machine.md` documenting both TaskStatus (9 states, 22 transitions) and ReviewLifecycleState (7 states, 16 transitions) state machines. Includes ASCII diagrams, transition tables with triggers and side-effects, guards/gates, backward cleanup matrix, cross-machine interactions, and race condition references.

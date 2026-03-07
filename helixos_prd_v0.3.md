@@ -196,6 +196,63 @@ dependencies:
 - `failed -> blocked`: 3x retry exhausted; needs human attention
 - `* -> blocked`: Upstream dependency not met
 
+### 5.4 Execution Controls: Pause, Review Gate, and Start All Planned
+
+Three per-project controls govern task flow through the pipeline. They are
+independent and composable.
+
+#### Pause (`execution_paused`)
+
+**Scope**: Scheduler dispatch only (QUEUED -> RUNNING).
+
+| Aspect | Behavior |
+|--------|----------|
+| What it blocks | The scheduler skips paused projects when picking QUEUED tasks to run. No new executions are dispatched. |
+| What it does NOT block | Review pipeline submissions (BACKLOG -> REVIEW), review pipeline execution, manual status transitions (drag-to-QUEUED, drag-to-REVIEW), and Start All Planned. |
+| In-flight tasks | Continue to completion. Pause does not cancel or interrupt RUNNING tasks. |
+| Persistence | DB-backed (`ProjectSettingsRow.execution_paused`). Survives restarts. |
+| UI | Amber Pause/Resume toggle in SwimLaneHeader. PAUSED badge when active. |
+| SSE event | `execution_paused` with `{"paused": true/false}`. |
+
+#### Review Gate (`review_gate_enabled`)
+
+**Scope**: Task promotion past the review stage.
+
+| Aspect | Behavior |
+|--------|----------|
+| When ON (default) | **Layer 1**: BACKLOG -> QUEUED transition is blocked. Tasks must go BACKLOG -> REVIEW -> (approved) -> QUEUED. **Layer 2**: Scheduler's `_can_execute()` verifies an approved review record exists before dispatching, as a last line of defense. |
+| When OFF | Tasks can skip review and move directly BACKLOG -> QUEUED. Layer 2 is also disabled. |
+| Does NOT affect | In-flight executions, pause state, or the review pipeline itself (reviews can still be manually triggered even when the gate is OFF). |
+| Persistence | DB-backed (`ProjectSettingsRow.review_gate_enabled`). Survives restarts. |
+| UI | Gate ON/OFF toggle in SwimLaneHeader. |
+| SSE event | `review_gate_changed` with `{"review_gate_enabled": true/false}`. |
+
+#### Start All Planned (batch operation)
+
+**Scope**: One-shot batch transition for planned tasks.
+
+| Aspect | Behavior |
+|--------|----------|
+| Trigger | `POST /api/projects/{project_id}/start-all-planned` or "Start All Planned Tasks" button. |
+| Target tasks | All BACKLOG tasks with `plan_status=ready`. |
+| Gate ON | Tasks move to REVIEW. Review pipeline starts for each. |
+| Gate OFF | Tasks move to QUEUED. Scheduler picks them up on next tick. |
+| Pause interaction | Start All Planned works while paused. Tasks will queue up (REVIEW or QUEUED) but QUEUED tasks will not execute until the project is resumed. |
+| Concurrency safety | Each task transition uses optimistic locking (`expected_updated_at`). Concurrent edits are skipped, not failed. |
+| Error handling | Plan validity errors and concurrent edits per-task are reported in `skipped_details`; the batch continues. |
+
+#### Edge Cases and Combinations
+
+| Scenario | Behavior |
+|----------|----------|
+| Pause ON + Gate ON | Tasks must be reviewed before execution. Even after approval, QUEUED tasks will not execute until resumed. |
+| Pause ON + Gate OFF | Tasks can skip review (BACKLOG -> QUEUED), but the scheduler will not dispatch them until resumed. |
+| Start All while Paused + Gate ON | Tasks move to REVIEW. Review pipeline runs. After approval, tasks reach QUEUED but stay there until resumed. |
+| Start All while Paused + Gate OFF | Tasks move directly to QUEUED but stay there until resumed. |
+| Resume while tasks in QUEUED | Scheduler picks up all QUEUED tasks on the next tick (subject to concurrency limits). |
+| Pause after tasks already RUNNING | In-flight tasks complete normally. Only new dispatches are blocked. |
+| Gate toggled while tasks in REVIEW | No effect on in-progress reviews. The gate only affects future BACKLOG -> QUEUED transitions. |
+
 ---
 
 ## 6. Data Model

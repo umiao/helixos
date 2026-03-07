@@ -1010,3 +1010,10 @@
 - **Sanity check result**: 1210 tests pass, 1 pre-existing failure (uvicorn LOOP_CHOICES). Ruff clean. No emoji.
 - **Status**: [DONE]
 - **Request**: Move T-P2-80 to Completed (REMOVE spec from Active, ADD summary to Completed Tasks)
+
+## 2026-03-06 -- [T-P2-81] PRD clarification (Pause/Gate/Start All Planned semantics)
+- **What I did**: Added PRD section 5.4 "Execution Controls: Pause, Review Gate, and Start All Planned" with per-control behavior tables (scope, what it blocks/doesn't block, persistence, UI, SSE events) and 7 edge case combinations. Key clarification: Pause does NOT affect the review pipeline -- it only blocks scheduler dispatch (QUEUED -> RUNNING).
+- **Deliverables**: `helixos_prd_v0.3.md` (mod -- added section 5.4)
+- **Sanity check result**: 1210 tests pass, 1 pre-existing failure (uvicorn LOOP_CHOICES). Ruff clean. No emoji.
+- **Status**: [DONE]
+- **Request**: Move T-P2-81 to Completed (REMOVE spec from In Progress, ADD summary to Completed Tasks)
