@@ -503,6 +503,7 @@ export default function KanbanBoard({
           onError={onError}
           onSendToReview={onSendToReview}
           onEditTask={onEditTask}
+          onTaskCancelled={onTaskDeleted}
         />
       )}
 

@@ -362,6 +362,87 @@ class TestUpdateTaskStatus:
         assert resp.status_code == 404
 
 
+class TestAutoCancel:
+    """Tests for auto-cancel when a RUNNING task status changes via API."""
+
+    async def test_running_to_failed_cancels_execution(
+        self, client: AsyncClient, test_app, task_manager: TaskManager,
+    ):
+        """Moving RUNNING -> FAILED should call scheduler.cancel_task()."""
+        task = _make_task(
+            task_id="proj-a:T-P0-7",
+            local_task_id="T-P0-7",
+            status=TaskStatus.RUNNING,
+        )
+        await task_manager.create_task(task)
+
+        test_app.state.scheduler.cancel_task = AsyncMock(return_value=True)
+
+        resp = await client.patch(
+            "/api/tasks/proj-a:T-P0-7/status",
+            json={"status": "failed"},
+        )
+        assert resp.status_code == 200
+        test_app.state.scheduler.cancel_task.assert_awaited_once_with("proj-a:T-P0-7")
+
+    async def test_running_to_done_cancels_execution(
+        self, client: AsyncClient, test_app, task_manager: TaskManager,
+    ):
+        """Moving RUNNING -> DONE should call scheduler.cancel_task()."""
+        task = _make_task(
+            task_id="proj-a:T-P0-8",
+            local_task_id="T-P0-8",
+            status=TaskStatus.RUNNING,
+        )
+        await task_manager.create_task(task)
+
+        test_app.state.scheduler.cancel_task = AsyncMock(return_value=True)
+
+        resp = await client.patch(
+            "/api/tasks/proj-a:T-P0-8/status",
+            json={"status": "done"},
+        )
+        assert resp.status_code == 200
+        test_app.state.scheduler.cancel_task.assert_awaited_once_with("proj-a:T-P0-8")
+
+    async def test_non_running_transition_does_not_cancel(
+        self, client: AsyncClient, test_app, seeded_task: Task,
+    ):
+        """BACKLOG -> QUEUED should NOT call scheduler.cancel_task()."""
+        # Disable review gate for BACKLOG -> QUEUED
+        await client.patch("/api/projects/proj-a/review-gate?enabled=false")
+
+        test_app.state.scheduler.cancel_task = AsyncMock(return_value=False)
+
+        resp = await client.patch(
+            "/api/tasks/proj-a:T-P0-1/status",
+            json={"status": "queued"},
+        )
+        assert resp.status_code == 200
+        test_app.state.scheduler.cancel_task.assert_not_awaited()
+
+    async def test_cancel_not_in_scheduler_is_harmless(
+        self, client: AsyncClient, test_app, task_manager: TaskManager,
+    ):
+        """Auto-cancel should not error when scheduler returns False."""
+        task = _make_task(
+            task_id="proj-a:T-P0-9",
+            local_task_id="T-P0-9",
+            status=TaskStatus.RUNNING,
+        )
+        await task_manager.create_task(task)
+
+        # Scheduler returns False (task not in its running dict)
+        test_app.state.scheduler.cancel_task = AsyncMock(return_value=False)
+
+        resp = await client.patch(
+            "/api/tasks/proj-a:T-P0-9/status",
+            json={"status": "failed"},
+        )
+        assert resp.status_code == 200
+        test_app.state.scheduler.cancel_task.assert_awaited_once_with("proj-a:T-P0-9")
+
+
 class TestRetryReview:
     """Tests for POST /api/tasks/{task_id}/review (retry-only)."""
 

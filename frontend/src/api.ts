@@ -402,6 +402,17 @@ export async function fetchStreamLog(
   return handleResponse<StreamLogResponse>(res);
 }
 
+/** Cancel a running task. Returns confirmation on success. */
+export async function cancelTask(
+  taskId: string,
+): Promise<{ detail: string; task_id: string }> {
+  const res = await fetch(
+    `/api/tasks/${encodeURIComponent(taskId)}/cancel`,
+    { method: "POST" },
+  );
+  return handleResponse(res);
+}
+
 /** Fetch paginated review history for a task. */
 export async function fetchReviewHistory(
   taskId: string,

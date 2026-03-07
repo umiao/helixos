@@ -7,7 +7,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import type { Task, TaskStatus, KanbanColumn } from "../types";
 import { STATUS_TO_COLUMN, KANBAN_COLUMNS, COLUMN_TO_STATUS } from "../types";
-import { deleteTask, ApiError } from "../api";
+import { deleteTask, cancelTask, ApiError } from "../api";
 
 interface TaskContextMenuProps {
   task: Task;
@@ -21,6 +21,8 @@ interface TaskContextMenuProps {
   onSendToReview?: (task: Task) => void;
   /** Open the edit modal for this task. */
   onEditTask?: (task: Task) => void;
+  /** Callback after a task is cancelled/stopped. */
+  onTaskCancelled?: () => void;
 }
 
 const COLUMN_LABELS: Record<KanbanColumn, string> = {
@@ -41,11 +43,13 @@ export default function TaskContextMenu({
   onError,
   onSendToReview,
   onEditTask,
+  onTaskCancelled,
 }: TaskContextMenuProps) {
   const menuRef = useRef<HTMLDivElement>(null);
   const [confirmingDelete, setConfirmingDelete] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [dependents, setDependents] = useState<string[] | null>(null);
+  const [stopping, setStopping] = useState(false);
 
   // Close on click outside or Escape
   useEffect(() => {
@@ -106,6 +110,22 @@ export default function TaskContextMenu({
     onEditTask?.(task);
     onClose();
   }, [task, onEditTask, onClose]);
+
+  const handleStop = useCallback(async () => {
+    setStopping(true);
+    try {
+      await cancelTask(task.id);
+      onTaskCancelled?.();
+      onClose();
+    } catch (err) {
+      if (err instanceof ApiError) {
+        onError?.(err.detail);
+      } else {
+        onError?.("Failed to stop task");
+      }
+      setStopping(false);
+    }
+  }, [task.id, onTaskCancelled, onClose, onError]);
 
   // Show "Send to Review" for BACKLOG and QUEUED tasks
   const canSendToReview =
@@ -195,6 +215,20 @@ export default function TaskContextMenu({
                 className="w-full text-left px-3 py-1.5 text-sm text-yellow-700 hover:bg-yellow-50 transition-colors"
               >
                 Send to Review
+              </button>
+            </>
+          )}
+
+          {/* Stop execution for RUNNING tasks */}
+          {task.status === "running" && (
+            <>
+              <div className="h-px bg-gray-100 my-0.5" />
+              <button
+                onClick={handleStop}
+                disabled={stopping}
+                className="w-full text-left px-3 py-1.5 text-sm text-red-600 hover:bg-red-50 transition-colors disabled:opacity-50"
+              >
+                {stopping ? "Stopping..." : "Stop Execution"}
               </button>
             </>
           )}

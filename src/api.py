@@ -1621,6 +1621,16 @@ async def update_task_status(
     event_bus: EventBus = request.app.state.event_bus
     event_bus.emit("status_change", task_id, {"status": body.status.value}, origin="api")
 
+    # Auto-cancel execution when a RUNNING task is moved away.
+    # The scheduler's cancel_task() terminates the SDK query, cancels the
+    # asyncio task, and cleans up internal tracking.  Status is already
+    # updated above, so cancel_task's own FAILED transition is harmlessly
+    # suppressed by its contextlib.suppress(ValueError).
+    if existing.status == TaskStatus.RUNNING and body.status != TaskStatus.RUNNING:
+        cancelled = await scheduler.cancel_task(task_id)
+        if cancelled:
+            logger.info("Auto-cancelled execution for task %s (moved to %s)", task_id, body.status.value)
+
     # Transition-driven pipeline trigger: enqueue review when entering REVIEW
     if (
         existing.status != TaskStatus.REVIEW

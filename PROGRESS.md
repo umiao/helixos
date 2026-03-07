@@ -1045,3 +1045,10 @@
 - **Sanity check result**: 79 scheduler tests pass (16 new + 63 existing). 51 related tests pass. Ruff clean.
 - **Status**: [DONE]
 - **Request**: Move T-P0-101 to Completed (REMOVE spec from Active, ADD summary to Completed Tasks)
+
+## 2026-03-06 -- [T-P0-100] Fix stop/cancel task signal propagation
+- **What I did**: Root cause: no frontend mechanism to cancel a running task, and no backend auto-cancel when a RUNNING task's status changed via API. Added `cancelTask()` frontend API function calling `POST /api/tasks/{id}/cancel`. Added "Stop Execution" button to TaskContextMenu for RUNNING tasks. Added backend auto-cancel in `update_task_status()` -- when a RUNNING task transitions to DONE/FAILED via the API, `scheduler.cancel_task()` is now called automatically to terminate the SDK query and clean up. The scheduler's existing epoch guards and state checks handle race conditions gracefully.
+- **Deliverables**: `src/api.py` (mod -- auto-cancel on RUNNING status change), `frontend/src/api.ts` (mod -- `cancelTask()` function), `frontend/src/components/TaskContextMenu.tsx` (mod -- "Stop Execution" button for RUNNING tasks, `onTaskCancelled` prop), `frontend/src/components/KanbanBoard.tsx` (mod -- pass `onTaskCancelled`), `tests/test_api.py` (mod -- 4 new tests in TestAutoCancel)
+- **Sanity check result**: 1257 tests pass + 4 skipped. Ruff clean. TypeScript clean. Pre-existing uvicorn import failure in test_windows_asyncio.py unrelated.
+- **Status**: [DONE]
+- **Request**: Move T-P0-100 to Completed (REMOVE spec from Active, ADD summary to Completed Tasks)

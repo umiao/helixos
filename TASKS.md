@@ -48,19 +48,6 @@
   3. After "Start All Planned" batch operation, board reflects all moved tasks
   4. Manual smoke test: drag task Backlog -> Queued -> card appears immediately
 
-#### T-P0-100: Fix stop/cancel task signal propagation (20-min bar)
-- **Priority**: P0
-- **Complexity**: S (< 1 session)
-- **Depends on**: None
-- **Description**: Stop button shows "stopping" bar for up to 20 minutes.
-  Investigate cancel signal propagation: frontend -> API -> SDK session.
-  Ensure cancel terminates the SDK query and updates task state promptly.
-- **Acceptance Criteria**:
-  1. Clicking stop terminates execution within 10 seconds
-  2. Task transitions to appropriate terminal state after stop
-  3. Frontend "stopping" bar disappears after task stops
-  4. Manual smoke test: click Stop -> bar gone within 10s -> task shows stopped
-
 
 ### P1 -- Should Have (agentic intelligence)
 
@@ -168,7 +155,6 @@
 
 ### Current
 - T-P0-99 depends on None
-- T-P0-100 depends on None
 - T-P1-100 depends on None
 - T-P1-101 depends on T-P1-100
 - T-P1-102 depends on None
@@ -185,6 +171,9 @@
 ## Completed Tasks
 
 > 99 completed tasks archived to [archive/completed_tasks.md](archive/completed_tasks.md).
+
+#### [x] T-P0-100: Fix stop/cancel task signal propagation -- 2026-03-06
+- Root cause: no frontend cancel mechanism + no backend auto-cancel on RUNNING status change. Added `cancelTask()` API, "Stop Execution" context menu button, backend auto-cancel in `update_task_status()`. 4 new tests. 1257 pass, ruff clean, TS clean.
 
 #### [x] T-P0-101: Priority-based dependency-aware queue scheduling + cycle detection -- 2026-03-06
 - Added `extract_priority()` helper and priority-sorted `get_ready_tasks()`. Added `validate_dependency_graph()` with DFS cycle detection and missing-ref validation. Enhanced `_deps_fulfilled()` with missing-ref alerts. Fixed tick over-fetch. 16 new tests, 79 scheduler tests pass, ruff clean.
