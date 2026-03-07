@@ -15,8 +15,8 @@ from src.events import EventBus
 from src.executors.base import BaseExecutor, ErrorType, ExecutorResult
 from src.executors.code_executor import CodeExecutor
 from src.models import ExecutorType, Project, Task, TaskStatus
-from src.scheduler import RETRY_BACKOFF_SECONDS, Scheduler
-from src.task_manager import TaskManager
+from src.scheduler import RETRY_BACKOFF_SECONDS, Scheduler, validate_dependency_graph
+from src.task_manager import TaskManager, extract_priority
 
 # ---------------------------------------------------------------------------
 # Mock executor
@@ -2017,3 +2017,267 @@ class TestSchedulerEpochId:
         final = await task_manager.get_task("proj:t1")
         assert final is not None
         assert final.status == TaskStatus.RUNNING
+
+
+# ---------------------------------------------------------------------------
+# Tests -- Priority-based scheduling order
+# ---------------------------------------------------------------------------
+
+
+class TestPriorityScheduling:
+    """Tests for priority-based task dispatch ordering."""
+
+    async def test_p0_dispatched_before_p2(self, scheduler_env) -> None:
+        """Given P0 and P2 tasks both QUEUED, scheduler picks P0 first."""
+        scheduler, task_manager, _eb, emitted = scheduler_env
+        mock_exec = MockExecutor()
+        scheduler._get_executor = lambda _: mock_exec
+
+        # Create P2 first (earlier created_at), then P0
+        t_p2 = _make_task(
+            "proj:T-P2-1", "proj", "T-P2-1", "Low priority",
+        )
+        await task_manager.create_task(t_p2)
+        t_p0 = _make_task(
+            "proj:T-P0-1", "proj", "T-P0-1", "High priority",
+        )
+        await task_manager.create_task(t_p0)
+
+        # Only one slot (per-project concurrency = 1)
+        await scheduler.tick()
+
+        running_tasks = list(scheduler.running.values())
+        if running_tasks:
+            await asyncio.gather(*running_tasks, return_exceptions=True)
+
+        # P0 should be dispatched first (only 1 due to per-project limit)
+        assert len(mock_exec.calls) == 1
+        assert mock_exec.calls[0] == "proj:T-P0-1"
+
+    async def test_p0_with_unmet_dep_skipped_p1_dispatched(
+        self, scheduler_env,
+    ) -> None:
+        """P0 with unmet dep skipped; P1 with no deps dispatched."""
+        scheduler, task_manager, _eb, emitted = scheduler_env
+        mock_exec = MockExecutor()
+        scheduler._get_executor = lambda _: mock_exec
+
+        # P0 depends on a task that is not DONE
+        dep_task = _make_task(
+            "proj:T-P0-dep", "proj", "T-P0-dep", "Dependency",
+            status=TaskStatus.BACKLOG,
+        )
+        await task_manager.create_task(dep_task)
+
+        t_p0 = _make_task(
+            "proj:T-P0-1", "proj", "T-P0-1", "High with dep",
+            depends_on=["proj:T-P0-dep"],
+        )
+        await task_manager.create_task(t_p0)
+
+        t_p1 = _make_task(
+            "proj:T-P1-1", "proj", "T-P1-1", "Medium no dep",
+        )
+        await task_manager.create_task(t_p1)
+
+        await scheduler.tick()
+
+        running_tasks = list(scheduler.running.values())
+        if running_tasks:
+            await asyncio.gather(*running_tasks, return_exceptions=True)
+
+        assert len(mock_exec.calls) == 1
+        assert mock_exec.calls[0] == "proj:T-P1-1"
+
+    async def test_three_tasks_dispatch_order(self, scheduler_env) -> None:
+        """Queue 3 tasks with mixed priorities, verify dispatch order.
+
+        Uses a single project with concurrency=1 to force sequential dispatch
+        across multiple ticks. Each tick dispatches the highest-priority
+        available task.
+        """
+        scheduler, task_manager, _eb, emitted = scheduler_env
+        dispatch_order: list[str] = []
+
+        class TrackingExecutor(MockExecutor):
+            """Executor that records dispatch order."""
+
+            async def execute(self, task, project, env, on_log,
+                              on_stream_event=None):
+                dispatch_order.append(task.id)
+                return await super().execute(
+                    task, project, env, on_log, on_stream_event,
+                )
+
+        scheduler._get_executor = lambda _: TrackingExecutor()
+
+        # Create tasks in reverse priority order (P2 first, P0 last)
+        t_p2 = _make_task("proj:T-P2-1", "proj", "T-P2-1", "Low")
+        t_p1 = _make_task("proj:T-P1-1", "proj", "T-P1-1", "Med")
+        t_p0 = _make_task("proj:T-P0-1", "proj", "T-P0-1", "High")
+        await task_manager.create_task(t_p2)
+        await task_manager.create_task(t_p1)
+        await task_manager.create_task(t_p0)
+
+        # Tick 1: should dispatch P0 (highest priority)
+        await scheduler.tick()
+        running_tasks = list(scheduler.running.values())
+        if running_tasks:
+            await asyncio.gather(*running_tasks, return_exceptions=True)
+
+        # Tick 2: should dispatch P1
+        await scheduler.tick()
+        running_tasks = list(scheduler.running.values())
+        if running_tasks:
+            await asyncio.gather(*running_tasks, return_exceptions=True)
+
+        # Tick 3: should dispatch P2
+        await scheduler.tick()
+        running_tasks = list(scheduler.running.values())
+        if running_tasks:
+            await asyncio.gather(*running_tasks, return_exceptions=True)
+
+        # Verify dispatch order was P0, P1, P2
+        assert dispatch_order == [
+            "proj:T-P0-1", "proj:T-P1-1", "proj:T-P2-1",
+        ]
+
+
+# ---------------------------------------------------------------------------
+# Tests -- Dependency graph validation
+# ---------------------------------------------------------------------------
+
+
+class TestDependencyGraphValidation:
+    """Tests for validate_dependency_graph()."""
+
+    def test_no_deps_no_errors(self) -> None:
+        """Tasks with no dependencies produce no errors."""
+        tasks = [
+            _make_task("proj:t1", depends_on=[]),
+            _make_task("proj:t2", "proj", "t2", depends_on=[]),
+        ]
+        missing, cycles = validate_dependency_graph(tasks)
+        assert missing == []
+        assert cycles == []
+
+    def test_valid_deps_no_errors(self) -> None:
+        """Tasks with valid dependency references produce no errors."""
+        tasks = [
+            _make_task("proj:t1", depends_on=[]),
+            _make_task("proj:t2", "proj", "t2", depends_on=["proj:t1"]),
+        ]
+        missing, cycles = validate_dependency_graph(tasks)
+        assert missing == []
+        assert cycles == []
+
+    def test_missing_reference_detected(self) -> None:
+        """A dependency on a non-existent task ID is reported."""
+        tasks = [
+            _make_task("proj:t1", depends_on=["proj:nonexistent"]),
+        ]
+        missing, cycles = validate_dependency_graph(tasks)
+        assert len(missing) == 1
+        assert "proj:nonexistent" in missing[0]
+        assert "does not exist" in missing[0]
+
+    def test_circular_dep_two_tasks(self) -> None:
+        """Circular dependency A->B->A is detected."""
+        tasks = [
+            _make_task("proj:a", "proj", "a", depends_on=["proj:b"]),
+            _make_task("proj:b", "proj", "b", depends_on=["proj:a"]),
+        ]
+        missing, cycles = validate_dependency_graph(tasks)
+        assert missing == []
+        assert len(cycles) >= 1
+        # At least one cycle should contain both a and b
+        cycle_ids = set()
+        for c in cycles:
+            cycle_ids.update(c)
+        assert "proj:a" in cycle_ids
+        assert "proj:b" in cycle_ids
+
+    def test_circular_dep_three_tasks(self) -> None:
+        """Circular dependency A->B->C->A is detected."""
+        tasks = [
+            _make_task("proj:a", "proj", "a", depends_on=["proj:b"]),
+            _make_task("proj:b", "proj", "b", depends_on=["proj:c"]),
+            _make_task("proj:c", "proj", "c", depends_on=["proj:a"]),
+        ]
+        missing, cycles = validate_dependency_graph(tasks)
+        assert missing == []
+        assert len(cycles) >= 1
+
+    def test_self_dependency_detected(self) -> None:
+        """A task depending on itself is a cycle."""
+        tasks = [
+            _make_task("proj:a", "proj", "a", depends_on=["proj:a"]),
+        ]
+        missing, cycles = validate_dependency_graph(tasks)
+        assert len(cycles) >= 1
+
+    async def test_missing_dep_alert_on_tick(self, scheduler_env) -> None:
+        """Scheduler emits alert when task depends on nonexistent ID."""
+        scheduler, task_manager, _eb, emitted = scheduler_env
+        mock_exec = MockExecutor()
+        scheduler._get_executor = lambda _: mock_exec
+
+        task = _make_task(
+            "proj:t1", "proj", "t1", "Task with bad dep",
+            depends_on=["proj:ghost"],
+        )
+        await task_manager.create_task(task)
+
+        await scheduler.tick()
+
+        # Task should NOT be dispatched
+        assert len(mock_exec.calls) == 0
+
+        # Alert should be emitted about missing dep
+        alert_events = [e for e in emitted if e[0] == "alert"]
+        assert len(alert_events) == 1
+        assert "does not exist" in alert_events[0][2]["error"]
+
+    async def test_scheduler_validate_dependency_graph(
+        self, scheduler_env,
+    ) -> None:
+        """Scheduler.validate_dependency_graph() delegates to pure function."""
+        scheduler, task_manager, _eb, _emitted = scheduler_env
+
+        # Create tasks with a cycle
+        t_a = _make_task("proj:a", "proj", "a", depends_on=["proj:b"])
+        t_b = _make_task("proj:b", "proj", "b", depends_on=["proj:a"])
+        await task_manager.create_task(t_a)
+        await task_manager.create_task(t_b)
+
+        missing, cycles = await scheduler.validate_dependency_graph()
+        assert len(cycles) >= 1
+
+
+# ---------------------------------------------------------------------------
+# Tests -- extract_priority
+# ---------------------------------------------------------------------------
+
+
+class TestExtractPriority:
+    """Tests for the extract_priority helper."""
+
+    def test_p0_extraction(self) -> None:
+        """P0 task ID returns priority 0."""
+        assert extract_priority("T-P0-99") == 0
+
+    def test_p1_extraction(self) -> None:
+        """P1 task ID returns priority 1."""
+        assert extract_priority("T-P1-42") == 1
+
+    def test_p2_extraction(self) -> None:
+        """P2 task ID returns priority 2."""
+        assert extract_priority("T-P2-1") == 2
+
+    def test_nonstandard_id_returns_default(self) -> None:
+        """Non-matching task ID returns default priority (99)."""
+        assert extract_priority("custom-task") == 99
+
+    def test_global_id_format(self) -> None:
+        """Global ID format 'proj:T-P0-1' still extracts priority."""
+        assert extract_priority("proj:T-P0-1") == 0

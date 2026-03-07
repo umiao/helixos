@@ -61,19 +61,6 @@
   3. Frontend "stopping" bar disappears after task stops
   4. Manual smoke test: click Stop -> bar gone within 10s -> task shows stopped
 
-#### T-P0-101: Priority-based dependency-aware queue scheduling + cycle detection
-- **Priority**: P0
-- **Complexity**: S (< 1 session)
-- **Depends on**: None
-- **Description**: Scheduler should pick highest-priority task with no unmet
-  dependencies. Also add dependency graph validation: detect cycles and
-  missing task references. Without cycle detection, scheduler will deadlock.
-- **Acceptance Criteria**:
-  1. Given P0 and P2 tasks both QUEUED, scheduler picks P0 first
-  2. Given P0 task with unmet dep and P1 with no deps, scheduler picks P1
-  3. Circular dependency (A->B->A) detected and reported as error
-  4. Reference to non-existent task ID in dependency detected and reported
-  5. Test: queue 3 tasks with mixed priorities, verify dispatch order
 
 ### P1 -- Should Have (agentic intelligence)
 
@@ -182,7 +169,6 @@
 ### Current
 - T-P0-99 depends on None
 - T-P0-100 depends on None
-- T-P0-101 depends on None
 - T-P1-100 depends on None
 - T-P1-101 depends on T-P1-100
 - T-P1-102 depends on None
@@ -199,6 +185,9 @@
 ## Completed Tasks
 
 > 99 completed tasks archived to [archive/completed_tasks.md](archive/completed_tasks.md).
+
+#### [x] T-P0-101: Priority-based dependency-aware queue scheduling + cycle detection -- 2026-03-06
+- Added `extract_priority()` helper and priority-sorted `get_ready_tasks()`. Added `validate_dependency_graph()` with DFS cycle detection and missing-ref validation. Enhanced `_deps_fulfilled()` with missing-ref alerts. Fixed tick over-fetch. 16 new tests, 79 scheduler tests pass, ruff clean.
 
 #### [x] T-P3-83: Done column ordering fix -- 2026-03-06
 - Root cause: `completed_at` only set for DONE status, not FAILED/BLOCKED. Fixed to set on all terminal transitions and clear on backward transitions. Frontend sort/filter already existed.

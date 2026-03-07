@@ -32,6 +32,77 @@ TICK_INTERVAL_SECONDS = 5
 RETRY_BACKOFF_SECONDS: list[int] = [30, 60, 120]
 
 
+# ---------------------------------------------------------------------------
+# Dependency graph validation (pure functions, usable outside Scheduler)
+# ---------------------------------------------------------------------------
+
+
+def validate_dependency_graph(
+    tasks: list[Task],
+) -> tuple[list[str], list[list[str]]]:
+    """Validate a dependency graph for missing references and cycles.
+
+    Args:
+        tasks: All active tasks to validate.
+
+    Returns:
+        A tuple of (missing_ref_errors, cycles) where:
+        - missing_ref_errors: list of human-readable error strings
+        - cycles: list of cycles, each a list of task IDs forming the cycle
+    """
+    task_ids = {t.id for t in tasks}
+    missing_errors: list[str] = []
+    adjacency: dict[str, list[str]] = {t.id: [] for t in tasks}
+
+    for task in tasks:
+        for dep_id in task.depends_on:
+            if dep_id not in task_ids:
+                missing_errors.append(
+                    f"Task {task.id} depends on {dep_id} which does not exist"
+                )
+            else:
+                adjacency[task.id].append(dep_id)
+
+    cycles = _detect_cycles(adjacency)
+    return missing_errors, cycles
+
+
+def _detect_cycles(adjacency: dict[str, list[str]]) -> list[list[str]]:
+    """Detect all cycles in a directed graph using DFS.
+
+    Args:
+        adjacency: Map of node -> list of nodes it depends on.
+
+    Returns:
+        List of cycles found, each cycle as a list of node IDs.
+    """
+    _white, _gray, _black = 0, 1, 2
+    color: dict[str, int] = {node: _white for node in adjacency}
+    path: list[str] = []
+    cycles: list[list[str]] = []
+
+    def dfs(node: str) -> None:
+        color[node] = _gray
+        path.append(node)
+        for neighbor in adjacency[node]:
+            if neighbor not in color:
+                continue
+            if color[neighbor] == _gray:
+                # Found a cycle: extract it from path
+                cycle_start = path.index(neighbor)
+                cycles.append(path[cycle_start:] + [neighbor])
+            elif color[neighbor] == _white:
+                dfs(neighbor)
+        path.pop()
+        color[node] = _black
+
+    for node in adjacency:
+        if color[node] == _white:
+            dfs(node)
+
+    return cycles
+
+
 class Scheduler:
     """Core scheduler that dispatches task executions.
 
@@ -352,7 +423,11 @@ class Scheduler:
             if slots <= 0:
                 return
 
-            candidates = await self._task_manager.get_ready_tasks(limit=slots)
+            # Fetch more candidates than slots since some may be skipped
+            # (paused project, busy project, unmet deps, review gate).
+            candidates = await self._task_manager.get_ready_tasks(
+                limit=max(slots * 5, 20),
+            )
 
             for task in candidates:
                 if self.available_slots <= 0:
@@ -439,6 +514,9 @@ class Scheduler:
     async def _deps_fulfilled(self, task: Task) -> bool:
         """Check if all upstream dependencies for *task* are DONE.
 
+        Also detects missing dependency references (dep ID points to a
+        non-existent task) and emits an alert when found.
+
         Args:
             task: The task whose dependencies to check.
 
@@ -447,9 +525,41 @@ class Scheduler:
         """
         for dep_id in task.depends_on:
             dep = await self._task_manager.get_task(dep_id)
-            if dep is None or dep.status != TaskStatus.DONE:
+            if dep is None:
+                logger.warning(
+                    "Task %s depends on %s which does not exist",
+                    task.id, dep_id,
+                )
+                self._event_bus.emit(
+                    "alert", task.id,
+                    {"error": f"Dependency {dep_id} does not exist"},
+                    origin="scheduler",
+                )
+                return False
+            if dep.status != TaskStatus.DONE:
                 return False
         return True
+
+    # ------------------------------------------------------------------
+    # Dependency graph validation
+    # ------------------------------------------------------------------
+
+    async def validate_dependency_graph(
+        self,
+    ) -> tuple[list[str], list[list[str]]]:
+        """Validate the dependency graph of all active (non-deleted) tasks.
+
+        Checks for:
+        1. Missing references: a task depends on a non-existent task ID.
+        2. Circular dependencies: a cycle exists in the dependency graph.
+
+        Returns:
+            A tuple of (missing_ref_errors, cycles) where:
+            - missing_ref_errors: list of human-readable error strings
+            - cycles: list of cycles, each a list of task IDs forming the cycle
+        """
+        all_tasks = await self._task_manager.list_tasks()
+        return validate_dependency_graph(all_tasks)
 
     # ------------------------------------------------------------------
     # Layer 2: review gate execution check

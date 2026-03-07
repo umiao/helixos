@@ -1038,3 +1038,10 @@
 - **Sanity check result**: TASKS.md at 285 lines (under 300 limit). All tasks follow schema template with required fields.
 - **Status**: [DONE]
 - **Request**: No further TASKS.md changes needed (already applied)
+
+## 2026-03-06 -- [T-P0-101] Priority-based dependency-aware queue scheduling + cycle detection
+- **What I did**: Added priority-based ordering to `get_ready_tasks()` (extracts priority from task ID format T-P{n}-{m}, sorts P0 before P1 before P2). Added `validate_dependency_graph()` pure function for cycle detection (DFS-based) and missing dependency reference validation. Integrated missing-ref alerts into scheduler's `_deps_fulfilled()`. Fixed tick candidate fetch to over-fetch (5x slots) so skipped tasks don't block lower-priority eligible ones.
+- **Deliverables**: `src/task_manager.py` (mod -- `extract_priority()` helper, priority-sorted `get_ready_tasks()`), `src/scheduler.py` (mod -- `validate_dependency_graph()`, `_detect_cycles()`, scheduler method, enhanced `_deps_fulfilled()`, tick over-fetch), `tests/test_scheduler.py` (mod -- 16 new tests: 3 priority scheduling, 8 dependency graph validation, 5 extract_priority)
+- **Sanity check result**: 79 scheduler tests pass (16 new + 63 existing). 51 related tests pass. Ruff clean.
+- **Status**: [DONE]
+- **Request**: Move T-P0-101 to Completed (REMOVE spec from Active, ADD summary to Completed Tasks)

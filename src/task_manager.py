@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 from datetime import UTC, datetime
 from enum import StrEnum
 
@@ -19,6 +20,27 @@ from src.db import TaskRow, get_session, task_dict_to_row_kwargs, task_row_to_di
 from src.models import ExecutionState, ReviewLifecycleState, Task, TaskStatus
 
 logger = logging.getLogger(__name__)
+
+# Regex to extract priority number from task IDs like "T-P0-99"
+_PRIORITY_RE = re.compile(r"T-P(\d+)-\d+")
+
+# Default priority for tasks whose ID doesn't match the expected format
+_DEFAULT_PRIORITY = 99
+
+
+def extract_priority(local_task_id: str) -> int:
+    """Extract the numeric priority from a task ID like 'T-P0-99'.
+
+    Args:
+        local_task_id: Task ID in format T-P{priority}-{number}.
+
+    Returns:
+        The priority number (0 = highest). Returns 99 if format doesn't match.
+    """
+    m = _PRIORITY_RE.search(local_task_id)
+    if m:
+        return int(m.group(1))
+    return _DEFAULT_PRIORITY
 
 
 class UpsertResult(StrEnum):
@@ -568,8 +590,10 @@ class TaskManager:
     # ------------------------------------------------------------------
 
     async def get_ready_tasks(self, limit: int = 10) -> list[Task]:
-        """Return tasks that are QUEUED, ordered by creation time.
+        """Return tasks that are QUEUED, ordered by priority then creation time.
 
+        Priority is extracted from the local_task_id (e.g. T-P0-99 -> priority 0).
+        Lower priority numbers are dispatched first (P0 before P1).
         Soft-deleted tasks are excluded.
         Caller (Scheduler) is responsible for additional dep/concurrency checks.
         """
@@ -579,11 +603,12 @@ class TaskManager:
                 .where(TaskRow.status == TaskStatus.QUEUED.value)
                 .where(TaskRow.is_deleted == False)  # noqa: E712
                 .order_by(TaskRow.created_at)
-                .limit(limit)
             )
             result = await session.execute(stmt)
             rows = result.scalars().all()
-            return [Task.model_validate(task_row_to_dict(r)) for r in rows]
+            tasks = [Task.model_validate(task_row_to_dict(r)) for r in rows]
+            tasks.sort(key=lambda t: (extract_priority(t.local_task_id), t.created_at))
+            return tasks[:limit]
 
     async def count_running_by_project(self, project_id: str) -> int:
         """Count tasks in RUNNING status for a given project."""
