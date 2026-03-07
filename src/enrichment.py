@@ -363,9 +363,10 @@ async def generate_task_plan(
         user_prompt += f"\n\nExisting description:\n{description}"
 
     options = QueryOptions(
-        model="claude-sonnet-4-5",
+        model="claude-opus-4-6",
         system_prompt=_PLAN_SYSTEM_PROMPT,
         json_schema=_PLAN_JSON_SCHEMA,
+        permission_mode="plan",
     )
 
     if repo_path is not None and repo_path.is_dir():

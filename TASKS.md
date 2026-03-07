@@ -37,20 +37,6 @@
 
 ### P1 -- Should Have (agentic intelligence)
 
-#### T-P1-100: Enable plan mode + upgrade plan model to opus 4.6
-- **Priority**: P1
-- **Complexity**: S (< 1 session)
-- **Depends on**: None
-- **Description**: Plan agent uses standard query mode (sonnet 4.5). Switch to
-  `permission_mode="plan"` (read-only: Read/Glob/Grep/LS) and upgrade model
-  to `claude-opus-4-6` for deeper architectural analysis. Plan mode prevents
-  accidental file edits during planning.
-- **Acceptance Criteria**:
-  1. `generate_task_plan()` passes `permission_mode="plan"` in QueryOptions
-  2. Model changed from `claude-sonnet-4-5` to `claude-opus-4-6`
-  3. Plan agent can Read/Glob/Grep but cannot Write/Edit
-  4. Existing plan generation tests pass with updated settings
-
 #### T-P1-101: Enrich plan prompt with project context + proposed_tasks schema
 - **Priority**: P1
 - **Complexity**: M (1-2 sessions)
@@ -140,8 +126,7 @@
 > Full historical dependency graph relocated to [docs/architecture/dependency-graph-history.md](docs/architecture/dependency-graph-history.md).
 
 ### Current
-- T-P1-100 depends on None
-- T-P1-101 depends on T-P1-100
+- T-P1-101 depends on T-P1-100 [DONE]
 - T-P1-102 depends on None
 - T-P1-103 depends on None
 - T-P1-104 depends on T-P1-101
@@ -156,6 +141,9 @@
 ## Completed Tasks
 
 > 99 completed tasks archived to [archive/completed_tasks.md](archive/completed_tasks.md).
+
+#### [x] T-P1-100: Enable plan mode + upgrade plan model to opus 4.6 -- 2026-03-06
+- Changed `generate_task_plan()` to use `model="claude-opus-4-6"` (was `claude-sonnet-4-5`) and `permission_mode="plan"` (read-only). Updated test assertion. 1260 pass, ruff clean.
 
 #### [x] T-P0-99: Auto-sync frontend board after drag and task completion -- 2026-03-06
 - Added `board_sync` SSE event on all task state changes (api, scheduler). Frontend debounced (500ms) full refetch on board_sync events. StartAllPlanned gets success toast via onStarted callback. 3 new tests. 1259 pass, ruff clean, TS clean, Vite build clean.

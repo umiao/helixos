@@ -841,7 +841,8 @@ class TestGenerateTaskPlan:
             await generate_task_plan("Task")
             call_args = mock_query.call_args
             options = call_args[1].get("options") or call_args[0][1]
-            assert options.model == "claude-sonnet-4-5"
+            assert options.model == "claude-opus-4-6"
+            assert options.permission_mode == "plan"
             assert options.system_prompt is not None
             assert options.json_schema is not None
 

@@ -1059,3 +1059,10 @@
 - **Sanity check result**: 1259 tests pass + 4 skipped. Ruff clean. TypeScript clean. Vite build clean. Pre-existing test_windows_asyncio failures unrelated. [AUTO-VERIFIED]
 - **Status**: [DONE]
 - **Request**: Move T-P0-99 to Completed (REMOVE spec from Active, ADD summary to Completed Tasks)
+
+## 2026-03-06 -- [T-P1-100] Enable plan mode + upgrade plan model to opus 4.6
+- **What I did**: Changed `generate_task_plan()` in `enrichment.py` to use `model="claude-opus-4-6"` (was `claude-sonnet-4-5`) and added `permission_mode="plan"` to `QueryOptions`. Plan mode restricts the plan agent to read-only tools (Read/Glob/Grep/LS), preventing accidental file edits during planning. Updated test assertion to verify new model and permission_mode.
+- **Deliverables**: `src/enrichment.py` (mod -- QueryOptions model + permission_mode), `tests/test_enrichment.py` (mod -- updated test_query_options_configured assertion)
+- **Sanity check result**: 1260 tests pass + 4 skipped. Ruff clean. Pre-existing test_windows_asyncio failure unrelated. [AUTO-VERIFIED]
+- **Status**: [DONE]
+- **Request**: Move T-P1-100 to Completed (REMOVE spec from Active, ADD summary to Completed Tasks)
