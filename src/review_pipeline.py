@@ -20,6 +20,7 @@ from typing import Any, Literal
 from pydantic import BaseModel, ValidationError
 
 from src.config import ReviewerConfig, ReviewPipelineConfig
+from src.enrichment import _PROJECT_RULES_CONTEXT, _TASK_SCHEMA_CONTEXT
 from src.executors.code_executor import _LazyFileWriter
 from src.history_writer import HistoryWriter
 from src.models import LLMReview, ReviewLifecycleState, ReviewState, Task
@@ -82,14 +83,33 @@ _SYNTHESIS_JSON_SCHEMA = json.dumps({
 # Focus-area system prompts
 # ------------------------------------------------------------------
 
+_REVIEW_CONVENTIONS_CONTEXT = (
+    "\n\n"
+    + _TASK_SCHEMA_CONTEXT
+    + "\n"
+    + _PROJECT_RULES_CONTEXT
+    + "\n"
+    "### State Machine Rules\n"
+    "- Any workflow with status transitions must document all valid states,\n"
+    "  triggers for each transition, and side-effects attached to each transition.\n"
+    "- Side-effects on transitions are the backend's responsibility; the frontend\n"
+    "  only initiates the status change, never the side-effect directly.\n\n"
+    "### Smoke Test Enforcement\n"
+    "- UX tasks cannot be marked DONE without a manual smoke test description.\n"
+    "- Cross-component regression: verify changes work in ALL rendering contexts.\n\n"
+    "Evaluate the plan against these project rules. Flag violations in your suggestions.\n"
+)
+
 _REVIEW_PROMPTS: dict[str, str] = {
     "feasibility_and_edge_cases": (
         "You are an expert code reviewer focusing on feasibility and edge cases.\n\n"
         "Analyze the following task plan and determine:\n"
         "1. Is this plan technically feasible given the codebase context?\n"
         "2. Are there edge cases or failure modes not addressed?\n"
-        "3. Are the acceptance criteria clear and testable?\n\n"
-        "Respond in JSON with this exact structure:\n"
+        "3. Are the acceptance criteria clear and testable?\n"
+        "4. Does the plan follow the project's task planning rules and conventions?\n"
+        + _REVIEW_CONVENTIONS_CONTEXT
+        + "\nRespond in JSON with this exact structure:\n"
         '{"verdict": "approve" or "reject", "summary": "...", "suggestions": ["..."]}'
     ),
     "adversarial_red_team": (
@@ -98,8 +118,10 @@ _REVIEW_PROMPTS: dict[str, str] = {
         "Analyze the following task plan and determine:\n"
         "1. Could this plan introduce security vulnerabilities?\n"
         "2. Could it break existing functionality?\n"
-        "3. Are there architectural risks or hidden dependencies?\n\n"
-        "Respond in JSON with this exact structure:\n"
+        "3. Are there architectural risks or hidden dependencies?\n"
+        "4. Does the plan violate any project constraints or conventions?\n"
+        + _REVIEW_CONVENTIONS_CONTEXT
+        + "\nRespond in JSON with this exact structure:\n"
         '{"verdict": "approve" or "reject", "summary": "...", "suggestions": ["..."]}'
     ),
 }
@@ -108,8 +130,10 @@ _DEFAULT_REVIEW_PROMPT = (
     "You are a code reviewer.\n\n"
     "Analyze the following task plan and determine:\n"
     "1. Is this plan sound?\n"
-    "2. Are there issues or improvements needed?\n\n"
-    "Respond in JSON with this exact structure:\n"
+    "2. Are there issues or improvements needed?\n"
+    "3. Does the plan follow project conventions and task planning rules?\n"
+    + _REVIEW_CONVENTIONS_CONTEXT
+    + "\nRespond in JSON with this exact structure:\n"
     '{"verdict": "approve" or "reject", "summary": "...", "suggestions": ["..."]}'
 )
 
@@ -766,7 +790,7 @@ class ReviewPipeline:
         cli_output, _events = await self._call_claude_sdk(
             prompt=synthesis_prompt,
             system_prompt="You are a review synthesis engine.",
-            model="claude-sonnet-4-5",
+            model="claude-opus-4-6",
             json_schema=_SYNTHESIS_JSON_SCHEMA,
             on_stream_event=on_stream_event,
             task_id=task_id,

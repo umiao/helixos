@@ -42,7 +42,7 @@ review_pipeline:
     focus: "feasibility_and_edge_cases"
     api: "claude_cli"
     required: true
-  - model: "claude-sonnet-4-5"
+  - model: "claude-opus-4-6"
     focus: "adversarial_red_team"
     api: "claude_cli"
     required: false

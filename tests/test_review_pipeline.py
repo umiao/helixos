@@ -498,6 +498,50 @@ def test_build_review_prompt_unknown_focus() -> None:
     assert "code reviewer" in prompt.lower()
 
 
+def test_review_prompts_include_task_planning_rules() -> None:
+    """All review prompts include task planning rules from CLAUDE.md."""
+    pipeline = ReviewPipeline(_default_config())
+
+    for focus in ["feasibility_and_edge_cases", "adversarial_red_team", "unknown_focus"]:
+        prompt = pipeline._build_review_prompt(focus)
+        assert "journey-first" in prompt.lower(), f"{focus} missing journey-first rule"
+        assert "scenario matrix" in prompt.lower(), f"{focus} missing scenario matrix rule"
+        assert "smoke test" in prompt.lower(), f"{focus} missing smoke test rule"
+
+
+def test_review_prompts_include_project_constraints() -> None:
+    """All review prompts include key project constraints from CLAUDE.md."""
+    pipeline = ReviewPipeline(_default_config())
+
+    for focus in ["feasibility_and_edge_cases", "adversarial_red_team", "unknown_focus"]:
+        prompt = pipeline._build_review_prompt(focus)
+        assert "utf-8" in prompt.lower(), f"{focus} missing UTF-8 constraint"
+        assert "type hints" in prompt.lower(), f"{focus} missing type hints constraint"
+        assert "schema changes require migration" in prompt.lower(), (
+            f"{focus} missing schema migration constraint"
+        )
+
+
+def test_review_prompts_include_task_schema_context() -> None:
+    """All review prompts include task schema conventions."""
+    pipeline = ReviewPipeline(_default_config())
+
+    for focus in ["feasibility_and_edge_cases", "adversarial_red_team", "unknown_focus"]:
+        prompt = pipeline._build_review_prompt(focus)
+        assert "T-P{priority}-{number}" in prompt, f"{focus} missing task ID format"
+        assert "Complexity" in prompt, f"{focus} missing complexity field"
+        assert "Acceptance Criteria" in prompt, f"{focus} missing AC requirement"
+
+
+def test_review_prompts_include_state_machine_rules() -> None:
+    """Review prompts include state machine transition rules."""
+    pipeline = ReviewPipeline(_default_config())
+
+    prompt = pipeline._build_review_prompt("feasibility_and_edge_cases")
+    assert "state machine" in prompt.lower() or "status transitions" in prompt.lower()
+    assert "side-effects" in prompt.lower()
+
+
 # ------------------------------------------------------------------
 # SDK call content verification
 # ------------------------------------------------------------------

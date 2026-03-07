@@ -38,19 +38,6 @@
 ### P1 -- Should Have (agentic intelligence)
 
 
-#### T-P1-102: Enrich review prompt with project conventions
-- **Priority**: P1
-- **Complexity**: S (< 1 session)
-- **Depends on**: None
-- **Description**: Review prompts are generic. Inject CLAUDE.md rules (task
-  planning rules, state machine rules, smoke test enforcement) so reviewers
-  evaluate plans against actual project standards. Also upgrade review model
-  config to use opus 4.6 for both reviewers.
-- **Acceptance Criteria**:
-  1. Review system prompts include relevant CLAUDE.md sections
-  2. Reviewers check plans against task planning rules
-  3. Review model config updated to opus 4.6
-  4. Existing review tests pass with updated prompts
 
 #### T-P1-103: Selective hooks loading for plan/review agents
 - **Priority**: P1
@@ -109,7 +96,7 @@
 > Full historical dependency graph relocated to [docs/architecture/dependency-graph-history.md](docs/architecture/dependency-graph-history.md).
 
 ### Current
-- T-P1-102 depends on None
+- T-P1-102 depends on None [DONE]
 - T-P1-103 depends on None
 - T-P1-104 depends on T-P1-101 [DONE]
 - T-P2-100 depends on None
@@ -123,6 +110,9 @@
 ## Completed Tasks
 
 > 99 completed tasks archived to [archive/completed_tasks.md](archive/completed_tasks.md).
+
+#### [x] T-P1-102: Enrich review prompt with project conventions -- 2026-03-06
+- Injected CLAUDE.md rules (task planning, state machine, smoke test, key constraints) + TASKS.md schema conventions into all review prompts. Imported shared context from enrichment.py. Upgraded adversarial reviewer + synthesis model to opus 4.6. 4 new tests. 1244 pass, ruff clean.
 
 #### [x] T-P1-101: Enrich plan prompt with project context + proposed_tasks schema -- 2026-03-06
 - Enriched plan prompt with CLAUDE.md rules + TASKS.md schema conventions. Extended JSON schema with `proposed_tasks[]` (title, desc, priority, complexity, deps, ACs). Added `ProposedTask` model, `MAX_TASKS_PER_PLAN=8` validation. 13 new tests. 1273 pass, ruff clean.

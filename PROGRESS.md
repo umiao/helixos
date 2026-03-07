@@ -1073,3 +1073,10 @@
 - **Sanity check result**: 1273 tests pass + 4 skipped. Ruff clean. Pre-existing test_windows_asyncio failure unrelated. [AUTO-VERIFIED]
 - **Status**: [DONE]
 - **Request**: Move T-P1-101 to Completed (REMOVE spec from Active, ADD summary to Completed Tasks)
+
+## 2026-03-06 -- [T-P1-102] Enrich review prompt with project conventions
+- **What I did**: Injected CLAUDE.md project rules (task planning rules, key constraints, state machine rules, smoke test enforcement) and TASKS.md schema conventions into all review system prompts (feasibility, adversarial, default). Imported shared context constants from `enrichment.py` to avoid duplication. Upgraded adversarial reviewer model to `claude-opus-4-6` in config. Upgraded synthesis model to `claude-opus-4-6` in code. Added 4 new tests verifying project conventions presence in review prompts.
+- **Deliverables**: `src/review_pipeline.py` (mod -- import shared context, enriched prompts, opus 4.6 synthesis), `orchestrator_config.yaml` (mod -- adversarial reviewer to opus 4.6), `tests/test_review_pipeline.py` (mod -- 4 new tests for conventions context)
+- **Sanity check result**: 1244 tests pass + 13 deselected. 103 review pipeline tests pass. Ruff clean. [AUTO-VERIFIED]
+- **Status**: [DONE]
+- **Request**: Move T-P1-102 to Completed (REMOVE spec from Active, ADD summary to Completed Tasks)
