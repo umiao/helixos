@@ -786,6 +786,38 @@ class TestGenerateTaskPlan:
             assert options.add_dirs == []
 
     @pytest.mark.asyncio
+    async def test_plan_disables_cli_hooks(self) -> None:
+        """Plan agent uses setting_sources=[] to disable CLI hooks."""
+        events = _make_plan_events(
+            "A valid plan summary", _VALID_STEPS, _VALID_AC,
+        )
+
+        with patch(
+            "src.enrichment.run_claude_query",
+            return_value=_mock_sdk_events(*events),
+        ) as mock_query:
+            await generate_task_plan("Task")
+            call_args = mock_query.call_args
+            options = call_args[1].get("options") or call_args[0][1]
+            assert options.setting_sources == []
+
+    @pytest.mark.asyncio
+    async def test_plan_injects_session_context(self) -> None:
+        """Plan agent system prompt includes session context."""
+        events = _make_plan_events(
+            "A valid plan summary", _VALID_STEPS, _VALID_AC,
+        )
+
+        with patch(
+            "src.enrichment.run_claude_query",
+            return_value=_mock_sdk_events(*events),
+        ) as mock_query:
+            await generate_task_plan("Task")
+            call_args = mock_query.call_args
+            options = call_args[1].get("options") or call_args[0][1]
+            assert "Session Context" in options.system_prompt
+
+    @pytest.mark.asyncio
     async def test_sdk_error_raises(self) -> None:
         """SDK error event raises PlanGenerationError."""
         events = [_make_error_event("SDK error")]

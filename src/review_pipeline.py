@@ -31,6 +31,7 @@ from src.sdk_adapter import (
     collect_turns,
     run_claude_query,
 )
+from src.session_context_loader import get_session_context
 
 logger = logging.getLogger(__name__)
 
@@ -458,11 +459,19 @@ class ReviewPipeline:
         Raises:
             RuntimeError: If the SDK returns an error or times out.
         """
+        # Inject session context into system prompt (replaces SessionStart
+        # hook which is not available as an SDK hook type).
+        session_ctx = get_session_context()
+        enriched_prompt = system_prompt + "\n\n" + session_ctx
+
         options = QueryOptions(
             model=model,
-            system_prompt=system_prompt,
+            system_prompt=enriched_prompt,
             max_budget_usd=max_budget_usd,
             json_schema=json_schema,
+            # Disable CLI hooks (block_dangerous, secret_guard, etc.) for
+            # review sessions.  Session context is injected above instead.
+            setting_sources=[],
         )
 
         # -- JSONL log persistence (lazy: files created on first write) --

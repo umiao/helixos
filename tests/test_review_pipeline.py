@@ -2313,3 +2313,78 @@ def test_extract_conversation_summary_with_tools() -> None:
     summary = _extract_conversation_summary(turns)
     assert "Read" in summary["actions_taken"]
     assert "Grep" in summary["actions_taken"]
+
+
+# ------------------------------------------------------------------
+# Selective hooks loading tests (T-P1-103)
+# ------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+@patch("src.review_pipeline.run_claude_query")
+async def test_review_disables_cli_hooks(mock_query: MagicMock) -> None:
+    """Review agent uses setting_sources=[] to disable CLI hooks."""
+    _setup_mock_query(mock_query, [
+        _make_review_events("approve", "Looks good"),
+    ])
+
+    config = ReviewPipelineConfig(
+        reviewers=[
+            ReviewerConfig(
+                model="claude-sonnet-4-5",
+                focus="feasibility_and_edge_cases",
+                api="claude_cli",
+                required=True,
+            ),
+        ],
+    )
+    pipeline = ReviewPipeline(config, threshold=0.8)
+
+    await pipeline.review_task(
+        _sample_task(),
+        "Build the thing",
+        lambda c, t, p: None,
+        complexity="S",
+    )
+
+    # Check that all calls to run_claude_query used setting_sources=[]
+    for call in mock_query.call_args_list:
+        options = call[1].get("options") or call[0][1]
+        assert options.setting_sources == [], (
+            f"Expected setting_sources=[] but got {options.setting_sources}"
+        )
+
+
+@pytest.mark.asyncio
+@patch("src.review_pipeline.run_claude_query")
+async def test_review_injects_session_context(mock_query: MagicMock) -> None:
+    """Review agent system prompt includes session context."""
+    _setup_mock_query(mock_query, [
+        _make_review_events("approve", "Looks good"),
+    ])
+
+    config = ReviewPipelineConfig(
+        reviewers=[
+            ReviewerConfig(
+                model="claude-sonnet-4-5",
+                focus="feasibility_and_edge_cases",
+                api="claude_cli",
+                required=True,
+            ),
+        ],
+    )
+    pipeline = ReviewPipeline(config, threshold=0.8)
+
+    await pipeline.review_task(
+        _sample_task(),
+        "Build the thing",
+        lambda c, t, p: None,
+        complexity="S",
+    )
+
+    # Check that the system prompt contains session context markers
+    for call in mock_query.call_args_list:
+        options = call[1].get("options") or call[0][1]
+        assert "Session Context" in options.system_prompt, (
+            "Expected session context in system prompt"
+        )

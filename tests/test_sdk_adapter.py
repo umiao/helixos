@@ -793,3 +793,28 @@ class TestModels:
         assert opts.allowed_tools == []
         assert opts.add_dirs == []
         assert opts.env == {}
+        assert opts.setting_sources is None
+
+    def test_query_options_setting_sources(self) -> None:
+        """QueryOptions accepts setting_sources."""
+        opts = QueryOptions(setting_sources=[])
+        assert opts.setting_sources == []
+
+        opts2 = QueryOptions(setting_sources=["project"])
+        assert opts2.setting_sources == ["project"]
+
+    def test_build_sdk_options_passes_setting_sources(self) -> None:
+        """_build_sdk_options passes setting_sources to ClaudeAgentOptions."""
+        _ensure_fake_sdk()
+        opts = QueryOptions(setting_sources=[])
+        sdk_opts = _build_sdk_options(opts)
+        assert sdk_opts._kwargs["setting_sources"] == []
+
+    def test_build_sdk_options_omits_setting_sources_when_none(self) -> None:
+        """_build_sdk_options omits setting_sources when None (SDK default)."""
+        _ensure_fake_sdk()
+        opts = QueryOptions()
+        sdk_opts = _build_sdk_options(opts)
+        # When setting_sources is None, it should not be passed, so SDK uses
+        # its own default (which loads all setting sources).
+        assert "setting_sources" not in sdk_opts._kwargs

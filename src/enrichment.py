@@ -29,6 +29,7 @@ from pydantic import BaseModel, ValidationError
 
 from src.executors.code_executor import _LazyFileWriter
 from src.sdk_adapter import ClaudeEventType, QueryOptions, run_claude_query
+from src.session_context_loader import get_session_context
 
 logger = logging.getLogger(__name__)
 
@@ -452,11 +453,19 @@ async def generate_task_plan(
     if description.strip():
         user_prompt += f"\n\nExisting description:\n{description}"
 
+    # Inject session context into system prompt (replaces SessionStart hook
+    # which is not available as an SDK hook type).
+    session_ctx = get_session_context(repo_path)
+    plan_prompt_with_ctx = _PLAN_SYSTEM_PROMPT + "\n\n" + session_ctx
+
     options = QueryOptions(
         model="claude-opus-4-6",
-        system_prompt=_PLAN_SYSTEM_PROMPT,
+        system_prompt=plan_prompt_with_ctx,
         json_schema=_PLAN_JSON_SCHEMA,
         permission_mode="plan",
+        # Disable CLI hooks (block_dangerous, secret_guard, etc.) for plan
+        # sessions.  Session context is injected above instead.
+        setting_sources=[],
     )
 
     if repo_path is not None and repo_path.is_dir():

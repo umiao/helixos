@@ -1080,3 +1080,10 @@
 - **Sanity check result**: 1244 tests pass + 13 deselected. 103 review pipeline tests pass. Ruff clean. [AUTO-VERIFIED]
 - **Status**: [DONE]
 - **Request**: Move T-P1-102 to Completed (REMOVE spec from Active, ADD summary to Completed Tasks)
+
+## 2026-03-07 -- [T-P1-103] Selective hooks loading for plan/review agents
+- **What I did**: Added `setting_sources` field to `QueryOptions` and wired it through `_build_sdk_options` to `ClaudeAgentOptions`. Plan agent (`enrichment.py`) and review agent (`review_pipeline.py`) now use `setting_sources=[]` to disable CLI hooks (block_dangerous, secret_guard, etc.) during their sessions. Created `src/session_context_loader.py` to build session context text (active tasks, session state) and injected it into plan/review system prompts as a replacement for the SessionStart hook (which is CLI-only, not an SDK hook type). Execution agent (`code_executor.py`) remains unchanged, inheriting all CLI hooks from settings.json.
+- **Deliverables**: `src/sdk_adapter.py` (mod -- setting_sources field), `src/session_context_loader.py` (new -- context builder), `src/enrichment.py` (mod -- setting_sources=[], session context injection), `src/review_pipeline.py` (mod -- setting_sources=[], session context injection), `tests/test_sdk_adapter.py` (mod -- 4 new tests), `tests/test_enrichment.py` (mod -- 2 new tests), `tests/test_review_pipeline.py` (mod -- 2 new tests), `tests/test_code_executor.py` (mod -- 1 new test), `tests/test_session_context_loader.py` (new -- 7 tests)
+- **Sanity check result**: 1292 tests pass + 4 skipped. Ruff clean. Pre-existing test_windows_asyncio failure unrelated. [AUTO-VERIFIED]
+- **Status**: [DONE]
+- **Request**: Move T-P1-103 to Completed (REMOVE spec from Active, ADD summary to Completed Tasks)

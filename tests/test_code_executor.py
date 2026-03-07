@@ -246,6 +246,35 @@ class TestBuildPrompt:
 # ------------------------------------------------------------------
 
 
+class TestExecuteHooksLoading:
+    """Tests for selective hooks loading (T-P1-103)."""
+
+    @pytest.mark.asyncio
+    @patch("src.executors.code_executor.run_claude_query")
+    async def test_execution_agent_inherits_all_hooks(
+        self,
+        mock_query: MagicMock,
+        config: OrchestratorSettings,
+        project: Project,
+        task: Task,
+    ) -> None:
+        """Execution agent does NOT set setting_sources (inherits all CLI hooks)."""
+        mock_query.return_value = _mock_sdk_events([
+            _text_event("output"),
+            _result_event("Done"),
+        ])
+
+        executor = CodeExecutor(config)
+        await executor.execute(task, project, env={}, on_log=lambda x: None)
+
+        call_args = mock_query.call_args
+        options = call_args[1].get("options") or call_args[0][1]
+        assert options.setting_sources is None, (
+            "Execution agent should not set setting_sources "
+            "(inherits all hooks from CLI settings)"
+        )
+
+
 class TestExecuteSuccess:
     """Test successful execution flow."""
 

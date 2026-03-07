@@ -39,20 +39,6 @@
 
 
 
-#### T-P1-103: Selective hooks loading for plan/review agents
-- **Priority**: P1
-- **Complexity**: S (< 1 session)
-- **Depends on**: None
-- **Description**: Plan/review SDK sessions load no hooks. Add selective hook
-  loading: plan agent gets context hooks only (session_context.py); review
-  agent gets context hooks only. Execution agent keeps all hooks. Safety
-  hooks like block_dangerous.py should NOT run during planning (they may
-  interfere with read-only exploration).
-- **Acceptance Criteria**:
-  1. Plan agent session loads session_context.py hook
-  2. Review agent session loads session_context.py hook
-  3. Execution agent continues loading all hooks
-  4. block_dangerous.py does NOT run during plan/review sessions
 
 #### T-P1-104: Task Generator -- deterministic proposal-to-TASKS.md pipeline
 - **Priority**: P1
@@ -97,7 +83,7 @@
 
 ### Current
 - T-P1-102 depends on None [DONE]
-- T-P1-103 depends on None
+- T-P1-103 depends on None [DONE]
 - T-P1-104 depends on T-P1-101 [DONE]
 - T-P2-100 depends on None
 
@@ -110,6 +96,9 @@
 ## Completed Tasks
 
 > 99 completed tasks archived to [archive/completed_tasks.md](archive/completed_tasks.md).
+
+#### [x] T-P1-103: Selective hooks loading for plan/review agents -- 2026-03-07
+- Added `setting_sources` to QueryOptions/ClaudeAgentOptions. Plan and review agents use `setting_sources=[]` to disable CLI hooks. Created `session_context_loader.py` to inject session context into system prompts. Execution agent unchanged. 16 new tests. 1292 pass, ruff clean.
 
 #### [x] T-P1-102: Enrich review prompt with project conventions -- 2026-03-06
 - Injected CLAUDE.md rules (task planning, state machine, smoke test, key constraints) + TASKS.md schema conventions into all review prompts. Imported shared context from enrichment.py. Upgraded adversarial reviewer + synthesis model to opus 4.6. 4 new tests. 1244 pass, ruff clean.

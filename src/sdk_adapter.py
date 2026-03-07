@@ -118,6 +118,9 @@ class ClaudeResult(BaseModel):
 PermissionMode = Literal["default", "acceptEdits", "plan", "bypassPermissions"]
 
 
+SettingSource = Literal["user", "project", "local"]
+
+
 class QueryOptions(BaseModel):
     """Options for ``run_claude_query()``."""
 
@@ -132,6 +135,7 @@ class QueryOptions(BaseModel):
     max_turns: int | None = None
     cwd: str | None = None
     env: dict[str, str] = Field(default_factory=dict)
+    setting_sources: list[SettingSource] | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -157,7 +161,7 @@ def _build_sdk_options(options: QueryOptions | None) -> Any:
             else options.json_schema,
         }
 
-    return ClaudeAgentOptions(
+    kwargs: dict[str, Any] = dict(
         model=options.model,
         system_prompt=options.system_prompt,
         allowed_tools=options.allowed_tools,
@@ -169,6 +173,10 @@ def _build_sdk_options(options: QueryOptions | None) -> Any:
         cwd=options.cwd,
         env=options.env,
     )
+    if options.setting_sources is not None:
+        kwargs["setting_sources"] = options.setting_sources
+
+    return ClaudeAgentOptions(**kwargs)
 
 
 async def run_claude_query(
