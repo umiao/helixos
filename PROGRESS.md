@@ -1003,3 +1003,10 @@
 - **Sanity check result**: 1248 tests pass, 2 pre-existing failures (uvicorn LOOP_CHOICES), 4 skipped. Ruff clean.
 - **Status**: [DONE]
 - **Request**: Move T-P2-75 to Completed (REMOVE spec from Active, ADD summary to Completed Tasks)
+
+## 2026-03-06 -- [T-P2-80] State machine diagram documentation
+- **What I did**: Created `docs/architecture/state-machine.md` documenting both state machines: TaskStatus (9 states, 22 transitions with triggers, side-effects, guards) and ReviewLifecycleState (7 states, 16 transitions). Includes ASCII diagrams, transition tables, backward cleanup matrix, cross-machine interaction points, and race condition references.
+- **Deliverables**: `docs/architecture/state-machine.md` (new)
+- **Sanity check result**: 1210 tests pass, 1 pre-existing failure (uvicorn LOOP_CHOICES). Ruff clean. No emoji.
+- **Status**: [DONE]
+- **Request**: Move T-P2-80 to Completed (REMOVE spec from Active, ADD summary to Completed Tasks)

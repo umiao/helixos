@@ -35,14 +35,6 @@
 
 
 
-#### T-P2-80: State machine diagram documentation
-- **Priority**: P2
-- **Complexity**: S
-- **Depends on**: T-P1-76
-- **Description**: Document all valid states, triggers, and side-effects in review state machine.
-- **Acceptance Criteria**:
-  1. Diagram in `docs/architecture/state-machine.md`
-  2. All transitions from ReviewLifecycleState enum covered
 
 #### T-P2-81: PRD clarification (Pause/Gate/Launch semantics)
 - **Priority**: P2
@@ -98,6 +90,9 @@
 ## Completed Tasks
 
 > 99 completed tasks archived to [archive/completed_tasks.md](archive/completed_tasks.md).
+
+#### [x] T-P2-80: State machine diagram documentation -- 2026-03-06
+- Created `docs/architecture/state-machine.md` documenting both TaskStatus (9 states, 22 transitions) and ReviewLifecycleState (7 states, 16 transitions) state machines. Includes ASCII diagrams, transition tables with triggers and side-effects, guards/gates, backward cleanup matrix, cross-machine interactions, and race condition references.
 
 #### [x] T-P2-75: Raw-response decoupling postmortem integration test -- 2026-03-06
 - Integration test `test_raw_response_decoupled_from_parsed_fields` validates 5 decoupling invariants: raw_response metadata keys disjoint from parsed fields, correct SDK metadata, correct parsed extraction, result mirroring, and no field leakage. 1248 pass, ruff clean.
