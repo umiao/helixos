@@ -1101,3 +1101,9 @@
 - **Sanity check result**: 1312 tests pass + pre-existing test_windows_asyncio failure (unrelated). Ruff clean. [AUTO-VERIFIED]
 - **Status**: [DONE]
 - **Request**: Move T-P2-100 to Completed (REMOVE spec from Active, ADD summary to Completed Tasks)
+
+## 2026-03-07 -- Fix CI failures in test_windows_asyncio.py
+- **What I did**: Fixed 3 test failures in `tests/test_windows_asyncio.py` that broke on Linux CI. (1) Added `patch.object(asyncio, "WindowsProactorEventLoopPolicy", MagicMock(), create=True)` to `test_run_server_passes_loop_none_on_windows` so it doesn't crash when `WindowsProactorEventLoopPolicy` doesn't exist on Linux. (2-3) Wrapped `LOOP_SETUPS` and `LOOP_CHOICES` imports in `test_uvicorn_accepts_loop_none_programmatically` and `test_uvicorn_cli_rejects_loop_none` with try/except + `pytest.skip()` for newer uvicorn versions that removed these internals.
+- **Deliverables**: `tests/test_windows_asyncio.py` (mod -- 3 test fixes)
+- **Sanity check result**: 1350 passed, 6 skipped (full suite). Ruff clean.
+- **Status**: [DONE]
