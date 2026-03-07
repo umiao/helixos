@@ -43,16 +43,6 @@
   2. Asserts raw_response dict keys are distinct from parsed review fields
 
 
-#### T-P1-77: Scheduler finalization epoch ID
-- **Priority**: P1
-- **Complexity**: M
-- **Depends on**: T-P1-76
-- **Description**: Prevent race conditions where concurrent paths both try to finalize a task. Add execution epoch ID to scheduler (from T-P0-49).
-- **Acceptance Criteria**:
-  1. Epoch ID column on task model
-  2. Finalization checks epoch match before state transition
-  3. Test for concurrent finalization attempt
-
 
 #### T-P2-80: State machine diagram documentation
 - **Priority**: P2
@@ -134,6 +124,9 @@
 ## Completed Tasks
 
 > 99 completed tasks archived to [archive/completed_tasks.md](archive/completed_tasks.md).
+
+#### [x] T-P1-77: Scheduler finalization epoch ID -- 2026-03-06
+- Added `execution_epoch_id` to TaskRow/Task model. Scheduler generates UUID epoch on dispatch, verifies before DONE/FAILED finalization. Epoch cleared on backward transitions. 11 new tests. 1201 pass, ruff clean.
 
 #### [x] T-P1-76: State machine transition race condition audit -- 2026-03-06
 - Audit doc in `docs/architecture/race-condition-audit.md` covering 8 race windows with severity ratings and mitigations. Fixed `_cleanup_on_backward()` to reset `review_lifecycle_state`. 11 new tests. 1228 pass, ruff clean.

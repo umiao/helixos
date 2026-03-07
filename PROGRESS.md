@@ -982,3 +982,10 @@
 - **Sanity check result**: 1228 tests pass + 4 skipped, 2 pre-existing failures (uvicorn LOOP_SETUPS). Ruff clean.
 - **Status**: [DONE]
 - **Request**: Move T-P1-76 to Completed (REMOVE spec from Active, ADD summary to Completed Tasks)
+
+## 2026-03-06 -- [T-P1-77] Scheduler finalization epoch ID
+- **What I did**: Added `execution_epoch_id` column to TaskRow and Task model (auto-migrated). Scheduler generates UUID epoch on dispatch (QUEUED -> RUNNING) and verifies it before finalization (DONE or FAILED transitions). Epoch cleared on backward-to-BACKLOG transitions. Added `set_execution_epoch()` and `verify_execution_epoch()` to TaskManager. 11 new tests: 7 unit tests in test_race_conditions.py (set/verify, missing/deleted task, backward cleanup, concurrent drag simulation, roundtrip) and 4 scheduler integration tests (dispatch sets epoch, match allows DONE, mismatch skips DONE, mismatch skips FAILED).
+- **Deliverables**: `src/models.py`, `src/db.py`, `src/task_manager.py`, `src/scheduler.py`, `tests/test_race_conditions.py`, `tests/test_scheduler.py`
+- **Sanity check result**: 1201 tests pass, 1 pre-existing failure (uvicorn LOOP_SETUPS). Ruff clean.
+- **Status**: [DONE]
+- **Request**: Move T-P1-77 to Completed (REMOVE spec from Active, ADD summary to Completed Tasks)

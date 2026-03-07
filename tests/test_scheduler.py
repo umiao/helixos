@@ -1882,3 +1882,138 @@ class TestImmediateDispatch:
         updated = await task_manager.get_task("proj:t1")
         assert updated is not None
         assert updated.status == TaskStatus.DONE
+
+
+# ---------------------------------------------------------------------------
+# Tests -- Epoch ID (T-P1-77)
+# ---------------------------------------------------------------------------
+
+
+class TestSchedulerEpochId:
+    """Scheduler sets epoch ID on dispatch and verifies before finalization."""
+
+    async def test_tick_sets_epoch_id_on_dispatch(self, scheduler_env) -> None:
+        """tick() should generate and store an epoch ID when dispatching."""
+        scheduler, task_manager, _event_bus, _emitted = scheduler_env
+        mock_exec = MockExecutor(hang=True)
+        scheduler._get_executor = lambda _: mock_exec
+
+        task = _make_task()
+        await task_manager.create_task(task)
+
+        await scheduler.tick()
+
+        # Task should be RUNNING with an epoch ID set
+        running = await task_manager.get_task("proj:t1")
+        assert running is not None
+        assert running.status == TaskStatus.RUNNING
+        assert running.execution_epoch_id is not None
+        assert len(running.execution_epoch_id) == 32  # uuid4().hex
+
+        # Clean up
+        mock_exec.release()
+        running_tasks = list(scheduler.running.values())
+        if running_tasks:
+            await asyncio.gather(*running_tasks, return_exceptions=True)
+
+    async def test_epoch_mismatch_skips_done_transition(
+        self, scheduler_env,
+    ) -> None:
+        """If epoch changes mid-execution, success finalization is skipped."""
+        scheduler, task_manager, _event_bus, emitted = scheduler_env
+        mock_exec = MockExecutor(hang=True)
+        scheduler._get_executor = lambda _: mock_exec
+
+        task = _make_task()
+        await task_manager.create_task(task)
+
+        await scheduler.tick()
+
+        # Verify epoch was set, then overwrite it
+        running = await task_manager.get_task("proj:t1")
+        assert running is not None
+        assert running.execution_epoch_id is not None
+
+        # Simulate concurrent drag: overwrite epoch with a different value
+        await task_manager.set_execution_epoch("proj:t1", "different-epoch")
+
+        # Release executor (will succeed)
+        mock_exec.release()
+        running_tasks = list(scheduler.running.values())
+        if running_tasks:
+            await asyncio.gather(*running_tasks, return_exceptions=True)
+
+        # Task should NOT have moved to DONE because epoch mismatched
+        final = await task_manager.get_task("proj:t1")
+        assert final is not None
+        # The epoch guard triggers, so scheduler skips the transition.
+        # Task stays in RUNNING (no transition was made).
+        assert final.status == TaskStatus.RUNNING
+
+    async def test_epoch_match_allows_done_transition(
+        self, scheduler_env,
+    ) -> None:
+        """Normal execution with matching epoch transitions to DONE."""
+        scheduler, task_manager, _event_bus, _emitted = scheduler_env
+        mock_exec = MockExecutor()
+        scheduler._get_executor = lambda _: mock_exec
+
+        task = _make_task()
+        await task_manager.create_task(task)
+
+        await scheduler.tick()
+
+        running_tasks = list(scheduler.running.values())
+        if running_tasks:
+            await asyncio.gather(*running_tasks, return_exceptions=True)
+
+        final = await task_manager.get_task("proj:t1")
+        assert final is not None
+        assert final.status == TaskStatus.DONE
+        # Epoch should still be set (not cleared on success)
+        assert final.execution_epoch_id is not None
+
+    async def test_epoch_mismatch_skips_failed_transition(
+        self, scheduler_env,
+    ) -> None:
+        """If epoch changes mid-execution, failure finalization is skipped."""
+        scheduler, task_manager, _event_bus, _emitted = scheduler_env
+
+        # Use a hanging executor that will return failure when released
+        fail_exec = MockExecutor(
+            result=ExecutorResult(
+                success=False,
+                exit_code=1,
+                log_lines=[],
+                error_summary="test failure",
+                duration_seconds=0.1,
+            ),
+            hang=True,
+        )
+
+        scheduler._get_executor = lambda _: fail_exec
+
+        task = _make_task()
+        await task_manager.create_task(task)
+
+        await scheduler.tick()
+
+        # Task is now RUNNING and hanging in the executor
+        running = await task_manager.get_task("proj:t1")
+        assert running is not None
+        assert running.status == TaskStatus.RUNNING
+
+        # Overwrite epoch (simulates concurrent path taking ownership)
+        await task_manager.set_execution_epoch("proj:t1", "hijacked-epoch")
+
+        # Release executor -- it will return failure
+        fail_exec.release()
+
+        running_tasks = list(scheduler.running.values())
+        if running_tasks:
+            await asyncio.gather(*running_tasks, return_exceptions=True)
+
+        # Task should NOT have moved to FAILED/BLOCKED because epoch mismatched
+        final = await task_manager.get_task("proj:t1")
+        assert final is not None
+        assert final.status == TaskStatus.RUNNING

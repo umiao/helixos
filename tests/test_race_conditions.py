@@ -268,3 +268,106 @@ class TestRaceReviewCompletionVsBackwardDrag:
 
         updated = await tm.update_status("P0:T-P0-1", TaskStatus.BACKLOG)
         assert updated.review_lifecycle_state == ReviewLifecycleState.NOT_STARTED.value
+
+
+# ---------------------------------------------------------------------------
+# Epoch ID: concurrent finalization prevention (T-P1-77)
+# ---------------------------------------------------------------------------
+
+
+class TestExecutionEpochId:
+    """Epoch ID prevents stale finalization from overriding valid state."""
+
+    async def test_set_and_verify_epoch(self, session_factory) -> None:
+        """set_execution_epoch stores and verify_execution_epoch reads back."""
+        tm = TaskManager(session_factory)
+        task = _make_task(status=TaskStatus.RUNNING)
+        await tm.create_task(task)
+
+        await tm.set_execution_epoch("P0:T-P0-1", "epoch-abc")
+
+        assert await tm.verify_execution_epoch("P0:T-P0-1", "epoch-abc") is True
+        assert await tm.verify_execution_epoch("P0:T-P0-1", "epoch-xyz") is False
+
+    async def test_verify_epoch_returns_false_for_missing_task(
+        self, session_factory,
+    ) -> None:
+        """verify_execution_epoch returns False for non-existent task."""
+        tm = TaskManager(session_factory)
+        assert await tm.verify_execution_epoch("no-such-task", "epoch") is False
+
+    async def test_verify_epoch_returns_false_for_deleted_task(
+        self, session_factory,
+    ) -> None:
+        """verify_execution_epoch returns False for soft-deleted task."""
+        tm = TaskManager(session_factory)
+        task = _make_task(status=TaskStatus.QUEUED)
+        await tm.create_task(task)
+        await tm.set_execution_epoch("P0:T-P0-1", "epoch-abc")
+        await tm.delete_task("P0:T-P0-1")
+
+        assert await tm.verify_execution_epoch("P0:T-P0-1", "epoch-abc") is False
+
+    async def test_backward_to_backlog_clears_epoch(
+        self, session_factory,
+    ) -> None:
+        """Drag to BACKLOG clears execution_epoch_id."""
+        tm = TaskManager(session_factory)
+        task = _make_task(status=TaskStatus.RUNNING)
+        await tm.create_task(task)
+        await tm.set_execution_epoch("P0:T-P0-1", "epoch-abc")
+
+        # RUNNING -> FAILED -> BACKLOG
+        await tm.update_status("P0:T-P0-1", TaskStatus.FAILED)
+        await tm.update_status("P0:T-P0-1", TaskStatus.BACKLOG)
+
+        # Epoch should be cleared
+        assert await tm.verify_execution_epoch("P0:T-P0-1", "epoch-abc") is False
+
+        # Re-fetch to verify it's None
+        refreshed = await tm.get_task("P0:T-P0-1")
+        assert refreshed is not None
+        assert refreshed.execution_epoch_id is None
+
+    async def test_epoch_mismatch_after_concurrent_drag(
+        self, session_factory,
+    ) -> None:
+        """Simulates RACE-1: user drag changes state, epoch no longer matches."""
+        tm = TaskManager(session_factory)
+        task = _make_task(status=TaskStatus.RUNNING)
+        await tm.create_task(task)
+
+        # Scheduler sets epoch when dispatching
+        await tm.set_execution_epoch("P0:T-P0-1", "epoch-original")
+
+        # User drags to DONE while executor is running
+        await tm.update_status("P0:T-P0-1", TaskStatus.DONE)
+
+        # User drags DONE -> BACKLOG (which clears epoch)
+        await tm.update_status("P0:T-P0-1", TaskStatus.BACKLOG)
+
+        # Scheduler's stale epoch no longer matches
+        assert await tm.verify_execution_epoch(
+            "P0:T-P0-1", "epoch-original",
+        ) is False
+
+    async def test_epoch_persists_through_model_roundtrip(
+        self, session_factory,
+    ) -> None:
+        """execution_epoch_id survives Task -> DB -> Task roundtrip."""
+        tm = TaskManager(session_factory)
+        task = _make_task(status=TaskStatus.RUNNING)
+        await tm.create_task(task)
+        await tm.set_execution_epoch("P0:T-P0-1", "epoch-roundtrip")
+
+        refreshed = await tm.get_task("P0:T-P0-1")
+        assert refreshed is not None
+        assert refreshed.execution_epoch_id == "epoch-roundtrip"
+
+    async def test_set_epoch_raises_for_missing_task(
+        self, session_factory,
+    ) -> None:
+        """set_execution_epoch raises ValueError for non-existent task."""
+        tm = TaskManager(session_factory)
+        with pytest.raises(ValueError, match="Task not found"):
+            await tm.set_execution_epoch("no-such-task", "epoch")

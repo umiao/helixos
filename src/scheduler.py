@@ -12,6 +12,7 @@ import asyncio
 import contextlib
 import logging
 import traceback
+import uuid
 from collections.abc import Callable
 
 from src.config import OrchestratorConfig, ProjectRegistry
@@ -380,14 +381,16 @@ class Scheduler:
 
                 executor = self._get_executor(project.executor_type)
 
+                epoch_id = uuid.uuid4().hex
                 await self._task_manager.update_status(task.id, TaskStatus.RUNNING)
+                await self._task_manager.set_execution_epoch(task.id, epoch_id)
                 self._event_bus.emit(
                     "status_change", task.id, {"status": "running"},
                     origin="scheduler",
                 )
 
                 self.running[task.id] = asyncio.create_task(
-                    self._execute_task(executor, task, project)
+                    self._execute_task(executor, task, project, epoch_id)
                 )
 
     # ------------------------------------------------------------------
@@ -512,6 +515,7 @@ class Scheduler:
         executor: BaseExecutor,
         task: Task,
         project: Project,
+        epoch_id: str = "",
     ) -> None:
         """Execute a task with retry logic and handle success/failure.
 
@@ -519,10 +523,16 @@ class Scheduler:
         On cancel: status -> FAILED, emit ``alert``.
         On max retries exhausted: status -> FAILED -> BLOCKED, emit ``alert``.
 
+        The *epoch_id* identifies this specific execution attempt.  Before
+        any finalization transition the scheduler verifies the epoch still
+        matches the DB row.  A mismatch means another path (user drag,
+        concurrent request) has taken ownership and the transition is skipped.
+
         Args:
             executor: The executor to run the task with.
             task: The task to execute.
             project: The project this task belongs to.
+            epoch_id: Unique identifier for this execution attempt.
         """
         self._executors[task.id] = executor
         try:
@@ -557,6 +567,19 @@ class Scheduler:
                         task.id, "Execution completed successfully",
                         level="info", source="scheduler",
                     )
+                # Epoch guard: verify this execution attempt still owns
+                # the task.  If another path (user drag, concurrent request)
+                # has taken ownership, skip the transition.
+                if epoch_id and not await self._task_manager.verify_execution_epoch(
+                    task.id, epoch_id,
+                ):
+                    logger.warning(
+                        "Epoch mismatch for task %s (epoch=%s), "
+                        "skipping DONE transition",
+                        task.id, epoch_id,
+                    )
+                    return
+
                 # Idempotent guard: re-fetch status before transitioning.
                 # If timeout path already moved to DONE, skip the duplicate
                 # transition instead of crashing with ValueError.
@@ -612,6 +635,18 @@ class Scheduler:
                             task.id, f"stderr: {result.stderr_output}",
                             level="error", source="executor",
                         )
+
+                # Epoch guard: verify this execution attempt still owns
+                # the task before transitioning to FAILED.
+                if epoch_id and not await self._task_manager.verify_execution_epoch(
+                    task.id, epoch_id,
+                ):
+                    logger.warning(
+                        "Epoch mismatch for task %s (epoch=%s), "
+                        "skipping FAILED transition",
+                        task.id, epoch_id,
+                    )
+                    return
 
                 # State guard: verify task is still RUNNING before
                 # transitioning to FAILED.  If the completion path already

@@ -414,6 +414,7 @@ class TaskManager:
             row.completed_at = None
             row.review_status = "idle"
             row.review_lifecycle_state = "not_started"
+            row.execution_epoch_id = None
             if row.execution_json:
                 exec_data = json.loads(row.execution_json)
                 exec_data.pop("started_at", None)
@@ -437,6 +438,44 @@ class TaskManager:
 
         # QUEUED -> REVIEW: no cleanup needed (just status change)
         # QUEUED -> BACKLOG is handled by the * -> BACKLOG rule above
+
+    async def set_execution_epoch(self, task_id: str, epoch_id: str) -> None:
+        """Set the execution epoch ID for a task entering RUNNING.
+
+        Called by the scheduler immediately after transitioning to RUNNING.
+        The epoch identifies this specific execution attempt so that
+        finalization can verify it is still the rightful owner.
+
+        Args:
+            task_id: The task to tag.
+            epoch_id: A unique identifier for this execution attempt.
+        """
+        async with get_session(self._sf) as session:
+            row = await session.get(TaskRow, task_id)
+            if row is None or row.is_deleted:
+                raise ValueError(f"Task not found: {task_id}")
+            row.execution_epoch_id = epoch_id
+            row.updated_at = datetime.now(UTC).isoformat()
+
+    async def verify_execution_epoch(self, task_id: str, epoch_id: str) -> bool:
+        """Check whether the task's current epoch matches *epoch_id*.
+
+        Returns False if the task doesn't exist, is deleted, or the
+        epoch doesn't match (meaning another execution or user action
+        has claimed ownership).
+
+        Args:
+            task_id: The task to check.
+            epoch_id: The epoch to verify against.
+
+        Returns:
+            True if the epoch matches, False otherwise.
+        """
+        async with get_session(self._sf) as session:
+            row = await session.get(TaskRow, task_id)
+            if row is None or row.is_deleted:
+                return False
+            return row.execution_epoch_id == epoch_id
 
     async def set_review_status(self, task_id: str, review_status: str) -> None:
         """Update only the review_status column for a task.
