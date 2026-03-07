@@ -1052,3 +1052,10 @@
 - **Sanity check result**: 1257 tests pass + 4 skipped. Ruff clean. TypeScript clean. Pre-existing uvicorn import failure in test_windows_asyncio.py unrelated.
 - **Status**: [DONE]
 - **Request**: Move T-P0-100 to Completed (REMOVE spec from Active, ADD summary to Completed Tasks)
+
+## 2026-03-06 -- [T-P0-99] Auto-sync frontend board after drag and task completion
+- **What I did**: Added `board_sync` SSE event emission to backend on every task state change (status updates, start-all-planned batch, task deletion, scheduler dispatch/completion/failure/cancellation). Frontend App.tsx now handles `board_sync` events with a debounced (500ms) full `fetchTasks()` refresh, coalescing rapid events into a single API call. Added `onStarted` callback to StartAllPlanned component for success toast feedback. Fixed test_soft_delete assertion to account for new board_sync emit.
+- **Deliverables**: `src/api.py` (mod -- board_sync emit after status_change, start_all_planned, task_deleted), `src/scheduler.py` (mod -- board_sync emit after running/done/blocked/cancelled), `frontend/src/App.tsx` (mod -- debouncedBoardSync + board_sync SSE handler), `frontend/src/components/StartAllPlanned.tsx` (mod -- onStarted callback), `frontend/src/components/SwimLane.tsx` (mod -- thread onStarted), `frontend/src/components/SwimLaneHeader.tsx` (mod -- thread onStarted), `tests/test_api.py` (mod -- 3 new tests in TestBoardSync), `tests/test_soft_delete.py` (mod -- updated emit assertion)
+- **Sanity check result**: 1259 tests pass + 4 skipped. Ruff clean. TypeScript clean. Vite build clean. Pre-existing test_windows_asyncio failures unrelated. [AUTO-VERIFIED]
+- **Status**: [DONE]
+- **Request**: Move T-P0-99 to Completed (REMOVE spec from Active, ADD summary to Completed Tasks)

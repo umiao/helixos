@@ -18,6 +18,7 @@ interface SwimLaneHeaderProps {
   onError: (msg: string) => void;
   onPauseToggle?: (paused: boolean) => void;
   onReviewGateToggle?: (enabled: boolean) => void;
+  onStarted?: (count: number) => void;
 }
 
 export default function SwimLaneHeader({
@@ -30,6 +31,7 @@ export default function SwimLaneHeader({
   onError,
   onPauseToggle,
   onReviewGateToggle,
+  onStarted,
 }: SwimLaneHeaderProps) {
   const [toggling, setToggling] = useState(false);
   const [togglingGate, setTogglingGate] = useState(false);
@@ -169,7 +171,12 @@ export default function SwimLaneHeader({
       </button>
 
       {/* Action buttons */}
-      <StartAllPlanned projectId={project.id} tasks={tasks} onError={onError} />
+      <StartAllPlanned
+        projectId={project.id}
+        tasks={tasks}
+        onError={onError}
+        onStarted={onStarted}
+      />
 
       <button
         onClick={onNewTask}

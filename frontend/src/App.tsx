@@ -88,6 +88,33 @@ function App() {
   const selectedTaskRef = useRef(selectedTask);
   selectedTaskRef.current = selectedTask;
 
+  // Debounced board sync: coalesces rapid board_sync SSE events into a
+  // single fetchTasks() call after 500ms of quiet.
+  const boardSyncTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const debouncedBoardSync = useCallback(() => {
+    if (boardSyncTimerRef.current !== null) {
+      clearTimeout(boardSyncTimerRef.current);
+    }
+    boardSyncTimerRef.current = setTimeout(async () => {
+      boardSyncTimerRef.current = null;
+      try {
+        const updated = await fetchTasks();
+        setTasks(updated);
+      } catch {
+        // Silently ignore -- next sync event will retry
+      }
+    }, 500);
+  }, []);
+
+  // Clean up timer on unmount
+  useEffect(() => {
+    return () => {
+      if (boardSyncTimerRef.current !== null) {
+        clearTimeout(boardSyncTimerRef.current);
+      }
+    };
+  }, []);
+
   const addToast = useCallback(
     (text: string, type: "success" | "error") => {
       const id = ++toastIdCounter;
@@ -343,6 +370,11 @@ function App() {
           }
           break;
         }
+        case "board_sync": {
+          // Debounced full board refresh -- coalesces rapid events
+          debouncedBoardSync();
+          break;
+        }
         case "process_failed": {
           const failError =
             typeof event.data.error === "string"
@@ -363,7 +395,7 @@ function App() {
         }
       }
     },
-    [addToast, addLogEntry],
+    [addToast, addLogEntry, debouncedBoardSync],
   );
 
   const { connected } = useSSE(handleSSEEvent);
@@ -844,6 +876,9 @@ function App() {
                       )
                     }
                     streamSummaries={streamSummaries}
+                    onStarted={(count) =>
+                      addToast(`Started ${count} planned task(s)`, "success")
+                    }
                   />
                 </div>
               );

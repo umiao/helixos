@@ -34,6 +34,8 @@ interface SwimLaneProps {
   onTaskUpdated?: (task: Task) => void;
   /** Per-task stream summaries for popover live activity display. */
   streamSummaries?: Record<string, StreamSummary>;
+  /** Called when Start All Planned successfully starts tasks. */
+  onStarted?: (count: number) => void;
 }
 
 export default function SwimLane({
@@ -55,6 +57,7 @@ export default function SwimLane({
   onEditTask,
   onTaskUpdated,
   streamSummaries,
+  onStarted,
 }: SwimLaneProps) {
   return (
     <div
@@ -71,6 +74,7 @@ export default function SwimLane({
         onNewTask={onNewTask}
         onError={onError}
         onPauseToggle={onPauseToggle}
+        onStarted={onStarted}
       />
 
       {/* Kanban board -- has its own DndContext */}

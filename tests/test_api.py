@@ -24,7 +24,7 @@ from src.config import (
     ReviewPipelineConfig,
 )
 from src.db import Base
-from src.events import EventBus
+from src.events import EventBus, TaskEvent
 from src.models import (
     ExecutionState,
     ExecutorType,
@@ -1152,3 +1152,129 @@ class TestProjectResponseIncludesPausedState:
         assert resp.status_code == 200
         project = resp.json()[0]
         assert project["execution_paused"] is True
+
+
+class TestBoardSync:
+    """Tests for board_sync SSE event emission on task state changes."""
+
+    @staticmethod
+    async def _collect_events(
+        event_bus: EventBus, timeout: float = 0.1,
+    ) -> list[TaskEvent]:
+        """Drain all pending events from the bus within *timeout* seconds."""
+        collected: list[TaskEvent] = []
+        queue: asyncio.Queue[TaskEvent] = asyncio.Queue(maxsize=1000)
+        event_bus._subscribers.append(queue)
+        try:
+            while True:
+                try:
+                    ev = await asyncio.wait_for(queue.get(), timeout=timeout)
+                    collected.append(ev)
+                except TimeoutError:
+                    break
+        finally:
+            event_bus._subscribers.remove(queue)
+        return collected
+
+    async def test_status_change_emits_board_sync(
+        self, client: AsyncClient, test_app, seeded_task: Task,
+    ):
+        """PATCH /api/tasks/{id}/status should emit board_sync alongside status_change."""
+        event_bus: EventBus = test_app.state.event_bus
+
+        # Disable review gate so BACKLOG -> QUEUED is allowed
+        await client.patch("/api/projects/proj-a/review-gate?enabled=false")
+
+        # Subscribe BEFORE the status change
+        queue: asyncio.Queue[TaskEvent] = asyncio.Queue(maxsize=100)
+        event_bus._subscribers.append(queue)
+        try:
+            resp = await client.patch(
+                "/api/tasks/proj-a:T-P0-1/status",
+                json={"status": "queued"},
+            )
+            assert resp.status_code == 200
+
+            events: list[TaskEvent] = []
+            while not queue.empty():
+                events.append(queue.get_nowait())
+        finally:
+            event_bus._subscribers.remove(queue)
+
+        event_types = [e.type for e in events]
+        assert "status_change" in event_types
+        assert "board_sync" in event_types
+
+        sync_event = next(e for e in events if e.type == "board_sync")
+        assert sync_event.task_id == "proj-a:T-P0-1"
+        assert sync_event.data["trigger"] == "status_change"
+
+    async def test_start_all_planned_emits_board_sync(
+        self, client: AsyncClient, test_app, task_manager: TaskManager,
+    ):
+        """POST start-all-planned should emit a final board_sync event."""
+        event_bus: EventBus = test_app.state.event_bus
+
+        # Create a BACKLOG task with plan_status=ready
+        from src.models import PlanStatus
+
+        planned_task = _make_task(
+            task_id="proj-a:T-P0-50",
+            local_task_id="T-P0-50",
+            status=TaskStatus.BACKLOG,
+        )
+        planned_task = planned_task.model_copy(
+            update={"plan_status": PlanStatus.READY},
+        )
+        await task_manager.create_task(planned_task)
+
+        # Disable review gate so tasks go to QUEUED
+        await client.patch("/api/projects/proj-a/review-gate?enabled=false")
+
+        queue: asyncio.Queue[TaskEvent] = asyncio.Queue(maxsize=100)
+        event_bus._subscribers.append(queue)
+        try:
+            resp = await client.post("/api/projects/proj-a/start-all-planned")
+            assert resp.status_code == 200
+            assert resp.json()["started"] == 1
+
+            events: list[TaskEvent] = []
+            while not queue.empty():
+                events.append(queue.get_nowait())
+        finally:
+            event_bus._subscribers.remove(queue)
+
+        board_syncs = [e for e in events if e.type == "board_sync"]
+        # At least one board_sync should have been emitted:
+        # one from the per-task status_change companion + one from the batch
+        assert len(board_syncs) >= 1
+
+        # The batch board_sync should use project_id as task_id
+        batch_sync = next(
+            (e for e in board_syncs if e.data.get("trigger") == "start_all_planned"),
+            None,
+        )
+        assert batch_sync is not None
+        assert batch_sync.task_id == "proj-a"
+
+    async def test_delete_task_emits_board_sync(
+        self, client: AsyncClient, test_app, seeded_task: Task,
+    ):
+        """DELETE /api/tasks/{id} should emit board_sync."""
+        event_bus: EventBus = test_app.state.event_bus
+
+        queue: asyncio.Queue[TaskEvent] = asyncio.Queue(maxsize=100)
+        event_bus._subscribers.append(queue)
+        try:
+            resp = await client.delete("/api/tasks/proj-a:T-P0-1")
+            assert resp.status_code == 204
+
+            events: list[TaskEvent] = []
+            while not queue.empty():
+                events.append(queue.get_nowait())
+        finally:
+            event_bus._subscribers.remove(queue)
+
+        board_syncs = [e for e in events if e.type == "board_sync"]
+        assert len(board_syncs) == 1
+        assert board_syncs[0].data["trigger"] == "task_deleted"

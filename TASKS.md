@@ -33,20 +33,6 @@
 
 
 
-#### T-P0-99: Auto-sync frontend board after drag and task completion
-- **Priority**: P0
-- **Complexity**: M (1-2 sessions)
-- **Depends on**: None
-- **Description**: Frontend board does not refresh after drag-drop or task
-  completion. Backend should emit `board_sync` SSE event on every task state
-  change; frontend listens and re-fetches board state. Drag-drop handler must
-  call sync after successful API update. This is P0 because a kanban-driven
-  agentic workflow with stale board state leads to wrong operator decisions.
-- **Acceptance Criteria**:
-  1. After dragging a task card to a new column, board reflects new state without manual refresh
-  2. After a task completes (DONE/FAILED/BLOCKED), board updates within 2s
-  3. After "Start All Planned" batch operation, board reflects all moved tasks
-  4. Manual smoke test: drag task Backlog -> Queued -> card appears immediately
 
 
 ### P1 -- Should Have (agentic intelligence)
@@ -154,7 +140,6 @@
 > Full historical dependency graph relocated to [docs/architecture/dependency-graph-history.md](docs/architecture/dependency-graph-history.md).
 
 ### Current
-- T-P0-99 depends on None
 - T-P1-100 depends on None
 - T-P1-101 depends on T-P1-100
 - T-P1-102 depends on None
@@ -171,6 +156,9 @@
 ## Completed Tasks
 
 > 99 completed tasks archived to [archive/completed_tasks.md](archive/completed_tasks.md).
+
+#### [x] T-P0-99: Auto-sync frontend board after drag and task completion -- 2026-03-06
+- Added `board_sync` SSE event on all task state changes (api, scheduler). Frontend debounced (500ms) full refetch on board_sync events. StartAllPlanned gets success toast via onStarted callback. 3 new tests. 1259 pass, ruff clean, TS clean, Vite build clean.
 
 #### [x] T-P0-100: Fix stop/cancel task signal propagation -- 2026-03-06
 - Root cause: no frontend cancel mechanism + no backend auto-cancel on RUNNING status change. Added `cancelTask()` API, "Stop Execution" context menu button, backend auto-cancel in `update_task_status()`. 4 new tests. 1257 pass, ruff clean, TS clean.

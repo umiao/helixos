@@ -12,12 +12,14 @@ interface StartAllPlannedProps {
   projectId: string;
   tasks: Task[];
   onError: (msg: string) => void;
+  onStarted?: (count: number) => void;
 }
 
 export default function StartAllPlanned({
   projectId,
   tasks,
   onError,
+  onStarted,
 }: StartAllPlannedProps) {
   const [loading, setLoading] = useState(false);
 
@@ -33,6 +35,9 @@ export default function StartAllPlanned({
     setLoading(true);
     try {
       const result = await startAllPlanned(projectId);
+      if (result.started > 0) {
+        onStarted?.(result.started);
+      }
       if (result.skipped > 0) {
         onError(
           `Started ${result.started}, skipped ${result.skipped} task(s)`,

@@ -311,8 +311,14 @@ class TestDeleteTaskAPI:
         app.state.task_manager.delete_task.assert_called_once_with(
             "P0:T-P0-1", force=False,
         )
-        app.state.event_bus.emit.assert_called_once_with(
+        emit_calls = app.state.event_bus.emit.call_args_list
+        # task_deleted + board_sync emitted
+        assert len(emit_calls) == 2
+        app.state.event_bus.emit.assert_any_call(
             "task_deleted", "P0:T-P0-1", {"task_id": "P0:T-P0-1"}, origin="api",
+        )
+        app.state.event_bus.emit.assert_any_call(
+            "board_sync", "P0:T-P0-1", {"trigger": "task_deleted"}, origin="api",
         )
 
     async def test_delete_with_force(self, app, client) -> None:

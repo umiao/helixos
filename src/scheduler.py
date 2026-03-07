@@ -389,6 +389,10 @@ class Scheduler:
             "alert", task_id, {"error": "Task cancelled"},
             origin="scheduler",
         )
+        self._event_bus.emit(
+            "board_sync", task_id, {"trigger": "task_cancelled"},
+            origin="scheduler",
+        )
 
         # Ensure cleanup (idempotent with _execute_task's finally block)
         self.running.pop(task_id, None)
@@ -461,6 +465,10 @@ class Scheduler:
                 await self._task_manager.set_execution_epoch(task.id, epoch_id)
                 self._event_bus.emit(
                     "status_change", task.id, {"status": "running"},
+                    origin="scheduler",
+                )
+                self._event_bus.emit(
+                    "board_sync", task.id, {"trigger": "status_change"},
                     origin="scheduler",
                 )
 
@@ -707,6 +715,10 @@ class Scheduler:
                     "status_change", task.id, {"status": "done"},
                     origin="execution",
                 )
+                self._event_bus.emit(
+                    "board_sync", task.id, {"trigger": "status_change"},
+                    origin="execution",
+                )
                 await self._auto_commit_hook(task, project)
             elif task.id in self._cancelled:
                 if self._history_writer is not None:
@@ -785,6 +797,10 @@ class Scheduler:
                     )
                     self._event_bus.emit(
                         "status_change", task.id, {"status": "blocked"},
+                        origin="execution",
+                    )
+                    self._event_bus.emit(
+                        "board_sync", task.id, {"trigger": "status_change"},
                         origin="execution",
                     )
         except Exception as exc:

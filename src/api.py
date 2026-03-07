@@ -1286,6 +1286,15 @@ async def start_all_planned(
                 "message": str(exc),
             })
 
+    # Emit a single board_sync after the batch operation so the frontend
+    # can refresh the entire board in one shot.
+    if started > 0:
+        event_bus.emit(
+            "board_sync", project_id,
+            {"trigger": "start_all_planned", "started": started},
+            origin="api",
+        )
+
     return StartAllPlannedResponse(
         project_id=project_id,
         started=started,
@@ -1620,6 +1629,7 @@ async def update_task_status(
 
     event_bus: EventBus = request.app.state.event_bus
     event_bus.emit("status_change", task_id, {"status": body.status.value}, origin="api")
+    event_bus.emit("board_sync", task_id, {"trigger": "status_change"}, origin="api")
 
     # Auto-cancel execution when a RUNNING task is moved away.
     # The scheduler's cancel_task() terminates the SDK query, cancels the
@@ -1698,6 +1708,7 @@ async def retry_review(task_id: str, request: Request) -> dict:
         except ValueError as exc:
             raise HTTPException(status_code=409, detail=str(exc)) from None
         event_bus.emit("status_change", task_id, {"status": "review"}, origin="api")
+        event_bus.emit("board_sync", task_id, {"trigger": "status_change"}, origin="api")
     else:
         # Already in REVIEW, just reset review_status to running
         await task_manager.set_review_status(task_id, "running")
@@ -1802,6 +1813,7 @@ async def submit_review_decision(
         await task_manager.set_review_status(task_id, "idle")
 
     event_bus.emit("status_change", task_id, {"status": new_status.value}, origin="api")
+    event_bus.emit("board_sync", task_id, {"trigger": "status_change"}, origin="api")
 
     # Re-fetch to get the updated review_status
     if body.decision == "request_changes":
@@ -1848,6 +1860,7 @@ async def force_execute(task_id: str, request: Request) -> dict:
         raise HTTPException(status_code=409, detail=str(exc)) from None
 
     event_bus.emit("status_change", task_id, {"status": "queued"}, origin="api")
+    event_bus.emit("board_sync", task_id, {"trigger": "status_change"}, origin="api")
 
     return {"detail": "Task queued for execution", "task_id": task_id}
 
@@ -1892,6 +1905,7 @@ async def retry_task(task_id: str, request: Request) -> TaskResponse:
         raise HTTPException(status_code=409, detail=str(exc)) from None
 
     event_bus.emit("status_change", task_id, {"status": "queued"}, origin="api")
+    event_bus.emit("board_sync", task_id, {"trigger": "status_change"}, origin="api")
 
     return _task_to_response(updated)
 
@@ -1966,6 +1980,7 @@ async def delete_task(
 
     event_bus: EventBus = request.app.state.event_bus
     event_bus.emit("task_deleted", task_id, {"task_id": task_id}, origin="api")
+    event_bus.emit("board_sync", task_id, {"trigger": "task_deleted"}, origin="api")
 
     return JSONResponse(status_code=204, content=None)
 
