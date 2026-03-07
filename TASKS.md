@@ -37,23 +37,6 @@
 
 ### P1 -- Should Have (agentic intelligence)
 
-#### T-P1-101: Enrich plan prompt with project context + proposed_tasks schema
-- **Priority**: P1
-- **Complexity**: M (1-2 sessions)
-- **Depends on**: T-P1-100
-- **Description**: Plan prompt is generic. Inject: CLAUDE.md rules (relevant
-  subset), TASKS.md schema template, existing task IDs for dependency refs.
-  Extend plan JSON schema with `proposed_tasks[]` field containing title,
-  description, suggested_priority, suggested_complexity, dependencies (by
-  title or ID), and acceptance_criteria. Plan agent outputs PROPOSALS, not
-  final TASKS.md entries -- ID allocation and validation happen downstream.
-- **Acceptance Criteria**:
-  1. Plan prompt includes CLAUDE.md content (or relevant subset) as context
-  2. Plan prompt includes TASKS.md schema template and conventions
-  3. JSON schema extended with `proposed_tasks[]` (title, description,
-     suggested_priority, suggested_complexity, dependencies, ACs)
-  4. Plan output contains structured task proposals (not final IDs)
-  5. `max_tasks_per_plan = 8` enforced in schema validation
 
 #### T-P1-102: Enrich review prompt with project conventions
 - **Priority**: P1
@@ -126,10 +109,9 @@
 > Full historical dependency graph relocated to [docs/architecture/dependency-graph-history.md](docs/architecture/dependency-graph-history.md).
 
 ### Current
-- T-P1-101 depends on T-P1-100 [DONE]
 - T-P1-102 depends on None
 - T-P1-103 depends on None
-- T-P1-104 depends on T-P1-101
+- T-P1-104 depends on T-P1-101 [DONE]
 - T-P2-100 depends on None
 
 
@@ -141,6 +123,9 @@
 ## Completed Tasks
 
 > 99 completed tasks archived to [archive/completed_tasks.md](archive/completed_tasks.md).
+
+#### [x] T-P1-101: Enrich plan prompt with project context + proposed_tasks schema -- 2026-03-06
+- Enriched plan prompt with CLAUDE.md rules + TASKS.md schema conventions. Extended JSON schema with `proposed_tasks[]` (title, desc, priority, complexity, deps, ACs). Added `ProposedTask` model, `MAX_TASKS_PER_PLAN=8` validation. 13 new tests. 1273 pass, ruff clean.
 
 #### [x] T-P1-100: Enable plan mode + upgrade plan model to opus 4.6 -- 2026-03-06
 - Changed `generate_task_plan()` to use `model="claude-opus-4-6"` (was `claude-sonnet-4-5`) and `permission_mode="plan"` (read-only). Updated test assertion. 1260 pass, ruff clean.

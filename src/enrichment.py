@@ -52,12 +52,24 @@ class PlanStep(BaseModel):
     files: list[str] = []
 
 
+class ProposedTask(BaseModel):
+    """A task proposal from the plan agent (not yet assigned an ID)."""
+
+    title: str
+    description: str
+    suggested_priority: Literal["P0", "P1", "P2", "P3"] = "P1"
+    suggested_complexity: Literal["S", "M", "L"] = "M"
+    dependencies: list[str] = []
+    acceptance_criteria: list[str] = []
+
+
 class PlanResult(BaseModel):
     """Validates plan JSON matches --json-schema contract."""
 
     plan: str
     steps: list[PlanStep]
     acceptance_criteria: list[str]
+    proposed_tasks: list[ProposedTask] = []
 
 
 # ------------------------------------------------------------------
@@ -274,6 +286,8 @@ def _classify_cli_error(returncode: int, stderr: str) -> PlanGenerationErrorType
 # Plan generation via Claude CLI
 # ------------------------------------------------------------------
 
+MAX_TASKS_PER_PLAN = 8
+
 _PLAN_JSON_SCHEMA = json.dumps({
     "type": "object",
     "properties": {
@@ -296,22 +310,98 @@ _PLAN_JSON_SCHEMA = json.dumps({
             "type": "array",
             "items": {"type": "string"},
         },
+        "proposed_tasks": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "title": {"type": "string"},
+                    "description": {"type": "string"},
+                    "suggested_priority": {
+                        "type": "string",
+                        "enum": ["P0", "P1", "P2", "P3"],
+                    },
+                    "suggested_complexity": {
+                        "type": "string",
+                        "enum": ["S", "M", "L"],
+                    },
+                    "dependencies": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                    },
+                    "acceptance_criteria": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                    },
+                },
+                "required": ["title", "description"],
+            },
+            "maxItems": 8,
+        },
     },
     "required": ["plan", "steps", "acceptance_criteria"],
 })
+
+_TASK_SCHEMA_CONTEXT = """\
+## Task Schema (from TASKS.md conventions)
+
+Task IDs follow the format T-P{priority}-{number} (e.g., T-P0-1, T-P1-42).
+Do NOT assign IDs in your proposals -- IDs are allocated downstream.
+
+Each task spec must include:
+- **Priority**: P0 (must have) | P1 (should have) | P2 (nice to have) | P3 (stretch)
+- **Complexity**: S (< 1 session) | M (1-2 sessions) | L (3+ sessions)
+- **Depends on**: other task titles from your proposals, or existing task IDs, or None
+- **Description**: What and why (2-4 sentences)
+- **Acceptance Criteria**: Specific, verifiable outcomes
+  - At least one full user journey AC per task
+  - Every conditional AC must specify the inverse case
+"""
+
+_PROJECT_RULES_CONTEXT = """\
+## Project Rules (from CLAUDE.md)
+
+### Task Planning Rules
+1. Scenario matrix: list ALL condition branches with expected outcomes.
+2. Journey-first ACs: at least one AC per task must be a full user journey.
+3. Cross-boundary integration: when spanning backend + frontend, at least one
+   AC must verify end-to-end wiring.
+4. "Other case" gate: every conditional AC must specify what happens when false.
+5. Manual smoke test AC: every UX task needs a manual verification AC.
+6. New-field consumer audit: when adding a model field, list all components
+   that render related data and verify each uses the correct source of truth.
+
+### Key Constraints
+- All API keys and cookies from .env, never hardcoded.
+- Every function must have type hints and docstring.
+- No emoji characters anywhere in the project.
+- Explicit UTF-8 for all file I/O and subprocess calls.
+- Windows-compatible: no bash-only commands without PowerShell alternatives.
+- Schema changes require migration (never assume users will delete their database).
+"""
 
 _PLAN_SYSTEM_PROMPT = (
     "You are a software architect generating structured implementation plans.\n\n"
     "Given a task title, description, and optional codebase context, generate:\n"
     "1. A concise plan summary (1-3 paragraphs) describing the approach.\n"
     "2. Ordered implementation steps, each with the files likely to be modified.\n"
-    "3. Acceptance criteria that can be verified after implementation.\n\n"
+    "3. Acceptance criteria that can be verified after implementation.\n"
+    "4. Optionally, a list of proposed sub-tasks (max 8) to decompose the work.\n"
+    "   Each proposed task is a PROPOSAL, not a final entry. Do NOT assign task IDs.\n\n"
+    + _TASK_SCHEMA_CONTEXT
+    + "\n"
+    + _PROJECT_RULES_CONTEXT
+    + "\n"
     "Focus on practical, actionable steps. Reference specific files and "
     "patterns from the codebase when available. Keep the plan focused and "
     "avoid over-engineering.\n\n"
-    "Respond in JSON with this exact structure:\n"
+    "Respond in JSON with this structure:\n"
     '{"plan": "...", "steps": [{"step": "...", "files": ["..."]}], '
-    '"acceptance_criteria": ["..."]}'
+    '"acceptance_criteria": ["..."], '
+    '"proposed_tasks": [{"title": "...", "description": "...", '
+    '"suggested_priority": "P1", "suggested_complexity": "M", '
+    '"dependencies": ["other task title"], '
+    '"acceptance_criteria": ["..."]}]}'
 )
 
 
@@ -526,6 +616,9 @@ def _validate_plan_structure(plan_data: dict) -> tuple[bool, str]:
         return False, "empty_steps"
     if not plan_data.get("acceptance_criteria"):
         return False, "empty_acceptance_criteria"
+    proposed = plan_data.get("proposed_tasks", [])
+    if len(proposed) > MAX_TASKS_PER_PLAN:
+        return False, f"too_many_proposed_tasks ({len(proposed)} > {MAX_TASKS_PER_PLAN})"
     return True, "ok"
 
 
@@ -537,7 +630,8 @@ def _parse_plan(text: str | dict) -> dict:
             from Claude CLI JSON output.
 
     Returns:
-        Dict with ``plan``, ``steps``, and ``acceptance_criteria`` keys.
+        Dict with ``plan``, ``steps``, ``acceptance_criteria``, and
+        ``proposed_tasks`` keys.
     """
     try:
         data = text if isinstance(text, dict) else json.loads(text)
@@ -545,6 +639,7 @@ def _parse_plan(text: str | dict) -> dict:
         plan = result.plan
         steps = [s.model_dump() for s in result.steps]
         acceptance_criteria = result.acceptance_criteria
+        proposed_tasks = [t.model_dump() for t in result.proposed_tasks]
     except (json.JSONDecodeError, ValidationError, KeyError, TypeError) as exc:
         raw_repr = str(text)
         logger.warning(
@@ -554,11 +649,13 @@ def _parse_plan(text: str | dict) -> dict:
         plan = text if isinstance(text, str) and text else ""
         steps = []
         acceptance_criteria = []
+        proposed_tasks = []
 
     return {
         "plan": plan,
         "steps": steps,
         "acceptance_criteria": acceptance_criteria,
+        "proposed_tasks": proposed_tasks,
     }
 
 
@@ -600,5 +697,18 @@ def format_plan_as_text(plan_data: dict) -> str:
         lines.append("")
         for ac in criteria:
             lines.append(f"- {ac}")
+
+    proposed = plan_data.get("proposed_tasks", [])
+    if proposed:
+        if lines:
+            lines.append("")
+        lines.append("## Proposed Tasks")
+        lines.append("")
+        for i, task in enumerate(proposed, 1):
+            title = task.get("title", "") if isinstance(task, dict) else str(task)
+            lines.append(f"{i}. {title}")
+            desc = task.get("description", "") if isinstance(task, dict) else ""
+            if desc:
+                lines.append(f"   {desc}")
 
     return "\n".join(lines).strip()

@@ -1066,3 +1066,10 @@
 - **Sanity check result**: 1260 tests pass + 4 skipped. Ruff clean. Pre-existing test_windows_asyncio failure unrelated. [AUTO-VERIFIED]
 - **Status**: [DONE]
 - **Request**: Move T-P1-100 to Completed (REMOVE spec from Active, ADD summary to Completed Tasks)
+
+## 2026-03-06 -- [T-P1-101] Enrich plan prompt with project context + proposed_tasks schema
+- **What I did**: Enriched plan system prompt with CLAUDE.md project rules (task planning rules, key constraints) and TASKS.md schema conventions (ID format, required fields). Extended JSON schema and `PlanResult` model with `proposed_tasks[]` array (title, description, suggested_priority, suggested_complexity, dependencies, acceptance_criteria). Added `ProposedTask` Pydantic model. Added `MAX_TASKS_PER_PLAN=8` constant enforced in `_validate_plan_structure()`. Updated `_parse_plan()` and `format_plan_as_text()` to handle proposed tasks.
+- **Deliverables**: `src/enrichment.py` (mod -- ProposedTask model, extended schema/prompt/validation/parsing), `tests/test_enrichment.py` (mod -- 13 new tests for proposed tasks, schema, prompt context, validation)
+- **Sanity check result**: 1273 tests pass + 4 skipped. Ruff clean. Pre-existing test_windows_asyncio failure unrelated. [AUTO-VERIFIED]
+- **Status**: [DONE]
+- **Request**: Move T-P1-101 to Completed (REMOVE spec from Active, ADD summary to Completed Tasks)

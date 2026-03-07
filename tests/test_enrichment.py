@@ -33,10 +33,12 @@ from src.config import (
 )
 from src.db import Base
 from src.enrichment import (
+    MAX_TASKS_PER_PLAN,
     EnrichmentResult,
     PlanGenerationError,
     PlanGenerationErrorType,
     PlanResult,
+    ProposedTask,
     _parse_enrichment,
     _parse_plan,
     _validate_plan_structure,
@@ -488,6 +490,7 @@ class TestParsePlan:
         assert result["steps"][0]["step"] == "Add Redis"
         assert result["steps"][0]["files"] == ["src/cache.py"]
         assert result["acceptance_criteria"] == ["Cache hit rate > 80%"]
+        assert result["proposed_tasks"] == []
 
     def test_steps_without_files(self) -> None:
         """Steps without files key get empty files list."""
@@ -536,6 +539,48 @@ class TestParsePlan:
         # Pydantic rejects the invalid step items, entire plan falls back
         assert result["plan"] == text
         assert result["steps"] == []
+        assert result["proposed_tasks"] == []
+
+    def test_with_proposed_tasks(self) -> None:
+        """Parse plan JSON with proposed_tasks."""
+        text = json.dumps({
+            "plan": "Decompose auth feature",
+            "steps": [{"step": "Plan subtasks"}],
+            "acceptance_criteria": ["Sub-tasks created"],
+            "proposed_tasks": [
+                {
+                    "title": "Add JWT middleware",
+                    "description": "Create auth middleware for JWT validation",
+                    "suggested_priority": "P0",
+                    "suggested_complexity": "S",
+                    "dependencies": [],
+                    "acceptance_criteria": ["Middleware validates tokens"],
+                },
+                {
+                    "title": "Add login endpoint",
+                    "description": "POST /login with credentials",
+                    "suggested_priority": "P1",
+                    "suggested_complexity": "M",
+                    "dependencies": ["Add JWT middleware"],
+                    "acceptance_criteria": ["Login returns JWT"],
+                },
+            ],
+        })
+        result = _parse_plan(text)
+        assert len(result["proposed_tasks"]) == 2
+        assert result["proposed_tasks"][0]["title"] == "Add JWT middleware"
+        assert result["proposed_tasks"][0]["suggested_priority"] == "P0"
+        assert result["proposed_tasks"][1]["dependencies"] == ["Add JWT middleware"]
+
+    def test_proposed_tasks_missing_defaults_to_empty(self) -> None:
+        """Plan without proposed_tasks field returns empty list."""
+        text = json.dumps({
+            "plan": "Simple plan",
+            "steps": [{"step": "Do it"}],
+            "acceptance_criteria": ["Done"],
+        })
+        result = _parse_plan(text)
+        assert result["proposed_tasks"] == []
 
 
 # ------------------------------------------------------------------
@@ -591,6 +636,36 @@ class TestValidatePlanStructure:
         assert is_valid is False
         assert reason == "empty_plan_text"
 
+    def test_too_many_proposed_tasks(self) -> None:
+        """More than MAX_TASKS_PER_PLAN proposed tasks fails validation."""
+        plan_data = {
+            "plan": "Big plan",
+            "steps": [{"step": "x"}],
+            "acceptance_criteria": ["y"],
+            "proposed_tasks": [
+                {"title": f"Task {i}", "description": f"Desc {i}"}
+                for i in range(MAX_TASKS_PER_PLAN + 1)
+            ],
+        }
+        is_valid, reason = _validate_plan_structure(plan_data)
+        assert is_valid is False
+        assert "too_many_proposed_tasks" in reason
+
+    def test_max_proposed_tasks_at_limit(self) -> None:
+        """Exactly MAX_TASKS_PER_PLAN proposed tasks passes validation."""
+        plan_data = {
+            "plan": "Plan at limit",
+            "steps": [{"step": "x"}],
+            "acceptance_criteria": ["y"],
+            "proposed_tasks": [
+                {"title": f"Task {i}", "description": f"Desc {i}"}
+                for i in range(MAX_TASKS_PER_PLAN)
+            ],
+        }
+        is_valid, reason = _validate_plan_structure(plan_data)
+        assert is_valid is True
+        assert reason == "ok"
+
 
 # ------------------------------------------------------------------
 # Unit tests: format_plan_as_text
@@ -632,6 +707,22 @@ class TestFormatPlanAsText:
             "acceptance_criteria": [],
         })
         assert text == "Just a summary."
+
+    def test_plan_with_proposed_tasks(self) -> None:
+        """Plan with proposed tasks includes Proposed Tasks section."""
+        text = format_plan_as_text({
+            "plan": "Auth decomposition.",
+            "steps": [{"step": "Plan subtasks"}],
+            "acceptance_criteria": ["Sub-tasks created"],
+            "proposed_tasks": [
+                {"title": "Add JWT middleware", "description": "Create auth middleware"},
+                {"title": "Add login endpoint", "description": "POST /login"},
+            ],
+        })
+        assert "## Proposed Tasks" in text
+        assert "1. Add JWT middleware" in text
+        assert "Create auth middleware" in text
+        assert "2. Add login endpoint" in text
 
 
 # ------------------------------------------------------------------
@@ -845,6 +936,56 @@ class TestGenerateTaskPlan:
             assert options.permission_mode == "plan"
             assert options.system_prompt is not None
             assert options.json_schema is not None
+
+    @pytest.mark.asyncio
+    async def test_system_prompt_includes_project_context(self) -> None:
+        """System prompt includes CLAUDE.md rules and TASKS.md schema."""
+        events = _make_plan_events(
+            "A valid plan summary", _VALID_STEPS, _VALID_AC,
+        )
+
+        with patch(
+            "src.enrichment.run_claude_query",
+            return_value=_mock_sdk_events(*events),
+        ) as mock_query:
+            await generate_task_plan("Task")
+            call_args = mock_query.call_args
+            options = call_args[1].get("options") or call_args[0][1]
+            prompt = options.system_prompt
+            # TASKS.md schema context
+            assert "T-P{priority}-{number}" in prompt
+            assert "Acceptance Criteria" in prompt
+            # CLAUDE.md project rules
+            assert "Scenario matrix" in prompt
+            assert "Journey-first ACs" in prompt
+            assert "proposed_tasks" in prompt
+
+    @pytest.mark.asyncio
+    async def test_json_schema_includes_proposed_tasks(self) -> None:
+        """JSON schema includes proposed_tasks array definition."""
+        events = _make_plan_events(
+            "A valid plan summary", _VALID_STEPS, _VALID_AC,
+        )
+
+        with patch(
+            "src.enrichment.run_claude_query",
+            return_value=_mock_sdk_events(*events),
+        ) as mock_query:
+            await generate_task_plan("Task")
+            call_args = mock_query.call_args
+            options = call_args[1].get("options") or call_args[0][1]
+            schema = json.loads(options.json_schema)
+            assert "proposed_tasks" in schema["properties"]
+            pt_schema = schema["properties"]["proposed_tasks"]
+            assert pt_schema["type"] == "array"
+            assert pt_schema["maxItems"] == 8
+            item_props = pt_schema["items"]["properties"]
+            assert "title" in item_props
+            assert "description" in item_props
+            assert "suggested_priority" in item_props
+            assert "suggested_complexity" in item_props
+            assert "dependencies" in item_props
+            assert "acceptance_criteria" in item_props
 
     @pytest.mark.asyncio
     async def test_on_stream_event_callback(self) -> None:
@@ -1595,6 +1736,56 @@ class TestEnrichmentResultModel:
             assert result.priority == p
 
 
+class TestProposedTaskModel:
+    """Tests for ProposedTask Pydantic validation."""
+
+    def test_valid_proposed_task(self) -> None:
+        """Valid proposed task passes validation."""
+        task = ProposedTask.model_validate({
+            "title": "Add auth",
+            "description": "Implement JWT auth",
+            "suggested_priority": "P0",
+            "suggested_complexity": "S",
+            "dependencies": ["Setup DB"],
+            "acceptance_criteria": ["Auth works"],
+        })
+        assert task.title == "Add auth"
+        assert task.suggested_priority == "P0"
+        assert task.suggested_complexity == "S"
+        assert task.dependencies == ["Setup DB"]
+
+    def test_minimal_proposed_task(self) -> None:
+        """Proposed task with only required fields uses defaults."""
+        task = ProposedTask.model_validate({
+            "title": "Fix bug",
+            "description": "Fix the login bug",
+        })
+        assert task.suggested_priority == "P1"
+        assert task.suggested_complexity == "M"
+        assert task.dependencies == []
+        assert task.acceptance_criteria == []
+
+    def test_invalid_priority_rejected(self) -> None:
+        """Invalid priority enum is rejected."""
+        from pydantic import ValidationError
+        with pytest.raises(ValidationError, match="suggested_priority"):
+            ProposedTask.model_validate({
+                "title": "x",
+                "description": "y",
+                "suggested_priority": "CRITICAL",
+            })
+
+    def test_invalid_complexity_rejected(self) -> None:
+        """Invalid complexity enum is rejected."""
+        from pydantic import ValidationError
+        with pytest.raises(ValidationError, match="suggested_complexity"):
+            ProposedTask.model_validate({
+                "title": "x",
+                "description": "y",
+                "suggested_complexity": "XL",
+            })
+
+
 class TestPlanResultModel:
     """Tests for PlanResult and PlanStep Pydantic validation."""
 
@@ -1637,6 +1828,28 @@ class TestPlanResultModel:
                 "steps": [],
                 "acceptance_criteria": [],
             })
+
+    def test_plan_with_proposed_tasks(self) -> None:
+        """PlanResult with proposed_tasks validates correctly."""
+        result = PlanResult.model_validate({
+            "plan": "Auth plan",
+            "steps": [{"step": "Do it"}],
+            "acceptance_criteria": ["Done"],
+            "proposed_tasks": [
+                {"title": "Sub-task A", "description": "First piece"},
+            ],
+        })
+        assert len(result.proposed_tasks) == 1
+        assert result.proposed_tasks[0].title == "Sub-task A"
+
+    def test_plan_without_proposed_tasks(self) -> None:
+        """PlanResult without proposed_tasks defaults to empty list."""
+        result = PlanResult.model_validate({
+            "plan": "Simple",
+            "steps": [{"step": "Do it"}],
+            "acceptance_criteria": ["Done"],
+        })
+        assert result.proposed_tasks == []
 
 
 class TestParseEnrichmentWithValidation:
