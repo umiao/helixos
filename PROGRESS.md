@@ -926,3 +926,24 @@
 - **Sanity check result**: 98 review_pipeline tests pass. Full suite: 1205 tests pass + 4 skipped (cli_integration). Ruff clean.
 - **Status**: [DONE]
 - **Request**: Move T-P1-89 to Completed (REMOVE spec from Active, ADD summary to Completed Tasks)
+
+## 2026-03-06 -- [T-P1-70] Extract _is_process_alive() to shared module
+- **What I did**: Extracted duplicated `_is_process_alive()` from port_registry.py, process_manager.py, subprocess_registry.py into `src/platform_utils.py` with proper `sys.platform` guard. All 3 callsites now import from the shared module.
+- **Deliverables**: `src/platform_utils.py`, `src/port_registry.py`, `src/process_manager.py`, `src/process_monitor.py`, `src/subprocess_registry.py`
+- **Sanity check result**: 1205 tests pass + 4 skipped. Ruff clean.
+- **Status**: [DONE]
+- **Request**: Move T-P1-70 to Completed
+
+## 2026-03-06 -- [T-P1-90] Remove dead subprocess boilerplate
+- **What I did**: Removed dead subprocess boilerplate left over from SDK migration (T-P1-87/88/89): `_StreamJsonBuffer`, `_simplify_stream_event()`, `_terminate_process_group()`, `_kill_process_group()`, `_truncate_stderr()`, `MAX_STDERR_BYTES` from code_executor.py; `SUBPROCESS_STREAM_LIMIT` from config.py; 31 associated tests from test_stream_json.py, test_code_executor.py, test_subprocess_stream_limit.py. Removed unused imports (`signal`, `sys`).
+- **Deliverables**: `src/executors/code_executor.py`, `src/config.py`, `tests/test_stream_json.py`, `tests/test_code_executor.py`, `tests/test_subprocess_stream_limit.py`
+- **Sanity check result**: 1174 tests pass + 4 skipped. Net reduction: 512 lines. Ruff clean.
+- **Status**: [DONE]
+- **Request**: Move T-P1-90 to Completed (REMOVE spec from Active, ADD summary to Completed Tasks)
+
+## 2026-03-06 -- [T-P2-91] Conversation extraction mock tests with real fixtures
+- **What I did**: Created 3 JSON fixture files simulating realistic SDK sessions (review with structured verdict, execution with multi-tool edit/test cycle, enrichment with structured output). Wrote 37 tests in `test_conversation_extraction.py` covering `collect_turns()` turn/action reconstruction, `_extract_conversation_summary()` findings/actions/conclusion extraction, `ClaudeResult.structured_output` correctness, and cross-fixture parametrized validation.
+- **Deliverables**: `tests/fixtures/sdk_review_session.json`, `tests/fixtures/sdk_execution_session.json`, `tests/fixtures/sdk_enrichment_session.json`, `tests/test_conversation_extraction.py`
+- **Sanity check result**: 1211 tests pass + 4 skipped. Ruff clean.
+- **Status**: [DONE]
+- **Request**: Move T-P2-91 to Completed (REMOVE spec from Active, ADD summary to Completed Tasks)

@@ -23,18 +23,6 @@
 ## In Progress
 <!-- Only ONE task here at a time. Focus. -->
 
-#### T-P2-91: Conversation extraction mock tests with real fixtures
-- **Priority**: P2
-- **Complexity**: S
-- **Depends on**: T-P1-89
-- **Description**: Persist real Claude CLI output as test fixtures. Write tests that feed fixtures through `collect_turns()` and summary extraction, verifying meaningful output (not just `[PROGRESS]` lines). Focus on output quality, not input completeness.
-- **Acceptance Criteria**:
-  1. `tests/fixtures/` contains 2-3 real output samples (review, execution, enrichment)
-  2. Tests verify `collect_turns()` produces non-empty text + tool actions
-  3. Tests verify summary extraction produces non-empty findings/actions
-  4. Tests verify `ClaudeResult.structured_output` correctly extracted
-  5. Deterministic (no live CLI calls)
-
 ## Active Tasks
 
 ### P0 -- Must Have (core functionality)
@@ -167,6 +155,9 @@
 ## Completed Tasks
 
 > 99 completed tasks archived to [archive/completed_tasks.md](archive/completed_tasks.md).
+
+#### [x] T-P2-91: Conversation extraction mock tests with real fixtures -- 2026-03-06
+- Created 3 JSON fixtures (review, execution, enrichment sessions) in `tests/fixtures/`. 37 tests verify `collect_turns()` produces non-empty turns/actions, `_extract_conversation_summary()` extracts findings/actions/conclusion, and `ClaudeResult.structured_output` is correctly populated. All deterministic. 1211 tests pass + 4 skipped, ruff clean.
 
 #### [x] T-P1-90: Remove dead subprocess boilerplate -- 2026-03-06
 - Removed `_StreamJsonBuffer`, `_simplify_stream_event()`, `_terminate_process_group()`, `_kill_process_group()`, `_truncate_stderr()`, `MAX_STDERR_BYTES` from code_executor.py. Removed `SUBPROCESS_STREAM_LIMIT` from config.py. Removed 31 associated tests. Also committed T-P1-70 (extract `_is_process_alive()` to `platform_utils.py`). Net reduction: 512 lines. 1174 tests pass + 4 skipped, ruff clean.
