@@ -42,6 +42,70 @@
 
 ### P2 -- Nice to Have
 
+#### T-P2-101: Typography + contrast improvements for log display
+- **Priority**: P2
+- **Complexity**: S (< 1 session)
+- **Depends on**: None
+- **Description**: Log display (ConversationView + ExecutionLog) uses tiny fonts (10-12px)
+  with poor contrast, making logs hard to read. Bump font sizes to readable defaults,
+  improve text/background contrast ratios, and normalize badge sizes for consistency.
+- **Acceptance Criteria**:
+  1. ConversationView body text >= 14px, tool badge text >= 12px
+  2. All text meets WCAG AA contrast ratio (4.5:1 for normal text, 3:1 for large text)
+  3. ExecutionLog message text >= 13px with consistent line-height
+  4. Badge/pill sizes normalized (no mixed 10px/12px within same view)
+  5. User journey: open a task with execution logs -> text is comfortably readable without zooming
+  6. [AUTO-VERIFIED] Build succeeds, TypeScript clean, visual grep confirms font-size values
+
+#### T-P2-102: Markdown + code syntax highlighting via Prism
+- **Priority**: P2
+- **Complexity**: M (1-2 sessions)
+- **Depends on**: T-P2-101
+- **Description**: Add rehype-prism-plus and remark-gfm to the react-markdown pipeline in
+  ConversationView for syntax highlighting of code blocks and JSON tool I/O. Include a
+  performance guard: render blocks > 5KB as plain preformatted text to avoid highlighting lag.
+- **Acceptance Criteria**:
+  1. `rehype-prism-plus` and `remark-gfm` added to package.json and wired into react-markdown
+  2. Fenced code blocks (```python, ```json, etc.) render with syntax highlighting
+  3. Tool result content containing JSON is highlighted as JSON
+  4. Code blocks > 5KB rendered as plain `<pre>` without Prism processing
+  5. A Prism CSS theme is imported (e.g., prism-one-dark) matching the app's dark UI
+  6. User journey: view a task conversation with code in assistant response -> code has colored syntax highlighting
+  7. [AUTO-VERIFIED] Build succeeds, TypeScript clean, dependency installed, size-guard logic present in source
+
+#### T-P2-103: Tool block structured rendering
+- **Priority**: P2
+- **Complexity**: M (1-2 sessions)
+- **Depends on**: T-P2-101
+- **Description**: Render tool_use + tool_result pairs as visually connected, bordered blocks
+  in ConversationView. Each tool block shows a collapsed summary preview (e.g.,
+  "Read src/foo.py (42 lines)") that expands to show full input/output. No double-collapse
+  layers -- a single expand/collapse per tool invocation.
+- **Acceptance Criteria**:
+  1. tool_use and its matching tool_result rendered as a single bordered block (visual pairing)
+  2. Collapsed state shows tool name + summary (e.g., "Read src/foo.py", "Bash: npm test (12 lines)")
+  3. Expand/collapse toggle reveals full tool input and output content
+  4. Only one level of collapse per tool block (no nested accordions)
+  5. Unmatched tool_use or tool_result still renders gracefully (no crash, shows available data)
+  6. User journey: view conversation with 5+ tool calls -> each tool is a compact summary line, click one -> full I/O expands inline
+  7. [AUTO-VERIFIED] Build succeeds, TypeScript clean, tool pairing logic verified via grep
+
+#### T-P2-104: ExecutionLog filter UX improvement
+- **Priority**: P2
+- **Complexity**: S (< 1 session)
+- **Depends on**: None
+- **Description**: Replace the level filter dropdown in ExecutionLog with a segmented control
+  or toggle chips for the most common log levels (INFO, WARN, ERROR). Keep a "More" dropdown
+  or overflow menu for less common levels to maintain extensibility.
+- **Acceptance Criteria**:
+  1. Common levels (INFO, WARN, ERROR) rendered as toggle chips or segmented control (not dropdown)
+  2. Clicking a chip toggles that level on/off (multi-select, not single-select)
+  3. Less common levels accessible via "More" dropdown or overflow
+  4. Active filter state visually distinct (e.g., filled vs outlined chip)
+  5. Filter state persists during the session (not reset on re-render)
+  6. User journey: open ExecutionLog -> click ERROR chip -> only error entries shown -> click WARN chip -> both ERROR and WARN entries shown
+  7. [AUTO-VERIFIED] Build succeeds, TypeScript clean, chip/segmented control component present in source
+
 ## Dependency Graph
 
 > Full historical dependency graph relocated to [docs/architecture/dependency-graph-history.md](docs/architecture/dependency-graph-history.md).
@@ -51,6 +115,10 @@
 - T-P1-103 depends on None [DONE]
 - T-P1-104 depends on T-P1-101 [DONE] [DONE]
 - T-P2-100 depends on None [DONE]
+- T-P2-101 depends on None
+- T-P2-102 depends on T-P2-101
+- T-P2-103 depends on T-P2-101
+- T-P2-104 depends on None
 
 
 ---
