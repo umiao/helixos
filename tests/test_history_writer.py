@@ -9,11 +9,12 @@ Tests cover:
 - Batch writes
 - Pagination (offset/limit)
 - Level filtering
+- Retention purge (purge_old_entries)
 """
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 import pytest
 
@@ -667,3 +668,89 @@ class TestReviewHistory:
         reviews = await hw.get_reviews("task-1")
         assert reviews[0]["conversation_turns"] == []
         assert reviews[0]["conversation_summary"] == {}
+
+
+# ---------------------------------------------------------------------------
+# Retention purge tests
+# ---------------------------------------------------------------------------
+
+
+class TestPurgeOldEntries:
+    """Tests for purge_old_entries retention policy."""
+
+    async def test_purge_deletes_old_logs(self, session_factory):
+        """Execution logs older than retention period are deleted."""
+        hw = HistoryWriter(session_factory)
+        # Write a log with an old timestamp by going through the DB directly
+        from src.db import ExecutionLogRow, get_session
+
+        old_ts = (datetime.now(UTC) - timedelta(days=45)).isoformat()
+        new_ts = datetime.now(UTC).isoformat()
+        async with get_session(session_factory) as session:
+            session.add(ExecutionLogRow(
+                task_id="task-old", timestamp=old_ts,
+                level="info", message="old msg", source="executor",
+            ))
+            session.add(ExecutionLogRow(
+                task_id="task-new", timestamp=new_ts,
+                level="info", message="new msg", source="executor",
+            ))
+
+        counts = await hw.purge_old_entries(retention_days=30)
+        assert counts["execution_logs"] == 1
+        # New log survives
+        logs = await hw.get_logs("task-new")
+        assert len(logs) == 1
+        # Old log deleted
+        logs = await hw.get_logs("task-old")
+        assert len(logs) == 0
+
+    async def test_purge_deletes_old_reviews(self, session_factory):
+        """Review history entries older than retention period are deleted."""
+        hw = HistoryWriter(session_factory)
+        old_review = _make_review()
+        old_review.timestamp = datetime.now(UTC) - timedelta(days=45)
+        new_review = _make_review()
+
+        await hw.write_review("task-old", 1, old_review)
+        await hw.write_review("task-new", 1, new_review)
+
+        counts = await hw.purge_old_entries(retention_days=30)
+        assert counts["review_history"] == 1
+        # New review survives
+        reviews = await hw.get_reviews("task-new")
+        assert len(reviews) == 1
+        # Old review deleted
+        reviews = await hw.get_reviews("task-old")
+        assert len(reviews) == 0
+
+    async def test_purge_nothing_when_all_recent(self, session_factory):
+        """No entries deleted when all are within retention window."""
+        hw = HistoryWriter(session_factory)
+        await hw.write_log("task-1", "recent log")
+        await hw.write_review("task-1", 1, _make_review())
+
+        counts = await hw.purge_old_entries(retention_days=30)
+        assert counts["execution_logs"] == 0
+        assert counts["review_history"] == 0
+
+    async def test_purge_custom_retention(self, session_factory):
+        """Custom retention_days value is respected."""
+        hw = HistoryWriter(session_factory)
+        from src.db import ExecutionLogRow, get_session
+
+        # 10-day-old entry should survive 30-day retention but not 5-day
+        ts_10d = (datetime.now(UTC) - timedelta(days=10)).isoformat()
+        async with get_session(session_factory) as session:
+            session.add(ExecutionLogRow(
+                task_id="task-mid", timestamp=ts_10d,
+                level="info", message="mid-age", source="executor",
+            ))
+
+        # 30-day retention: entry survives
+        counts = await hw.purge_old_entries(retention_days=30)
+        assert counts["execution_logs"] == 0
+
+        # 5-day retention: entry purged
+        counts = await hw.purge_old_entries(retention_days=5)
+        assert counts["execution_logs"] == 1

@@ -32,16 +32,6 @@
 
 
 
-#### T-P1-73: Log retention/purge policy
-- **Priority**: P1
-- **Complexity**: S
-- **Depends on**: None
-- **Description**: Add retention/purge policy for execution_logs + review_history tables. Prevent unbounded DB growth.
-- **Acceptance Criteria**:
-  1. Configurable retention period (default 30 days)
-  2. Purge runs on app startup or scheduled interval
-  3. Test verifies old entries are cleaned
-
 
 #### T-P2-75: Raw-response decoupling postmortem integration test
 - **Priority**: P2
@@ -154,6 +144,9 @@
 ## Completed Tasks
 
 > 99 completed tasks archived to [archive/completed_tasks.md](archive/completed_tasks.md).
+
+#### [x] T-P1-73: Log retention/purge policy -- 2026-03-06
+- Added `log_retention_days` (default 30) to OrchestratorSettings. Added `purge_old_entries()` to HistoryWriter (deletes execution_logs + review_history older than retention). Wired into lifespan startup. 4 new tests. 1206 pass, ruff clean.
 
 #### [x] T-P2-99: Expose review conversation_turns in API + ReviewPanel -- 2026-03-06
 - Added `conversation_turns_json`/`conversation_summary_json` columns to ReviewHistoryRow (auto-migrated). Updated write/get in history_writer. Added to ReviewHistoryEntry schema (Python + TS). Extracted TOOL_COLORS to shared `streamUtils.ts`. Added collapsible conversation section to ReviewPanel. 4 new tests. 1175 pass, ruff clean.

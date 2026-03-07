@@ -8,9 +8,9 @@ from __future__ import annotations
 
 import json
 import logging
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
-from sqlalchemy import select
+from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from src.db import ExecutionLogRow, ReviewHistoryRow, get_session
@@ -414,3 +414,44 @@ class HistoryWriter:
             )
             result = await session.execute(stmt)
             return result.scalar_one_or_none() is not None
+
+    # ------------------------------------------------------------------
+    # Retention / purge
+    # ------------------------------------------------------------------
+
+    async def purge_old_entries(self, retention_days: int = 30) -> dict[str, int]:
+        """Delete execution_logs and review_history entries older than retention_days.
+
+        Args:
+            retention_days: Number of days to retain. Entries with a timestamp
+                older than ``now - retention_days`` are deleted.
+
+        Returns:
+            Dict with keys 'execution_logs' and 'review_history', each mapping
+            to the number of rows deleted.
+        """
+        cutoff = (datetime.now(UTC) - timedelta(days=retention_days)).isoformat()
+        counts: dict[str, int] = {}
+
+        async with get_session(self._sf) as session:
+            # Purge execution_logs
+            stmt_logs = delete(ExecutionLogRow).where(
+                ExecutionLogRow.timestamp < cutoff,
+            )
+            result_logs = await session.execute(stmt_logs)
+            counts["execution_logs"] = result_logs.rowcount  # type: ignore[assignment]
+
+            # Purge review_history
+            stmt_reviews = delete(ReviewHistoryRow).where(
+                ReviewHistoryRow.timestamp < cutoff,
+            )
+            result_reviews = await session.execute(stmt_reviews)
+            counts["review_history"] = result_reviews.rowcount  # type: ignore[assignment]
+
+        logger.info(
+            "Purged old entries (retention=%dd): execution_logs=%d, review_history=%d",
+            retention_days,
+            counts["execution_logs"],
+            counts["review_history"],
+        )
+        return counts

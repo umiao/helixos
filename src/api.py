@@ -318,6 +318,18 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     if pm_orphans:
         logger.info("Cleaned up %d orphaned dev servers", len(pm_orphans))
 
+    # Purge old execution_logs and review_history entries
+    purge_counts = await history_writer.purge_old_entries(
+        retention_days=config.orchestrator.log_retention_days,
+    )
+    if purge_counts["execution_logs"] or purge_counts["review_history"]:
+        logger.info(
+            "Purged %d execution logs + %d review history entries (retention=%dd)",
+            purge_counts["execution_logs"],
+            purge_counts["review_history"],
+            config.orchestrator.log_retention_days,
+        )
+
     # Clean up stale 0-byte log files from previous runs
     from src.executors.code_executor import cleanup_empty_log_files
 

@@ -968,3 +968,10 @@
 - **Sanity check result**: 1175 tests pass, 1 pre-existing failure (uvicorn LOOP_SETUPS). TypeScript clean. Vite build clean. Ruff clean.
 - **Status**: [DONE]
 - **Request**: Move T-P2-99 to Completed (REMOVE spec from Active, ADD summary to Completed Tasks)
+
+## 2026-03-06 -- [T-P1-73] Log retention/purge policy
+- **What I did**: Added `log_retention_days` (default 30) to `OrchestratorSettings` in config.py. Added `purge_old_entries()` method to `HistoryWriter` that deletes `execution_logs` and `review_history` rows older than the retention period using ISO timestamp comparison. Wired purge into app lifespan startup. 4 new tests verify old entries are purged, recent entries survive, and custom retention periods work.
+- **Deliverables**: `src/config.py`, `src/history_writer.py`, `src/api.py`, `tests/test_history_writer.py`
+- **Sanity check result**: 1206 tests pass + 4 skipped, 1 pre-existing failure (uvicorn LOOP_SETUPS). Ruff clean.
+- **Status**: [DONE]
+- **Request**: Move T-P1-73 to Completed (REMOVE spec from Active, ADD summary to Completed Tasks)
