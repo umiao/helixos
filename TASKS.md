@@ -40,30 +40,6 @@
 
 
 
-#### T-P1-104: Task Generator -- deterministic proposal-to-TASKS.md pipeline
-- **Priority**: P1
-- **Complexity**: M (1-2 sessions)
-- **Depends on**: T-P1-101
-- **Description**: After review approval, if plan contains `proposed_tasks[]`,
-  a deterministic Task Generator (NOT LLM) processes proposals:
-  1. Allocate next available T-PX-NN IDs
-  2. Resolve dependencies (validate targets exist)
-  3. Validate schema (all required fields)
-  4. Enforce max_tasks_per_plan = 8
-  5. Detect dependency cycles
-  6. Generate diff for human approval
-  7. On approval: write to TASKS.md + auto-pause pipeline
-  Human-in-the-loop is mandatory. No auto-write without approval.
-- **Acceptance Criteria**:
-  1. Task Generator is pure Python (no LLM calls)
-  2. IDs auto-allocated as next available number per priority level
-  3. Invalid dependency references rejected with error message
-  4. Circular dependencies rejected with error message
-  5. > 8 proposed tasks rejected with error message
-  6. Diff shown to user before TASKS.md write
-  7. Pipeline auto-pauses after task insertion (configurable)
-  8. Parent task status updated to reflect decomposition complete
-
 ### P2 -- Nice to Have
 
 #### T-P2-100: Clean up plan log display (hide raw JSON artifacts)
@@ -84,7 +60,7 @@
 ### Current
 - T-P1-102 depends on None [DONE]
 - T-P1-103 depends on None [DONE]
-- T-P1-104 depends on T-P1-101 [DONE]
+- T-P1-104 depends on T-P1-101 [DONE] [DONE]
 - T-P2-100 depends on None
 
 
@@ -96,6 +72,9 @@
 ## Completed Tasks
 
 > 99 completed tasks archived to [archive/completed_tasks.md](archive/completed_tasks.md).
+
+#### [x] T-P1-104: Task Generator -- deterministic proposal-to-TASKS.md pipeline -- 2026-03-07
+- Pure Python task generator: extracts `proposed_tasks[]` from plan_json, allocates sequential IDs per priority, validates schema/dependencies, detects cycles (DFS), enforces max 8 tasks, generates human-readable diff. Two API endpoints: preview (GET diff) and confirm (write + auto-pause). Added `DECOMPOSED` plan status. 43 new tests. 1308 pass, ruff clean.
 
 #### [x] T-P1-103: Selective hooks loading for plan/review agents -- 2026-03-07
 - Added `setting_sources` to QueryOptions/ClaudeAgentOptions. Plan and review agents use `setting_sources=[]` to disable CLI hooks. Created `session_context_loader.py` to inject session context into system prompts. Execution agent unchanged. 16 new tests. 1292 pass, ruff clean.

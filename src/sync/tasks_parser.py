@@ -48,7 +48,7 @@ DEFAULT_STATUS_SECTIONS: dict[str, TaskStatus] = {
 
 
 # Whitelist of valid plan_status values in TASKS.md
-VALID_PLAN_STATUSES = {"none", "ready", "failed"}
+VALID_PLAN_STATUSES = {"none", "ready", "failed", "decomposed"}
 
 # Regex to extract `- **Plan**: <value>` from task description
 PLAN_STATUS_RE = re.compile(r"^-\s+\*\*Plan\*\*:\s*(\S+)\s*$", re.MULTILINE)

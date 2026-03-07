@@ -47,6 +47,7 @@ from src.schemas import (
     ActiveProcessesResponse,
     BrowseEntry,
     BrowseResponse,
+    ConfirmGeneratedTasksResponse,
     CreateTaskRequest,
     CreateTaskResponse,
     DashboardSummary,
@@ -56,6 +57,8 @@ from src.schemas import (
     ExecutionLogEntry,
     ExecutionLogsResponse,
     ExecutionStateResponse,
+    GeneratedTaskPreview,
+    GenerateTasksPreviewResponse,
     ImportProjectRequest,
     ImportProjectResponse,
     ProcessStatusResponse,
@@ -78,6 +81,11 @@ from src.schemas import (
 )
 from src.subprocess_registry import SubprocessRegistry
 from src.sync.tasks_parser import sync_project_tasks
+from src.task_generator import (
+    extract_proposals_from_plan,
+    process_proposals,
+    write_allocated_tasks,
+)
 from src.task_manager import (
     OptimisticLockError,
     PlanInvalidError,
@@ -934,6 +942,209 @@ async def generate_plan(task_id: str, request: Request) -> JSONResponse:
     return JSONResponse(
         status_code=202,
         content={"task_id": task_id, "plan_status": "generating"},
+    )
+
+
+# ------------------------------------------------------------------
+# Task generator endpoints (proposal-to-TASKS.md pipeline)
+# ------------------------------------------------------------------
+
+
+@api_router.post(
+    "/api/tasks/{task_id}/generate-tasks-preview",
+    responses={
+        404: {"model": ErrorResponse},
+        409: {"model": ErrorResponse},
+        422: {"model": ErrorResponse},
+    },
+)
+async def generate_tasks_preview(
+    task_id: str,
+    request: Request,
+) -> GenerateTasksPreviewResponse:
+    """Preview proposed tasks from a plan before writing to TASKS.md.
+
+    Extracts ``proposed_tasks[]`` from the task's ``plan_json``,
+    allocates IDs, validates dependencies, detects cycles, and
+    returns a diff for human review.
+    """
+    task_manager: TaskManager = request.app.state.task_manager
+    registry: ProjectRegistry = request.app.state.registry
+
+    task = await task_manager.get_task(task_id)
+    if task is None:
+        raise HTTPException(status_code=404, detail=f"Task {task_id} not found")
+
+    if task.plan_status != "ready":
+        raise HTTPException(
+            status_code=409,
+            detail=f"Task {task_id} plan_status is {task.plan_status!r}, expected 'ready'",
+        )
+
+    proposals = extract_proposals_from_plan(task.plan_json)
+    if not proposals:
+        raise HTTPException(
+            status_code=422,
+            detail=f"Task {task_id} has no proposed_tasks in plan_json",
+        )
+
+    # Read TASKS.md content for ID allocation
+    project = registry.get_project(task.project_id)
+    if project.repo_path is None:
+        raise HTTPException(
+            status_code=422,
+            detail=f"Project {task.project_id} has no repo_path",
+        )
+
+    tasks_md_path = project.repo_path / project.tasks_file
+    if not tasks_md_path.is_file():
+        raise HTTPException(
+            status_code=422,
+            detail=f"TASKS.md not found at {tasks_md_path}",
+        )
+
+    tasks_md_content = tasks_md_path.read_text(encoding="utf-8")
+
+    result = process_proposals(
+        proposals=proposals,
+        tasks_md_content=tasks_md_content,
+        parent_task_id=task.local_task_id,
+    )
+
+    if not result.success:
+        raise HTTPException(status_code=422, detail=result.error or "Unknown error")
+
+    preview_tasks = [
+        GeneratedTaskPreview(
+            task_id=t.task_id,
+            title=t.title,
+            priority=t.priority,
+            complexity=t.complexity,
+            depends_on=t.depends_on,
+            acceptance_criteria=t.acceptance_criteria,
+        )
+        for t in result.allocated_tasks
+    ]
+
+    return GenerateTasksPreviewResponse(
+        parent_task_id=task.local_task_id,
+        tasks=preview_tasks,
+        diff_text=result.diff_text,
+        count=len(result.allocated_tasks),
+    )
+
+
+@api_router.post(
+    "/api/tasks/{task_id}/confirm-generated-tasks",
+    responses={
+        404: {"model": ErrorResponse},
+        409: {"model": ErrorResponse},
+        422: {"model": ErrorResponse},
+    },
+)
+async def confirm_generated_tasks(
+    task_id: str,
+    request: Request,
+) -> ConfirmGeneratedTasksResponse:
+    """Confirm and write generated tasks to TASKS.md.
+
+    Re-runs the proposal processing (to ensure fresh IDs),
+    writes the tasks to TASKS.md, updates the parent task's
+    plan_status, and optionally auto-pauses the pipeline.
+    """
+    task_manager: TaskManager = request.app.state.task_manager
+    registry: ProjectRegistry = request.app.state.registry
+    event_bus: EventBus = request.app.state.event_bus
+    settings_store: ProjectSettingsStore = request.app.state.settings_store
+
+    task = await task_manager.get_task(task_id)
+    if task is None:
+        raise HTTPException(status_code=404, detail=f"Task {task_id} not found")
+
+    if task.plan_status != "ready":
+        raise HTTPException(
+            status_code=409,
+            detail=f"Task {task_id} plan_status is {task.plan_status!r}, expected 'ready'",
+        )
+
+    proposals = extract_proposals_from_plan(task.plan_json)
+    if not proposals:
+        raise HTTPException(
+            status_code=422,
+            detail=f"Task {task_id} has no proposed_tasks in plan_json",
+        )
+
+    project = registry.get_project(task.project_id)
+    if project.repo_path is None:
+        raise HTTPException(
+            status_code=422,
+            detail=f"Project {task.project_id} has no repo_path",
+        )
+
+    tasks_md_path = project.repo_path / project.tasks_file
+    if not tasks_md_path.is_file():
+        raise HTTPException(
+            status_code=422,
+            detail=f"TASKS.md not found at {tasks_md_path}",
+        )
+
+    tasks_md_content = tasks_md_path.read_text(encoding="utf-8")
+
+    # Re-process with fresh content (IDs may have changed since preview)
+    result = process_proposals(
+        proposals=proposals,
+        tasks_md_content=tasks_md_content,
+        parent_task_id=task.local_task_id,
+    )
+
+    if not result.success:
+        raise HTTPException(status_code=422, detail=result.error or "Unknown error")
+
+    # Write tasks to TASKS.md
+    writer = TasksWriter(tasks_md_path)
+    write_result = write_allocated_tasks(writer, result.allocated_tasks)
+
+    if not write_result.success:
+        raise HTTPException(
+            status_code=500,
+            detail=write_result.error or "Failed to write tasks",
+        )
+
+    # Update parent task plan_status to reflect decomposition complete
+    task.plan_status = "decomposed"
+    await task_manager.update_task(task)
+
+    # Auto-pause pipeline (configurable via config, default: True)
+    auto_paused = False
+    config: OrchestratorConfig = request.app.state.config
+    auto_pause_enabled = getattr(
+        config.orchestrator, "auto_pause_after_task_generation", True,
+    )
+    if auto_pause_enabled:
+        await settings_store.set_paused(task.project_id, paused=True)
+        auto_paused = True
+        logger.info(
+            "Auto-paused project %s after task generation from %s",
+            task.project_id, task_id,
+        )
+
+    # Emit events for frontend sync
+    event_bus.emit(
+        "plan_status_change", task_id,
+        {"plan_status": "decomposed"},
+        origin="task_generator",
+    )
+    event_bus.emit(
+        "board_sync", task_id,
+        {"reason": "task_generation", "count": len(write_result.written_ids)},
+        origin="task_generator",
+    )
+
+    return ConfirmGeneratedTasksResponse(
+        parent_task_id=task.local_task_id,
+        written_ids=write_result.written_ids,
+        auto_paused=auto_paused,
+        detail=f"Generated {len(write_result.written_ids)} tasks from {task.local_task_id}",
     )
 
 

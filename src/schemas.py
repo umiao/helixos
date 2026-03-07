@@ -460,6 +460,40 @@ class StartAllPlannedResponse(BaseModel):
 
 
 # ------------------------------------------------------------------
+# Task generator schemas
+# ------------------------------------------------------------------
+
+
+class GeneratedTaskPreview(BaseModel):
+    """Preview of a single generated task."""
+
+    task_id: str
+    title: str
+    priority: str
+    complexity: str
+    depends_on: list[str]
+    acceptance_criteria: list[str]
+
+
+class GenerateTasksPreviewResponse(BaseModel):
+    """Response from the task generator preview endpoint."""
+
+    parent_task_id: str
+    tasks: list[GeneratedTaskPreview]
+    diff_text: str
+    count: int
+
+
+class ConfirmGeneratedTasksResponse(BaseModel):
+    """Response from confirming generated tasks."""
+
+    parent_task_id: str
+    written_ids: list[str]
+    auto_paused: bool
+    detail: str
+
+
+# ------------------------------------------------------------------
 # Error schemas
 # ------------------------------------------------------------------
 

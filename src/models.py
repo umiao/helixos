@@ -180,7 +180,7 @@ class PlanStatus(StrEnum):
 
     State machine::
 
-        NONE ──> GENERATING ──> READY
+        NONE ──> GENERATING ──> READY ──> DECOMPOSED
                      │
                      └──> FAILED ──> GENERATING  (retry)
     """
@@ -189,6 +189,7 @@ class PlanStatus(StrEnum):
     GENERATING = "generating"
     FAILED = "failed"
     READY = "ready"
+    DECOMPOSED = "decomposed"
 
 
 class Task(BaseModel):

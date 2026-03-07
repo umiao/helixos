@@ -1087,3 +1087,10 @@
 - **Sanity check result**: 1292 tests pass + 4 skipped. Ruff clean. Pre-existing test_windows_asyncio failure unrelated. [AUTO-VERIFIED]
 - **Status**: [DONE]
 - **Request**: Move T-P1-103 to Completed (REMOVE spec from Active, ADD summary to Completed Tasks)
+
+## 2026-03-07 -- [T-P1-104] Task Generator -- deterministic proposal-to-TASKS.md pipeline
+- **What I did**: Created `src/task_generator.py` -- a pure Python (no LLM) module that processes `proposed_tasks[]` from plan output into fully-formed TASKS.md entries. Pipeline: validate proposals (schema + count <= 8), allocate sequential T-PX-NN IDs per priority, resolve dependencies (existing task IDs or cross-proposal title references), detect cycles via DFS, generate human-readable diff. Two new API endpoints: `POST /api/tasks/{id}/generate-tasks-preview` (returns diff for review) and `POST /api/tasks/{id}/confirm-generated-tasks` (writes to TASKS.md atomically + auto-pauses pipeline). Added `DECOMPOSED` to PlanStatus enum. Updated tasks_parser valid plan statuses. Added 3 new schema types.
+- **Deliverables**: `src/task_generator.py` (new -- 310 lines), `src/api.py` (mod -- 2 new endpoints + imports), `src/schemas.py` (mod -- 3 new response schemas), `src/models.py` (mod -- DECOMPOSED plan status), `src/sync/tasks_parser.py` (mod -- added "decomposed" to valid statuses), `tests/test_task_generator.py` (new -- 43 tests)
+- **Sanity check result**: 1308 tests pass + pre-existing test_windows_asyncio failure (unrelated). Ruff clean. [AUTO-VERIFIED]
+- **Status**: [DONE]
+- **Request**: Move T-P1-104 to Completed (REMOVE spec from Active, ADD summary to Completed Tasks)
