@@ -413,6 +413,7 @@ class TaskManager:
         if target == TaskStatus.BACKLOG:
             row.completed_at = None
             row.review_status = "idle"
+            row.review_lifecycle_state = "not_started"
             if row.execution_json:
                 exec_data = json.loads(row.execution_json)
                 exec_data.pop("started_at", None)

@@ -975,3 +975,10 @@
 - **Sanity check result**: 1206 tests pass + 4 skipped, 1 pre-existing failure (uvicorn LOOP_SETUPS). Ruff clean.
 - **Status**: [DONE]
 - **Request**: Move T-P1-73 to Completed (REMOVE spec from Active, ADD summary to Completed Tasks)
+
+## 2026-03-06 -- [T-P1-76] State machine transition race condition audit
+- **What I did**: Enumerated 8 race condition windows in status transitions (drag vs scheduler, duplicate review enqueue, review completion vs backward drag, timeout vs success, SSE ordering, etc.). Wrote audit doc with severity ratings and mitigation strategies. Fixed RACE-4: `_cleanup_on_backward()` now resets `review_lifecycle_state` to NOT_STARTED on backward-to-BACKLOG transitions. Added 11 new tests covering RACE-1 (state guard + optimistic lock), RACE-2 (review_status guard), and RACE-4 (lifecycle state cleanup).
+- **Deliverables**: `docs/architecture/race-condition-audit.md`, `src/task_manager.py`, `tests/test_race_conditions.py`
+- **Sanity check result**: 1228 tests pass + 4 skipped, 2 pre-existing failures (uvicorn LOOP_SETUPS). Ruff clean.
+- **Status**: [DONE]
+- **Request**: Move T-P1-76 to Completed (REMOVE spec from Active, ADD summary to Completed Tasks)

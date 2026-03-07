@@ -43,16 +43,6 @@
   2. Asserts raw_response dict keys are distinct from parsed review fields
 
 
-#### T-P1-76: State machine transition race condition audit
-- **Priority**: P1
-- **Complexity**: M
-- **Depends on**: None
-- **Description**: Enumerate all race condition windows in status transitions: timeout vs completion, SSE vs DB, concurrent drag vs scheduler, review vs plan generation.
-- **Acceptance Criteria**:
-  1. Written audit doc in `docs/architecture/`
-  2. Each race window has mitigation strategy (optimistic lock, epoch ID, etc.)
-  3. Critical races have test coverage
-
 #### T-P1-77: Scheduler finalization epoch ID
 - **Priority**: P1
 - **Complexity**: M
@@ -144,6 +134,9 @@
 ## Completed Tasks
 
 > 99 completed tasks archived to [archive/completed_tasks.md](archive/completed_tasks.md).
+
+#### [x] T-P1-76: State machine transition race condition audit -- 2026-03-06
+- Audit doc in `docs/architecture/race-condition-audit.md` covering 8 race windows with severity ratings and mitigations. Fixed `_cleanup_on_backward()` to reset `review_lifecycle_state`. 11 new tests. 1228 pass, ruff clean.
 
 #### [x] T-P1-73: Log retention/purge policy -- 2026-03-06
 - Added `log_retention_days` (default 30) to OrchestratorSettings. Added `purge_old_entries()` to HistoryWriter (deletes execution_logs + review_history older than retention). Wired into lifespan startup. 4 new tests. 1206 pass, ruff clean.
