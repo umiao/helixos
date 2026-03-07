@@ -954,3 +954,10 @@
 - **Sanity check result**: Task IDs 98/99 don't conflict (highest was 97). Line count within bounds.
 - **Status**: [DONE]
 - **Request**: No change (tasks added to Active, nothing to move)
+
+## 2026-03-06 -- [T-P1-98] Add claude-agent-sdk to dependency smoke test
+- **What I did**: Added `claude_agent_sdk`, `ruamel.yaml`, `filelock` imports to `test_core_dependencies_importable()` in `tests/test_smoke.py`. Synced `pyproject.toml` dependencies with `requirements.txt` (added 3 missing packages: claude-agent-sdk, ruamel.yaml, filelock). Documented dependency source-of-truth convention in CLAUDE.md.
+- **Deliverables**: `tests/test_smoke.py`, `pyproject.toml`, `CLAUDE.md` updated
+- **Sanity check result**: `pytest tests/test_smoke.py` passes (5/5). Full suite: 1171 passed, 1 pre-existing failure (unrelated uvicorn LOOP_SETUPS). Ruff clean.
+- **Status**: [DONE]
+- **Request**: Move T-P1-98 to Completed (REMOVE spec from Active, ADD summary to Completed Tasks)

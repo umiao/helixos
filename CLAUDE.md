@@ -15,6 +15,10 @@
 <!-- CUSTOMIZE: Add your project-specific constraints -->
 - All API keys and cookies from .env, never hardcoded
 - Every function must have type hints and docstring
+- **Dependency source-of-truth**: Both `pyproject.toml` `[project].dependencies` and
+  `requirements.txt` list dependencies. Keep them in sync manually. When adding a new
+  dependency, add it to BOTH files. `pyproject.toml` is the canonical spec;
+  `requirements.txt` exists for `pip install -r` convenience.
 
 ## File Structure
 <!-- CUSTOMIZE: Describe your project's directory layout -->

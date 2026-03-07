@@ -12,9 +12,12 @@ def test_project_imports() -> None:
 def test_core_dependencies_importable() -> None:
     """Verify core dependencies are installed and importable."""
     import aiosqlite  # noqa: F401
+    import claude_agent_sdk  # noqa: F401
     import dotenv  # noqa: F401
     import fastapi  # noqa: F401
+    import filelock  # noqa: F401
     import pydantic  # noqa: F401
+    import ruamel.yaml  # noqa: F401
     import sqlalchemy  # noqa: F401
     import uvicorn  # noqa: F401
     import yaml  # noqa: F401

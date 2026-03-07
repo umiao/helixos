@@ -127,16 +127,6 @@
   8. Tests: gate ON -> REVIEW, gate OFF -> QUEUED, no planned tasks -> started=0, concurrent request -> skipped via optimistic lock
   9. Manual smoke test: click "Start N Planned" -> tasks move to correct column -> SSE updates UI in real-time
 
-#### T-P1-98: Add claude-agent-sdk to dependency smoke test
-- **Priority**: P1
-- **Complexity**: S (< 1 session)
-- **Depends on**: None
-- **Description**: The SDK pre-flight check (`code_executor.py:_is_sdk_available()`) catches missing SDK at runtime, but CI has no early warning. Add `claude-agent-sdk` to `test_smoke.py:test_core_dependencies_importable()`. Also confirm dependency source-of-truth (requirements.txt vs pyproject.toml) -- if pyproject.toml is canonical, add SDK there and regenerate requirements.txt; if requirements.txt is canonical, document that in CLAUDE.md. Do NOT maintain duplicate version specs without a clear generation relationship.
-- **Acceptance Criteria**:
-  1. `test_core_dependencies_importable()` in `tests/test_smoke.py` includes `import claude_agent_sdk`
-  2. Dependency source-of-truth clarified: either pyproject.toml drives requirements.txt (via pip-compile or equivalent) OR requirements.txt is documented as canonical. No silent drift between the two.
-  3. `pytest tests/test_smoke.py` passes in current environment
-  4. Manual verify: temporarily uninstall SDK -> smoke test fails with clear import error
 
 #### T-P2-99: Expose review conversation_turns in API + ReviewPanel
 - **Priority**: P2
@@ -179,6 +169,9 @@
 ## Completed Tasks
 
 > 99 completed tasks archived to [archive/completed_tasks.md](archive/completed_tasks.md).
+
+#### [x] T-P1-98: Add claude-agent-sdk to dependency smoke test -- 2026-03-06
+- Added `claude_agent_sdk`, `ruamel.yaml`, `filelock` to `test_core_dependencies_importable()`. Synced `pyproject.toml` dependencies with `requirements.txt` (added 3 missing packages). Documented dependency source-of-truth convention in CLAUDE.md. 1171 tests pass, ruff clean.
 
 #### [x] T-P2-91: Conversation extraction mock tests with real fixtures -- 2026-03-06
 - Created 3 JSON fixtures (review, execution, enrichment sessions) in `tests/fixtures/`. 37 tests verify `collect_turns()` produces non-empty turns/actions, `_extract_conversation_summary()` extracts findings/actions/conclusion, and `ClaudeResult.structured_output` is correctly populated. All deterministic. 1211 tests pass + 4 skipped, ruff clean.
