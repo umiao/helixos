@@ -36,16 +36,6 @@
 
 
 
-#### T-P2-82: UX audit + smoke test enforcement
-- **Priority**: P2
-- **Complexity**: S
-- **Depends on**: None
-- **Description**: Audit completed UX tasks (T-P0-8a through T-P3-11) for scenario-matrix gaps. Add smoke test enforcement rule to CLAUDE.md (post-mortem from T-P0-57/T-P0-59).
-- **Acceptance Criteria**:
-  1. Audit results documented
-  2. CLAUDE.md enforcement rule added
-  3. Gap list for any missing coverage
-
 #### T-P3-83: Done column ordering investigation
 - **Priority**: P3
 - **Complexity**: S
@@ -81,6 +71,9 @@
 ## Completed Tasks
 
 > 99 completed tasks archived to [archive/completed_tasks.md](archive/completed_tasks.md).
+
+#### [x] T-P2-82: UX audit + smoke test enforcement -- 2026-03-06
+- Audited 34 completed UX tasks against 5 Task Planning Rules. Key finding: 0/34 tasks had manual browser smoke tests documented. Added "Smoke Test Enforcement" section (3 rules) and planning rule #6 "New-field consumer audit" to CLAUDE.md. Full audit at docs/audits/ux-task-audit.md.
 
 #### [x] T-P2-81: PRD clarification (Pause/Gate/Start All Planned semantics) -- 2026-03-06
 - Added PRD section 5.4 defining Pause (scheduler dispatch only), Review Gate (two-layer review enforcement), and Start All Planned (batch operation). Includes per-control behavior tables and 7 edge case combinations. Answers: Pause does NOT affect review pipeline.

@@ -1017,3 +1017,10 @@
 - **Sanity check result**: 1210 tests pass, 1 pre-existing failure (uvicorn LOOP_CHOICES). Ruff clean. No emoji.
 - **Status**: [DONE]
 - **Request**: Move T-P2-81 to Completed (REMOVE spec from In Progress, ADD summary to Completed Tasks)
+
+## 2026-03-06 -- [T-P2-82] UX audit + smoke test enforcement
+- **What I did**: Audited 34 completed UX tasks (T-P0-8a through T-P3-11) against the 5 Task Planning Rules from T-P0-27. Key finding: 0/34 tasks documented manual browser smoke tests -- universal gap. Journey-first ACs improved from 17% (pre-rules) to 56% (post-rules). Scenario matrices at 92% post-rules. Added 4 new rules to CLAUDE.md: "Smoke Test Enforcement" section (UX DONE gate, cross-component regression check, autonomous mode exception) and planning rule #6 (new-field consumer audit).
+- **Deliverables**: `docs/audits/ux-task-audit.md` (new), `CLAUDE.md` (mod -- added Smoke Test Enforcement section + planning rule #6)
+- **Sanity check result**: 1210 tests pass, 1 pre-existing failure (uvicorn LOOP_CHOICES). Ruff clean. No emoji.
+- **Status**: [DONE]
+- **Request**: Move T-P2-82 to Completed (REMOVE spec from Active, ADD summary to Completed Tasks)

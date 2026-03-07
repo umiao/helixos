@@ -135,6 +135,39 @@ planning missed entire branches of behavior.
    "Manually verify: [exact browser action] -> [expected visual result]."
    "Build succeeds" and "tests pass" do not catch wiring failures.
 
+6. **New-field consumer audit**: When a task introduces a new model field
+   (e.g., `plan_status`) that existing UI components might display, list
+   ALL components that render related data and verify each uses the correct
+   source of truth.  A new field that no consumer reads yet is dead code;
+   a consumer that reads the new field before it is populated shows stale data.
+   (Post-mortem: T-P0-57/T-P0-59 -> T-P0-66 -- `hasNoPlan` used `plan_status`
+   instead of `description`, showing wrong state for all existing tasks.)
+
+## Smoke Test Enforcement
+
+These rules prevent the class of bugs found in T-P0-57/T-P0-59, where UX
+tasks were marked DONE with "build succeeds + tests pass" verification, but
+three critical bugs (T-P0-66) were found on first real use.
+
+1. **UX DONE gate**: A UX task cannot be marked DONE unless the PROGRESS.md
+   entry includes a "Smoke test performed" line describing what was manually
+   verified (e.g., "clicked Generate Plan on card -> spinner appeared ->
+   plan populated after 30s").  "TypeScript clean, Vite build clean" is
+   necessary but NOT sufficient for UX tasks.
+
+2. **Cross-component regression check**: When modifying a component that is
+   rendered inside other components (e.g., TaskCard inside KanbanBoard inside
+   SwimLane), verify that the change works in ALL rendering contexts, not
+   just the one you are focused on.  Common miss: popover works but card
+   face does not, or vice versa.
+
+3. **Autonomous mode exception**: In autonomous mode (no browser available),
+   UX tasks may substitute a build + TypeScript type-check + grep-based
+   wiring verification (e.g., confirm event handler is connected, prop is
+   threaded through component tree).  Document what was verified and tag
+   with "[AUTO-VERIFIED]" in PROGRESS.md.  These tasks should be flagged
+   for human smoke test on next manual session.
+
 ## State Machine Rules
 
 1. **Document transitions completely**: Any workflow with status transitions
