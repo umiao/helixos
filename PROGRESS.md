@@ -1149,3 +1149,10 @@
 - **Sanity check result**: TypeScript clean (`npx tsc --noEmit`), Vite build clean, 1350 tests pass + 6 skipped. [AUTO-VERIFIED]
 - **Status**: [DONE]
 - **Request**: Move T-P0-107 to Completed
+
+## 2026-03-07 -- [T-P0-111] Inject review suggestions into re-execution prompt
+- **What I did**: Added `build_review_feedback()` helper in scheduler.py that extracts suggestions, summaries, and human reasons from the last 3 reviews and formats as numbered "## Previous Review Feedback" block. Scheduler's `_execute_task()` fetches review history via `HistoryWriter.get_reviews()` and passes formatted feedback through `_run_with_retry` -> `executor.execute(review_feedback=...)` -> `_build_prompt()`. Updated `BaseExecutor.execute()` signature with optional `review_feedback` parameter. Updated all mock executors across 4 test files.
+- **Deliverables**: `src/scheduler.py` (build_review_feedback + wiring), `src/executors/base.py` (signature), `src/executors/code_executor.py` (execute + _build_prompt), `tests/test_code_executor.py` (10 new tests), `tests/test_scheduler.py` + `tests/test_review_gate.py` + `tests/integration/conftest.py` + `tests/integration/test_sync_to_execute.py` (mock executor updates)
+- **Sanity check result**: 1359 pass + 6 skipped, ruff clean. [AUTO-VERIFIED]
+- **Status**: [DONE]
+- **Request**: Move T-P0-111 to Completed

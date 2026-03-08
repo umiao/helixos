@@ -152,6 +152,7 @@ class CodeExecutor(BaseExecutor):
         env: dict[str, str],
         on_log: Callable[[str], None],
         on_stream_event: Callable[[dict], None] | None = None,
+        review_feedback: str | None = None,
     ) -> ExecutorResult:
         """Run a Claude Agent SDK query, stream events, enforce timeout.
 
@@ -165,6 +166,8 @@ class CodeExecutor(BaseExecutor):
             env: Environment variables to inject into the SDK query.
             on_log: Callback invoked for each simplified log line.
             on_stream_event: Optional callback for typed event dicts.
+            review_feedback: Optional formatted block of previous review
+                suggestions to inject into the prompt.
 
         Returns:
             ExecutorResult with success status, exit code, and log tail.
@@ -175,7 +178,7 @@ class CodeExecutor(BaseExecutor):
             on_log(f"[PRE-FLIGHT FAIL] {preflight.error_summary}")
             return preflight
 
-        prompt = self._build_prompt(task)
+        prompt = self._build_prompt(task, review_feedback=review_feedback)
 
         options = QueryOptions(
             allowed_tools=["Bash", "Read", "Write", "Edit", "MultiTool"],
@@ -438,11 +441,24 @@ class CodeExecutor(BaseExecutor):
 
         return None
 
-    def _build_prompt(self, task: Task) -> str:
-        """Build the one-shot prompt for Claude Code per PRD Section 7.2."""
-        return (
+    def _build_prompt(
+        self,
+        task: Task,
+        review_feedback: str | None = None,
+    ) -> str:
+        """Build the one-shot prompt for Claude Code per PRD Section 7.2.
+
+        Args:
+            task: The task to build the prompt for.
+            review_feedback: Optional formatted block of previous review
+                suggestions to include in the prompt.
+        """
+        parts = [
             f"You are working on task {task.local_task_id}: {task.title}\n\n"
             f"{task.description}\n\n"
             f"Follow the project's TASKS.md and claude.md conventions. "
-            f"Complete this task, run tests, and update TASKS.md and PROGRESS.md."
-        )
+            f"Complete this task, run tests, and update TASKS.md and PROGRESS.md.",
+        ]
+        if review_feedback:
+            parts.append(review_feedback)
+        return "\n\n".join(parts)

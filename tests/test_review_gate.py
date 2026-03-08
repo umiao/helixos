@@ -42,6 +42,7 @@ class MockExecutor(BaseExecutor):
         env: dict[str, str],
         on_log: Callable[[str], None],
         on_stream_event: Callable[[dict], None] | None = None,
+        review_feedback: str | None = None,
     ) -> ExecutorResult:
         """Record the call and return success."""
         self.calls.append(task.id)

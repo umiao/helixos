@@ -70,6 +70,7 @@ class MockExecutor(BaseExecutor):
         env: dict[str, str],
         on_log: Callable[[str], None],
         on_stream_event: Callable[[dict], None] | None = None,
+        review_feedback: str | None = None,
     ) -> ExecutorResult:
         """Return the next configured result."""
         if self._delay > 0:

@@ -56,6 +56,7 @@ class BaseExecutor(ABC):
         env: dict[str, str],
         on_log: Callable[[str], None],
         on_stream_event: Callable[[dict], None] | None = None,
+        review_feedback: str | None = None,
     ) -> ExecutorResult:
         """Execute a task and return the result."""
         ...

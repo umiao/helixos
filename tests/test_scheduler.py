@@ -58,6 +58,7 @@ class MockExecutor(BaseExecutor):
         env: dict[str, str],
         on_log: Callable[[str], None],
         on_stream_event: Callable[[dict], None] | None = None,
+        review_feedback: str | None = None,
     ) -> ExecutorResult:
         """Record the call, invoke on_log, and return the result."""
         self.calls.append(task.id)
@@ -110,6 +111,7 @@ class FailThenSucceedExecutor(BaseExecutor):
         env: dict[str, str],
         on_log: Callable[[str], None],
         on_stream_event: Callable[[dict], None] | None = None,
+        review_feedback: str | None = None,
     ) -> ExecutorResult:
         """Fail for the first N calls, then succeed."""
         self.calls.append(task.id)
@@ -313,7 +315,7 @@ class TestSchedulerTick:
         class CrashingExecutor(BaseExecutor):
             """Executor that raises an exception."""
 
-            async def execute(self, task, project, env, on_log, on_stream_event=None):
+            async def execute(self, task, project, env, on_log, on_stream_event=None, review_feedback=None):
                 """Raise an unhandled error."""
                 raise RuntimeError("kaboom")
 
@@ -1287,7 +1289,7 @@ class TestErrorDetailsInAlerts:
         class CrashingExecutor(BaseExecutor):
             """Executor that raises a specific exception."""
 
-            async def execute(self, task, project, env, on_log, on_stream_event=None):
+            async def execute(self, task, project, env, on_log, on_stream_event=None, review_feedback=None):
                 """Raise ValueError."""
                 raise ValueError("missing config key")
 
@@ -1673,6 +1675,7 @@ class TestImmediateDispatch:
                 env: dict[str, str],
                 on_log: Callable[[str], None],
                 on_stream_event: Callable[[dict], None] | None = None,
+                review_feedback: str | None = None,
             ) -> ExecutorResult:
                 """Record task execution time."""
                 executed.append((task.id, time.monotonic()))
@@ -1733,6 +1736,7 @@ class TestImmediateDispatch:
                 env: dict[str, str],
                 on_log: Callable[[str], None],
                 on_stream_event: Callable[[dict], None] | None = None,
+                review_feedback: str | None = None,
             ) -> ExecutorResult:
                 """Block on task A, return immediately for others."""
                 dispatched.append(task.id)
@@ -1802,6 +1806,7 @@ class TestImmediateDispatch:
                 env: dict[str, str],
                 on_log: Callable[[str], None],
                 on_stream_event: Callable[[dict], None] | None = None,
+                review_feedback: str | None = None,
             ) -> ExecutorResult:
                 """Count execution per task."""
                 execution_count[task.id] = execution_count.get(task.id, 0) + 1
@@ -2103,10 +2108,11 @@ class TestPriorityScheduling:
             """Executor that records dispatch order."""
 
             async def execute(self, task, project, env, on_log,
-                              on_stream_event=None):
+                              on_stream_event=None, review_feedback=None):
                 dispatch_order.append(task.id)
                 return await super().execute(
                     task, project, env, on_log, on_stream_event,
+                    review_feedback=review_feedback,
                 )
 
         scheduler._get_executor = lambda _: TrackingExecutor()

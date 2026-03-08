@@ -30,6 +30,48 @@ logger = logging.getLogger(__name__)
 
 TICK_INTERVAL_SECONDS = 5
 RETRY_BACKOFF_SECONDS: list[int] = [30, 60, 120]
+MAX_REVIEW_FEEDBACK_ROUNDS = 3
+
+
+def build_review_feedback(reviews: list[dict]) -> str | None:
+    """Build a structured review feedback block from recent reviews.
+
+    Takes the most recent reviews (up to ``MAX_REVIEW_FEEDBACK_ROUNDS``)
+    and formats their suggestions into a block that can be injected
+    into the execution prompt.
+
+    Args:
+        reviews: Review dicts as returned by ``HistoryWriter.get_reviews()``.
+
+    Returns:
+        Formatted feedback string, or ``None`` if no suggestions found.
+    """
+    # Take only the last N reviews (most recent last in input order)
+    recent = reviews[-MAX_REVIEW_FEEDBACK_ROUNDS:]
+    feedback_items: list[str] = []
+    for rev in recent:
+        suggestions = rev.get("suggestions") or []
+        summary = rev.get("summary") or ""
+        human_reason = rev.get("human_reason") or ""
+        parts: list[str] = []
+        if summary:
+            parts.append(summary)
+        for s in suggestions:
+            parts.append(s)
+        if human_reason:
+            parts.append(f"Human reviewer note: {human_reason}")
+        if parts:
+            feedback_items.extend(parts)
+
+    if not feedback_items:
+        return None
+
+    numbered = "\n".join(f"{i}. {item}" for i, item in enumerate(feedback_items, 1))
+    return (
+        "## Previous Review Feedback\n"
+        "You MUST address these issues:\n"
+        f"{numbered}"
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -675,8 +717,27 @@ class Scheduler:
                     task.id, "Execution started", level="info", source="scheduler",
                 )
 
+            # Fetch previous review feedback for retry context
+            review_feedback: str | None = None
+            if self._history_writer is not None:
+                try:
+                    reviews = await self._history_writer.get_reviews(task.id)
+                    review_feedback = build_review_feedback(reviews)
+                    if review_feedback:
+                        await self._history_writer.write_log(
+                            task.id,
+                            "Injecting previous review feedback into prompt",
+                            level="info", source="scheduler",
+                        )
+                except Exception:
+                    logger.warning(
+                        "Failed to fetch review feedback for task %s",
+                        task.id, exc_info=True,
+                    )
+
             result = await self._run_with_retry(
                 executor, task, project, env, on_log, on_stream_event,
+                review_feedback=review_feedback,
             )
 
             if result.success:
@@ -852,6 +913,7 @@ class Scheduler:
         env: dict[str, str],
         on_log: Callable[[str], None],
         on_stream_event: Callable[[dict], None] | None = None,
+        review_feedback: str | None = None,
     ) -> ExecutorResult:
         """Execute with exponential backoff retry.
 
@@ -865,6 +927,7 @@ class Scheduler:
             env: Environment variables for the execution.
             on_log: Callback for log output.
             on_stream_event: Optional callback for parsed stream-json events.
+            review_feedback: Optional formatted review feedback block.
 
         Returns:
             The final ExecutorResult (success or last failure).
@@ -872,6 +935,7 @@ class Scheduler:
         result = await executor.execute(
             task, project, env=env, on_log=on_log,
             on_stream_event=on_stream_event,
+            review_feedback=review_feedback,
         )
 
         if result.success:
@@ -900,6 +964,7 @@ class Scheduler:
             result = await executor.execute(
                 task, project, env=env, on_log=on_log,
                 on_stream_event=on_stream_event,
+                review_feedback=review_feedback,
             )
 
             if result.success:

@@ -240,6 +240,130 @@ class TestBuildPrompt:
         assert "TASKS.md" in prompt
         assert "PROGRESS.md" in prompt
 
+    def test_prompt_includes_review_feedback_when_present(
+        self, config: OrchestratorSettings, task: Task
+    ) -> None:
+        """Prompt appends review feedback block when provided."""
+        executor = CodeExecutor(config)
+        feedback = (
+            "## Previous Review Feedback\n"
+            "You MUST address these issues:\n"
+            "1. Add unit tests\n"
+            "2. Handle error case"
+        )
+        prompt = executor._build_prompt(task, review_feedback=feedback)
+        assert "## Previous Review Feedback" in prompt
+        assert "Add unit tests" in prompt
+        assert "Handle error case" in prompt
+        # Original content still present
+        assert "T-P0-99" in prompt
+
+    def test_prompt_omits_review_feedback_when_absent(
+        self, config: OrchestratorSettings, task: Task
+    ) -> None:
+        """Prompt has no feedback block on first run (None)."""
+        executor = CodeExecutor(config)
+        prompt = executor._build_prompt(task, review_feedback=None)
+        assert "Previous Review Feedback" not in prompt
+
+    def test_prompt_omits_review_feedback_when_empty(
+        self, config: OrchestratorSettings, task: Task
+    ) -> None:
+        """Prompt has no feedback block when empty string passed."""
+        executor = CodeExecutor(config)
+        prompt = executor._build_prompt(task, review_feedback="")
+        assert "Previous Review Feedback" not in prompt
+
+
+# ------------------------------------------------------------------
+# Tests: build_review_feedback
+# ------------------------------------------------------------------
+
+
+class TestBuildReviewFeedback:
+    """Verify review feedback block construction."""
+
+    def test_no_reviews_returns_none(self) -> None:
+        """Empty review list produces None."""
+        from src.scheduler import build_review_feedback
+        assert build_review_feedback([]) is None
+
+    def test_reviews_without_suggestions_returns_none(self) -> None:
+        """Reviews with empty suggestions produce None."""
+        from src.scheduler import build_review_feedback
+        reviews = [
+            {"suggestions": [], "summary": "", "human_reason": ""},
+            {"suggestions": [], "summary": "", "human_reason": None},
+        ]
+        assert build_review_feedback(reviews) is None
+
+    def test_single_review_with_suggestions(self) -> None:
+        """Single review formats suggestions correctly."""
+        from src.scheduler import build_review_feedback
+        reviews = [
+            {
+                "suggestions": ["Add unit tests", "Handle edge case"],
+                "summary": "Code lacks test coverage",
+                "human_reason": "",
+            },
+        ]
+        result = build_review_feedback(reviews)
+        assert result is not None
+        assert "## Previous Review Feedback" in result
+        assert "You MUST address these issues:" in result
+        assert "Code lacks test coverage" in result
+        assert "Add unit tests" in result
+        assert "Handle edge case" in result
+
+    def test_multi_retry_capped_at_3(self) -> None:
+        """Only last 3 reviews are included when more exist."""
+        from src.scheduler import build_review_feedback
+        reviews = [
+            {"suggestions": ["old-1"], "summary": "", "human_reason": ""},
+            {"suggestions": ["old-2"], "summary": "", "human_reason": ""},
+            {"suggestions": ["keep-1"], "summary": "", "human_reason": ""},
+            {"suggestions": ["keep-2"], "summary": "", "human_reason": ""},
+            {"suggestions": ["keep-3"], "summary": "", "human_reason": ""},
+        ]
+        result = build_review_feedback(reviews)
+        assert result is not None
+        assert "old-1" not in result
+        assert "old-2" not in result
+        assert "keep-1" in result
+        assert "keep-2" in result
+        assert "keep-3" in result
+
+    def test_human_reason_included(self) -> None:
+        """Human reviewer notes are included in feedback."""
+        from src.scheduler import build_review_feedback
+        reviews = [
+            {
+                "suggestions": [],
+                "summary": "",
+                "human_reason": "The error handling is insufficient",
+            },
+        ]
+        result = build_review_feedback(reviews)
+        assert result is not None
+        assert "Human reviewer note:" in result
+        assert "The error handling is insufficient" in result
+
+    def test_feedback_items_numbered(self) -> None:
+        """All feedback items are numbered sequentially."""
+        from src.scheduler import build_review_feedback
+        reviews = [
+            {
+                "suggestions": ["Fix A", "Fix B"],
+                "summary": "Summary",
+                "human_reason": "",
+            },
+        ]
+        result = build_review_feedback(reviews)
+        assert result is not None
+        assert "1. Summary" in result
+        assert "2. Fix A" in result
+        assert "3. Fix B" in result
+
 
 # ------------------------------------------------------------------
 # Tests: CodeExecutor.execute -- success

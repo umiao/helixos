@@ -27,11 +27,6 @@
 
 ### P0 -- Must Have (core functionality)
 
-#### T-P0-111: Inject review suggestions into re-execution prompt
-- **Priority**: P0 | **Complexity**: M | **Depends on**: None
-- **Description**: When review rejects a task and it's retried, suggestions are lost -- agent repeats mistakes. Fetch latest review suggestions and inject as structured "Previous Review Feedback" block in re-execution system prompt.
-- **ACs**: (1) retry_task fetches latest review suggestions from HistoryWriter (2) Formatted as structured block: `## Previous Review Feedback\nYou MUST address these issues:\n1. ...` (3) Only last 3 reviews included to prevent prompt bloat (4) New field has proper migration handling per CLAUDE.md schema rules (5) Journey: task executed -> reviewed -> rejected with suggestions -> retry -> agent prompt contains suggestions verbatim (6) 3+ tests: feedback present, absent (first run), multi-retry accumulation capped at 3
-
 
 ### P1 -- Should Have (agentic intelligence)
 
@@ -72,7 +67,6 @@
 > Full historical dependency graph relocated to [docs/architecture/dependency-graph-history.md](docs/architecture/dependency-graph-history.md).
 
 ### Current
-- T-P0-111 depends on None
 - T-P1-105 depends on None
 - T-P1-106 depends on T-P1-108
 - T-P1-108 depends on None
@@ -89,6 +83,9 @@
 ## Completed Tasks
 
 > 99 completed tasks archived to [archive/completed_tasks.md](archive/completed_tasks.md).
+
+#### [x] T-P0-111: Inject review suggestions into re-execution prompt -- 2026-03-07
+- Added `build_review_feedback()` to scheduler.py (caps at last 3 reviews, includes suggestions + summary + human_reason). Scheduler fetches review history before execution and passes formatted feedback through `_run_with_retry` -> `executor.execute()` -> `_build_prompt()`. No new DB fields needed (uses existing `get_reviews()`). 10 new tests (7 build_review_feedback + 3 _build_prompt). 1359 pass, ruff clean.
 
 #### [x] T-P0-107: Add React ErrorBoundary to crash-prone components -- 2026-03-07
 - Created reusable ErrorBoundary.tsx (componentDidCatch, fallback UI with component name + error + retry button). Wraps entire bottom panel in App.tsx. KanbanBoard/header remain functional on crash. 1350 pass, TS clean, Vite build clean.
