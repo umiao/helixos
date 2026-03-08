@@ -28,6 +28,7 @@ from typing import Any, Literal
 from pydantic import BaseModel, ValidationError
 
 from src.executors.code_executor import _LazyFileWriter
+from src.prompt_loader import load_prompt, render_prompt
 from src.sdk_adapter import ClaudeEventType, QueryOptions, run_claude_query
 from src.session_context_loader import get_session_context
 
@@ -161,16 +162,7 @@ _ENRICHMENT_JSON_SCHEMA = json.dumps({
     "required": ["description", "priority"],
 })
 
-_ENRICHMENT_SYSTEM_PROMPT = (
-    "You are a task planning assistant for a software project.\n\n"
-    "Given a task title, generate:\n"
-    "1. A concise but informative description (1-3 sentences) explaining "
-    "what the task involves and why it matters.\n"
-    "2. A priority level: P0 (must have / critical), P1 (should have / important), "
-    "or P2 (nice to have / polish).\n\n"
-    "Respond in JSON with this exact structure:\n"
-    '{"description": "...", "priority": "P0"}'
-)
+_ENRICHMENT_SYSTEM_PROMPT = load_prompt("enrichment_system")
 
 
 def is_claude_cli_available() -> bool:
@@ -343,66 +335,14 @@ _PLAN_JSON_SCHEMA = json.dumps({
     "required": ["plan", "steps", "acceptance_criteria"],
 })
 
-_TASK_SCHEMA_CONTEXT = """\
-## Task Schema (from TASKS.md conventions)
+_TASK_SCHEMA_CONTEXT = load_prompt("task_schema_context")
 
-Task IDs follow the format T-P{priority}-{number} (e.g., T-P0-1, T-P1-42).
-Do NOT assign IDs in your proposals -- IDs are allocated downstream.
+_PROJECT_RULES_CONTEXT = load_prompt("project_rules_context")
 
-Each task spec must include:
-- **Priority**: P0 (must have) | P1 (should have) | P2 (nice to have) | P3 (stretch)
-- **Complexity**: S (< 1 session) | M (1-2 sessions) | L (3+ sessions)
-- **Depends on**: other task titles from your proposals, or existing task IDs, or None
-- **Description**: What and why (2-4 sentences)
-- **Acceptance Criteria**: Specific, verifiable outcomes
-  - At least one full user journey AC per task
-  - Every conditional AC must specify the inverse case
-"""
-
-_PROJECT_RULES_CONTEXT = """\
-## Project Rules (from CLAUDE.md)
-
-### Task Planning Rules
-1. Scenario matrix: list ALL condition branches with expected outcomes.
-2. Journey-first ACs: at least one AC per task must be a full user journey.
-3. Cross-boundary integration: when spanning backend + frontend, at least one
-   AC must verify end-to-end wiring.
-4. "Other case" gate: every conditional AC must specify what happens when false.
-5. Manual smoke test AC: every UX task needs a manual verification AC.
-6. New-field consumer audit: when adding a model field, list all components
-   that render related data and verify each uses the correct source of truth.
-
-### Key Constraints
-- All API keys and cookies from .env, never hardcoded.
-- Every function must have type hints and docstring.
-- No emoji characters anywhere in the project.
-- Explicit UTF-8 for all file I/O and subprocess calls.
-- Windows-compatible: no bash-only commands without PowerShell alternatives.
-- Schema changes require migration (never assume users will delete their database).
-"""
-
-_PLAN_SYSTEM_PROMPT = (
-    "You are a software architect generating structured implementation plans.\n\n"
-    "Given a task title, description, and optional codebase context, generate:\n"
-    "1. A concise plan summary (1-3 paragraphs) describing the approach.\n"
-    "2. Ordered implementation steps, each with the files likely to be modified.\n"
-    "3. Acceptance criteria that can be verified after implementation.\n"
-    "4. Optionally, a list of proposed sub-tasks (max 8) to decompose the work.\n"
-    "   Each proposed task is a PROPOSAL, not a final entry. Do NOT assign task IDs.\n\n"
-    + _TASK_SCHEMA_CONTEXT
-    + "\n"
-    + _PROJECT_RULES_CONTEXT
-    + "\n"
-    "Focus on practical, actionable steps. Reference specific files and "
-    "patterns from the codebase when available. Keep the plan focused and "
-    "avoid over-engineering.\n\n"
-    "Respond in JSON with this structure:\n"
-    '{"plan": "...", "steps": [{"step": "...", "files": ["..."]}], '
-    '"acceptance_criteria": ["..."], '
-    '"proposed_tasks": [{"title": "...", "description": "...", '
-    '"suggested_priority": "P1", "suggested_complexity": "M", '
-    '"dependencies": ["other task title"], '
-    '"acceptance_criteria": ["..."]}]}'
+_PLAN_SYSTEM_PROMPT = render_prompt(
+    "plan_system",
+    task_schema_context=_TASK_SCHEMA_CONTEXT,
+    project_rules_context=_PROJECT_RULES_CONTEXT,
 )
 
 

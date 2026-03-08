@@ -32,6 +32,7 @@ from pathlib import Path
 from src.config import OrchestratorSettings
 from src.executors.base import BaseExecutor, ErrorType, ExecutorResult
 from src.models import Project, Task
+from src.prompt_loader import render_prompt
 from src.sdk_adapter import ClaudeEventType, QueryOptions, run_claude_query
 
 logger = logging.getLogger(__name__)
@@ -453,12 +454,12 @@ class CodeExecutor(BaseExecutor):
             review_feedback: Optional formatted block of previous review
                 suggestions to include in the prompt.
         """
-        parts = [
-            f"You are working on task {task.local_task_id}: {task.title}\n\n"
-            f"{task.description}\n\n"
-            f"Follow the project's TASKS.md and claude.md conventions. "
-            f"Complete this task, run tests, and update TASKS.md and PROGRESS.md.",
-        ]
+        prompt = render_prompt(
+            "execution_prompt",
+            local_task_id=task.local_task_id or "",
+            title=task.title,
+            description=task.description or "",
+        )
         if review_feedback:
-            parts.append(review_feedback)
-        return "\n\n".join(parts)
+            prompt += "\n\n" + review_feedback
+        return prompt

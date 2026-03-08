@@ -23,12 +23,94 @@
 ## In Progress
 <!-- Only ONE task here at a time. Focus. -->
 
+<!-- T-P1-113 completed, moved to Completed Tasks -->
+
 ## Active Tasks
 
 ### P0 -- Must Have (core functionality)
 
 
 ### P1 -- Should Have (agentic intelligence)
+
+#### T-P1-113: Extract agent prompts into config template files
+- **Priority**: P1
+- **Complexity**: S (< 1 session)
+- **Depends on**: None
+- **Description**: Move all inline prompt constants from Python source into `config/prompts/` as separate .md files. Create `src/prompt_loader.py` with `load_prompt(name)` (UTF-8, cached). Version via git history, not filename versioning. Pure refactor -- no behavior change.
+- **Acceptance Criteria**:
+  1. `config/prompts/` directory with files: `plan_system.md`, `task_schema_context.md`, `project_rules_context.md`, `review_feasibility.md`, `review_adversarial.md`, `review_default.md`, `review_conventions_context.md`, `execution_prompt.md`
+  2. `src/prompt_loader.py` with `load_prompt(name: str) -> str` (UTF-8, module-level cache, FileNotFoundError on missing)
+  3. `src/enrichment.py` replaces `_PLAN_SYSTEM_PROMPT`, `_TASK_SCHEMA_CONTEXT`, `_PROJECT_RULES_CONTEXT` with `load_prompt()` calls
+  4. `src/review_pipeline.py` replaces `_REVIEW_PROMPTS`, `_DEFAULT_REVIEW_PROMPT`, `_REVIEW_CONVENTIONS_CONTEXT` with `load_prompt()` calls
+  5. `src/executors/code_executor.py` `_build_prompt()` uses loaded template with variable substitution
+  6. All existing tests pass without modification (behavior-identical refactor)
+  7. New tests: `load_prompt()` returns non-empty for each file, raises on missing, prompts contain expected key phrases
+
+#### T-P1-114: Add plan output pydantic validation with retry and error feedback
+- **Priority**: P1
+- **Complexity**: S (< 1 session)
+- **Depends on**: None
+- **Description**: Plan agent output must go through strict pydantic validation before entering review. On parse failure, retry up to 2 times with validation error fed back to the LLM. Implement as output parser in `generate_task_plan()`, not a separate pipeline stage. Task scope enforced via configurable soft limits (warnings) and hard ceilings (rejects).
+- **Acceptance Criteria**:
+  1. `ProposedTask` pydantic model enforces required fields: title, description, files (list[str]), dependencies (list[str])
+  2. `generate_task_plan()` validates output against pydantic model; on failure, retries with error message appended to prompt (max 2 retries)
+  3. Hard ceiling: proposed_tasks max 10, dependencies must form DAG (via `detect_cycles()`)
+  4. Soft limits (logged as warnings, not blocking): tasks >8, steps >12 per task, files >8 per task
+  5. Scope limits configurable in `orchestrator_config.yaml` under `plan_validation` section
+  6. All existing tests pass; new tests for validation pass/fail/retry scenarios
+
+#### T-P1-115: Upgrade agent prompts to production-grade
+- **Priority**: P1
+- **Complexity**: M (1-2 sessions)
+- **Depends on**: T-P1-113
+- **Description**: Rewrite all agent prompts in `config/prompts/` with production-grade prompt engineering. Plan prompt emphasizes proposed_tasks as primary output with explicit anti-patterns. Review prompts use structured output (blocking_issues/suggestions/pass) with deterministic code merge (no Meta Reviewer). Enrichment prompt receives plan context and explicitly forbids scope expansion. Execution prompt constrains to task files with escape hatch for test/config.
+- **Acceptance Criteria**:
+  1. Plan prompt: proposed_tasks[] emphasized as primary output; includes anti-patterns; task scope guidance as configurable limits
+  2. Review prompts: output schema changed to `{blocking_issues: [], suggestions: [], pass: bool}`; `_REVIEW_JSON_SCHEMA` updated; deterministic merge in review_pipeline.py (any blocking_issue = reject)
+  3. Enrichment prompt: receives plan context; expands background/goal/hints/criteria/constraints; explicitly forbids scope expansion
+  4. Execution prompt: system_prompt with agent role; file constraint with escape hatch for test/config files; "Only implement the current task"
+  5. `enrich_task_title()` signature updated to accept optional plan context parameter
+  6. All existing tests updated for new schemas; new tests verify prompt content and review merge logic
+
+#### T-P1-116: Unified plan review before batch task decomposition
+- **Priority**: P1
+- **Complexity**: M (1-2 sessions)
+- **Depends on**: T-P1-114
+- **Description**: Present generated plan with proposed sub-tasks as a single unified document for human review. After human confirms, all tasks batch-created via existing confirm-decomposition endpoint. Tasks are NOT shown as individual cards until confirmed.
+- **Acceptance Criteria**:
+  1. `plan_status_change` SSE event includes `proposed_tasks[]` when plan_status = `ready`
+  2. Frontend: "Plan Review" panel shows plan summary + all proposed tasks as readable document
+  3. "Confirm and Create All Tasks" button calls `confirm-decomposition`, batch-writes all tasks to TASKS.md
+  4. "Reject Plan" resets plan_status to `none`; no tasks created
+  5. Generating state: spinner. Failed state: error message with retry option
+  6. Manually verify: Generate Plan -> unified review panel -> Confirm -> tasks appear on board [AUTO-VERIFIED]
+
+#### T-P1-117: Audit and fix SDK invocation settings
+- **Priority**: P1
+- **Complexity**: S (< 1 session)
+- **Depends on**: None
+- **Description**: Audit all `run_claude_query()` callsites for consistent configuration. Add `setting_sources=[]` to enrichment. Add explicit model from config and system_prompt to execution agent. Keep execution agent setting_sources as default (all hooks). Add `execution_model` config field.
+- **Acceptance Criteria**:
+  1. `enrich_task_title()` QueryOptions gains `setting_sources=[]`
+  2. `code_executor` QueryOptions gains `model` from `OrchestratorSettings.execution_model` (default `"claude-sonnet-4-5"`)
+  3. `code_executor` QueryOptions gains `system_prompt` from execution prompt template
+  4. `orchestrator_config.yaml` gains `execution_model` field; `OrchestratorSettings` parses it
+  5. Each SDK callsite has code comment explaining its setting_sources choice
+  6. All existing tests pass; new tests verify model and system_prompt in QueryOptions
+
+#### T-P1-118: Harden task cancel with timeout enforcement and force-kill
+- **Priority**: P1
+- **Complexity**: S (< 1 session)
+- **Depends on**: None
+- **Description**: Add timeout to cancel_task() with force-cleanup fallback. Guarantee FAILED status after cancel. Frontend shows spinner during cancel.
+- **Acceptance Criteria**:
+  1. `scheduler.cancel_task()` gains `timeout_seconds=30` param; force-cancels asyncio task if exceeded
+  2. Task status guaranteed to transition to FAILED after cancel (graceful or forced)
+  3. Cancel endpoint returns whether cancel was graceful or forced
+  4. Frontend "Stop Execution" button shows loading state during cancel
+  5. Cancel on non-running task returns 409 (verify no regression)
+  6. New tests: graceful cancel, timeout force-cancel, cancel on non-running task
+  7. Manually verify: Start execution -> Stop -> FAILED within 30s [AUTO-VERIFIED]
 
 ### P2 -- Nice to Have
 
@@ -37,7 +119,9 @@
 > Full historical dependency graph relocated to [docs/architecture/dependency-graph-history.md](docs/architecture/dependency-graph-history.md).
 
 ### Current
-(none)
+T-P1-115 depends on T-P1-113
+T-P1-116 depends on T-P1-114
+T-P1-117, T-P1-118 independent
 
 
 ---
@@ -48,6 +132,9 @@
 ## Completed Tasks
 
 > 99 completed tasks archived to [archive/completed_tasks.md](archive/completed_tasks.md).
+
+#### [x] T-P1-113: Extract agent prompts into config template files -- 2026-03-08
+- Created `config/prompts/` with 9 .md template files, `src/prompt_loader.py` with `load_prompt()`/`render_prompt()` (cached, UTF-8). Replaced inline prompt constants in `enrichment.py`, `review_pipeline.py`, `code_executor.py`. 20 new tests. 1383 pass, ruff clean.
 
 #### [x] T-P1-109: Add cost/usage dashboard endpoint and frontend panel -- 2026-03-08
 - Added `GET /api/dashboard/costs` endpoint with single GROUP BY query (review_history JOIN tasks). `CostDashboard.tsx` component with formatted USD table, "Costs" tab in bottom panel. 4 new tests. 1363 pass, TS clean, Vite build clean.

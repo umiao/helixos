@@ -1198,3 +1198,10 @@
 - **Sanity check result**: TypeScript clean (`npx tsc --noEmit`), Vite build clean, 1359 Python tests pass + 6 skipped, `npx playwright test --list` discovers all 12 tests in 4 files. [AUTO-VERIFIED]
 - **Status**: [DONE]
 - **Request**: Move T-P1-106 to Completed
+
+## 2026-03-08 -- [T-P1-113] Extract agent prompts into config template files
+- **What I did**: Moved all inline prompt constants from `enrichment.py`, `review_pipeline.py`, and `code_executor.py` into 9 `.md` template files under `config/prompts/`. Created `src/prompt_loader.py` with `load_prompt(name)` (UTF-8, module-level cache) and `render_prompt(name, **kwargs)` for `{{variable}}` substitution. Updated all 3 source files to use the loader. Added 6 new tasks (T-P1-113 through T-P1-118) to TASKS.md.
+- **Deliverables**: `config/prompts/` (9 files: enrichment_system, task_schema_context, project_rules_context, plan_system, review_conventions_context, review_feasibility, review_adversarial, review_default, execution_prompt), `src/prompt_loader.py`, updated `src/enrichment.py`, `src/review_pipeline.py`, `src/executors/code_executor.py`, `tests/test_prompt_loader.py`
+- **Sanity check result**: 1383 tests pass + 6 skipped (20 new), ruff clean. [AUTO-VERIFIED]
+- **Status**: [DONE]
+- **Request**: Move T-P1-113 to Completed
