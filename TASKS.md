@@ -32,11 +32,6 @@
 
 
 
-#### T-P1-106: Decompose App.tsx into container components and custom hooks
-- **Priority**: P1 | **Complexity**: M | **Depends on**: T-P1-108
-- **Description**: App.tsx is 1046 lines with 59+ state variables. Extract into custom hooks (useTaskState, useSSEHandlers/useSSEConnection, useProjectState, useToasts). Extract bottom panel into BottomPanelContainer. App.tsx becomes thin composition layer.
-- **ACs**: (1) App.tsx contains no business logic, only composition of hooks and components (2) 3+ custom hooks in frontend/src/hooks/ (3) BottomPanelContainer encapsulates tab switching + panel rendering (4) Journey: open dashboard, select project, click task -> conversation view, switch panels -> all transitions work (5) Playwright E2E tests (T-P1-108) still pass after refactor (6) TS clean, Vite build clean
-
 
 #### T-P1-109: Add cost/usage dashboard endpoint and frontend panel
 - **Priority**: P1 | **Complexity**: M | **Depends on**: None
@@ -50,7 +45,6 @@
 > Full historical dependency graph relocated to [docs/architecture/dependency-graph-history.md](docs/architecture/dependency-graph-history.md).
 
 ### Current
-- T-P1-106 depends on T-P1-108 [DONE]
 - T-P1-109 depends on None
 
 
@@ -62,6 +56,9 @@
 ## Completed Tasks
 
 > 99 completed tasks archived to [archive/completed_tasks.md](archive/completed_tasks.md).
+
+#### [x] T-P1-106: Decompose App.tsx into container components and custom hooks -- 2026-03-08
+- Extracted App.tsx (1131 lines) into 4 custom hooks (`useToasts`, `useTaskState`, `useProjectState`, `useSSEHandler`) and `BottomPanelContainer` component. App.tsx is now ~280 lines of pure composition. 1359 tests pass, TS clean, Vite build clean, 12 Playwright tests discovered.
 
 #### [x] T-P1-108: Add Playwright E2E smoke test infrastructure -- 2026-03-08
 - Added Playwright E2E test infrastructure with `@playwright/test`, `playwright.config.ts` (Chromium headless, CI-compatible), and 4 test files (12 tests) in `frontend/e2e/`: page-load (Kanban columns + header), task-card (card rendering + status badges), task-click (bottom panel activation), project-filter (filter bar + search + priority chips). Added `npm run e2e` script. 1359 Python tests pass, TS clean, Vite build clean.

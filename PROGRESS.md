@@ -1184,3 +1184,10 @@
 - **Sanity check result**: TypeScript clean (`npx tsc --noEmit`), Vite build clean, 1359 Python tests pass + 6 skipped, `npx playwright test --list` discovers all 12 tests in 4 files. [AUTO-VERIFIED]
 - **Status**: [DONE]
 - **Request**: Move T-P1-108 to Completed
+
+## 2026-03-08 -- [T-P1-106] Decompose App.tsx into container components and custom hooks
+- **What I did**: Extracted App.tsx (1131 lines, 59+ state variables) into 4 custom hooks and 1 container component. Created `useToasts.ts` (toast state management), `useTaskState.ts` (tasks, filters, selected task, log entries, stream events, and all task handlers), `useProjectState.ts` (projects, selected projects, syncing, sync handlers), `useSSEHandler.ts` (SSE event handler construction + connection via useSSE). Created `BottomPanelContainer.tsx` encapsulating tab bar + panel rendering (ConversationView, ExecutionLog, ReviewPanel, RunningJobsPanel). App.tsx is now a thin composition layer (~280 lines) that calls hooks and renders components.
+- **Deliverables**: `frontend/src/hooks/useToasts.ts`, `frontend/src/hooks/useTaskState.ts`, `frontend/src/hooks/useProjectState.ts`, `frontend/src/hooks/useSSEHandler.ts`, `frontend/src/components/BottomPanelContainer.tsx`, `frontend/src/App.tsx` (rewritten)
+- **Sanity check result**: TypeScript clean (`npx tsc --noEmit`), Vite build clean, 1359 Python tests pass + 6 skipped, `npx playwright test --list` discovers all 12 tests in 4 files. [AUTO-VERIFIED]
+- **Status**: [DONE]
+- **Request**: Move T-P1-106 to Completed
