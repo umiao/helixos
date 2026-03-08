@@ -1177,3 +1177,10 @@
 - **Sanity check result**: TypeScript clean (`npx tsc --noEmit`), Vite build clean, 1359 tests pass + 6 skipped. [AUTO-VERIFIED]
 - **Status**: [DONE]
 - **Request**: Move T-P1-110 to Completed
+
+## 2026-03-08 -- [T-P1-108] Add Playwright E2E smoke test infrastructure
+- **What I did**: Added Playwright E2E test infrastructure to the frontend. Installed `@playwright/test` as dev dependency, installed Chromium browser. Created `playwright.config.ts` with Chromium headless project, CI-compatible settings (forbidOnly, retries, single worker), trace/screenshot on failure. Created 4 test files in `frontend/e2e/` with 12 tests total: `page-load.spec.ts` (dashboard loads, Kanban columns visible, header buttons), `task-card.spec.ts` (card rendering, task ID/title, status badge), `task-click.spec.ts` (click opens bottom panel, panel shows content), `project-filter.spec.ts` (filter bar, status dropdown options, search input, priority chips). Added `npm run e2e` and `npm run e2e:headed` scripts.
+- **Deliverables**: `frontend/playwright.config.ts`, `frontend/e2e/page-load.spec.ts`, `frontend/e2e/task-card.spec.ts`, `frontend/e2e/task-click.spec.ts`, `frontend/e2e/project-filter.spec.ts`, `frontend/package.json` (updated scripts + devDep)
+- **Sanity check result**: TypeScript clean (`npx tsc --noEmit`), Vite build clean, 1359 Python tests pass + 6 skipped, `npx playwright test --list` discovers all 12 tests in 4 files. [AUTO-VERIFIED]
+- **Status**: [DONE]
+- **Request**: Move T-P1-108 to Completed

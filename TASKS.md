@@ -30,11 +30,6 @@
 
 ### P1 -- Should Have (agentic intelligence)
 
-#### T-P1-108: Add Playwright E2E smoke test infrastructure
-- **Priority**: P1 | **Complexity**: M | **Depends on**: None
-- **Description**: Zero UX tasks had browser-level verification. Add Playwright with 4 smoke tests covering critical flows. Establishes E2E testing pattern before major refactors.
-- **ACs**: (1) frontend/e2e/ with Playwright config + 4 test files (2) Tests: page loads Kanban, task card renders, clicking task opens bottom panel, project selector filters (3) `npx playwright test` runs headless against local dev server (4) Journey: `npm run e2e` -> all 4 pass green against running backend (5) CI-compatible headless mode
-
 
 
 #### T-P1-106: Decompose App.tsx into container components and custom hooks
@@ -55,8 +50,7 @@
 > Full historical dependency graph relocated to [docs/architecture/dependency-graph-history.md](docs/architecture/dependency-graph-history.md).
 
 ### Current
-- T-P1-106 depends on T-P1-108
-- T-P1-108 depends on None
+- T-P1-106 depends on T-P1-108 [DONE]
 - T-P1-109 depends on None
 
 
@@ -68,6 +62,9 @@
 ## Completed Tasks
 
 > 99 completed tasks archived to [archive/completed_tasks.md](archive/completed_tasks.md).
+
+#### [x] T-P1-108: Add Playwright E2E smoke test infrastructure -- 2026-03-08
+- Added Playwright E2E test infrastructure with `@playwright/test`, `playwright.config.ts` (Chromium headless, CI-compatible), and 4 test files (12 tests) in `frontend/e2e/`: page-load (Kanban columns + header), task-card (card rendering + status badges), task-click (bottom panel activation), project-filter (filter bar + search + priority chips). Added `npm run e2e` script. 1359 Python tests pass, TS clean, Vite build clean.
 
 #### [x] T-P1-105: Split api.py into domain-specific route modules -- 2026-03-07
 - Split src/api.py (2470 lines) into 5 route modules under src/routes/ (dashboard, execution, projects, reviews, tasks) + src/api_helpers.py for shared helpers. api.py retained lifespan, middleware, create_app(), router mounting (323 lines). All 1359 tests pass unmodified, ruff clean.
