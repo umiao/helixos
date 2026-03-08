@@ -35,25 +35,31 @@
 
 
 
+### P1 -- Should Have (agentic intelligence)
 
-### P1-UX -- Polish
 
-#### T-P0-98: 任务结束时没有自动切换前端ui状态（或者说更进一步，每次用户拖拽操作、任务完成后都自动的sync）。同时每次调度queue里的任务时应该自动选择没有dependency，优先级最高的。我依然看见了20分钟不响应停止任务的bar，需要纠正。— 每次拖拽后都要sync一下！
+
+
+### P2 -- Nice to Have
+
+
+
+
+#### T-P0-102: 调研本项目 探讨可能可以增加的高优先度新功能、改进、tech debt消除和review质量
 
 ## Dependency Graph
 
 > Full historical dependency graph relocated to [docs/architecture/dependency-graph-history.md](docs/architecture/dependency-graph-history.md).
 
 ### Current
-- T-P0-92 depends on None (T-P0-91 complete)
-- T-P0-93 depends on None (T-P0-91 complete)
-- T-P0-94 depends on T-P0-92, T-P0-93
-- T-P0-95 depends on T-P0-92, T-P0-93
-- T-P0-96 depends on T-P0-93
-- T-P1-85 depends on T-P1-84 (complete)
-- T-P1-87 depends on T-P1-86
-- T-P1-88 depends on T-P1-86 (complete)
-- T-P2-91 depends on T-P1-89 (complete)
+- T-P1-102 depends on None [DONE]
+- T-P1-103 depends on None [DONE]
+- T-P1-104 depends on T-P1-101 [DONE] [DONE]
+- T-P2-100 depends on None [DONE]
+- T-P2-101 depends on None [DONE]
+- T-P2-102 depends on T-P2-101 [DONE]
+- T-P2-103 depends on T-P2-101 [DONE] [DONE]
+- T-P2-104 depends on None [DONE]
 
 
 ---
@@ -64,6 +70,45 @@
 ## Completed Tasks
 
 > 99 completed tasks archived to [archive/completed_tasks.md](archive/completed_tasks.md).
+
+#### [x] T-P2-103: Tool block structured rendering -- 2026-03-07
+- Refactored tool_use + tool_result into single bordered blocks with collapsed-by-default summary (tool name + input detail + line count). Single expand/collapse per block, no nested accordions. Orphaned tool_results render gracefully. 1350 pass, TS clean, Vite build clean.
+
+#### [x] T-P2-102: Markdown + code syntax highlighting via Prism -- 2026-03-07
+- Added rehype-prism-plus, remark-gfm, prism-themes to frontend. Wired remark-gfm + rehype-prism-plus into ReactMarkdown in ConversationView. Imported prism-one-dark CSS theme. Added 5KB size guard (strips language tag from large code blocks). 1350 pass, Vite build clean.
+
+#### [x] T-P2-104: ExecutionLog filter UX improvement -- 2026-03-07
+- Replaced level filter dropdown with multi-select toggle chips (ERROR, WARN, INFO) + "More" dropdown (DEBUG). Active chips show colored ring. Clear button resets filters. 1350 pass, TS clean, Vite build clean.
+
+#### [x] T-P2-101: Typography + contrast improvements for log display -- 2026-03-07
+- ConversationView body text bumped to 14px (`text-sm`), headings scaled up. ExecutionLog message text bumped to 13px. All badges normalized to 12px (`text-xs`). Contrast improved across both components. 1350 pass, ruff clean, TS clean.
+
+#### [x] T-P2-100: Clean up plan log display (hide raw JSON artifacts) -- 2026-03-07
+- Excluded `level='artifact'` entries from `get_logs()`/`count_logs()` by default. Added `include_artifacts` param to both methods + API endpoint. Artifacts still persisted in DB for forensic access. 5 new tests. 1312 pass, ruff clean.
+
+#### [x] T-P1-104: Task Generator -- deterministic proposal-to-TASKS.md pipeline -- 2026-03-07
+- Pure Python task generator: extracts `proposed_tasks[]` from plan_json, allocates sequential IDs per priority, validates schema/dependencies, detects cycles (DFS), enforces max 8 tasks, generates human-readable diff. Two API endpoints: preview (GET diff) and confirm (write + auto-pause). Added `DECOMPOSED` plan status. 43 new tests. 1308 pass, ruff clean.
+
+#### [x] T-P1-103: Selective hooks loading for plan/review agents -- 2026-03-07
+- Added `setting_sources` to QueryOptions/ClaudeAgentOptions. Plan and review agents use `setting_sources=[]` to disable CLI hooks. Created `session_context_loader.py` to inject session context into system prompts. Execution agent unchanged. 16 new tests. 1292 pass, ruff clean.
+
+#### [x] T-P1-102: Enrich review prompt with project conventions -- 2026-03-06
+- Injected CLAUDE.md rules (task planning, state machine, smoke test, key constraints) + TASKS.md schema conventions into all review prompts. Imported shared context from enrichment.py. Upgraded adversarial reviewer + synthesis model to opus 4.6. 4 new tests. 1244 pass, ruff clean.
+
+#### [x] T-P1-101: Enrich plan prompt with project context + proposed_tasks schema -- 2026-03-06
+- Enriched plan prompt with CLAUDE.md rules + TASKS.md schema conventions. Extended JSON schema with `proposed_tasks[]` (title, desc, priority, complexity, deps, ACs). Added `ProposedTask` model, `MAX_TASKS_PER_PLAN=8` validation. 13 new tests. 1273 pass, ruff clean.
+
+#### [x] T-P1-100: Enable plan mode + upgrade plan model to opus 4.6 -- 2026-03-06
+- Changed `generate_task_plan()` to use `model="claude-opus-4-6"` (was `claude-sonnet-4-5`) and `permission_mode="plan"` (read-only). Updated test assertion. 1260 pass, ruff clean.
+
+#### [x] T-P0-99: Auto-sync frontend board after drag and task completion -- 2026-03-06
+- Added `board_sync` SSE event on all task state changes (api, scheduler). Frontend debounced (500ms) full refetch on board_sync events. StartAllPlanned gets success toast via onStarted callback. 3 new tests. 1259 pass, ruff clean, TS clean, Vite build clean.
+
+#### [x] T-P0-100: Fix stop/cancel task signal propagation -- 2026-03-06
+- Root cause: no frontend cancel mechanism + no backend auto-cancel on RUNNING status change. Added `cancelTask()` API, "Stop Execution" context menu button, backend auto-cancel in `update_task_status()`. 4 new tests. 1257 pass, ruff clean, TS clean.
+
+#### [x] T-P0-101: Priority-based dependency-aware queue scheduling + cycle detection -- 2026-03-06
+- Added `extract_priority()` helper and priority-sorted `get_ready_tasks()`. Added `validate_dependency_graph()` with DFS cycle detection and missing-ref validation. Enhanced `_deps_fulfilled()` with missing-ref alerts. Fixed tick over-fetch. 16 new tests, 79 scheduler tests pass, ruff clean.
 
 #### [x] T-P3-83: Done column ordering fix -- 2026-03-06
 - Root cause: `completed_at` only set for DONE status, not FAILED/BLOCKED. Fixed to set on all terminal transitions and clear on backward transitions. Frontend sort/filter already existed.

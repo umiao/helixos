@@ -1205,3 +1205,10 @@
 - **Sanity check result**: 1383 tests pass + 6 skipped (20 new), ruff clean. [AUTO-VERIFIED]
 - **Status**: [DONE]
 - **Request**: Move T-P1-113 to Completed
+
+## 2026-03-08 -- [PLANNING] Add T-P1-119 and T-P1-120 to TASKS.md
+- **What I did**: Added 2 new tasks based on prompt system analysis. T-P1-119: reject-to-replan loop + execution prompt plan data injection (M complexity). T-P1-120: consolidate 9 prompt templates to 4 files (S complexity, depends on T-P1-119). Updated T-P1-115 to depend on T-P1-120 and scoped it down to Phase 3 (quality: few-shot examples, tighter schemas, eval tests). Updated dependency graph.
+- **Deliverables**: Updated `TASKS.md` (2 new task specs, updated T-P1-115, updated dependency graph)
+- **Sanity check result**: TASKS.md only edit, no code changes
+- **Status**: [DONE]
+- **Request**: No change (planning session only)

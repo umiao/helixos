@@ -59,17 +59,17 @@
   5. Scope limits configurable in `orchestrator_config.yaml` under `plan_validation` section
   6. All existing tests pass; new tests for validation pass/fail/retry scenarios
 
-#### T-P1-115: Upgrade agent prompts to production-grade
+#### T-P1-115: Upgrade agent prompts to production-grade (Phase 3: quality)
 - **Priority**: P1
 - **Complexity**: M (1-2 sessions)
-- **Depends on**: T-P1-113
-- **Description**: Rewrite all agent prompts in `config/prompts/` with production-grade prompt engineering. Plan prompt emphasizes proposed_tasks as primary output with explicit anti-patterns. Review prompts use structured output (blocking_issues/suggestions/pass) with deterministic code merge (no Meta Reviewer). Enrichment prompt receives plan context and explicitly forbids scope expansion. Execution prompt constrains to task files with escape hatch for test/config.
+- **Depends on**: T-P1-113, T-P1-120
+- **Description**: After T-P1-119 (flow fixes) and T-P1-120 (structural consolidation), this task focuses on prompt quality: add few-shot examples to plan/review/execution prompts, tighten JSON schemas with stricter validation, add eval test cases that assert prompt output quality against reference inputs. Review prompts use structured output (blocking_issues/suggestions/pass) with deterministic merge (any blocking_issue = reject). Enrichment prompt explicitly forbids scope expansion.
 - **Acceptance Criteria**:
-  1. Plan prompt: proposed_tasks[] emphasized as primary output; includes anti-patterns; task scope guidance as configurable limits
+  1. Plan prompt: few-shot example of good proposed_tasks[] output; anti-pattern examples; task scope guidance as configurable limits
   2. Review prompts: output schema changed to `{blocking_issues: [], suggestions: [], pass: bool}`; `_REVIEW_JSON_SCHEMA` updated; deterministic merge in review_pipeline.py (any blocking_issue = reject)
-  3. Enrichment prompt: receives plan context; expands background/goal/hints/criteria/constraints; explicitly forbids scope expansion
+  3. Enrichment prompt: receives plan context; explicitly forbids scope expansion
   4. Execution prompt: system_prompt with agent role; file constraint with escape hatch for test/config files; "Only implement the current task"
-  5. `enrich_task_title()` signature updated to accept optional plan context parameter
+  5. Eval test cases: at least 3 reference input/output pairs per prompt type asserting key phrases and structure
   6. All existing tests updated for new schemas; new tests verify prompt content and review merge logic
 
 #### T-P1-116: Unified plan review before batch task decomposition
@@ -112,6 +112,41 @@
   6. New tests: graceful cancel, timeout force-cancel, cancel on non-running task
   7. Manually verify: Start execution -> Stop -> FAILED within 30s [AUTO-VERIFIED]
 
+#### T-P1-119: Add reject-to-replan loop and enrich execution prompt with plan data
+- **Priority**: P1
+- **Complexity**: M (1-2 sessions)
+- **Depends on**: None
+- **Description**: Two flow gaps: (1) When review rejects a plan, the only options are re-review (same plan) or human override -- there is no "regenerate plan incorporating review feedback" path. Add a `"replan"` decision to the review decide endpoint that feeds review suggestions back to `generate_task_plan()` for re-generation (max 2 replan attempts). (2) The execution prompt only receives title + description text; the structured `plan_json` (implementation steps with files, acceptance criteria) stored in DB is never fed to the executor. Inject it.
+- **Acceptance Criteria**:
+  1. `submit_review_decision()` accepts `decision="replan"` alongside approve/reject/request_changes
+  2. When user picks "replan": `plan_status` transitions to `"generating"`, `replan_attempt` increments, `generate_task_plan()` called with review suggestions as structured feedback
+  3. After successful replan: `plan_status="ready"`, review pipeline auto-enqueued for the new plan
+  4. Max 2 replan attempts enforced; 3rd attempt returns 409 with clear message
+  5. When replan is NOT chosen (approve/reject/request_changes): existing behavior unchanged
+  6. `generate_task_plan()` gains `review_feedback: str | None` param; when provided, appends structured "address these issues" block to user prompt
+  7. `Task` model gains `replan_attempt: int = 0` field with DB migration in `init_db()`
+  8. `_build_prompt()` in `code_executor.py` parses `task.plan_json` when available and injects `## Implementation Steps` (numbered, with files) and `## Acceptance Criteria` (checklist) into execution prompt
+  9. Graceful fallback: if `plan_json` is None or malformed, execution prompt uses description-only (no crash)
+  10. Journey AC: User generates plan -> review rejects -> user picks "replan" -> new plan generated with feedback -> auto-review runs -> approve -> execution prompt contains structured steps + ACs + review feedback
+  11. All existing tests pass; new tests for replan flow (decision handling, limit enforcement, feedback injection, auto-review trigger) and execution prompt enrichment (with/without plan_json)
+
+#### T-P1-120: Consolidate prompt templates from 9 files to 4
+- **Priority**: P1
+- **Complexity**: S (< 1 session)
+- **Depends on**: T-P1-119
+- **Description**: The current 9 prompt files use 3-layer nesting (fragment -> context -> final prompt) for only 4 independent responsibilities. Consolidate: (1) Inline `task_schema_context.md` and `project_rules_context.md` into `plan_system.md` (2 consumers, not worth separate files). (2) Merge `review_conventions_context.md`, `review_feasibility.md`, `review_adversarial.md`, `review_default.md` into single `review.md` template parameterized by `{{reviewer_role}}` + `{{review_questions}}` -- 3 parallel reviewer calls preserved, only the template file is unified. (3) Rename `execution_prompt.md` to `execution.md` (already enriched by T-P1-119). (4) Make `enrich_task_title()` conditional: skip if `task.description` is non-empty.
+- **Acceptance Criteria**:
+  1. `config/prompts/` contains exactly 4 files: `enrichment_system.md`, `plan_system.md`, `review.md`, `execution.md`
+  2. `plan_system.md` is self-contained (task schema + project rules inlined, no `{{fragment}}` placeholders)
+  3. `review.md` uses `{{reviewer_role}}` and `{{review_questions}}` placeholders; `_build_review_prompt(focus)` renders with per-focus params
+  4. Three parallel reviewer calls still work (feasibility, adversarial, default) -- only the template is unified, not the calls
+  5. Rendered output of each consolidated prompt is content-equivalent to the old multi-file version (diff test)
+  6. `enrichment.py`: `load_prompt("plan_system")` replaces `render_prompt("plan_system", task_schema_context=..., project_rules_context=...)`
+  7. `review_pipeline.py`: `_REVIEW_PROMPTS` dict and `_REVIEW_CONVENTIONS_CONTEXT` replaced by single `_REVIEWER_PARAMS` config dict
+  8. Enrichment is conditional: `enrich_task_title()` skipped when `task.description` is already non-empty
+  9. 5 deleted files: `task_schema_context.md`, `project_rules_context.md`, `review_conventions_context.md`, `review_feasibility.md`, `review_adversarial.md`, `review_default.md`
+  10. All existing tests pass; prompt loader tests updated for new file set; no unresolved `{{...}}` in any rendered prompt
+
 ### P2 -- Nice to Have
 
 ## Dependency Graph
@@ -119,9 +154,11 @@
 > Full historical dependency graph relocated to [docs/architecture/dependency-graph-history.md](docs/architecture/dependency-graph-history.md).
 
 ### Current
-T-P1-115 depends on T-P1-113
+T-P1-115 depends on T-P1-113, T-P1-120
 T-P1-116 depends on T-P1-114
 T-P1-117, T-P1-118 independent
+T-P1-119 independent
+T-P1-120 depends on T-P1-119
 
 
 ---
