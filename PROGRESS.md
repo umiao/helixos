@@ -1135,3 +1135,10 @@
 - **Sanity check result**: 1350 passed, 6 skipped. TypeScript clean. Vite build clean. [AUTO-VERIFIED] grep confirms toolSummary, toggleExpand, expandedTools, shortenPath all present in source. Tool_use + tool_result rendered within single bordered div. No nested accordions.
 - **Status**: [DONE]
 - **Request**: Move T-P2-103 to Completed
+
+## 2026-03-07 -- [T-P0-102] Project research and improvement decomposition
+- **What I did**: Analyzed codebase (99 completed tasks, 30+ backend modules, 25+ frontend components) to identify highest-value improvements. Decomposed findings into 8 concrete tasks: ErrorBoundary (T-P0-107), review feedback loop (T-P0-111), Playwright E2E (T-P1-108), api.py split (T-P1-105), scheduler extraction (T-P1-112), App.tsx decomposition (T-P1-106), priority/complexity filter (T-P1-110), cost dashboard (T-P1-109). Incorporated user review feedback on ordering and dependencies.
+- **Deliverables**: `TASKS.md` (8 new tasks added, T-P0-102 moved to Completed, dependency graph updated)
+- **Sanity check result**: TASKS.md at 227 lines (under 300 limit). All task IDs follow T-P{X}-{NNN} format. No duplicate IDs with completed tasks. Only dependency: T-P1-106 -> T-P1-108. No cycles.
+- **Status**: [DONE]
+- **Request**: Move T-P0-102 to Completed

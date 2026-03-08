@@ -27,37 +27,64 @@
 
 ### P0 -- Must Have (core functionality)
 
+#### T-P0-107: Add React ErrorBoundary to crash-prone components
+- **Priority**: P0 | **Complexity**: S | **Depends on**: None
+- **Description**: No ErrorBoundary in frontend. ConversationView/ReviewPanel/ExecutionLog process raw external data and can crash on malformed events, taking down the entire app. Add reusable ErrorBoundary wrapping the bottom panel container.
+- **ACs**: (1) ErrorBoundary.tsx with componentDidCatch, fallback UI (component name + error + retry button) (2) Wraps entire bottom panel rather than individual children (3) Error details logged to console with stack trace (4) Journey: malformed stream event -> fallback shown -> KanbanBoard/header remain functional -> retry remounts (5) TS clean, Vite build clean
 
-
-
-
-
-
+#### T-P0-111: Inject review suggestions into re-execution prompt
+- **Priority**: P0 | **Complexity**: M | **Depends on**: None
+- **Description**: When review rejects a task and it's retried, suggestions are lost -- agent repeats mistakes. Fetch latest review suggestions and inject as structured "Previous Review Feedback" block in re-execution system prompt.
+- **ACs**: (1) retry_task fetches latest review suggestions from HistoryWriter (2) Formatted as structured block: `## Previous Review Feedback\nYou MUST address these issues:\n1. ...` (3) Only last 3 reviews included to prevent prompt bloat (4) New field has proper migration handling per CLAUDE.md schema rules (5) Journey: task executed -> reviewed -> rejected with suggestions -> retry -> agent prompt contains suggestions verbatim (6) 3+ tests: feedback present, absent (first run), multi-retry accumulation capped at 3
 
 
 ### P1 -- Should Have (agentic intelligence)
 
+#### T-P1-108: Add Playwright E2E smoke test infrastructure
+- **Priority**: P1 | **Complexity**: M | **Depends on**: None
+- **Description**: Zero UX tasks had browser-level verification. Add Playwright with 4 smoke tests covering critical flows. Establishes E2E testing pattern before major refactors.
+- **ACs**: (1) frontend/e2e/ with Playwright config + 4 test files (2) Tests: page loads Kanban, task card renders, clicking task opens bottom panel, project selector filters (3) `npx playwright test` runs headless against local dev server (4) Journey: `npm run e2e` -> all 4 pass green against running backend (5) CI-compatible headless mode
 
+#### T-P1-105: Split api.py into domain-specific route modules
+- **Priority**: P1 | **Complexity**: M | **Depends on**: None
+- **Description**: src/api.py is 2470 lines. Split into `src/routes/{projects,tasks,execution,reviews,dashboard}.py` with APIRouter. api.py retains lifespan, middleware, create_app(), router mounting.
+- **ACs**: (1) api.py contains only lifespan, middleware, create_app(), helpers, router includes (2) 5 route modules under src/routes/ with APIRouter(prefix=...) (3) All existing API tests pass unmodified (no URL changes) (4) OpenAPI schema unchanged (/docs renders same endpoints) (5) Journey: start server, GET /api/projects + /api/tasks return 200, POST status change triggers review pipeline (6) ruff clean
 
+#### T-P1-112: Extract dependency_graph module from scheduler.py
+- **Priority**: P1 | **Complexity**: S | **Depends on**: None
+- **Description**: scheduler.py (941 lines) mixes dependency graph validation, queue management, and execution orchestration. Extract validate_dependency_graph(), cycle detection (DFS), extract_priority() into src/dependency_graph.py.
+- **ACs**: (1) src/dependency_graph.py with graph validation functions (2) scheduler.py imports from new module, reduced in size (3) All 79+ scheduler tests pass without modification (4) Journey: `from src.dependency_graph import validate_dependency_graph` detects cycle in {"A":["B"],"B":["A"]} (5) ruff clean
+
+#### T-P1-106: Decompose App.tsx into container components and custom hooks
+- **Priority**: P1 | **Complexity**: M | **Depends on**: T-P1-108
+- **Description**: App.tsx is 1046 lines with 59+ state variables. Extract into custom hooks (useTaskState, useSSEHandlers/useSSEConnection, useProjectState, useToasts). Extract bottom panel into BottomPanelContainer. App.tsx becomes thin composition layer.
+- **ACs**: (1) App.tsx contains no business logic, only composition of hooks and components (2) 3+ custom hooks in frontend/src/hooks/ (3) BottomPanelContainer encapsulates tab switching + panel rendering (4) Journey: open dashboard, select project, click task -> conversation view, switch panels -> all transitions work (5) Playwright E2E tests (T-P1-108) still pass after refactor (6) TS clean, Vite build clean
+
+#### T-P1-110: Add task filtering by priority and complexity
+- **Priority**: P1 | **Complexity**: S | **Depends on**: None
+- **Description**: Kanban board filters by status/project/search but not priority or complexity. Add multi-select filter chips for both. Purely frontend (backend already returns fields).
+- **ACs**: (1) Priority multi-select chips (P0/P1/P2/P3) + complexity chips (S/M/L) (2) Compose with existing filters via AND logic (3) Filter state persists during session (4) Journey: select P0 -> only P0 shown -> add M -> only P0+M -> clear -> all visible (5) TS clean, Vite build clean
+
+#### T-P1-109: Add cost/usage dashboard endpoint and frontend panel
+- **Priority**: P1 | **Complexity**: M | **Depends on**: None
+- **Description**: cost_usd tracked per review in DB but no aggregate view. Add GET /api/dashboard/costs with per-project summaries (GROUP BY project_id) + grand total. Add "Costs" section in frontend.
+- **ACs**: (1) Endpoint returns { projects: [{project_id, name, total_reviews, total_cost_usd, avg_cost}], grand_total_cost_usd } (2) Single SQL query with GROUP BY (no N+1) (3) Frontend "Costs" section with formatted USD table + total row (4) Journey: user with reviews on 2+ projects -> sees cost breakdown per project + grand total (5) Zero-reviews case shows graceful empty state
 
 ### P2 -- Nice to Have
-
-
-
 
 ## Dependency Graph
 
 > Full historical dependency graph relocated to [docs/architecture/dependency-graph-history.md](docs/architecture/dependency-graph-history.md).
 
 ### Current
-- T-P1-102 depends on None [DONE]
-- T-P1-103 depends on None [DONE]
-- T-P1-104 depends on T-P1-101 [DONE] [DONE]
-- T-P2-100 depends on None [DONE]
-- T-P2-101 depends on None [DONE]
-- T-P2-102 depends on T-P2-101 [DONE]
-- T-P2-103 depends on T-P2-101 [DONE] [DONE]
-- T-P2-104 depends on None [DONE]
+- T-P0-107 depends on None
+- T-P0-111 depends on None
+- T-P1-105 depends on None
+- T-P1-106 depends on T-P1-108
+- T-P1-108 depends on None
+- T-P1-109 depends on None
+- T-P1-110 depends on None
+- T-P1-112 depends on None
 
 
 ---
@@ -68,6 +95,9 @@
 ## Completed Tasks
 
 > 99 completed tasks archived to [archive/completed_tasks.md](archive/completed_tasks.md).
+
+#### [x] T-P0-102: Project research and improvement decomposition -- 2026-03-07
+- Researched codebase (99 tasks, 30+ modules, 25+ components). Identified top improvements: monolith splitting (api.py/App.tsx/scheduler.py), ErrorBoundary, review feedback loop, E2E tests, cost dashboard, priority filtering. Decomposed into T-P0-107 through T-P1-112 (8 tasks).
 
 #### [x] T-P2-103: Tool block structured rendering -- 2026-03-07
 - Refactored tool_use + tool_result into single bordered blocks with collapsed-by-default summary (tool name + input detail + line count). Single expand/collapse per block, no nested accordions. Orphaned tool_results render gracefully. 1350 pass, TS clean, Vite build clean.
