@@ -43,6 +43,8 @@ function App() {
   const [selectedProjects, setSelectedProjects] = useState<string[]>([]);
   const [filterStatus, setFilterStatus] = useState("");
   const [searchQuery, setSearchQuery] = useState("");
+  const [filterPriorities, setFilterPriorities] = useState<Set<string>>(new Set());
+  const [filterComplexities, setFilterComplexities] = useState<Set<string>>(new Set());
   const [toasts, setToasts] = useState<ToastMessage[]>([]);
   const [logEntries, setLogEntries] = useState<LogEntry[]>([]);
   const [selectedTask, setSelectedTask] = useState<Task | null>(null);
@@ -451,7 +453,7 @@ function App() {
     (t) => t.status === "running" || t.plan_status === "generating"
   ).length;
 
-  // Apply global filters (status + search) to all tasks
+  // Apply global filters (status + search + priority + complexity) to all tasks
   const globallyFiltered = tasks.filter((t) => {
     if (filterStatus && t.status !== filterStatus) return false;
     if (
@@ -460,6 +462,16 @@ function App() {
       !t.local_task_id.toLowerCase().includes(searchQuery.toLowerCase())
     ) {
       return false;
+    }
+    if (filterPriorities.size > 0) {
+      const m = t.local_task_id.match(/T-P(\d+)-/);
+      const prio = m ? `P${m[1]}` : null;
+      if (!prio || !filterPriorities.has(prio)) return false;
+    }
+    if (filterComplexities.size > 0) {
+      const cm = t.description.match(/\*\*Complexity\*\*:\s*(S|M|L)\b/);
+      const cplx = cm ? cm[1] : null;
+      if (!cplx || !filterComplexities.has(cplx)) return false;
     }
     return true;
   });
@@ -815,6 +827,75 @@ function App() {
           onChange={(e) => setSearchQuery(e.target.value)}
           className="rounded-md border border-gray-300 px-2 py-1 text-sm text-gray-700 bg-white w-48"
         />
+
+        {/* Priority filter chips */}
+        <div className="flex items-center gap-1 ml-2">
+          <span className="text-xs text-gray-400 mr-0.5">Priority:</span>
+          {["P0", "P1", "P2", "P3"].map((p) => {
+            const active = filterPriorities.has(p);
+            return (
+              <button
+                key={p}
+                onClick={() =>
+                  setFilterPriorities((prev) => {
+                    const next = new Set(prev);
+                    if (next.has(p)) next.delete(p);
+                    else next.add(p);
+                    return next;
+                  })
+                }
+                className={`px-2 py-0.5 rounded text-xs font-medium cursor-pointer select-none transition-colors ${
+                  active
+                    ? "bg-indigo-600 text-white ring-1 ring-indigo-400"
+                    : "bg-gray-100 text-gray-500 hover:bg-gray-200"
+                }`}
+              >
+                {p}
+              </button>
+            );
+          })}
+        </div>
+
+        {/* Complexity filter chips */}
+        <div className="flex items-center gap-1 ml-2">
+          <span className="text-xs text-gray-400 mr-0.5">Size:</span>
+          {["S", "M", "L"].map((c) => {
+            const active = filterComplexities.has(c);
+            return (
+              <button
+                key={c}
+                onClick={() =>
+                  setFilterComplexities((prev) => {
+                    const next = new Set(prev);
+                    if (next.has(c)) next.delete(c);
+                    else next.add(c);
+                    return next;
+                  })
+                }
+                className={`px-2 py-0.5 rounded text-xs font-medium cursor-pointer select-none transition-colors ${
+                  active
+                    ? "bg-emerald-600 text-white ring-1 ring-emerald-400"
+                    : "bg-gray-100 text-gray-500 hover:bg-gray-200"
+                }`}
+              >
+                {c}
+              </button>
+            );
+          })}
+        </div>
+
+        {/* Clear filters button */}
+        {(filterPriorities.size > 0 || filterComplexities.size > 0) && (
+          <button
+            onClick={() => {
+              setFilterPriorities(new Set());
+              setFilterComplexities(new Set());
+            }}
+            className="px-2 py-0.5 rounded text-xs text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition-colors"
+          >
+            Clear
+          </button>
+        )}
       </div>
 
       {/* Swim lane area */}

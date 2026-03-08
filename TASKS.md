@@ -46,10 +46,6 @@
 - **Description**: App.tsx is 1046 lines with 59+ state variables. Extract into custom hooks (useTaskState, useSSEHandlers/useSSEConnection, useProjectState, useToasts). Extract bottom panel into BottomPanelContainer. App.tsx becomes thin composition layer.
 - **ACs**: (1) App.tsx contains no business logic, only composition of hooks and components (2) 3+ custom hooks in frontend/src/hooks/ (3) BottomPanelContainer encapsulates tab switching + panel rendering (4) Journey: open dashboard, select project, click task -> conversation view, switch panels -> all transitions work (5) Playwright E2E tests (T-P1-108) still pass after refactor (6) TS clean, Vite build clean
 
-#### T-P1-110: Add task filtering by priority and complexity
-- **Priority**: P1 | **Complexity**: S | **Depends on**: None
-- **Description**: Kanban board filters by status/project/search but not priority or complexity. Add multi-select filter chips for both. Purely frontend (backend already returns fields).
-- **ACs**: (1) Priority multi-select chips (P0/P1/P2/P3) + complexity chips (S/M/L) (2) Compose with existing filters via AND logic (3) Filter state persists during session (4) Journey: select P0 -> only P0 shown -> add M -> only P0+M -> clear -> all visible (5) TS clean, Vite build clean
 
 #### T-P1-109: Add cost/usage dashboard endpoint and frontend panel
 - **Priority**: P1 | **Complexity**: M | **Depends on**: None
@@ -67,7 +63,6 @@
 - T-P1-106 depends on T-P1-108
 - T-P1-108 depends on None
 - T-P1-109 depends on None
-- T-P1-110 depends on None
 
 
 ---
@@ -78,6 +73,9 @@
 ## Completed Tasks
 
 > 99 completed tasks archived to [archive/completed_tasks.md](archive/completed_tasks.md).
+
+#### [x] T-P1-110: Add task filtering by priority and complexity -- 2026-03-07
+- Added priority (P0/P1/P2/P3) and complexity (S/M/L) multi-select filter chips to filter bar. Priority extracted from local_task_id, complexity from description. AND-composed with existing status/project/search filters. Clear button resets both. 1359 pass, TS clean, Vite build clean.
 
 #### [x] T-P1-112: Extract dependency_graph module from scheduler.py -- 2026-03-07
 - Created src/dependency_graph.py with validate_dependency_graph(), detect_cycles(), extract_priority(). scheduler.py and task_manager.py import from new module. task_generator.py deduplicated cycle detection via shared detect_cycles(). 1359 pass, ruff clean.

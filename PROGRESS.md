@@ -1163,3 +1163,10 @@
 - **Sanity check result**: 1359 pass + 6 skipped, ruff clean. `from src.dependency_graph import validate_dependency_graph` detects cycle in {"A":["B"],"B":["A"]}. [AUTO-VERIFIED]
 - **Status**: [DONE]
 - **Request**: Move T-P1-112 to Completed
+
+## 2026-03-07 -- [T-P1-110] Add task filtering by priority and complexity
+- **What I did**: Added priority (P0/P1/P2/P3) and complexity/size (S/M/L) multi-select toggle chips to the filter bar in App.tsx. Priority extracted from `local_task_id` via regex. Complexity extracted from task description `**Complexity**: S|M|L` pattern. Both compose with existing status/project/search filters via AND logic. Clear button appears when either filter is active. Filter state persists during session (React state).
+- **Deliverables**: `frontend/src/App.tsx` (filter state + filter logic + chip UI)
+- **Sanity check result**: TypeScript clean (`npx tsc --noEmit`), Vite build clean, 1359 tests pass + 6 skipped. [AUTO-VERIFIED]
+- **Status**: [DONE]
+- **Request**: Move T-P1-110 to Completed
