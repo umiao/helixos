@@ -497,6 +497,7 @@ async def generate_task_plan(
     stream_log_dir: Path | None = None,
     task_id: str | None = None,
     plan_validation: PlanValidationConfig | None = None,
+    review_feedback: str | None = None,
 ) -> dict:
     """Call Claude Agent SDK to generate a structured implementation plan.
 
@@ -526,6 +527,9 @@ async def generate_task_plan(
         task_id: Optional task ID used for log file naming.
         plan_validation: Optional validation config with soft/hard limits.
             Defaults to ``PlanValidationConfig()`` if not provided.
+        review_feedback: Optional structured feedback from a previous review
+            rejection.  When provided, appended to the user prompt as an
+            "address these issues" block for replan generation.
 
     Returns:
         Dict with ``plan`` (str), ``steps`` (list of dicts), and
@@ -540,6 +544,13 @@ async def generate_task_plan(
     user_prompt = f"Task: {title}"
     if description.strip():
         user_prompt += f"\n\nExisting description:\n{description}"
+    if review_feedback:
+        user_prompt += (
+            "\n\n## Review Feedback (address these issues)\n"
+            "The previous plan was rejected by reviewers. "
+            "Please regenerate the plan addressing the following feedback:\n\n"
+            f"{review_feedback}"
+        )
 
     # Inject session context into system prompt (replaces SessionStart hook
     # which is not available as an SDK hook type).

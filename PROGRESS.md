@@ -1219,3 +1219,10 @@
 - **Sanity check result**: 1407 tests pass + 6 skipped (25 new), ruff clean. [AUTO-VERIFIED]
 - **Status**: [DONE]
 - **Request**: Move T-P1-114 to Completed
+
+## 2026-03-08 -- [T-P1-119] Add reject-to-replan loop and enrich execution prompt with plan data
+- **What I did**: Added `replan` as a 4th decision option to the review decide endpoint (`POST /api/tasks/{id}/review/decide`). When user picks "replan", the system: increments `replan_attempt` on the task, sets `plan_status="generating"`, calls `generate_task_plan()` with review feedback injected as structured prompt section, and auto-enqueues review pipeline on success. Max 2 replan attempts enforced (3rd returns 409). Added `review_feedback: str | None` param to `generate_task_plan()` for structured "address these issues" injection. Added `replan_attempt: int = 0` field to Task model + TaskRow with auto-migration. Enriched execution prompt: `_build_prompt()` now parses `task.plan_json` and injects `## Implementation Steps` (numbered, with files) and `## Acceptance Criteria` (checklist) into the prompt. Graceful fallback: malformed/None plan_json uses description-only. Also cleaned up TASKS.md: archived 41 completed tasks to archive (316 -> 157 lines), removed T-P1-113 spec from Active.
+- **Deliverables**: `src/routes/reviews.py` (_handle_replan, _build_replan_feedback, MAX_REPLAN_ATTEMPTS), `src/enrichment.py` (review_feedback param), `src/executors/code_executor.py` (_format_plan_json_for_prompt), `src/models.py` (replan_attempt field), `src/db.py` (replan_attempt column + migration), `src/schemas.py` (replan_attempt in TaskResponse, replan in ReviewDecisionRequest), `src/api_helpers.py` (plan_status + replan_attempt in response), `tests/test_replan_and_plan_enrichment.py` (29 new tests), `TASKS.md` (cleanup + archive), `archive/completed_tasks.md` (41 archived)
+- **Sanity check result**: 1436 tests pass + 6 skipped (29 new), ruff clean. [AUTO-VERIFIED]
+- **Status**: [DONE]
+- **Request**: Move T-P1-119 to Completed

@@ -214,6 +214,7 @@ class Task(BaseModel):
     review_lifecycle_state: str = ReviewLifecycleState.NOT_STARTED
     plan_status: str = PlanStatus.NONE
     plan_json: str | None = None
+    replan_attempt: int = 0
     execution_epoch_id: str | None = None
 
 

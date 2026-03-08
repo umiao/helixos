@@ -66,6 +66,7 @@ class TaskRow(Base):
         String(32), nullable=False, default="none",
     )
     plan_json: Mapped[str | None] = mapped_column(Text, nullable=True)
+    replan_attempt: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     execution_epoch_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
 
     __table_args__ = (
@@ -175,6 +176,7 @@ def task_row_to_dict(row: TaskRow) -> dict:
         "review_lifecycle_state": getattr(row, "review_lifecycle_state", "not_started"),
         "plan_status": getattr(row, "plan_status", "none"),
         "plan_json": getattr(row, "plan_json", None),
+        "replan_attempt": getattr(row, "replan_attempt", 0),
         "execution_epoch_id": getattr(row, "execution_epoch_id", None),
     }
 
@@ -207,6 +209,7 @@ def task_dict_to_row_kwargs(data: dict) -> dict:
         "review_lifecycle_state": data.get("review_lifecycle_state", "not_started"),
         "plan_status": data.get("plan_status", "none"),
         "plan_json": data.get("plan_json"),
+        "replan_attempt": data.get("replan_attempt", 0),
         "execution_epoch_id": data.get("execution_epoch_id"),
     }
 

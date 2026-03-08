@@ -73,6 +73,7 @@ class TaskResponse(BaseModel):
     review_status: str = "idle"
     review_lifecycle_state: str = ReviewLifecycleState.NOT_STARTED
     plan_status: str = PlanStatus.NONE
+    replan_attempt: int = 0
 
 
 class ReviewStateResponse(BaseModel):
@@ -134,7 +135,7 @@ class ReviewDecisionRequest(BaseModel):
 
     decision: str = Field(
         ...,
-        description="Human decision: 'approve', 'reject', or 'request_changes'",
+        description="Human decision: 'approve', 'reject', 'request_changes', or 'replan'",
     )
     reason: str = ""
 

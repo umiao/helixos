@@ -59,6 +59,51 @@ def _format_elapsed(seconds: float) -> str:
     return f"{mins}:{secs:02d}"
 
 
+def _format_plan_json_for_prompt(plan_json: str | None) -> str:
+    """Parse plan_json and format structured implementation steps + ACs.
+
+    Returns an empty string if plan_json is None or malformed (graceful
+    fallback -- the execution prompt will use description-only).
+    """
+    if not plan_json:
+        return ""
+    try:
+        data = json.loads(plan_json) if isinstance(plan_json, str) else plan_json
+    except (json.JSONDecodeError, TypeError):
+        logger.debug("Malformed plan_json, skipping structured injection")
+        return ""
+
+    if not isinstance(data, dict):
+        return ""
+
+    parts: list[str] = []
+
+    # Implementation steps
+    steps = data.get("steps")
+    if steps and isinstance(steps, list):
+        parts.append("## Implementation Steps")
+        for i, step in enumerate(steps, 1):
+            if isinstance(step, dict):
+                desc = step.get("step", step.get("description", ""))
+                files = step.get("files", [])
+                parts.append(f"{i}. {desc}")
+                if files and isinstance(files, list):
+                    for f in files:
+                        parts.append(f"   - File: {f}")
+            elif isinstance(step, str):
+                parts.append(f"{i}. {step}")
+
+    # Acceptance criteria
+    criteria = data.get("acceptance_criteria")
+    if criteria and isinstance(criteria, list):
+        parts.append("\n## Acceptance Criteria")
+        for ac in criteria:
+            if isinstance(ac, str):
+                parts.append(f"- [ ] {ac}")
+
+    return "\n".join(parts)
+
+
 class _LazyFileWriter:
     """File writer that defers file creation until the first write.
 
@@ -460,6 +505,12 @@ class CodeExecutor(BaseExecutor):
             title=task.title,
             description=task.description or "",
         )
+
+        # Inject structured plan data from plan_json when available
+        plan_section = _format_plan_json_for_prompt(task.plan_json)
+        if plan_section:
+            prompt += "\n\n" + plan_section
+
         if review_feedback:
             prompt += "\n\n" + review_feedback
         return prompt
