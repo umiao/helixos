@@ -14,6 +14,7 @@ import json
 import logging
 from dataclasses import dataclass, field
 
+from src.dependency_graph import detect_cycles
 from src.enrichment import MAX_TASKS_PER_PLAN, ProposedTask
 from src.tasks_writer import TASK_ID_RE, TasksWriter, generate_next_task_id
 
@@ -126,14 +127,15 @@ def _resolve_dependencies(
     return resolved, None
 
 
-def _detect_cycles(
+def _detect_cycles_in_allocated(
     allocated: list[AllocatedTask],
 ) -> str | None:
-    """Detect dependency cycles among allocated tasks using DFS.
+    """Detect dependency cycles among allocated tasks.
+
+    Delegates to the shared ``detect_cycles()`` from ``dependency_graph``.
 
     Returns error string describing the cycle, or None.
     """
-    # Build adjacency list
     id_set = {t.task_id for t in allocated}
     adj: dict[str, list[str]] = {t.task_id: [] for t in allocated}
     for t in allocated:
@@ -141,34 +143,10 @@ def _detect_cycles(
             if dep in id_set:
                 adj[t.task_id].append(dep)
 
-    # DFS cycle detection
-    white, gray, black = 0, 1, 2
-    color: dict[str, int] = {tid: white for tid in id_set}
-    path: list[str] = []
-
-    def dfs(node: str) -> str | None:
-        """DFS from node, return cycle description or None."""
-        color[node] = gray
-        path.append(node)
-        for neighbor in adj[node]:
-            if color[neighbor] == gray:
-                # Found cycle -- extract it
-                cycle_start = path.index(neighbor)
-                cycle = path[cycle_start:] + [neighbor]
-                return " -> ".join(cycle)
-            if color[neighbor] == white:
-                result = dfs(neighbor)
-                if result is not None:
-                    return result
-        path.pop()
-        color[node] = black
-        return None
-
-    for tid in id_set:
-        if color[tid] == white:
-            cycle = dfs(tid)
-            if cycle is not None:
-                return f"Circular dependency detected: {cycle}"
+    cycles = detect_cycles(adj)
+    if cycles:
+        cycle_str = " -> ".join(cycles[0])
+        return f"Circular dependency detected: {cycle_str}"
 
     return None
 
@@ -353,7 +331,7 @@ def process_proposals(
         ))
 
     # 5. Cycle detection
-    cycle_error = _detect_cycles(allocated_tasks)
+    cycle_error = _detect_cycles_in_allocated(allocated_tasks)
     if cycle_error is not None:
         return GeneratorResult(success=False, error=cycle_error)
 

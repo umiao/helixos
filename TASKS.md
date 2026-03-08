@@ -40,10 +40,6 @@
 - **Description**: src/api.py is 2470 lines. Split into `src/routes/{projects,tasks,execution,reviews,dashboard}.py` with APIRouter. api.py retains lifespan, middleware, create_app(), router mounting.
 - **ACs**: (1) api.py contains only lifespan, middleware, create_app(), helpers, router includes (2) 5 route modules under src/routes/ with APIRouter(prefix=...) (3) All existing API tests pass unmodified (no URL changes) (4) OpenAPI schema unchanged (/docs renders same endpoints) (5) Journey: start server, GET /api/projects + /api/tasks return 200, POST status change triggers review pipeline (6) ruff clean
 
-#### T-P1-112: Extract dependency_graph module from scheduler.py
-- **Priority**: P1 | **Complexity**: S | **Depends on**: None
-- **Description**: scheduler.py (941 lines) mixes dependency graph validation, queue management, and execution orchestration. Extract validate_dependency_graph(), cycle detection (DFS), extract_priority() into src/dependency_graph.py.
-- **ACs**: (1) src/dependency_graph.py with graph validation functions (2) scheduler.py imports from new module, reduced in size (3) All 79+ scheduler tests pass without modification (4) Journey: `from src.dependency_graph import validate_dependency_graph` detects cycle in {"A":["B"],"B":["A"]} (5) ruff clean
 
 #### T-P1-106: Decompose App.tsx into container components and custom hooks
 - **Priority**: P1 | **Complexity**: M | **Depends on**: T-P1-108
@@ -72,7 +68,6 @@
 - T-P1-108 depends on None
 - T-P1-109 depends on None
 - T-P1-110 depends on None
-- T-P1-112 depends on None
 
 
 ---
@@ -83,6 +78,9 @@
 ## Completed Tasks
 
 > 99 completed tasks archived to [archive/completed_tasks.md](archive/completed_tasks.md).
+
+#### [x] T-P1-112: Extract dependency_graph module from scheduler.py -- 2026-03-07
+- Created src/dependency_graph.py with validate_dependency_graph(), detect_cycles(), extract_priority(). scheduler.py and task_manager.py import from new module. task_generator.py deduplicated cycle detection via shared detect_cycles(). 1359 pass, ruff clean.
 
 #### [x] T-P0-111: Inject review suggestions into re-execution prompt -- 2026-03-07
 - Added `build_review_feedback()` to scheduler.py (caps at last 3 reviews, includes suggestions + summary + human_reason). Scheduler fetches review history before execution and passes formatted feedback through `_run_with_retry` -> `executor.execute()` -> `_build_prompt()`. No new DB fields needed (uses existing `get_reviews()`). 10 new tests (7 build_review_feedback + 3 _build_prompt). 1359 pass, ruff clean.

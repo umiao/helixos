@@ -1156,3 +1156,10 @@
 - **Sanity check result**: 1359 pass + 6 skipped, ruff clean. [AUTO-VERIFIED]
 - **Status**: [DONE]
 - **Request**: Move T-P0-111 to Completed
+
+## 2026-03-07 -- [T-P1-112] Extract dependency_graph module from scheduler.py
+- **What I did**: Created `src/dependency_graph.py` with `validate_dependency_graph()`, `detect_cycles()`, and `extract_priority()`. Scheduler.py imports and re-exports from new module (backward-compatible). task_manager.py imports `extract_priority` from new module. task_generator.py's duplicate `_detect_cycles` replaced with wrapper calling shared `detect_cycles()`. Net: scheduler.py reduced, no duplicate cycle detection.
+- **Deliverables**: `src/dependency_graph.py` (new, 103 lines), `src/scheduler.py` (reduced), `src/task_manager.py` (imports updated), `src/task_generator.py` (deduplicated), `tests/test_task_generator.py` (import alias)
+- **Sanity check result**: 1359 pass + 6 skipped, ruff clean. `from src.dependency_graph import validate_dependency_graph` detects cycle in {"A":["B"],"B":["A"]}. [AUTO-VERIFIED]
+- **Status**: [DONE]
+- **Request**: Move T-P1-112 to Completed

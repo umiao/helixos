@@ -9,7 +9,6 @@ from __future__ import annotations
 
 import json
 import logging
-import re
 from datetime import UTC, datetime
 from enum import StrEnum
 
@@ -17,30 +16,10 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from src.db import TaskRow, get_session, task_dict_to_row_kwargs, task_row_to_dict
+from src.dependency_graph import extract_priority  # noqa: F401 (re-export)
 from src.models import ExecutionState, ReviewLifecycleState, Task, TaskStatus
 
 logger = logging.getLogger(__name__)
-
-# Regex to extract priority number from task IDs like "T-P0-99"
-_PRIORITY_RE = re.compile(r"T-P(\d+)-\d+")
-
-# Default priority for tasks whose ID doesn't match the expected format
-_DEFAULT_PRIORITY = 99
-
-
-def extract_priority(local_task_id: str) -> int:
-    """Extract the numeric priority from a task ID like 'T-P0-99'.
-
-    Args:
-        local_task_id: Task ID in format T-P{priority}-{number}.
-
-    Returns:
-        The priority number (0 = highest). Returns 99 if format doesn't match.
-    """
-    m = _PRIORITY_RE.search(local_task_id)
-    if m:
-        return int(m.group(1))
-    return _DEFAULT_PRIORITY
 
 
 class UpsertResult(StrEnum):

@@ -16,6 +16,10 @@ import uuid
 from collections.abc import Callable
 
 from src.config import OrchestratorConfig, ProjectRegistry
+from src.dependency_graph import (
+    detect_cycles,  # noqa: F401 (re-export)
+    validate_dependency_graph,  # noqa: F401 (re-export)
+)
 from src.env_loader import EnvLoader
 from src.events import EventBus
 from src.executors.base import BaseExecutor, ErrorType, ExecutorResult
@@ -72,77 +76,6 @@ def build_review_feedback(reviews: list[dict]) -> str | None:
         "You MUST address these issues:\n"
         f"{numbered}"
     )
-
-
-# ---------------------------------------------------------------------------
-# Dependency graph validation (pure functions, usable outside Scheduler)
-# ---------------------------------------------------------------------------
-
-
-def validate_dependency_graph(
-    tasks: list[Task],
-) -> tuple[list[str], list[list[str]]]:
-    """Validate a dependency graph for missing references and cycles.
-
-    Args:
-        tasks: All active tasks to validate.
-
-    Returns:
-        A tuple of (missing_ref_errors, cycles) where:
-        - missing_ref_errors: list of human-readable error strings
-        - cycles: list of cycles, each a list of task IDs forming the cycle
-    """
-    task_ids = {t.id for t in tasks}
-    missing_errors: list[str] = []
-    adjacency: dict[str, list[str]] = {t.id: [] for t in tasks}
-
-    for task in tasks:
-        for dep_id in task.depends_on:
-            if dep_id not in task_ids:
-                missing_errors.append(
-                    f"Task {task.id} depends on {dep_id} which does not exist"
-                )
-            else:
-                adjacency[task.id].append(dep_id)
-
-    cycles = _detect_cycles(adjacency)
-    return missing_errors, cycles
-
-
-def _detect_cycles(adjacency: dict[str, list[str]]) -> list[list[str]]:
-    """Detect all cycles in a directed graph using DFS.
-
-    Args:
-        adjacency: Map of node -> list of nodes it depends on.
-
-    Returns:
-        List of cycles found, each cycle as a list of node IDs.
-    """
-    _white, _gray, _black = 0, 1, 2
-    color: dict[str, int] = {node: _white for node in adjacency}
-    path: list[str] = []
-    cycles: list[list[str]] = []
-
-    def dfs(node: str) -> None:
-        color[node] = _gray
-        path.append(node)
-        for neighbor in adjacency[node]:
-            if neighbor not in color:
-                continue
-            if color[neighbor] == _gray:
-                # Found a cycle: extract it from path
-                cycle_start = path.index(neighbor)
-                cycles.append(path[cycle_start:] + [neighbor])
-            elif color[neighbor] == _white:
-                dfs(neighbor)
-        path.pop()
-        color[node] = _black
-
-    for node in adjacency:
-        if color[node] == _white:
-            dfs(node)
-
-    return cycles
 
 
 class Scheduler:

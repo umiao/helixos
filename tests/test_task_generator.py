@@ -9,7 +9,6 @@ from src.task_generator import (
     AllocatedTask,
     _allocate_ids,
     _build_full_task_block,
-    _detect_cycles,
     _generate_diff,
     _resolve_dependencies,
     _scan_existing_task_ids,
@@ -17,6 +16,9 @@ from src.task_generator import (
     extract_proposals_from_plan,
     process_proposals,
     write_allocated_tasks,
+)
+from src.task_generator import (
+    _detect_cycles_in_allocated as _detect_cycles,
 )
 from src.tasks_writer import TasksWriter
 
