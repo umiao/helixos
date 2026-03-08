@@ -17,6 +17,7 @@ import NewTaskModal from "./components/NewTaskModal";
 import useSSE, { type SSEEvent } from "./hooks/useSSE";
 import ReviewSubmitModal from "./components/ReviewSubmitModal";
 import EditTaskModal from "./components/EditTaskModal";
+import { ErrorBoundary } from "./components/ErrorBoundary";
 import {
   fetchProjects,
   fetchTasks,
@@ -894,6 +895,7 @@ function App() {
       />
 
       {/* Bottom panel: ExecutionLog / ReviewPanel */}
+      <ErrorBoundary name="Bottom Panel">
       <div className="border-t border-gray-300 bg-white flex flex-col min-h-0" style={{ height: bottomPanelHeight }}>
         {/* Panel tabs */}
         <div className="flex items-center border-b border-gray-200 px-4">
@@ -999,6 +1001,7 @@ function App() {
           )}
         </div>
       </div>
+      </ErrorBoundary>
 
       {/* Modals */}
       {showImportModal && (

@@ -27,11 +27,6 @@
 
 ### P0 -- Must Have (core functionality)
 
-#### T-P0-107: Add React ErrorBoundary to crash-prone components
-- **Priority**: P0 | **Complexity**: S | **Depends on**: None
-- **Description**: No ErrorBoundary in frontend. ConversationView/ReviewPanel/ExecutionLog process raw external data and can crash on malformed events, taking down the entire app. Add reusable ErrorBoundary wrapping the bottom panel container.
-- **ACs**: (1) ErrorBoundary.tsx with componentDidCatch, fallback UI (component name + error + retry button) (2) Wraps entire bottom panel rather than individual children (3) Error details logged to console with stack trace (4) Journey: malformed stream event -> fallback shown -> KanbanBoard/header remain functional -> retry remounts (5) TS clean, Vite build clean
-
 #### T-P0-111: Inject review suggestions into re-execution prompt
 - **Priority**: P0 | **Complexity**: M | **Depends on**: None
 - **Description**: When review rejects a task and it's retried, suggestions are lost -- agent repeats mistakes. Fetch latest review suggestions and inject as structured "Previous Review Feedback" block in re-execution system prompt.
@@ -77,7 +72,6 @@
 > Full historical dependency graph relocated to [docs/architecture/dependency-graph-history.md](docs/architecture/dependency-graph-history.md).
 
 ### Current
-- T-P0-107 depends on None
 - T-P0-111 depends on None
 - T-P1-105 depends on None
 - T-P1-106 depends on T-P1-108
@@ -95,6 +89,9 @@
 ## Completed Tasks
 
 > 99 completed tasks archived to [archive/completed_tasks.md](archive/completed_tasks.md).
+
+#### [x] T-P0-107: Add React ErrorBoundary to crash-prone components -- 2026-03-07
+- Created reusable ErrorBoundary.tsx (componentDidCatch, fallback UI with component name + error + retry button). Wraps entire bottom panel in App.tsx. KanbanBoard/header remain functional on crash. 1350 pass, TS clean, Vite build clean.
 
 #### [x] T-P0-102: Project research and improvement decomposition -- 2026-03-07
 - Researched codebase (99 tasks, 30+ modules, 25+ components). Identified top improvements: monolith splitting (api.py/App.tsx/scheduler.py), ErrorBoundary, review feedback loop, E2E tests, cost dashboard, priority filtering. Decomposed into T-P0-107 through T-P1-112 (8 tasks).

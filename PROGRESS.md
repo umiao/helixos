@@ -1142,3 +1142,10 @@
 - **Sanity check result**: TASKS.md at 227 lines (under 300 limit). All task IDs follow T-P{X}-{NNN} format. No duplicate IDs with completed tasks. Only dependency: T-P1-106 -> T-P1-108. No cycles.
 - **Status**: [DONE]
 - **Request**: Move T-P0-102 to Completed
+
+## 2026-03-07 -- [T-P0-107] Add React ErrorBoundary to crash-prone components
+- **What I did**: Created reusable `ErrorBoundary.tsx` class component with `componentDidCatch` (logs error + component stack to console), `getDerivedStateFromError`, fallback UI showing component name + error message + retry button. Wrapped entire bottom panel container in App.tsx with `<ErrorBoundary name="Bottom Panel">`. KanbanBoard and header remain functional when bottom panel crashes; retry button remounts children.
+- **Deliverables**: `frontend/src/components/ErrorBoundary.tsx` (new), `frontend/src/App.tsx` (import + wrapping)
+- **Sanity check result**: TypeScript clean (`npx tsc --noEmit`), Vite build clean, 1350 tests pass + 6 skipped. [AUTO-VERIFIED]
+- **Status**: [DONE]
+- **Request**: Move T-P0-107 to Completed
