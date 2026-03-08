@@ -66,7 +66,7 @@ async def test_browse_default_returns_home(client, tmp_path):
     (fake_home / "projects").mkdir()
     (fake_home / "documents").mkdir()
 
-    with patch("src.api.Path.home", return_value=fake_home):
+    with patch("src.routes.projects.Path.home", return_value=fake_home):
         resp = await client.get("/api/filesystem/browse")
 
     assert resp.status_code == 200
@@ -88,7 +88,7 @@ async def test_browse_subdirectory(client, tmp_path):
     (projects / "app-a").mkdir()
     (projects / "app-b").mkdir()
 
-    with patch("src.api.Path.home", return_value=fake_home):
+    with patch("src.routes.projects.Path.home", return_value=fake_home):
         resp = await client.get(
             "/api/filesystem/browse",
             params={"path": str(projects)},
@@ -120,7 +120,7 @@ async def test_browse_project_indicators(client, tmp_path):
     bare = fake_home / "bare-project"
     bare.mkdir()
 
-    with patch("src.api.Path.home", return_value=fake_home):
+    with patch("src.routes.projects.Path.home", return_value=fake_home):
         resp = await client.get("/api/filesystem/browse")
 
     assert resp.status_code == 200
@@ -143,7 +143,7 @@ async def test_browse_hides_dotdirs(client, tmp_path):
     (fake_home / ".hidden").mkdir()
     (fake_home / "visible").mkdir()
 
-    with patch("src.api.Path.home", return_value=fake_home):
+    with patch("src.routes.projects.Path.home", return_value=fake_home):
         resp = await client.get("/api/filesystem/browse")
 
     assert resp.status_code == 200
@@ -160,7 +160,7 @@ async def test_browse_excludes_files(client, tmp_path):
     (fake_home / "subdir").mkdir()
     (fake_home / "readme.txt").write_text("hello", encoding="utf-8")
 
-    with patch("src.api.Path.home", return_value=fake_home):
+    with patch("src.routes.projects.Path.home", return_value=fake_home):
         resp = await client.get("/api/filesystem/browse")
 
     assert resp.status_code == 200
@@ -177,7 +177,7 @@ async def test_browse_sandbox_rejects_outside_home(client, tmp_path):
     outside = tmp_path / "outside"
     outside.mkdir()
 
-    with patch("src.api.Path.home", return_value=fake_home):
+    with patch("src.routes.projects.Path.home", return_value=fake_home):
         resp = await client.get(
             "/api/filesystem/browse",
             params={"path": str(outside)},
@@ -194,7 +194,7 @@ async def test_browse_nonexistent_path(client, tmp_path):
     fake_home.mkdir()
     nonexistent = fake_home / "does-not-exist"
 
-    with patch("src.api.Path.home", return_value=fake_home):
+    with patch("src.routes.projects.Path.home", return_value=fake_home):
         resp = await client.get(
             "/api/filesystem/browse",
             params={"path": str(nonexistent)},
@@ -212,7 +212,7 @@ async def test_browse_empty_directory(client, tmp_path):
     empty = fake_home / "empty"
     empty.mkdir()
 
-    with patch("src.api.Path.home", return_value=fake_home):
+    with patch("src.routes.projects.Path.home", return_value=fake_home):
         resp = await client.get(
             "/api/filesystem/browse",
             params={"path": str(empty)},
@@ -233,7 +233,7 @@ async def test_browse_entries_sorted_case_insensitive(client, tmp_path):
     (fake_home / "apple").mkdir()
     (fake_home / "Banana").mkdir()
 
-    with patch("src.api.Path.home", return_value=fake_home):
+    with patch("src.routes.projects.Path.home", return_value=fake_home):
         resp = await client.get("/api/filesystem/browse")
 
     assert resp.status_code == 200
@@ -248,7 +248,7 @@ async def test_browse_tilde_path_expansion(client, tmp_path):
     fake_home.mkdir()
     (fake_home / "projects").mkdir()
 
-    with patch("src.api.Path.home", return_value=fake_home):
+    with patch("src.routes.projects.Path.home", return_value=fake_home):
         # ~ should expand to fake_home
         resp = await client.get(
             "/api/filesystem/browse",
@@ -267,7 +267,7 @@ async def test_browse_all_entries_are_dirs(client, tmp_path):
     (fake_home / "dir1").mkdir()
     (fake_home / "dir2").mkdir()
 
-    with patch("src.api.Path.home", return_value=fake_home):
+    with patch("src.routes.projects.Path.home", return_value=fake_home):
         resp = await client.get("/api/filesystem/browse")
 
     assert resp.status_code == 200

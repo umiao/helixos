@@ -363,7 +363,7 @@ class TestEnrichEndpoint:
 
         with (
             patch(
-                "src.api.is_claude_cli_available", return_value=True,
+                "src.routes.tasks.is_claude_cli_available", return_value=True,
             ),
             patch(
                 "src.enrichment.run_claude_query",
@@ -383,7 +383,7 @@ class TestEnrichEndpoint:
     async def test_cli_unavailable_503(self, client: AsyncClient) -> None:
         """Returns 503 when Claude SDK is not available."""
         with patch(
-            "src.api.is_claude_cli_available", return_value=False,
+            "src.routes.tasks.is_claude_cli_available", return_value=False,
         ):
             resp = await client.post(
                 "/api/tasks/enrich",
@@ -399,7 +399,7 @@ class TestEnrichEndpoint:
 
         with (
             patch(
-                "src.api.is_claude_cli_available", return_value=True,
+                "src.routes.tasks.is_claude_cli_available", return_value=True,
             ),
             patch(
                 "src.enrichment.run_claude_query",
@@ -443,7 +443,7 @@ class TestEnrichEndpoint:
 
         with (
             patch(
-                "src.api.is_claude_cli_available", return_value=True,
+                "src.routes.tasks.is_claude_cli_available", return_value=True,
             ),
             patch(
                 "src.enrichment.run_claude_query",
@@ -1130,7 +1130,7 @@ class TestGeneratePlanEndpoint:
     async def test_task_not_found_404(self, client: AsyncClient) -> None:
         """Returns 404 for non-existent task."""
         with patch(
-            "src.api.is_claude_cli_available", return_value=True,
+            "src.routes.tasks.is_claude_cli_available", return_value=True,
         ):
             resp = await client.post(
                 "/api/tasks/nonexistent-id/generate-plan",
@@ -1141,7 +1141,7 @@ class TestGeneratePlanEndpoint:
     async def test_cli_unavailable_503(self, client: AsyncClient) -> None:
         """Returns 503 when Claude SDK is not available."""
         with patch(
-            "src.api.is_claude_cli_available", return_value=False,
+            "src.routes.tasks.is_claude_cli_available", return_value=False,
         ):
             resp = await client.post(
                 "/api/tasks/any-id/generate-plan",
@@ -1172,7 +1172,7 @@ class TestGeneratePlanEndpoint:
 
         with (
             patch(
-                "src.api.is_claude_cli_available", return_value=True,
+                "src.routes.tasks.is_claude_cli_available", return_value=True,
             ),
             patch(
                 "src.enrichment.run_claude_query",
@@ -1215,7 +1215,7 @@ class TestGeneratePlanEndpoint:
 
         with (
             patch(
-                "src.api.is_claude_cli_available", return_value=True,
+                "src.routes.tasks.is_claude_cli_available", return_value=True,
             ),
             patch(
                 "src.enrichment.run_claude_query",
@@ -1254,7 +1254,7 @@ class TestGeneratePlanEndpoint:
         await task_manager.update_task(task)
 
         with patch(
-            "src.api.is_claude_cli_available", return_value=True,
+            "src.routes.tasks.is_claude_cli_available", return_value=True,
         ):
             resp = await client.post(
                 f"/api/tasks/{task.id}/generate-plan",
@@ -1315,7 +1315,7 @@ class TestGeneratePlanEndpoint:
 
         with (
             patch(
-                "src.api.is_claude_cli_available", return_value=True,
+                "src.routes.tasks.is_claude_cli_available", return_value=True,
             ),
             patch(
                 "src.enrichment.run_claude_query",
@@ -1671,7 +1671,7 @@ class TestStructuredErrorInApi:
         self, client: AsyncClient,
     ) -> None:
         """Enrich 503 response includes error_type and retryable fields."""
-        with patch("src.api.is_claude_cli_available", return_value=False):
+        with patch("src.routes.tasks.is_claude_cli_available", return_value=False):
             resp = await client.post(
                 "/api/tasks/enrich", json={"title": "Something"},
             )
@@ -1688,7 +1688,7 @@ class TestStructuredErrorInApi:
         events = [_make_error_event("some error")]
         with (
             patch(
-                "src.api.is_claude_cli_available",
+                "src.routes.tasks.is_claude_cli_available",
                 return_value=True,
             ),
             patch(
@@ -1719,7 +1719,7 @@ class TestStructuredErrorInApi:
         tasks = await task_manager.list_tasks(project_id=project.id)
         task = tasks[0]
 
-        with patch("src.api.is_claude_cli_available", return_value=False):
+        with patch("src.routes.tasks.is_claude_cli_available", return_value=False):
             resp = await client.post(
                 f"/api/tasks/{task.id}/generate-plan",
             )

@@ -1164,6 +1164,13 @@
 - **Status**: [DONE]
 - **Request**: Move T-P1-112 to Completed
 
+## 2026-03-07 -- [T-P1-105] Split api.py into domain-specific route modules
+- **What I did**: Split src/api.py (2470 lines) into 5 domain-specific route modules under src/routes/ (dashboard.py, execution.py, projects.py, reviews.py, tasks.py). Extracted shared helpers (_task_to_response, _project_to_response, CONFIG_PATH) into src/api_helpers.py to avoid circular imports. api.py retained lifespan, middleware, create_app(), and router mounting (323 lines). Updated test imports in test_browse.py and test_enrichment.py.
+- **Deliverables**: `src/api.py` (reduced 2470->323 lines), `src/api_helpers.py` (new, 85 lines), `src/routes/__init__.py` (new), `src/routes/dashboard.py` (new, 211 lines), `src/routes/execution.py` (new, 441 lines), `src/routes/projects.py` (new, 385 lines), `src/routes/reviews.py` (new, 523 lines), `src/routes/tasks.py` (new, 719 lines), `tests/test_browse.py` (updated imports), `tests/test_enrichment.py` (updated imports)
+- **Sanity check result**: All 1359 tests pass + 6 skipped, ruff clean. URLs unchanged, no test modifications needed beyond import paths. [AUTO-VERIFIED]
+- **Status**: [DONE]
+- **Request**: Move T-P1-105 to Completed
+
 ## 2026-03-07 -- [T-P1-110] Add task filtering by priority and complexity
 - **What I did**: Added priority (P0/P1/P2/P3) and complexity/size (S/M/L) multi-select toggle chips to the filter bar in App.tsx. Priority extracted from `local_task_id` via regex. Complexity extracted from task description `**Complexity**: S|M|L` pattern. Both compose with existing status/project/search filters via AND logic. Clear button appears when either filter is active. Filter state persists during session (React state).
 - **Deliverables**: `frontend/src/App.tsx` (filter state + filter logic + chip UI)
