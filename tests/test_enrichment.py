@@ -2375,3 +2375,69 @@ class TestParsePlanWithValidation:
             result = _parse_plan(text)
         assert result["plan"] == text  # raw text fallback
         assert "Raw" in caplog.text
+
+
+# ------------------------------------------------------------------
+# Conditional enrichment (T-P1-120)
+# ------------------------------------------------------------------
+
+
+class TestConditionalEnrichment:
+    """enrich_task_title() skips LLM call when description is non-empty."""
+
+    @pytest.mark.asyncio
+    async def test_skip_when_description_nonempty(self) -> None:
+        """Non-empty existing_description returns it directly without SDK call."""
+        result = await enrich_task_title(
+            "Some title",
+            existing_description="Already has content",
+        )
+        assert result["description"] == "Already has content"
+        assert result["priority"] == "P1"
+
+    @pytest.mark.asyncio
+    async def test_skip_when_description_whitespace_only(self) -> None:
+        """Whitespace-only description is treated as empty (not skipped)."""
+        # This should NOT skip -- whitespace-only means "empty".
+        # We can't easily test the full SDK call, but we can verify it
+        # does NOT return the whitespace string.
+        with patch("src.enrichment.run_claude_query") as mock_query:
+            mock_event = MagicMock()
+            mock_event.type = "result"
+            mock_event.structured_output = {
+                "description": "Generated desc",
+                "priority": "P0",
+            }
+            mock_event.result_text = None
+            mock_event.error_message = None
+
+            async def _fake_query(*a: Any, **kw: Any) -> AsyncIterator[Any]:
+                yield mock_event
+
+            mock_query.return_value = _fake_query()
+            result = await enrich_task_title(
+                "Title", existing_description="   ",
+            )
+            assert result["description"] == "Generated desc"
+            mock_query.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_empty_string_does_not_skip(self) -> None:
+        """Empty string existing_description triggers normal enrichment."""
+        with patch("src.enrichment.run_claude_query") as mock_query:
+            mock_event = MagicMock()
+            mock_event.type = "result"
+            mock_event.structured_output = {
+                "description": "AI generated",
+                "priority": "P1",
+            }
+            mock_event.result_text = None
+            mock_event.error_message = None
+
+            async def _fake_query(*a: Any, **kw: Any) -> AsyncIterator[Any]:
+                yield mock_event
+
+            mock_query.return_value = _fake_query()
+            result = await enrich_task_title("Title", existing_description="")
+            assert result["description"] == "AI generated"
+            mock_query.assert_called_once()

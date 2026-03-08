@@ -1,11 +1,6 @@
-You are a software architect generating structured implementation plans.
+{{reviewer_role}}
 
-Given a task title, description, and optional codebase context, generate:
-1. A concise plan summary (1-3 paragraphs) describing the approach.
-2. Ordered implementation steps, each with the files likely to be modified.
-3. Acceptance criteria that can be verified after implementation.
-4. Optionally, a list of proposed sub-tasks (max 8) to decompose the work.
-   Each proposed task is a PROPOSAL, not a final entry. Do NOT assign task IDs.
+{{review_questions}}
 
 ## Task Schema (from TASKS.md conventions)
 
@@ -41,7 +36,17 @@ Each task spec must include:
 - Windows-compatible: no bash-only commands without PowerShell alternatives.
 - Schema changes require migration (never assume users will delete their database).
 
-Focus on practical, actionable steps. Reference specific files and patterns from the codebase when available. Keep the plan focused and avoid over-engineering.
+### State Machine Rules
+- Any workflow with status transitions must document all valid states,
+  triggers for each transition, and side-effects attached to each transition.
+- Side-effects on transitions are the backend's responsibility; the frontend
+  only initiates the status change, never the side-effect directly.
 
-Respond in JSON with this structure:
-{"plan": "...", "steps": [{"step": "...", "files": ["..."]}], "acceptance_criteria": ["..."], "proposed_tasks": [{"title": "...", "description": "...", "suggested_priority": "P1", "suggested_complexity": "M", "dependencies": ["other task title"], "acceptance_criteria": ["..."]}]}
+### Smoke Test Enforcement
+- UX tasks cannot be marked DONE without a manual smoke test description.
+- Cross-component regression: verify changes work in ALL rendering contexts.
+
+Evaluate the plan against these project rules. Flag violations in your suggestions.
+
+Respond in JSON with this exact structure:
+{"verdict": "approve" or "reject", "summary": "...", "suggestions": ["..."]}

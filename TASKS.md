@@ -83,22 +83,6 @@
   6. New tests: graceful cancel, timeout force-cancel, cancel on non-running task
   7. Manually verify: Start execution -> Stop -> FAILED within 30s [AUTO-VERIFIED]
 
-#### T-P1-120: Consolidate prompt templates from 9 files to 4
-- **Priority**: P1
-- **Complexity**: S (< 1 session)
-- **Depends on**: T-P1-119
-- **Description**: The current 9 prompt files use 3-layer nesting (fragment -> context -> final prompt) for only 4 independent responsibilities. Consolidate: (1) Inline `task_schema_context.md` and `project_rules_context.md` into `plan_system.md` (2 consumers, not worth separate files). (2) Merge `review_conventions_context.md`, `review_feasibility.md`, `review_adversarial.md`, `review_default.md` into single `review.md` template parameterized by `{{reviewer_role}}` + `{{review_questions}}` -- 3 parallel reviewer calls preserved, only the template file is unified. (3) Rename `execution_prompt.md` to `execution.md` (already enriched by T-P1-119). (4) Make `enrich_task_title()` conditional: skip if `task.description` is non-empty.
-- **Acceptance Criteria**:
-  1. `config/prompts/` contains exactly 4 files: `enrichment_system.md`, `plan_system.md`, `review.md`, `execution.md`
-  2. `plan_system.md` is self-contained (task schema + project rules inlined, no `{{fragment}}` placeholders)
-  3. `review.md` uses `{{reviewer_role}}` and `{{review_questions}}` placeholders; `_build_review_prompt(focus)` renders with per-focus params
-  4. Three parallel reviewer calls still work (feasibility, adversarial, default) -- only the template is unified, not the calls
-  5. Rendered output of each consolidated prompt is content-equivalent to the old multi-file version (diff test)
-  6. `enrichment.py`: `load_prompt("plan_system")` replaces `render_prompt("plan_system", task_schema_context=..., project_rules_context=...)`
-  7. `review_pipeline.py`: `_REVIEW_PROMPTS` dict and `_REVIEW_CONVENTIONS_CONTEXT` replaced by single `_REVIEWER_PARAMS` config dict
-  8. Enrichment is conditional: `enrich_task_title()` skipped when `task.description` is already non-empty
-  9. 5 deleted files: `task_schema_context.md`, `project_rules_context.md`, `review_conventions_context.md`, `review_feasibility.md`, `review_adversarial.md`, `review_default.md`
-  10. All existing tests pass; prompt loader tests updated for new file set; no unresolved `{{...}}` in any rendered prompt
 
 ### P2 -- Nice to Have
 
@@ -107,10 +91,9 @@
 > Full historical dependency graph relocated to [docs/architecture/dependency-graph-history.md](docs/architecture/dependency-graph-history.md).
 
 ### Current
-T-P1-115 depends on T-P1-113, T-P1-120
-T-P1-116 depends on T-P1-114
+T-P1-115 depends on T-P1-113, T-P1-120 (both completed -- T-P1-115 now unblocked)
+T-P1-116 depends on T-P1-114 (completed -- T-P1-116 unblocked)
 T-P1-117, T-P1-118 independent
-T-P1-120 independent (T-P1-119 completed)
 
 
 ---
@@ -121,6 +104,9 @@ T-P1-120 independent (T-P1-119 completed)
 ## Completed Tasks
 
 > 120 completed tasks archived to [archive/completed_tasks.md](archive/completed_tasks.md).
+
+#### [x] T-P1-120: Consolidate prompt templates from 9 files to 4 -- 2026-03-08
+- Consolidated `config/prompts/` from 9 files to 4: inlined fragments into `plan_system.md`, merged review files into parameterized `review.md`, renamed `execution_prompt.md` to `execution.md`. `_REVIEWER_PARAMS` config dict replaces 3 separate module-level prompt vars. `enrich_task_title()` gains conditional skip for non-empty descriptions. 6 files deleted. 11 new tests. 1447 pass, ruff clean.
 
 #### [x] T-P1-119: Add reject-to-replan loop and enrich execution prompt with plan data -- 2026-03-08
 - Added `replan` decision to review decide endpoint with max 2 attempts enforcement. `generate_task_plan()` gains `review_feedback` param for structured feedback injection. `Task` model gains `replan_attempt: int = 0` field with auto-migration. `_build_prompt()` injects structured `plan_json` (Implementation Steps + Acceptance Criteria) into execution prompt with graceful fallback. Background replan auto-enqueues review pipeline on success. 29 new tests. 1436 pass, ruff clean.

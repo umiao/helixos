@@ -23,7 +23,7 @@ from src.config import ReviewerConfig, ReviewPipelineConfig
 from src.executors.code_executor import _LazyFileWriter
 from src.history_writer import HistoryWriter
 from src.models import LLMReview, ReviewLifecycleState, ReviewState, Task
-from src.prompt_loader import load_prompt, render_prompt
+from src.prompt_loader import render_prompt
 from src.sdk_adapter import (
     ClaudeEvent,
     ClaudeEventType,
@@ -84,27 +84,40 @@ _SYNTHESIS_JSON_SCHEMA = json.dumps({
 # Focus-area system prompts
 # ------------------------------------------------------------------
 
-_REVIEW_CONVENTIONS_CONTEXT = render_prompt(
-    "review_conventions_context",
-    task_schema_context=load_prompt("task_schema_context"),
-    project_rules_context=load_prompt("project_rules_context"),
-)
-
-_REVIEW_PROMPTS: dict[str, str] = {
-    "feasibility_and_edge_cases": render_prompt(
-        "review_feasibility",
-        review_conventions_context=_REVIEW_CONVENTIONS_CONTEXT,
+# Per-focus reviewer params: maps focus key -> (role, questions) for the
+# unified review.md template.  Three parallel reviewer calls are preserved;
+# only the template file is unified.
+_REVIEWER_PARAMS: dict[str, tuple[str, str]] = {
+    "feasibility_and_edge_cases": (
+        "You are an expert code reviewer focusing on feasibility and edge cases.",
+        (
+            "Analyze the following task plan and determine:\n"
+            "1. Is this plan technically feasible given the codebase context?\n"
+            "2. Are there edge cases or failure modes not addressed?\n"
+            "3. Are the acceptance criteria clear and testable?\n"
+            "4. Does the plan follow the project's task planning rules and conventions?"
+        ),
     ),
-    "adversarial_red_team": render_prompt(
-        "review_adversarial",
-        review_conventions_context=_REVIEW_CONVENTIONS_CONTEXT,
+    "adversarial_red_team": (
+        "You are an adversarial reviewer (red team) looking for risks and vulnerabilities.",
+        (
+            "Analyze the following task plan and determine:\n"
+            "1. Could this plan introduce security vulnerabilities?\n"
+            "2. Could it break existing functionality?\n"
+            "3. Are there architectural risks or hidden dependencies?\n"
+            "4. Does the plan violate any project constraints or conventions?"
+        ),
+    ),
+    "default": (
+        "You are a code reviewer.",
+        (
+            "Analyze the following task plan and determine:\n"
+            "1. Is this plan sound?\n"
+            "2. Are there issues or improvements needed?\n"
+            "3. Does the plan follow project conventions and task planning rules?"
+        ),
     ),
 }
-
-_DEFAULT_REVIEW_PROMPT = render_prompt(
-    "review_default",
-    review_conventions_context=_REVIEW_CONVENTIONS_CONTEXT,
-)
 
 
 # ------------------------------------------------------------------
@@ -685,13 +698,23 @@ class ReviewPipeline:
     def _build_review_prompt(self, focus: str) -> str:
         """Generate a focus-area system prompt for a reviewer.
 
+        Renders the unified ``review.md`` template with per-focus
+        ``{{reviewer_role}}`` and ``{{review_questions}}`` params.
+
         Args:
             focus: The review focus area (e.g., ``"feasibility_and_edge_cases"``).
 
         Returns:
             System prompt string.
         """
-        return _REVIEW_PROMPTS.get(focus, _DEFAULT_REVIEW_PROMPT)
+        role, questions = _REVIEWER_PARAMS.get(
+            focus, _REVIEWER_PARAMS["default"],
+        )
+        return render_prompt(
+            "review",
+            reviewer_role=role,
+            review_questions=questions,
+        )
 
     def _parse_review(self, text: str | dict, reviewer: ReviewerConfig) -> LLMReview:
         """Parse a Claude CLI result into an LLMReview.

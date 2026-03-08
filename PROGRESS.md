@@ -1226,3 +1226,10 @@
 - **Sanity check result**: 1436 tests pass + 6 skipped (29 new), ruff clean. [AUTO-VERIFIED]
 - **Status**: [DONE]
 - **Request**: Move T-P1-119 to Completed
+
+## 2026-03-08 -- [T-P1-120] Consolidate prompt templates from 9 files to 4
+- **What I did**: Consolidated `config/prompts/` from 9 files to 4: (1) Inlined `task_schema_context.md` and `project_rules_context.md` into `plan_system.md` (now self-contained, no `{{fragment}}` placeholders). (2) Merged `review_conventions_context.md`, `review_feasibility.md`, `review_adversarial.md`, `review_default.md` into single `review.md` template parameterized by `{{reviewer_role}}` + `{{review_questions}}`; 3 parallel reviewer calls preserved via `_REVIEWER_PARAMS` config dict. (3) Renamed `execution_prompt.md` to `execution.md`. (4) Made `enrich_task_title()` conditional: skips LLM call when `existing_description` is non-empty. Updated `enrichment.py` to use `load_prompt("plan_system")` instead of `render_prompt` with fragment loading. Updated `review_pipeline.py` to replace `_REVIEW_PROMPTS`/`_REVIEW_CONVENTIONS_CONTEXT`/`_DEFAULT_REVIEW_PROMPT` with `_REVIEWER_PARAMS` dict. Updated `code_executor.py` to reference `"execution"` instead of `"execution_prompt"`. Deleted 6 files (5 content + 1 renamed). Updated all tests.
+- **Deliverables**: `config/prompts/plan_system.md` (rewritten, self-contained), `config/prompts/review.md` (new, parameterized), `config/prompts/execution.md` (renamed), `src/enrichment.py` (simplified loading, conditional enrichment), `src/review_pipeline.py` (_REVIEWER_PARAMS), `src/executors/code_executor.py` (prompt name), `tests/test_prompt_loader.py` (rewritten, 28 tests), `tests/test_enrichment.py` (3 new conditional enrichment tests)
+- **Sanity check result**: 1447 tests pass + 6 skipped (11 new), ruff clean. [AUTO-VERIFIED]
+- **Status**: [DONE]
+- **Request**: Move T-P1-120 to Completed

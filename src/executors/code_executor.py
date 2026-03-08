@@ -500,7 +500,7 @@ class CodeExecutor(BaseExecutor):
                 suggestions to include in the prompt.
         """
         prompt = render_prompt(
-            "execution_prompt",
+            "execution",
             local_task_id=task.local_task_id or "",
             title=task.title,
             description=task.description or "",

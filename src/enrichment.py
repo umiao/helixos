@@ -30,7 +30,7 @@ from pydantic import BaseModel, ValidationError
 from src.config import PlanValidationConfig
 from src.dependency_graph import detect_cycles
 from src.executors.code_executor import _LazyFileWriter
-from src.prompt_loader import load_prompt, render_prompt
+from src.prompt_loader import load_prompt
 from src.sdk_adapter import ClaudeEventType, QueryOptions, run_claude_query
 from src.session_context_loader import get_session_context
 
@@ -191,13 +191,20 @@ def is_claude_cli_available() -> bool:
 async def enrich_task_title(
     title: str,
     timeout_minutes: int = 60,
+    existing_description: str = "",
 ) -> dict[str, str]:
     """Call Claude Agent SDK to generate a description and priority for a task title.
+
+    When *existing_description* is non-empty, enrichment is skipped and a
+    default ``P1`` priority is returned alongside the existing description.
+    This avoids unnecessary LLM calls for tasks that already have content.
 
     Args:
         title: The raw task title to enrich.
         timeout_minutes: Maximum time in minutes before the operation is
             cancelled. 0 disables the timeout.
+        existing_description: If non-empty, skip enrichment and return this
+            description with a default priority.
 
     Returns:
         Dict with ``description`` (str) and ``priority`` (str, e.g. "P0").
@@ -205,6 +212,9 @@ async def enrich_task_title(
     Raises:
         PlanGenerationError: If the SDK call fails or times out.
     """
+    if existing_description.strip():
+        logger.info("Skipping enrichment: task already has description")
+        return {"description": existing_description, "priority": "P1"}
     options = QueryOptions(
         model="claude-haiku-4-5-20251001",
         system_prompt=_ENRICHMENT_SYSTEM_PROMPT,
@@ -348,15 +358,7 @@ _PLAN_JSON_SCHEMA = json.dumps({
     "required": ["plan", "steps", "acceptance_criteria"],
 })
 
-_TASK_SCHEMA_CONTEXT = load_prompt("task_schema_context")
-
-_PROJECT_RULES_CONTEXT = load_prompt("project_rules_context")
-
-_PLAN_SYSTEM_PROMPT = render_prompt(
-    "plan_system",
-    task_schema_context=_TASK_SCHEMA_CONTEXT,
-    project_rules_context=_PROJECT_RULES_CONTEXT,
-)
+_PLAN_SYSTEM_PROMPT = load_prompt("plan_system")
 
 
 async def _call_plan_sdk(
