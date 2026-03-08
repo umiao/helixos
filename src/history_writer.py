@@ -10,10 +10,10 @@ import json
 import logging
 from datetime import UTC, datetime, timedelta
 
-from sqlalchemy import delete, select
+from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from src.db import ExecutionLogRow, ReviewHistoryRow, get_session
+from src.db import ExecutionLogRow, ReviewHistoryRow, TaskRow, get_session
 from src.models import LLMReview, ReviewLifecycleState
 
 logger = logging.getLogger(__name__)
@@ -432,6 +432,48 @@ class HistoryWriter:
             )
             result = await session.execute(stmt)
             return result.scalar_one_or_none() is not None
+
+    # ------------------------------------------------------------------
+    # Cost aggregation
+    # ------------------------------------------------------------------
+
+    async def get_cost_summary(self) -> list[dict]:
+        """Return per-project cost aggregates from review_history.
+
+        Performs a single GROUP BY query joining review_history with tasks
+        to map task_id -> project_id.
+
+        Returns:
+            List of dicts with keys: project_id, total_reviews, total_cost_usd,
+            avg_cost_usd.  Only projects with at least one review are included.
+        """
+        async with get_session(self._sf) as session:
+            stmt = (
+                select(
+                    TaskRow.project_id,
+                    func.count(ReviewHistoryRow.id).label("total_reviews"),
+                    func.coalesce(func.sum(ReviewHistoryRow.cost_usd), 0.0).label(
+                        "total_cost_usd",
+                    ),
+                    func.coalesce(func.avg(ReviewHistoryRow.cost_usd), 0.0).label(
+                        "avg_cost_usd",
+                    ),
+                )
+                .join(TaskRow, ReviewHistoryRow.task_id == TaskRow.id)
+                .group_by(TaskRow.project_id)
+                .order_by(TaskRow.project_id)
+            )
+            result = await session.execute(stmt)
+            rows = result.all()
+            return [
+                {
+                    "project_id": row.project_id,
+                    "total_reviews": row.total_reviews,
+                    "total_cost_usd": float(row.total_cost_usd),
+                    "avg_cost_usd": float(row.avg_cost_usd),
+                }
+                for row in rows
+            ]
 
     # ------------------------------------------------------------------
     # Retention / purge

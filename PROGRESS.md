@@ -1178,6 +1178,13 @@
 - **Status**: [DONE]
 - **Request**: Move T-P1-110 to Completed
 
+## 2026-03-08 -- [T-P1-109] Add cost/usage dashboard endpoint and frontend panel
+- **What I did**: Added `GET /api/dashboard/costs` endpoint with single GROUP BY query joining `review_history` with `tasks` to aggregate per-project cost data. Created `ProjectCostSummary` and `CostDashboardResponse` schemas. Added `get_cost_summary()` to `HistoryWriter`. Frontend: created `CostDashboard.tsx` component with formatted USD table (project name, reviews, total cost, avg cost, grand total row), empty state handling. Added "Costs" tab to `BottomPanelContainer`. Updated panel type union across `useTaskState`, `useSSEHandler`, and `BottomPanelContainer`. 4 new backend tests.
+- **Deliverables**: `src/routes/dashboard.py` (new endpoint), `src/schemas.py` (2 new schemas), `src/history_writer.py` (new method), `frontend/src/components/CostDashboard.tsx` (new), `frontend/src/components/BottomPanelContainer.tsx` (updated), `frontend/src/hooks/useTaskState.ts` (updated), `frontend/src/hooks/useSSEHandler.ts` (updated), `frontend/src/api.ts` (new function), `frontend/src/types.ts` (2 new interfaces), `tests/test_api.py` (4 new tests)
+- **Sanity check result**: TypeScript clean (`npx tsc --noEmit`), Vite build clean, 1363 Python tests pass + 6 skipped, ruff clean. [AUTO-VERIFIED]
+- **Status**: [DONE]
+- **Request**: Move T-P1-109 to Completed
+
 ## 2026-03-08 -- [T-P1-108] Add Playwright E2E smoke test infrastructure
 - **What I did**: Added Playwright E2E test infrastructure to the frontend. Installed `@playwright/test` as dev dependency, installed Chromium browser. Created `playwright.config.ts` with Chromium headless project, CI-compatible settings (forbidOnly, retries, single worker), trace/screenshot on failure. Created 4 test files in `frontend/e2e/` with 12 tests total: `page-load.spec.ts` (dashboard loads, Kanban columns visible, header buttons), `task-card.spec.ts` (card rendering, task ID/title, status badge), `task-click.spec.ts` (click opens bottom panel, panel shows content), `project-filter.spec.ts` (filter bar, status dropdown options, search input, priority chips). Added `npm run e2e` and `npm run e2e:headed` scripts.
 - **Deliverables**: `frontend/playwright.config.ts`, `frontend/e2e/page-load.spec.ts`, `frontend/e2e/task-card.spec.ts`, `frontend/e2e/task-click.spec.ts`, `frontend/e2e/project-filter.spec.ts`, `frontend/package.json` (updated scripts + devDep)

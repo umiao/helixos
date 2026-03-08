@@ -18,7 +18,7 @@ export function useTaskState(addToast: (text: string, type: "success" | "error")
   const [streamEvents, setStreamEvents] = useState<Record<string, StreamDisplayItem[]>>({});
   const [viewMode, setViewMode] = useState<"conversation" | "log">("conversation");
   const [reviewPhase, setReviewPhase] = useState("");
-  const [bottomPanel, setBottomPanel] = useState<"log" | "review" | "running">("log");
+  const [bottomPanel, setBottomPanel] = useState<"log" | "review" | "running" | "costs">("log");
   const [filterStatus, setFilterStatus] = useState("");
   const [searchQuery, setSearchQuery] = useState("");
   const [filterPriorities, setFilterPriorities] = useState<Set<string>>(new Set());

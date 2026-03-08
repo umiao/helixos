@@ -334,3 +334,18 @@ export interface StreamLogResponse {
   file: string;
   events: StreamEvent[];
 }
+
+/** Per-project cost summary from /api/dashboard/costs. */
+export interface ProjectCostSummary {
+  project_id: string;
+  name: string;
+  total_reviews: number;
+  total_cost_usd: number;
+  avg_cost: number;
+}
+
+/** Response from /api/dashboard/costs endpoint. */
+export interface CostDashboardResponse {
+  projects: ProjectCostSummary[];
+  grand_total_cost_usd: number;
+}

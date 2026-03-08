@@ -11,7 +11,7 @@ interface UseSSEHandlerDeps {
   setTasks: React.Dispatch<React.SetStateAction<Task[]>>;
   setProjects: React.Dispatch<React.SetStateAction<Project[]>>;
   setSelectedTask: React.Dispatch<React.SetStateAction<Task | null>>;
-  setBottomPanel: React.Dispatch<React.SetStateAction<"log" | "review" | "running">>;
+  setBottomPanel: React.Dispatch<React.SetStateAction<"log" | "review" | "running" | "costs">>;
   setReviewPhase: React.Dispatch<React.SetStateAction<string>>;
   setStreamEvents: React.Dispatch<React.SetStateAction<Record<string, StreamDisplayItem[]>>>;
   selectedTaskRef: React.MutableRefObject<Task | null>;

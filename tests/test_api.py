@@ -833,6 +833,108 @@ class TestDashboardSummary:
         assert data["running_count"] == 0
 
 
+class TestDashboardCosts:
+    """Tests for GET /api/dashboard/costs."""
+
+    async def test_empty_costs(self, client: AsyncClient):
+        """Should return empty projects and zero grand total when no reviews exist."""
+        resp = await client.get("/api/dashboard/costs")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["projects"] == []
+        assert data["grand_total_cost_usd"] == 0.0
+
+    async def test_costs_single_project(
+        self, client: AsyncClient, test_app, task_manager: TaskManager,
+    ):
+        """Should aggregate costs for a single project."""
+        from datetime import UTC, datetime
+        task = _make_task(
+            task_id="proj-a:T-P0-20", local_task_id="T-P0-20",
+            status=TaskStatus.DONE,
+        )
+        await task_manager.create_task(task)
+
+        hw = test_app.state.history_writer
+        from src.models import LLMReview
+        review = LLMReview(
+            model="test", focus="correctness", verdict="approve",
+            summary="Good", suggestions=[], timestamp=datetime.now(UTC),
+        )
+        await hw.write_review("proj-a:T-P0-20", 1, review, cost_usd=0.05)
+        await hw.write_review("proj-a:T-P0-20", 2, review, cost_usd=0.10)
+
+        resp = await client.get("/api/dashboard/costs")
+        data = resp.json()
+        assert len(data["projects"]) == 1
+        p = data["projects"][0]
+        assert p["project_id"] == "proj-a"
+        assert p["total_reviews"] == 2
+        assert abs(p["total_cost_usd"] - 0.15) < 1e-6
+        assert abs(p["avg_cost"] - 0.075) < 1e-6
+        assert abs(data["grand_total_cost_usd"] - 0.15) < 1e-6
+
+    async def test_costs_multiple_projects(
+        self, client: AsyncClient, test_app, task_manager: TaskManager,
+    ):
+        """Should group costs by project correctly."""
+        from datetime import UTC, datetime
+        task_a = _make_task(
+            task_id="proj-a:T-P0-30", local_task_id="T-P0-30",
+            project_id="proj-a", status=TaskStatus.DONE,
+        )
+        task_b = _make_task(
+            task_id="proj-b:T-P0-31", local_task_id="T-P0-31",
+            project_id="proj-b", status=TaskStatus.DONE,
+        )
+        await task_manager.create_task(task_a)
+        await task_manager.create_task(task_b)
+
+        hw = test_app.state.history_writer
+        from src.models import LLMReview
+        review = LLMReview(
+            model="test", focus="correctness", verdict="approve",
+            summary="OK", suggestions=[], timestamp=datetime.now(UTC),
+        )
+        await hw.write_review("proj-a:T-P0-30", 1, review, cost_usd=0.10)
+        await hw.write_review("proj-b:T-P0-31", 1, review, cost_usd=0.20)
+
+        resp = await client.get("/api/dashboard/costs")
+        data = resp.json()
+        assert len(data["projects"]) == 2
+        costs_by_project = {p["project_id"]: p for p in data["projects"]}
+        assert abs(costs_by_project["proj-a"]["total_cost_usd"] - 0.10) < 1e-6
+        assert abs(costs_by_project["proj-b"]["total_cost_usd"] - 0.20) < 1e-6
+        assert abs(data["grand_total_cost_usd"] - 0.30) < 1e-6
+
+    async def test_costs_null_cost_treated_as_zero(
+        self, client: AsyncClient, test_app, task_manager: TaskManager,
+    ):
+        """Reviews with null cost_usd should still be counted."""
+        from datetime import UTC, datetime
+        task = _make_task(
+            task_id="proj-a:T-P0-40", local_task_id="T-P0-40",
+            status=TaskStatus.DONE,
+        )
+        await task_manager.create_task(task)
+
+        hw = test_app.state.history_writer
+        from src.models import LLMReview
+        review = LLMReview(
+            model="test", focus="correctness", verdict="approve",
+            summary="OK", suggestions=[], timestamp=datetime.now(UTC),
+        )
+        await hw.write_review("proj-a:T-P0-40", 1, review, cost_usd=None)
+        await hw.write_review("proj-a:T-P0-40", 2, review, cost_usd=0.05)
+
+        resp = await client.get("/api/dashboard/costs")
+        data = resp.json()
+        assert len(data["projects"]) == 1
+        p = data["projects"][0]
+        assert p["total_reviews"] == 2
+        assert p["total_cost_usd"] >= 0.0
+
+
 # ---------------------------------------------------------------------------
 # Process health-check endpoint
 # ---------------------------------------------------------------------------

@@ -163,6 +163,23 @@ class DashboardSummary(BaseModel):
     process_status: dict[str, ProjectProcessStatus] = Field(default_factory=dict)
 
 
+class ProjectCostSummary(BaseModel):
+    """Per-project cost aggregate."""
+
+    project_id: str
+    name: str
+    total_reviews: int = 0
+    total_cost_usd: float = 0.0
+    avg_cost: float = 0.0
+
+
+class CostDashboardResponse(BaseModel):
+    """Aggregate cost/usage data across all projects."""
+
+    projects: list[ProjectCostSummary] = Field(default_factory=list)
+    grand_total_cost_usd: float = 0.0
+
+
 # ------------------------------------------------------------------
 # Sync schemas
 # ------------------------------------------------------------------

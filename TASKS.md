@@ -30,14 +30,6 @@
 
 ### P1 -- Should Have (agentic intelligence)
 
-
-
-
-#### T-P1-109: Add cost/usage dashboard endpoint and frontend panel
-- **Priority**: P1 | **Complexity**: M | **Depends on**: None
-- **Description**: cost_usd tracked per review in DB but no aggregate view. Add GET /api/dashboard/costs with per-project summaries (GROUP BY project_id) + grand total. Add "Costs" section in frontend.
-- **ACs**: (1) Endpoint returns { projects: [{project_id, name, total_reviews, total_cost_usd, avg_cost}], grand_total_cost_usd } (2) Single SQL query with GROUP BY (no N+1) (3) Frontend "Costs" section with formatted USD table + total row (4) Journey: user with reviews on 2+ projects -> sees cost breakdown per project + grand total (5) Zero-reviews case shows graceful empty state
-
 ### P2 -- Nice to Have
 
 ## Dependency Graph
@@ -45,7 +37,7 @@
 > Full historical dependency graph relocated to [docs/architecture/dependency-graph-history.md](docs/architecture/dependency-graph-history.md).
 
 ### Current
-- T-P1-109 depends on None
+(none)
 
 
 ---
@@ -56,6 +48,9 @@
 ## Completed Tasks
 
 > 99 completed tasks archived to [archive/completed_tasks.md](archive/completed_tasks.md).
+
+#### [x] T-P1-109: Add cost/usage dashboard endpoint and frontend panel -- 2026-03-08
+- Added `GET /api/dashboard/costs` endpoint with single GROUP BY query (review_history JOIN tasks). `CostDashboard.tsx` component with formatted USD table, "Costs" tab in bottom panel. 4 new tests. 1363 pass, TS clean, Vite build clean.
 
 #### [x] T-P1-106: Decompose App.tsx into container components and custom hooks -- 2026-03-08
 - Extracted App.tsx (1131 lines) into 4 custom hooks (`useToasts`, `useTaskState`, `useProjectState`, `useSSEHandler`) and `BottomPanelContainer` component. App.tsx is now ~280 lines of pure composition. 1359 tests pass, TS clean, Vite build clean, 12 Playwright tests discovered.

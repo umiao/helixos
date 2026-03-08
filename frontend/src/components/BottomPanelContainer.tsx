@@ -1,4 +1,5 @@
 import ConversationView from "./ConversationView";
+import CostDashboard from "./CostDashboard";
 import ExecutionLog from "./ExecutionLog";
 import ReviewPanel from "./ReviewPanel";
 import RunningJobsPanel from "./RunningJobsPanel";
@@ -6,8 +7,8 @@ import type { LogEntry } from "./ExecutionLog";
 import type { Task, Project, StreamDisplayItem } from "../types";
 
 interface BottomPanelContainerProps {
-  bottomPanel: "log" | "review" | "running";
-  setBottomPanel: (panel: "log" | "review" | "running") => void;
+  bottomPanel: "log" | "review" | "running" | "costs";
+  setBottomPanel: (panel: "log" | "review" | "running" | "costs") => void;
   viewMode: "conversation" | "log";
   setViewMode: (mode: "conversation" | "log") => void;
   selectedTask: Task | null;
@@ -94,6 +95,17 @@ export default function BottomPanelContainer({
         >
           Running{runningCount > 0 ? ` (${runningCount})` : ""}
         </button>
+        <button
+          onClick={() => setBottomPanel("costs")}
+          className={`px-3 py-1.5 text-xs font-medium border-b-2 transition-colors ${
+            bottomPanel === "costs"
+              ? "border-indigo-500 text-indigo-700"
+              : "border-transparent text-gray-500 hover:text-gray-700"
+          }`}
+          title="View cost/usage breakdown by project"
+        >
+          Costs
+        </button>
 
         {/* Selected task indicator with clear button */}
         {selectedTask && (
@@ -139,6 +151,8 @@ export default function BottomPanelContainer({
             onError={onError}
             onTaskUpdated={onTaskUpdated}
           />
+        ) : bottomPanel === "costs" ? (
+          <CostDashboard />
         ) : (
           <RunningJobsPanel
             tasks={tasks}

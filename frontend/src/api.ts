@@ -5,6 +5,7 @@
 
 import type {
   BrowseResult,
+  CostDashboardResponse,
   CreateTaskResult,
   EnrichResult,
   ExecutionLogsResponse,
@@ -425,4 +426,10 @@ export async function fetchReviewHistory(
   const url = `/api/tasks/${encodeURIComponent(taskId)}/reviews${qs ? `?${qs}` : ""}`;
   const res = await fetch(url);
   return handleResponse<ReviewHistoryResponse>(res);
+}
+
+/** Fetch aggregate cost/usage data grouped by project. */
+export async function fetchCostDashboard(): Promise<CostDashboardResponse> {
+  const res = await fetch("/api/dashboard/costs");
+  return handleResponse<CostDashboardResponse>(res);
 }

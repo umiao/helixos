@@ -19,10 +19,12 @@ from src.history_writer import HistoryWriter
 from src.models import TaskStatus
 from src.process_manager import ProcessManager
 from src.schemas import (
+    CostDashboardResponse,
     DashboardSummary,
     ErrorResponse,
     ExecutionLogEntry,
     ExecutionLogsResponse,
+    ProjectCostSummary,
     ProjectProcessStatus,
     ReviewHistoryEntry,
     ReviewHistoryResponse,
@@ -208,4 +210,43 @@ async def dashboard_summary(request: Request) -> DashboardSummary:
         running_count=running_count,
         project_count=len(projects),
         process_status=process_status,
+    )
+
+
+@router.get("/api/dashboard/costs")
+async def dashboard_costs(request: Request) -> CostDashboardResponse:
+    """Get aggregate cost/usage data grouped by project.
+
+    Returns per-project cost summaries (total reviews, total cost, average cost)
+    and a grand total across all projects.  Uses a single GROUP BY query.
+    """
+    history_writer: HistoryWriter = request.app.state.history_writer
+    registry: ProjectRegistry = request.app.state.registry
+
+    # Build a name lookup from project registry
+    project_names: dict[str, str] = {
+        p.id: p.name for p in registry.list_projects()
+    }
+
+    rows = await history_writer.get_cost_summary()
+
+    project_summaries: list[ProjectCostSummary] = []
+    grand_total = 0.0
+    for row in rows:
+        pid = row["project_id"]
+        total_cost = row["total_cost_usd"]
+        grand_total += total_cost
+        project_summaries.append(
+            ProjectCostSummary(
+                project_id=pid,
+                name=project_names.get(pid, pid),
+                total_reviews=row["total_reviews"],
+                total_cost_usd=total_cost,
+                avg_cost=row["avg_cost_usd"],
+            ),
+        )
+
+    return CostDashboardResponse(
+        projects=project_summaries,
+        grand_total_cost_usd=grand_total,
     )
