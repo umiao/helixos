@@ -84,16 +84,16 @@ class TestValidateProposals:
         assert _validate_proposals([]) is None
 
     def test_too_many_proposals(self) -> None:
-        """More than MAX_TASKS_PER_PLAN proposals rejected."""
-        proposals = [_make_proposal(title=f"Task {i}") for i in range(9)]
+        """More than MAX_TASKS_PER_PLAN (10) proposals rejected."""
+        proposals = [_make_proposal(title=f"Task {i}") for i in range(11)]
         error = _validate_proposals(proposals)
         assert error is not None
         assert "Too many" in error
-        assert "9" in error
+        assert "11" in error
 
     def test_exactly_max_valid(self) -> None:
-        """Exactly MAX_TASKS_PER_PLAN is valid."""
-        proposals = [_make_proposal(title=f"Task {i}") for i in range(8)]
+        """Exactly MAX_TASKS_PER_PLAN (10) is valid."""
+        proposals = [_make_proposal(title=f"Task {i}") for i in range(10)]
         assert _validate_proposals(proposals) is None
 
     def test_empty_title_rejected(self) -> None:
@@ -421,8 +421,8 @@ class TestProcessProposals:
         assert result.allocated_tasks == []
 
     def test_too_many_rejected(self) -> None:
-        """More than 8 proposals rejected."""
-        proposals = [_make_proposal(title=f"Task {i}") for i in range(9)]
+        """More than 10 proposals rejected."""
+        proposals = [_make_proposal(title=f"Task {i}") for i in range(11)]
         result = process_proposals(proposals, MINIMAL_TASKS_MD, "T-P0-1")
         assert not result.success
         assert "Too many" in (result.error or "")

@@ -15,9 +15,11 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 import sys
 from collections.abc import AsyncGenerator, AsyncIterator
 from pathlib import Path
+from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -28,6 +30,7 @@ from src.config import (
     GitConfig,
     OrchestratorConfig,
     OrchestratorSettings,
+    PlanValidationConfig,
     ProjectConfig,
     ReviewPipelineConfig,
 )
@@ -39,6 +42,7 @@ from src.enrichment import (
     PlanGenerationErrorType,
     PlanResult,
     ProposedTask,
+    _check_soft_limits,
     _parse_enrichment,
     _parse_plan,
     _validate_plan_structure,
@@ -938,7 +942,9 @@ class TestGenerateTaskPlan:
 
     @pytest.mark.asyncio
     async def test_structural_validation_rejects_empty_plan(self) -> None:
-        """Plan with empty steps is rejected after parsing."""
+        """Plan with empty steps is rejected after parsing (no retries)."""
+        from src.config import PlanValidationConfig
+
         events = _make_plan_events("Plan text", [], ["criteria"])
 
         with (
@@ -946,9 +952,12 @@ class TestGenerateTaskPlan:
                 "src.enrichment.run_claude_query",
                 return_value=_mock_sdk_events(*events),
             ),
-            pytest.raises(PlanGenerationError, match="invalid structure.*empty_steps"),
+            pytest.raises(PlanGenerationError, match="Plan validation failed.*empty_steps"),
         ):
-            await generate_task_plan("Task")
+            await generate_task_plan(
+                "Task",
+                plan_validation=PlanValidationConfig(max_validation_retries=0),
+            )
 
     @pytest.mark.asyncio
     async def test_query_options_configured(self) -> None:
@@ -1010,10 +1019,11 @@ class TestGenerateTaskPlan:
             assert "proposed_tasks" in schema["properties"]
             pt_schema = schema["properties"]["proposed_tasks"]
             assert pt_schema["type"] == "array"
-            assert pt_schema["maxItems"] == 8
+            assert pt_schema["maxItems"] == 10
             item_props = pt_schema["items"]["properties"]
             assert "title" in item_props
             assert "description" in item_props
+            assert "files" in item_props
             assert "suggested_priority" in item_props
             assert "suggested_complexity" in item_props
             assert "dependencies" in item_props
@@ -1116,6 +1126,443 @@ class TestGenerateTaskPlan:
 
         raw_files = list(log_dir.glob("plan_raw_*.log"))
         assert len(raw_files) == 1
+
+
+# ------------------------------------------------------------------
+# Unit tests: _validate_plan_structure with PlanValidationConfig
+# ------------------------------------------------------------------
+
+
+class TestValidatePlanStructureWithConfig:
+    """Tests for _validate_plan_structure with configurable limits."""
+
+    def test_hard_ceiling_max_proposed_tasks(self) -> None:
+        """Exceeding max_proposed_tasks (hard ceiling) fails validation."""
+        config = PlanValidationConfig(max_proposed_tasks=5)
+        plan_data = {
+            "plan": "Plan",
+            "steps": [{"step": "x"}],
+            "acceptance_criteria": ["y"],
+            "proposed_tasks": [
+                {"title": f"Task {i}", "description": f"Desc {i}"}
+                for i in range(6)
+            ],
+        }
+        is_valid, reason = _validate_plan_structure(plan_data, config)
+        assert is_valid is False
+        assert "too_many_proposed_tasks" in reason
+
+    def test_at_max_proposed_tasks_passes(self) -> None:
+        """Exactly max_proposed_tasks passes validation."""
+        config = PlanValidationConfig(max_proposed_tasks=5)
+        plan_data = {
+            "plan": "Plan",
+            "steps": [{"step": "x"}],
+            "acceptance_criteria": ["y"],
+            "proposed_tasks": [
+                {"title": f"Task {i}", "description": f"Desc {i}"}
+                for i in range(5)
+            ],
+        }
+        is_valid, reason = _validate_plan_structure(plan_data, config)
+        assert is_valid is True
+
+    def test_dependency_cycle_detected(self) -> None:
+        """Circular dependencies in proposed_tasks fails validation."""
+        plan_data = {
+            "plan": "Plan",
+            "steps": [{"step": "x"}],
+            "acceptance_criteria": ["y"],
+            "proposed_tasks": [
+                {"title": "A", "description": "Task A", "dependencies": ["B"]},
+                {"title": "B", "description": "Task B", "dependencies": ["A"]},
+            ],
+        }
+        is_valid, reason = _validate_plan_structure(plan_data)
+        assert is_valid is False
+        assert "dependency_cycle_detected" in reason
+
+    def test_three_way_cycle_detected(self) -> None:
+        """Three-way circular dependency fails validation."""
+        plan_data = {
+            "plan": "Plan",
+            "steps": [{"step": "x"}],
+            "acceptance_criteria": ["y"],
+            "proposed_tasks": [
+                {"title": "A", "description": "a", "dependencies": ["B"]},
+                {"title": "B", "description": "b", "dependencies": ["C"]},
+                {"title": "C", "description": "c", "dependencies": ["A"]},
+            ],
+        }
+        is_valid, reason = _validate_plan_structure(plan_data)
+        assert is_valid is False
+        assert "dependency_cycle_detected" in reason
+
+    def test_no_cycle_passes(self) -> None:
+        """Valid DAG dependencies pass validation."""
+        plan_data = {
+            "plan": "Plan",
+            "steps": [{"step": "x"}],
+            "acceptance_criteria": ["y"],
+            "proposed_tasks": [
+                {"title": "A", "description": "a", "dependencies": []},
+                {"title": "B", "description": "b", "dependencies": ["A"]},
+                {"title": "C", "description": "c", "dependencies": ["A", "B"]},
+            ],
+        }
+        is_valid, reason = _validate_plan_structure(plan_data)
+        assert is_valid is True
+
+    def test_external_dependency_ignored_for_cycle_check(self) -> None:
+        """Dependencies on external tasks (not in proposed) are ignored for cycle check."""
+        plan_data = {
+            "plan": "Plan",
+            "steps": [{"step": "x"}],
+            "acceptance_criteria": ["y"],
+            "proposed_tasks": [
+                {"title": "A", "description": "a", "dependencies": ["T-P0-1"]},
+                {"title": "B", "description": "b", "dependencies": ["A"]},
+            ],
+        }
+        is_valid, reason = _validate_plan_structure(plan_data)
+        assert is_valid is True
+
+    def test_default_config_uses_10_max(self) -> None:
+        """Default PlanValidationConfig uses max_proposed_tasks=10."""
+        config = PlanValidationConfig()
+        assert config.max_proposed_tasks == 10
+        assert config.soft_max_proposed_tasks == 8
+        assert config.max_validation_retries == 2
+
+
+# ------------------------------------------------------------------
+# Unit tests: _check_soft_limits
+# ------------------------------------------------------------------
+
+
+class TestCheckSoftLimits:
+    """Tests for _check_soft_limits (warning-only, non-blocking)."""
+
+    def test_no_warnings_within_limits(self, caplog: pytest.LogCaptureFixture) -> None:
+        """No warnings emitted when within soft limits."""
+        config = PlanValidationConfig(
+            soft_max_proposed_tasks=8,
+            soft_max_files_per_task=8,
+            soft_max_steps_per_task=12,
+        )
+        plan_data = {
+            "proposed_tasks": [
+                {"title": "T", "description": "d", "files": ["a.py"]}
+            ],
+            "steps": [{"step": "s"}],
+        }
+        with caplog.at_level(logging.WARNING, logger="src.enrichment"):
+            _check_soft_limits(plan_data, config)
+        assert len(caplog.records) == 0
+
+    def test_warns_on_too_many_tasks(self, caplog: pytest.LogCaptureFixture) -> None:
+        """Warning emitted when proposed_tasks exceeds soft max."""
+        config = PlanValidationConfig(soft_max_proposed_tasks=2)
+        plan_data = {
+            "proposed_tasks": [
+                {"title": f"T{i}", "description": "d"} for i in range(3)
+            ],
+            "steps": [{"step": "s"}],
+        }
+        with caplog.at_level(logging.WARNING, logger="src.enrichment"):
+            _check_soft_limits(plan_data, config)
+        assert any("3 proposed tasks exceeds soft max 2" in r.message for r in caplog.records)
+
+    def test_warns_on_too_many_files(self, caplog: pytest.LogCaptureFixture) -> None:
+        """Warning emitted when a task has too many files."""
+        config = PlanValidationConfig(soft_max_files_per_task=2)
+        plan_data = {
+            "proposed_tasks": [
+                {"title": "T", "description": "d", "files": ["a", "b", "c"]}
+            ],
+            "steps": [{"step": "s"}],
+        }
+        with caplog.at_level(logging.WARNING, logger="src.enrichment"):
+            _check_soft_limits(plan_data, config)
+        assert any("3 files" in r.message for r in caplog.records)
+
+    def test_warns_on_too_many_steps(self, caplog: pytest.LogCaptureFixture) -> None:
+        """Warning emitted when plan has too many steps."""
+        config = PlanValidationConfig(soft_max_steps_per_task=2)
+        plan_data = {
+            "proposed_tasks": [],
+            "steps": [{"step": f"s{i}"} for i in range(3)],
+        }
+        with caplog.at_level(logging.WARNING, logger="src.enrichment"):
+            _check_soft_limits(plan_data, config)
+        assert any("3 steps" in r.message for r in caplog.records)
+
+
+# ------------------------------------------------------------------
+# Unit tests: generate_task_plan validation retry
+# ------------------------------------------------------------------
+
+
+class TestPlanValidationRetry:
+    """Tests for validation retry loop in generate_task_plan."""
+
+    @pytest.mark.asyncio
+    async def test_retry_on_validation_failure(self) -> None:
+        """Retries on validation failure, succeeds on 2nd attempt."""
+        bad_events = _make_plan_events("Plan text", [], ["criteria"])
+        good_events = _make_plan_events(
+            "Good plan", _VALID_STEPS, _VALID_AC,
+        )
+
+        call_count = 0
+
+        async def _side_effect(*args: Any, **kwargs: Any) -> AsyncIterator[ClaudeEvent]:
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1:
+                async for ev in _mock_sdk_events(*bad_events):
+                    yield ev
+            else:
+                async for ev in _mock_sdk_events(*good_events):
+                    yield ev
+
+        with patch(
+            "src.enrichment.run_claude_query",
+            side_effect=_side_effect,
+        ):
+            result = await generate_task_plan(
+                "Task",
+                plan_validation=PlanValidationConfig(max_validation_retries=2),
+            )
+            assert result["plan"] == "Good plan"
+            assert call_count == 2
+
+    @pytest.mark.asyncio
+    async def test_retry_exhausted_raises(self) -> None:
+        """All retries exhausted raises VALIDATION_FAILURE."""
+        bad_events = _make_plan_events("Plan text", [], ["criteria"])
+
+        async def _always_bad(*args: Any, **kwargs: Any) -> AsyncIterator[ClaudeEvent]:
+            async for ev in _mock_sdk_events(*bad_events):
+                yield ev
+
+        with (
+            patch(
+                "src.enrichment.run_claude_query",
+                side_effect=_always_bad,
+            ),
+            pytest.raises(PlanGenerationError) as exc_info,
+        ):
+            await generate_task_plan(
+                "Task",
+                plan_validation=PlanValidationConfig(max_validation_retries=1),
+            )
+        assert exc_info.value.error_type == PlanGenerationErrorType.VALIDATION_FAILURE
+        assert "2 attempts" in str(exc_info.value)
+
+    @pytest.mark.asyncio
+    async def test_retry_appends_error_to_prompt(self) -> None:
+        """On retry, validation error is appended to prompt."""
+        bad_events = _make_plan_events("Plan text", [], ["criteria"])
+        good_events = _make_plan_events(
+            "Fixed plan", _VALID_STEPS, _VALID_AC,
+        )
+
+        prompts_received: list[str] = []
+
+        async def _side_effect(prompt: str, *args: Any, **kwargs: Any) -> AsyncIterator[ClaudeEvent]:
+            prompts_received.append(prompt)
+            if len(prompts_received) == 1:
+                async for ev in _mock_sdk_events(*bad_events):
+                    yield ev
+            else:
+                async for ev in _mock_sdk_events(*good_events):
+                    yield ev
+
+        with patch(
+            "src.enrichment.run_claude_query",
+            side_effect=_side_effect,
+        ):
+            await generate_task_plan(
+                "Task",
+                plan_validation=PlanValidationConfig(max_validation_retries=2),
+            )
+
+        assert len(prompts_received) == 2
+        # First prompt is original
+        assert "Previous Attempt Failed" not in prompts_received[0]
+        # Second prompt includes feedback
+        assert "Previous Attempt Failed" in prompts_received[1]
+        assert "empty_steps" in prompts_received[1]
+
+    @pytest.mark.asyncio
+    async def test_no_retry_when_retries_zero(self) -> None:
+        """max_validation_retries=0 means no retry."""
+        bad_events = _make_plan_events("Plan text", [], ["criteria"])
+        call_count = 0
+
+        async def _side_effect(*args: Any, **kwargs: Any) -> AsyncIterator[ClaudeEvent]:
+            nonlocal call_count
+            call_count += 1
+            async for ev in _mock_sdk_events(*bad_events):
+                yield ev
+
+        with (
+            patch(
+                "src.enrichment.run_claude_query",
+                side_effect=_side_effect,
+            ),
+            pytest.raises(PlanGenerationError),
+        ):
+            await generate_task_plan(
+                "Task",
+                plan_validation=PlanValidationConfig(max_validation_retries=0),
+            )
+        assert call_count == 1
+
+    @pytest.mark.asyncio
+    async def test_retry_on_cycle_detection(self) -> None:
+        """Retry triggered when proposed_tasks have cyclic dependencies."""
+        cyclic_events = [
+            ClaudeEvent(
+                type=ClaudeEventType.RESULT,
+                structured_output={
+                    "plan": "Plan with cycles",
+                    "steps": [{"step": "s1"}],
+                    "acceptance_criteria": ["ac1"],
+                    "proposed_tasks": [
+                        {"title": "A", "description": "a", "dependencies": ["B"]},
+                        {"title": "B", "description": "b", "dependencies": ["A"]},
+                    ],
+                },
+            ),
+        ]
+        good_events = _make_plan_events(
+            "Fixed plan", _VALID_STEPS, _VALID_AC,
+        )
+        call_count = 0
+
+        async def _side_effect(*args: Any, **kwargs: Any) -> AsyncIterator[ClaudeEvent]:
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1:
+                async for ev in _mock_sdk_events(*cyclic_events):
+                    yield ev
+            else:
+                async for ev in _mock_sdk_events(*good_events):
+                    yield ev
+
+        with patch(
+            "src.enrichment.run_claude_query",
+            side_effect=_side_effect,
+        ):
+            result = await generate_task_plan(
+                "Task",
+                plan_validation=PlanValidationConfig(max_validation_retries=2),
+            )
+            assert result["plan"] == "Fixed plan"
+            assert call_count == 2
+
+    @pytest.mark.asyncio
+    async def test_on_log_emits_retry_message(self) -> None:
+        """on_log callback receives retry message on validation failure."""
+        bad_events = _make_plan_events("Plan text", [], ["criteria"])
+        good_events = _make_plan_events(
+            "Fixed plan", _VALID_STEPS, _VALID_AC,
+        )
+        logged: list[str] = []
+
+        call_count = 0
+
+        async def _side_effect(*args: Any, **kwargs: Any) -> AsyncIterator[ClaudeEvent]:
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1:
+                async for ev in _mock_sdk_events(*bad_events):
+                    yield ev
+            else:
+                async for ev in _mock_sdk_events(*good_events):
+                    yield ev
+
+        with patch(
+            "src.enrichment.run_claude_query",
+            side_effect=_side_effect,
+        ):
+            await generate_task_plan(
+                "Task",
+                on_log=logged.append,
+                plan_validation=PlanValidationConfig(max_validation_retries=2),
+            )
+        retry_msgs = [line for line in logged if "[RETRY]" in line]
+        assert len(retry_msgs) == 1
+        assert "empty_steps" in retry_msgs[0]
+
+
+# ------------------------------------------------------------------
+# Unit tests: ProposedTask files field
+# ------------------------------------------------------------------
+
+
+class TestProposedTaskFilesField:
+    """Tests for the ProposedTask files field (added in T-P1-114)."""
+
+    def test_files_field_present(self) -> None:
+        """ProposedTask has files field."""
+        task = ProposedTask(title="T", description="D", files=["a.py", "b.py"])
+        assert task.files == ["a.py", "b.py"]
+
+    def test_files_default_empty(self) -> None:
+        """files defaults to empty list."""
+        task = ProposedTask(title="T", description="D")
+        assert task.files == []
+
+    def test_files_in_model_dump(self) -> None:
+        """files field appears in model_dump output."""
+        task = ProposedTask(title="T", description="D", files=["x.py"])
+        dumped = task.model_dump()
+        assert dumped["files"] == ["x.py"]
+
+
+# ------------------------------------------------------------------
+# Unit tests: PlanValidationConfig
+# ------------------------------------------------------------------
+
+
+class TestPlanValidationConfig:
+    """Tests for PlanValidationConfig pydantic model."""
+
+    def test_defaults(self) -> None:
+        """Default values match task spec."""
+        config = PlanValidationConfig()
+        assert config.max_proposed_tasks == 10
+        assert config.soft_max_proposed_tasks == 8
+        assert config.soft_max_steps_per_task == 12
+        assert config.soft_max_files_per_task == 8
+        assert config.max_validation_retries == 2
+
+    def test_custom_values(self) -> None:
+        """Custom values are accepted."""
+        config = PlanValidationConfig(
+            max_proposed_tasks=5,
+            soft_max_proposed_tasks=3,
+            soft_max_steps_per_task=6,
+            soft_max_files_per_task=4,
+            max_validation_retries=1,
+        )
+        assert config.max_proposed_tasks == 5
+        assert config.max_validation_retries == 1
+
+    def test_loaded_from_yaml(self) -> None:
+        """PlanValidationConfig is parsed from OrchestratorSettings."""
+        settings = OrchestratorSettings(
+            plan_validation=PlanValidationConfig(max_proposed_tasks=7),
+        )
+        assert settings.plan_validation.max_proposed_tasks == 7
+
+    def test_default_in_orchestrator_settings(self) -> None:
+        """OrchestratorSettings has plan_validation with defaults."""
+        settings = OrchestratorSettings()
+        assert settings.plan_validation.max_proposed_tasks == 10
 
 
 # ------------------------------------------------------------------

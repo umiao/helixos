@@ -27,6 +27,8 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ValidationError
 
+from src.config import PlanValidationConfig
+from src.dependency_graph import detect_cycles
 from src.executors.code_executor import _LazyFileWriter
 from src.prompt_loader import load_prompt, render_prompt
 from src.sdk_adapter import ClaudeEventType, QueryOptions, run_claude_query
@@ -59,6 +61,7 @@ class ProposedTask(BaseModel):
 
     title: str
     description: str
+    files: list[str] = []
     suggested_priority: Literal["P0", "P1", "P2", "P3"] = "P1"
     suggested_complexity: Literal["S", "M", "L"] = "M"
     dependencies: list[str] = []
@@ -89,6 +92,7 @@ class PlanGenerationErrorType(enum.StrEnum):
     CLI_UNAVAILABLE = "cli_unavailable"
     TIMEOUT = "timeout"
     PARSE_FAILURE = "parse_failure"
+    VALIDATION_FAILURE = "validation_failure"
     BUDGET_EXCEEDED = "budget_exceeded"
     CLI_ERROR = "cli_error"
 
@@ -98,6 +102,7 @@ class PlanGenerationErrorType(enum.StrEnum):
         return self in (
             PlanGenerationErrorType.TIMEOUT,
             PlanGenerationErrorType.PARSE_FAILURE,
+            PlanGenerationErrorType.VALIDATION_FAILURE,
             PlanGenerationErrorType.CLI_ERROR,
         )
 
@@ -116,6 +121,10 @@ class PlanGenerationErrorType(enum.StrEnum):
             PlanGenerationErrorType.PARSE_FAILURE: (
                 "Could not parse the AI response into a valid plan. "
                 "Try again -- the AI may produce a better response."
+            ),
+            PlanGenerationErrorType.VALIDATION_FAILURE: (
+                "Plan output failed validation after retries. "
+                "Try simplifying the task description."
             ),
             PlanGenerationErrorType.BUDGET_EXCEEDED: (
                 "API budget limit was exceeded. "
@@ -279,7 +288,7 @@ def _classify_cli_error(returncode: int, stderr: str) -> PlanGenerationErrorType
 # Plan generation via Claude CLI
 # ------------------------------------------------------------------
 
-MAX_TASKS_PER_PLAN = 8
+MAX_TASKS_PER_PLAN = 10
 
 _PLAN_JSON_SCHEMA = json.dumps({
     "type": "object",
@@ -310,6 +319,10 @@ _PLAN_JSON_SCHEMA = json.dumps({
                 "properties": {
                     "title": {"type": "string"},
                     "description": {"type": "string"},
+                    "files": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                    },
                     "suggested_priority": {
                         "type": "string",
                         "enum": ["P0", "P1", "P2", "P3"],
@@ -329,7 +342,7 @@ _PLAN_JSON_SCHEMA = json.dumps({
                 },
                 "required": ["title", "description"],
             },
-            "maxItems": 8,
+            "maxItems": 10,
         },
     },
     "required": ["plan", "steps", "acceptance_criteria"],
@@ -346,82 +359,32 @@ _PLAN_SYSTEM_PROMPT = render_prompt(
 )
 
 
-async def generate_task_plan(
-    title: str,
-    description: str = "",
-    repo_path: Path | None = None,
-    timeout_minutes: int = 60,
-    on_log: Callable[[str], None] | None = None,
-    heartbeat_seconds: int = 30,
-    on_raw_artifact: Callable[[str], Awaitable[None]] | None = None,
-    on_stream_event: Callable[[dict], None] | None = None,
-    stream_log_dir: Path | None = None,
-    task_id: str | None = None,
-) -> dict:
-    """Call Claude Agent SDK to generate a structured implementation plan.
-
-    Uses ``run_claude_query()`` with ``add_dirs`` for codebase context when
-    *repo_path* is provided.  Streams typed ``ClaudeEvent`` objects for
-    real-time callbacks and JSONL persistence.
+async def _call_plan_sdk(
+    user_prompt: str,
+    options: QueryOptions,
+    timeout_minutes: int,
+    heartbeat_seconds: int,
+    on_log: Callable[[str], None] | None,
+    on_raw_artifact: Callable[[str], Awaitable[None]] | None,
+    on_stream_event: Callable[[dict], None] | None,
+    jsonl_file: _LazyFileWriter | None,
+    raw_file: _LazyFileWriter | None,
+    collect_events: list[dict] | None = None,
+) -> tuple[Any, list[dict]]:
+    """Execute a single SDK call for plan generation and return raw result.
 
     Args:
-        title: The task title.
-        description: Existing task description (may be empty).
-        repo_path: Optional path to the project repository for codebase
-            context via ``add_dirs``.
-        timeout_minutes: Maximum time in minutes before the operation is
-            cancelled. 0 disables the timeout.
-        on_log: Optional callback invoked per simplified log line for
-            real-time streaming.  Signature: ``(line: str) -> None``.
-        heartbeat_seconds: If no SDK event arrives within this many
-            seconds, emit a synthetic ``[PROGRESS] heartbeat`` line via
-            *on_log*.  Set to 0 to disable.
-        on_raw_artifact: Optional async callback to persist raw event output.
-        on_stream_event: Optional callback invoked for each event dict.
-            Signature: ``(event: dict) -> None``.
-        stream_log_dir: Optional directory for JSONL stream log persistence.
-        task_id: Optional task ID used for log file naming.
+        collect_events: Optional mutable list to collect event dicts into.
+            Populated even if the call raises, enabling artifact persistence.
 
     Returns:
-        Dict with ``plan`` (str), ``steps`` (list of dicts), and
-        ``acceptance_criteria`` (list of str).
+        Tuple of (result_data, all_event_dicts).
 
     Raises:
-        PlanGenerationError: If the SDK call fails or times out.
+        PlanGenerationError: On timeout or SDK error.
     """
-    user_prompt = f"Task: {title}"
-    if description.strip():
-        user_prompt += f"\n\nExisting description:\n{description}"
-
-    # Inject session context into system prompt (replaces SessionStart hook
-    # which is not available as an SDK hook type).
-    session_ctx = get_session_context(repo_path)
-    plan_prompt_with_ctx = _PLAN_SYSTEM_PROMPT + "\n\n" + session_ctx
-
-    options = QueryOptions(
-        model="claude-opus-4-6",
-        system_prompt=plan_prompt_with_ctx,
-        json_schema=_PLAN_JSON_SCHEMA,
-        permission_mode="plan",
-        # Disable CLI hooks (block_dangerous, secret_guard, etc.) for plan
-        # sessions.  Session context is injected above instead.
-        setting_sources=[],
-    )
-
-    if repo_path is not None and repo_path.is_dir():
-        options.add_dirs = [str(repo_path)]
-
-    # -- JSONL log persistence (lazy: files created on first write) --
-    jsonl_file: _LazyFileWriter | None = None
-    raw_file: _LazyFileWriter | None = None
-    if task_id is not None and stream_log_dir is not None:
-        log_dir = stream_log_dir / task_id.replace(":", "_")
-        ts = datetime.now(UTC).strftime("%Y%m%dT%H%M%S")
-        jsonl_file = _LazyFileWriter(log_dir / f"plan_stream_{ts}.jsonl")
-        raw_file = _LazyFileWriter(log_dir / f"plan_raw_{ts}.log")
-
     timeout_seconds = timeout_minutes * 60 if timeout_minutes > 0 else None
-    all_event_dicts: list[dict] = []
+    all_event_dicts: list[dict] = collect_events if collect_events is not None else []
     result_data: Any = ""
     last_output_time = time.monotonic()
     has_error = False
@@ -433,8 +396,6 @@ async def generate_task_plan(
 
     try:
         async with asyncio.timeout(timeout_seconds):
-            # Use a producer task + queue so heartbeat timeout does not
-            # cancel the underlying async generator.
             event_queue: asyncio.Queue[object] = asyncio.Queue()
             _sentinel = object()
 
@@ -513,24 +474,6 @@ async def generate_task_plan(
             PlanGenerationErrorType.TIMEOUT,
             f"Plan generation timed out after {timeout_minutes} minutes",
         ) from None
-    finally:
-        if jsonl_file is not None:
-            jsonl_file.close()
-        if raw_file is not None:
-            raw_file.close()
-
-    # PERSIST-FIRST: save full raw output before ANY parsing or validation.
-    full_output = "\n".join(
-        json.dumps(e, ensure_ascii=False) for e in all_event_dicts
-    )
-    if on_raw_artifact is not None:
-        try:
-            await on_raw_artifact(full_output)
-        except Exception:
-            logger.warning(
-                "Failed to persist raw artifact for plan, continuing",
-                exc_info=True,
-            )
 
     if has_error:
         error_type = _classify_cli_error(0, error_detail)
@@ -539,36 +482,271 @@ async def generate_task_plan(
             f"Claude SDK error: {error_detail}",
         )
 
-    plan_data = _parse_plan(result_data)
+    return result_data, all_event_dicts
 
-    # Structural validation: reject empty/incomplete plans before caller marks "ready"
-    is_valid, reason = _validate_plan_structure(plan_data)
-    if not is_valid:
-        raise PlanGenerationError(
-            PlanGenerationErrorType.PARSE_FAILURE,
-            f"Plan generation produced invalid structure ({reason}). "
-            f"Raw output length: {len(full_output)} chars. "
-            f"Raw output preserved in execution_logs for re-parse.",
+
+async def generate_task_plan(
+    title: str,
+    description: str = "",
+    repo_path: Path | None = None,
+    timeout_minutes: int = 60,
+    on_log: Callable[[str], None] | None = None,
+    heartbeat_seconds: int = 30,
+    on_raw_artifact: Callable[[str], Awaitable[None]] | None = None,
+    on_stream_event: Callable[[dict], None] | None = None,
+    stream_log_dir: Path | None = None,
+    task_id: str | None = None,
+    plan_validation: PlanValidationConfig | None = None,
+) -> dict:
+    """Call Claude Agent SDK to generate a structured implementation plan.
+
+    Uses ``run_claude_query()`` with ``add_dirs`` for codebase context when
+    *repo_path* is provided.  Streams typed ``ClaudeEvent`` objects for
+    real-time callbacks and JSONL persistence.
+
+    On validation failure, retries up to ``plan_validation.max_validation_retries``
+    times with the validation error fed back to the LLM prompt.
+
+    Args:
+        title: The task title.
+        description: Existing task description (may be empty).
+        repo_path: Optional path to the project repository for codebase
+            context via ``add_dirs``.
+        timeout_minutes: Maximum time in minutes before the operation is
+            cancelled. 0 disables the timeout.
+        on_log: Optional callback invoked per simplified log line for
+            real-time streaming.  Signature: ``(line: str) -> None``.
+        heartbeat_seconds: If no SDK event arrives within this many
+            seconds, emit a synthetic ``[PROGRESS] heartbeat`` line via
+            *on_log*.  Set to 0 to disable.
+        on_raw_artifact: Optional async callback to persist raw event output.
+        on_stream_event: Optional callback invoked for each event dict.
+            Signature: ``(event: dict) -> None``.
+        stream_log_dir: Optional directory for JSONL stream log persistence.
+        task_id: Optional task ID used for log file naming.
+        plan_validation: Optional validation config with soft/hard limits.
+            Defaults to ``PlanValidationConfig()`` if not provided.
+
+    Returns:
+        Dict with ``plan`` (str), ``steps`` (list of dicts), and
+        ``acceptance_criteria`` (list of str).
+
+    Raises:
+        PlanGenerationError: If the SDK call fails or times out.
+    """
+    if plan_validation is None:
+        plan_validation = PlanValidationConfig()
+
+    user_prompt = f"Task: {title}"
+    if description.strip():
+        user_prompt += f"\n\nExisting description:\n{description}"
+
+    # Inject session context into system prompt (replaces SessionStart hook
+    # which is not available as an SDK hook type).
+    session_ctx = get_session_context(repo_path)
+    plan_prompt_with_ctx = _PLAN_SYSTEM_PROMPT + "\n\n" + session_ctx
+
+    options = QueryOptions(
+        model="claude-opus-4-6",
+        system_prompt=plan_prompt_with_ctx,
+        json_schema=_PLAN_JSON_SCHEMA,
+        permission_mode="plan",
+        # Disable CLI hooks (block_dangerous, secret_guard, etc.) for plan
+        # sessions.  Session context is injected above instead.
+        setting_sources=[],
+    )
+
+    if repo_path is not None and repo_path.is_dir():
+        options.add_dirs = [str(repo_path)]
+
+    max_retries = plan_validation.max_validation_retries
+    last_validation_error: str = ""
+
+    for attempt in range(max_retries + 1):
+        # -- JSONL log persistence (lazy: files created on first write) --
+        jsonl_file: _LazyFileWriter | None = None
+        raw_file: _LazyFileWriter | None = None
+        if task_id is not None and stream_log_dir is not None:
+            log_dir = stream_log_dir / task_id.replace(":", "_")
+            ts = datetime.now(UTC).strftime("%Y%m%dT%H%M%S")
+            suffix = f"_r{attempt}" if attempt > 0 else ""
+            jsonl_file = _LazyFileWriter(
+                log_dir / f"plan_stream_{ts}{suffix}.jsonl",
+            )
+            raw_file = _LazyFileWriter(
+                log_dir / f"plan_raw_{ts}{suffix}.log",
+            )
+
+        # On retry, append validation error feedback to prompt
+        current_prompt = user_prompt
+        if attempt > 0 and last_validation_error:
+            current_prompt += (
+                f"\n\n## Previous Attempt Failed (attempt {attempt}/{max_retries})\n"
+                f"Your previous output failed validation with the following error:\n"
+                f"{last_validation_error}\n\n"
+                f"Please fix these issues and regenerate the plan."
+            )
+            if on_log is not None:
+                on_log(
+                    f"[RETRY] Validation failed, retrying "
+                    f"(attempt {attempt + 1}/{max_retries + 1}): "
+                    f"{last_validation_error}"
+                )
+
+        collected_events: list[dict] = []
+        sdk_error: PlanGenerationError | None = None
+        result_data: Any = ""
+
+        try:
+            result_data, _ = await _call_plan_sdk(
+                current_prompt,
+                options,
+                timeout_minutes,
+                heartbeat_seconds,
+                on_log,
+                on_raw_artifact=None,  # Persist after call
+                on_stream_event=on_stream_event,
+                jsonl_file=jsonl_file,
+                raw_file=raw_file,
+                collect_events=collected_events,
+            )
+        except PlanGenerationError as exc:
+            sdk_error = exc
+        finally:
+            if jsonl_file is not None:
+                jsonl_file.close()
+            if raw_file is not None:
+                raw_file.close()
+
+        # PERSIST-FIRST: save full raw output before ANY parsing or validation.
+        full_output = "\n".join(
+            json.dumps(e, ensure_ascii=False) for e in collected_events
         )
+        if on_raw_artifact is not None:
+            try:
+                await on_raw_artifact(full_output)
+            except Exception:
+                logger.warning(
+                    "Failed to persist raw artifact for plan, continuing",
+                    exc_info=True,
+                )
 
-    return plan_data
+        # Re-raise SDK errors after persisting artifacts
+        if sdk_error is not None:
+            raise sdk_error
+
+        plan_data = _parse_plan(result_data)
+
+        # Structural validation: reject empty/incomplete plans
+        is_valid, reason = _validate_plan_structure(plan_data, plan_validation)
+        if not is_valid:
+            last_validation_error = reason
+            if attempt < max_retries:
+                continue
+            raise PlanGenerationError(
+                PlanGenerationErrorType.VALIDATION_FAILURE,
+                f"Plan validation failed after {max_retries + 1} attempts "
+                f"({reason}). Raw output length: {len(full_output)} chars. "
+                f"Raw output preserved in execution_logs for re-parse.",
+            )
+
+        # Emit soft limit warnings (non-blocking)
+        _check_soft_limits(plan_data, plan_validation)
+
+        return plan_data
+
+    # Should not reach here, but safety net
+    raise PlanGenerationError(
+        PlanGenerationErrorType.VALIDATION_FAILURE,
+        "Plan generation exhausted all retry attempts",
+    )
 
 
-def _validate_plan_structure(plan_data: dict) -> tuple[bool, str]:
+def _validate_plan_structure(
+    plan_data: dict,
+    config: PlanValidationConfig | None = None,
+) -> tuple[bool, str]:
     """Validate that parsed plan has meaningful content.
 
-    Returns (is_valid, reason).
+    Checks hard ceilings (reject on violation) and DAG validity.
+
+    Args:
+        plan_data: Parsed plan dict.
+        config: Validation config with limits. Uses defaults if None.
+
+    Returns:
+        (is_valid, reason) tuple.
     """
+    if config is None:
+        config = PlanValidationConfig()
+
     if not plan_data.get("plan", "").strip():
         return False, "empty_plan_text"
     if not plan_data.get("steps"):
         return False, "empty_steps"
     if not plan_data.get("acceptance_criteria"):
         return False, "empty_acceptance_criteria"
+
     proposed = plan_data.get("proposed_tasks", [])
-    if len(proposed) > MAX_TASKS_PER_PLAN:
-        return False, f"too_many_proposed_tasks ({len(proposed)} > {MAX_TASKS_PER_PLAN})"
+    if len(proposed) > config.max_proposed_tasks:
+        return False, (
+            f"too_many_proposed_tasks "
+            f"({len(proposed)} > {config.max_proposed_tasks})"
+        )
+
+    # Validate dependencies form a DAG (no cycles)
+    if proposed:
+        adjacency: dict[str, list[str]] = {}
+        titles = {t.get("title", "") for t in proposed if isinstance(t, dict)}
+        for task in proposed:
+            if not isinstance(task, dict):
+                continue
+            title = task.get("title", "")
+            deps = task.get("dependencies", [])
+            # Only include deps that reference other proposed tasks (by title)
+            adjacency[title] = [d for d in deps if d in titles]
+        cycles = detect_cycles(adjacency)
+        if cycles:
+            cycle_str = " -> ".join(cycles[0])
+            return False, f"dependency_cycle_detected ({cycle_str})"
+
     return True, "ok"
+
+
+def _check_soft_limits(
+    plan_data: dict,
+    config: PlanValidationConfig,
+) -> None:
+    """Emit warnings for soft limit violations (non-blocking).
+
+    Args:
+        plan_data: Validated plan dict.
+        config: Validation config with soft limits.
+    """
+    proposed = plan_data.get("proposed_tasks", [])
+    if len(proposed) > config.soft_max_proposed_tasks:
+        logger.warning(
+            "Soft limit: %d proposed tasks exceeds soft max %d",
+            len(proposed), config.soft_max_proposed_tasks,
+        )
+
+    for task in proposed:
+        if not isinstance(task, dict):
+            continue
+        title = task.get("title", "<untitled>")
+        files = task.get("files", [])
+        if len(files) > config.soft_max_files_per_task:
+            logger.warning(
+                "Soft limit: task '%s' has %d files (soft max %d)",
+                title, len(files), config.soft_max_files_per_task,
+            )
+
+    steps = plan_data.get("steps", [])
+    if len(steps) > config.soft_max_steps_per_task:
+        logger.warning(
+            "Soft limit: plan has %d steps (soft max %d)",
+            len(steps), config.soft_max_steps_per_task,
+        )
 
 
 def _parse_plan(text: str | dict) -> dict:

@@ -11,6 +11,12 @@ orchestrator:
   inactivity_timeout_minutes: 0
   unified_env_path: "~/.helixos/.env"
   state_db_path: "~/.helixos/state.db"
+  plan_validation:
+    max_proposed_tasks: 10
+    soft_max_proposed_tasks: 8
+    soft_max_steps_per_task: 12
+    soft_max_files_per_task: 8
+    max_validation_retries: 2
 
 projects:
   helixos:

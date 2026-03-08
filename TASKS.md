@@ -23,8 +23,6 @@
 ## In Progress
 <!-- Only ONE task here at a time. Focus. -->
 
-<!-- T-P1-113 completed, moved to Completed Tasks -->
-
 ## Active Tasks
 
 ### P0 -- Must Have (core functionality)
@@ -45,19 +43,6 @@
   5. `src/executors/code_executor.py` `_build_prompt()` uses loaded template with variable substitution
   6. All existing tests pass without modification (behavior-identical refactor)
   7. New tests: `load_prompt()` returns non-empty for each file, raises on missing, prompts contain expected key phrases
-
-#### T-P1-114: Add plan output pydantic validation with retry and error feedback
-- **Priority**: P1
-- **Complexity**: S (< 1 session)
-- **Depends on**: None
-- **Description**: Plan agent output must go through strict pydantic validation before entering review. On parse failure, retry up to 2 times with validation error fed back to the LLM. Implement as output parser in `generate_task_plan()`, not a separate pipeline stage. Task scope enforced via configurable soft limits (warnings) and hard ceilings (rejects).
-- **Acceptance Criteria**:
-  1. `ProposedTask` pydantic model enforces required fields: title, description, files (list[str]), dependencies (list[str])
-  2. `generate_task_plan()` validates output against pydantic model; on failure, retries with error message appended to prompt (max 2 retries)
-  3. Hard ceiling: proposed_tasks max 10, dependencies must form DAG (via `detect_cycles()`)
-  4. Soft limits (logged as warnings, not blocking): tasks >8, steps >12 per task, files >8 per task
-  5. Scope limits configurable in `orchestrator_config.yaml` under `plan_validation` section
-  6. All existing tests pass; new tests for validation pass/fail/retry scenarios
 
 #### T-P1-115: Upgrade agent prompts to production-grade (Phase 3: quality)
 - **Priority**: P1
@@ -169,6 +154,9 @@ T-P1-120 depends on T-P1-119
 ## Completed Tasks
 
 > 99 completed tasks archived to [archive/completed_tasks.md](archive/completed_tasks.md).
+
+#### [x] T-P1-114: Add plan output pydantic validation with retry and error feedback -- 2026-03-08
+- Added `PlanValidationConfig` to config.py with configurable hard/soft limits. `ProposedTask` gains `files` field. `generate_task_plan()` retries up to N times on validation failure with error feedback in prompt. `_validate_plan_structure()` detects dependency cycles via `detect_cycles()`. Soft limits emit warnings. Hard ceiling: max 10 proposed tasks. 25 new tests. 1407 pass, ruff clean.
 
 #### [x] T-P1-113: Extract agent prompts into config template files -- 2026-03-08
 - Created `config/prompts/` with 9 .md template files, `src/prompt_loader.py` with `load_prompt()`/`render_prompt()` (cached, UTF-8). Replaced inline prompt constants in `enrichment.py`, `review_pipeline.py`, `code_executor.py`. 20 new tests. 1383 pass, ruff clean.

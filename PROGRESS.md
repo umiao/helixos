@@ -1212,3 +1212,10 @@
 - **Sanity check result**: TASKS.md only edit, no code changes
 - **Status**: [DONE]
 - **Request**: No change (planning session only)
+
+## 2026-03-08 -- [T-P1-114] Add plan output pydantic validation with retry and error feedback
+- **What I did**: Added `PlanValidationConfig` to `config.py` with configurable hard/soft limits (max_proposed_tasks, soft_max_proposed_tasks, soft_max_steps_per_task, soft_max_files_per_task, max_validation_retries). Added `files` field to `ProposedTask` model. Refactored `generate_task_plan()`: extracted SDK call into `_call_plan_sdk()` helper, added retry loop (max N retries) that feeds validation errors back to LLM prompt on failure. Enhanced `_validate_plan_structure()` with dependency cycle detection via `detect_cycles()`. Added `_check_soft_limits()` for warning-only violations. Added `VALIDATION_FAILURE` error type. Updated JSON schema `maxItems` from 8 to 10. Updated `routes/tasks.py` to pass `plan_validation` config. Added `plan_validation` section to `orchestrator_config.yaml`.
+- **Deliverables**: `src/config.py` (PlanValidationConfig), `src/enrichment.py` (retry loop, cycle detection, soft limits, _call_plan_sdk, _check_soft_limits), `src/routes/tasks.py` (plan_validation param), `orchestrator_config.yaml` (plan_validation section), `tests/test_enrichment.py` (25 new tests), `tests/test_task_generator.py` (updated limits)
+- **Sanity check result**: 1407 tests pass + 6 skipped (25 new), ruff clean. [AUTO-VERIFIED]
+- **Status**: [DONE]
+- **Request**: Move T-P1-114 to Completed

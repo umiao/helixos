@@ -41,6 +41,24 @@ class PortRange(BaseModel):
         return self
 
 
+class PlanValidationConfig(BaseModel):
+    """Configurable limits for plan output validation.
+
+    Hard ceilings cause rejection; soft limits emit warnings only.
+    """
+
+    # Hard ceilings (reject plan if exceeded)
+    max_proposed_tasks: int = Field(default=10, ge=1)
+
+    # Soft limits (log warning, do not reject)
+    soft_max_proposed_tasks: int = Field(default=8, ge=1)
+    soft_max_steps_per_task: int = Field(default=12, ge=1)
+    soft_max_files_per_task: int = Field(default=8, ge=1)
+
+    # Retry settings
+    max_validation_retries: int = Field(default=2, ge=0)
+
+
 class OrchestratorSettings(BaseModel):
     """The ``orchestrator:`` section -- core runtime settings."""
 
@@ -61,6 +79,9 @@ class OrchestratorSettings(BaseModel):
     inactivity_timeout_minutes: int = Field(default=0, ge=0)
     log_retention_days: int = Field(default=30, ge=1)
     stream_log_dir: Path = Path("data/logs")
+    plan_validation: PlanValidationConfig = Field(
+        default_factory=PlanValidationConfig,
+    )
 
     @model_validator(mode="after")
     def _expand_paths(self) -> OrchestratorSettings:
