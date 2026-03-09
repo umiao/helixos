@@ -13,6 +13,7 @@ import { useState } from "react";
 import { confirmGeneratedTasks, deletePlan, generatePlan, rejectPlan } from "../api";
 import type { Task, ProposedTask } from "../types";
 import { planStatePatch } from "../utils/planState";
+import MarkdownRenderer from "./MarkdownRenderer";
 
 interface PlanReviewPanelProps {
   task: Task;
@@ -363,14 +364,20 @@ export default function PlanReviewPanel({
 
       {/* Scrollable content */}
       <div className="flex-1 overflow-y-auto px-4 py-3 space-y-4">
-        {/* Plan summary */}
+        {/* Plan summary -- rendered as markdown (AC2) */}
         <div>
           <h3 className="text-xs font-semibold text-gray-500 uppercase mb-2">Plan Summary</h3>
-          <div className="bg-gray-50 border border-gray-200 rounded-lg p-3">
-            <pre className="text-xs text-gray-700 whitespace-pre-wrap font-sans leading-relaxed">
-              {task.description || "(No plan text)"}
-            </pre>
-          </div>
+          {task.description ? (
+            <MarkdownRenderer
+              content={task.description}
+              maxHeight="none"
+              showSizeToggle={false}
+            />
+          ) : (
+            <div className="bg-gray-50 border border-gray-200 rounded-lg p-3">
+              <span className="text-xs text-gray-400">(No plan text)</span>
+            </div>
+          )}
         </div>
 
         {/* Proposed tasks */}

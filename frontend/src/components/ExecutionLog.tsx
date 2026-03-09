@@ -220,18 +220,33 @@ export default function ExecutionLog({
     }
   };
 
-  const levelColor = (level?: string) => {
-    if (!level) return "text-gray-200";
-    switch (level.toLowerCase()) {
-      case "error":
-        return "text-red-400";
-      case "warn":
-        return "text-yellow-400";
-      case "debug":
-        return "text-gray-400";
-      default:
-        return "text-gray-200";
+  /** Message text color based on level and source for visual hierarchy (AC3). */
+  const messageColor = (level?: string, source?: string) => {
+    // Level takes priority for error/warn
+    if (level) {
+      switch (level.toLowerCase()) {
+        case "error":
+          return "text-red-400";
+        case "warn":
+          return "text-yellow-400";
+        case "debug":
+          return "text-gray-500";
+      }
     }
+    // Source-based coloring for clear visual hierarchy
+    if (source) {
+      switch (source.toLowerCase()) {
+        case "review":
+          return "text-purple-300";
+        case "plan":
+          return "text-violet-300";
+        case "executor":
+          return "text-blue-300";
+        case "scheduler":
+          return "text-cyan-300";
+      }
+    }
+    return "text-gray-200";
   };
 
   const toggleLevel = useCallback((level: string) => {
@@ -278,6 +293,21 @@ export default function ExecutionLog({
         return `${base} bg-gray-600 text-gray-300 ring-1 ring-gray-500`;
       default:
         return `${base} bg-gray-600 text-gray-300 ring-1 ring-gray-500`;
+    }
+  };
+
+  const sourceBadgeClass = (source: string) => {
+    switch (source.toLowerCase()) {
+      case "review":
+        return "bg-purple-900 text-purple-300";
+      case "plan":
+        return "bg-violet-900 text-violet-300";
+      case "scheduler":
+        return "bg-cyan-900 text-cyan-300";
+      case "executor":
+        return "bg-blue-900 text-blue-300";
+      default:
+        return "bg-gray-700 text-gray-300";
     }
   };
 
@@ -423,18 +453,11 @@ export default function ExecutionLog({
               <span className="text-gray-400 whitespace-nowrap shrink-0">
                 {formatTime(entry.timestamp)}
               </span>
-              {entry.source === "review" && (
+              {entry.source && ["review", "plan", "scheduler", "executor"].includes(entry.source) && (
                 <span
-                  className="px-1 rounded text-xs uppercase font-medium shrink-0 bg-purple-900 text-purple-300"
+                  className={`px-1 rounded text-xs uppercase font-medium shrink-0 ${sourceBadgeClass(entry.source)}`}
                 >
-                  review
-                </span>
-              )}
-              {entry.source === "plan" && (
-                <span
-                  className="px-1 rounded text-xs uppercase font-medium shrink-0 bg-violet-900 text-violet-300"
-                >
-                  plan
+                  {entry.source}
                 </span>
               )}
               {entry.level && (
@@ -449,12 +472,12 @@ export default function ExecutionLog({
                   [{entry.task_id}]
                 </span>
               )}
-              {entry.source && entry.source !== "review" && entry.source !== "plan" && (
+              {entry.source && !["review", "plan", "scheduler", "executor"].includes(entry.source) && (
                 <span className="text-gray-500 whitespace-nowrap shrink-0">
                   [{entry.source}]
                 </span>
               )}
-              <span className={levelColor(entry.level)}>
+              <span className={messageColor(entry.level, entry.source)}>
                 {entry.message}
               </span>
             </div>

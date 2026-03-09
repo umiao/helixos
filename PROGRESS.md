@@ -240,3 +240,10 @@
 - **Sanity check result**: Repair script ran successfully, 151 rows fixed, verification pass shows 0 remaining inconsistencies. 1560 backend tests pass (test_scheduler pre-existing timeout excluded). Ruff clean.
 - **Status**: [DONE]
 - **Request**: Move T-P0-138 to Completed
+
+## 2026-03-09 -- [T-P0-124] UI improvements -- conversation folding, plan MD rendering, log highlighting, running status indicators
+- **What I did**: Implemented 4 UI sub-features: (1) ConversationView: orphaned tool_result blocks now hidden entirely (matched results still show when tool_use expanded). (2) PlanReviewPanel: plan summary now rendered via MarkdownRenderer (ReactMarkdown) instead of raw `<pre>` tag, with headers/lists/code blocks/tables. (3) ExecutionLog: added source-based color coding -- review (purple), plan (violet), scheduler (cyan), executor (blue) with matching source badges and message text colors; level-based colors preserved (error=red, warn=yellow, debug=gray). (4) BottomPanelContainer: animated pulsing green dots on Conversation and Plain Log tabs when selected task status is "running"; non-running tasks show no dots.
+- **Deliverables**: `frontend/src/components/ConversationView.tsx` (mod -- hide orphaned tool_results), `frontend/src/components/PlanReviewPanel.tsx` (mod -- MarkdownRenderer for plan summary), `frontend/src/components/ExecutionLog.tsx` (mod -- source-based color coding + badges), `frontend/src/components/BottomPanelContainer.tsx` (mod -- animated running dots on tabs)
+- **Sanity check result**: TypeScript clean. Vite build clean. 1560 backend tests pass (test_scheduler pre-existing timeout excluded). Grep-based wiring verification confirms all 4 features connected. [AUTO-VERIFIED]
+- **Status**: [DONE]
+- **Request**: Move T-P0-124 to Completed

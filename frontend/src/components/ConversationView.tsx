@@ -493,32 +493,9 @@ export default function ConversationView({
               );
             }
 
-            // Orphaned tool_result (no matching tool_use)
+            // Orphaned tool_result (no matching tool_use) -- hidden entirely per AC1
             if (item.type === "tool_result") {
-              const lineCount = (item.resultContent ?? "").split("\n").length;
-              const orphanSummary = `Result${lineCount > 1 ? ` (${lineCount} lines)` : ""}`;
-              const isExpanded = expandedTools.has(item.key);
-
-              return (
-                <div key={item.key} className="rounded border border-gray-600 overflow-hidden ml-2">
-                  <button
-                    onClick={() => toggleExpand(item.key)}
-                    className="flex items-center gap-1.5 w-full px-2 py-1.5 text-xs font-mono cursor-pointer bg-gray-800 text-gray-400 hover:opacity-90 transition-opacity text-left"
-                  >
-                    <span className="flex-shrink-0 text-[10px] opacity-70">{isExpanded ? "\u25BC" : "\u25B6"}</span>
-                    <span className="truncate">{orphanSummary}</span>
-                  </button>
-                  {isExpanded && (
-                    <div className="border-t border-gray-700/50 bg-gray-800/30">
-                      <pre className="p-2 text-xs text-gray-300 font-mono overflow-x-auto whitespace-pre-wrap max-h-48 overflow-y-auto leading-relaxed">
-                        {(item.resultContent ?? "").length > 3000
-                          ? (item.resultContent ?? "").slice(0, 3000) + "\n... (truncated)"
-                          : item.resultContent ?? "(empty)"}
-                      </pre>
-                    </div>
-                  )}
-                </div>
-              );
+              return null;
             }
 
             if (item.type === "result") {

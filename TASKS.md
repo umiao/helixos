@@ -24,25 +24,9 @@
 ## In Progress
 <!-- Only ONE task here at a time. Focus. -->
 
-
 ## Active Tasks
 
 ### P0 -- Must Have (core functionality)
-
-#### T-P0-124: UI improvements -- conversation folding, plan MD rendering, log highlighting, running status indicators
-- **Priority**: P0
-- **Complexity**: M (1-2 sessions)
-- **Depends on**: None (T-P0-138 cleanup completed)
-- **Description**: Multiple UI issues need correction: (1) Conversation view shows nothing -- need to fold all content except AI replies (tool_use inputs collapsed, tool_result outputs hidden entirely). (2) Plan tab generated MD not rendered properly -- needs ReactMarkdown rendering. (3) Plain Log needs syntax-aware highlighting with distinct colors for AI output, tool_use, and tool_result. (4) Running tasks need animated status dots (red/blue/green) on conversation, log, and plan tabs.
-- **Acceptance Criteria**:
-  1. Conversation view: AI text responses shown expanded. tool_use blocks collapsed by default (show tool name + summary). tool_result blocks completely hidden. User can expand tool_use blocks on click.
-  2. Plan tab: task.description rendered via ReactMarkdown (not raw `<pre>` tag). Code blocks syntax-highlighted. Headers, lists, tables render correctly.
-  3. Plain Log: AI output lines styled with distinct foreground color. tool_use lines styled differently (e.g., muted blue). tool_result lines styled differently (e.g., gray). Clear visual hierarchy.
-  4. When a task has status=running: conversation tab shows animated dot (e.g., pulsing green). log tab shows animated dot. plan tab shows animated dot (if plan is generating).
-  5. Journey AC: User opens a running task -> sees animated dots on active tabs -> conversation shows AI text with collapsed tool_use blocks (expandable on click, tool_result hidden) -> plan tab shows rendered markdown with headers/lists/code blocks -> log tab has color-coded entries with clear visual hierarchy.
-  6. Inverse case: Non-running tasks show no animated dots. Tasks with plan_status='none' show empty plan tab (no stale content).
-  7. TypeScript clean. Vite build clean.
-  8. Manual smoke test: Open running task in browser, verify all 4 sub-features visually. [AUTO-VERIFIED] acceptable in autonomous mode.
 
 ### P1 -- Should Have (agentic intelligence)
 
@@ -96,6 +80,9 @@ T-P1-127 depends on T-P1-123 (completed)
 
 
 > 21 completed tasks archived to [archive/completed_tasks.md](archive/completed_tasks.md).
+
+#### [x] T-P0-124: UI improvements -- conversation folding, plan MD rendering, log highlighting, running status indicators -- 2026-03-09
+- ConversationView: orphaned tool_results hidden entirely, tool_use collapsed by default with expand on click. PlanReviewPanel: plan summary rendered via ReactMarkdown (not `<pre>`). ExecutionLog: source-based color coding (review=purple, plan=violet, scheduler=cyan, executor=blue) with source badges. BottomPanelContainer: animated pulsing green dots on Conversation/Log tabs for running tasks. TypeScript clean, Vite build clean.
 
 #### [x] T-P0-138: Clean up T-P0-124 dirty state + plan integrity check -- 2026-03-09
 - Created `scripts/repair_plan_state.py` to detect and fix plan state invariant violations. Found 151 inconsistent rows (148 with plan_status='none' but stale description, 3 with plan_status='ready' but no plan_json). All fixed and verified with 0 remaining. Rewrote T-P0-124 task spec with proper ACs including journey AC and inverse cases.

@@ -58,6 +58,8 @@ export default function BottomPanelContainer({
     selectedTask.plan_status === "generating" ||
     selectedTask.plan_status === "failed"
   );
+  // Show animated dot on Conversation/Log tabs when task is running (AC4)
+  const isRunning = selectedTask?.status === "running";
   return (
     <>
       {/* Panel tabs */}
@@ -71,7 +73,9 @@ export default function BottomPanelContainer({
           }`}
           title="View structured conversation from task execution"
         >
-          Conversation
+          Conversation{isRunning ? (
+            <span className="ml-1 inline-block w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse" />
+          ) : null}
         </button>
         <button
           onClick={() => { setBottomPanel("log"); setViewMode("log"); }}
@@ -82,7 +86,9 @@ export default function BottomPanelContainer({
           }`}
           title="View plain execution log entries"
         >
-          Plain Log
+          Plain Log{isRunning ? (
+            <span className="ml-1 inline-block w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse" />
+          ) : null}
         </button>
         <button
           onClick={() => setBottomPanel("review")}
