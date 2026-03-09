@@ -16,33 +16,10 @@ from pathlib import Path
 
 from src.config import OrchestratorConfig, ProjectConfig, ProjectRegistry
 from src.db import TaskRow, get_session
-from src.models import ExecutorType, Task, TaskStatus
+from src.models import ExecutorType
 from src.sync.tasks_parser import sync_project_tasks
 from src.task_manager import TaskManager, UpsertResult
-
-# ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
-
-
-def _make_task(
-    task_id: str = "P0:T-P0-1",
-    project_id: str = "P0",
-    local_task_id: str = "T-P0-1",
-    title: str = "Test task",
-    status: TaskStatus = TaskStatus.BACKLOG,
-    **kwargs,
-) -> Task:
-    """Create a Task with sensible defaults."""
-    return Task(
-        id=task_id,
-        project_id=project_id,
-        local_task_id=local_task_id,
-        title=title,
-        status=status,
-        executor_type=kwargs.pop("executor_type", ExecutorType.CODE),
-        **kwargs,
-    )
+from tests.factories import make_task
 
 
 def _make_registry(
@@ -75,7 +52,7 @@ class TestDeleteTaskSource:
     async def test_delete_sets_user_source(self, session_factory) -> None:
         """delete_task() should set deleted_source='user'."""
         tm = TaskManager(session_factory)
-        await tm.create_task(_make_task())
+        await tm.create_task(make_task())
         await tm.delete_task("P0:T-P0-1")
 
         # Check DB row directly
@@ -97,10 +74,10 @@ class TestUpsertSkipsUserDeleted:
     async def test_upsert_skips_user_deleted(self, session_factory) -> None:
         """User-deleted task should return SKIPPED_DELETED on upsert."""
         tm = TaskManager(session_factory)
-        await tm.create_task(_make_task())
+        await tm.create_task(make_task())
         await tm.delete_task("P0:T-P0-1")
 
-        result = await tm.upsert_task(_make_task(title="Updated"))
+        result = await tm.upsert_task(make_task(title="Updated"))
         assert result == UpsertResult.skipped_deleted
 
         # Task should still be deleted
@@ -109,7 +86,7 @@ class TestUpsertSkipsUserDeleted:
     async def test_upsert_resurrects_sync_deleted(self, session_factory) -> None:
         """Sync-deleted task should be resurrected on upsert."""
         tm = TaskManager(session_factory)
-        await tm.create_task(_make_task())
+        await tm.create_task(make_task())
 
         # Manually mark as sync-deleted
         async with get_session(session_factory) as session:
@@ -117,7 +94,7 @@ class TestUpsertSkipsUserDeleted:
             row.is_deleted = True
             row.deleted_source = "sync"
 
-        result = await tm.upsert_task(_make_task(title="Resurrected"))
+        result = await tm.upsert_task(make_task(title="Resurrected"))
         assert result == UpsertResult.resurrected
 
         task = await tm.get_task("P0:T-P0-1")
@@ -127,7 +104,7 @@ class TestUpsertSkipsUserDeleted:
     async def test_upsert_resurrects_legacy_deleted(self, session_factory) -> None:
         """Legacy deleted task (deleted_source=NULL) should be resurrected."""
         tm = TaskManager(session_factory)
-        await tm.create_task(_make_task())
+        await tm.create_task(make_task())
 
         # Manually mark as deleted with no source (legacy)
         async with get_session(session_factory) as session:
@@ -135,7 +112,7 @@ class TestUpsertSkipsUserDeleted:
             row.is_deleted = True
             row.deleted_source = None
 
-        result = await tm.upsert_task(_make_task(title="Legacy resurrect"))
+        result = await tm.upsert_task(make_task(title="Legacy resurrect"))
         assert result == UpsertResult.resurrected
 
         task = await tm.get_task("P0:T-P0-1")
@@ -145,7 +122,7 @@ class TestUpsertSkipsUserDeleted:
     async def test_resurrection_clears_deleted_source(self, session_factory) -> None:
         """After resurrection, deleted_source should be cleared."""
         tm = TaskManager(session_factory)
-        await tm.create_task(_make_task())
+        await tm.create_task(make_task())
 
         # Sync-delete
         async with get_session(session_factory) as session:
@@ -153,7 +130,7 @@ class TestUpsertSkipsUserDeleted:
             row.is_deleted = True
             row.deleted_source = "sync"
 
-        await tm.upsert_task(_make_task())
+        await tm.upsert_task(make_task())
 
         async with get_session(session_factory) as session:
             row = await session.get(TaskRow, "P0:T-P0-1")
@@ -172,9 +149,9 @@ class TestSyncMarkRemoved:
     async def test_mark_removed_tasks(self, session_factory) -> None:
         """Tasks not in parsed_ids should be sync-deleted."""
         tm = TaskManager(session_factory)
-        await tm.create_task(_make_task(task_id="P0:T-P0-1", local_task_id="T-P0-1"))
-        await tm.create_task(_make_task(task_id="P0:T-P0-2", local_task_id="T-P0-2"))
-        await tm.create_task(_make_task(task_id="P0:T-P0-3", local_task_id="T-P0-3"))
+        await tm.create_task(make_task(task_id="P0:T-P0-1", local_task_id="T-P0-1"))
+        await tm.create_task(make_task(task_id="P0:T-P0-2", local_task_id="T-P0-2"))
+        await tm.create_task(make_task(task_id="P0:T-P0-3", local_task_id="T-P0-3"))
 
         count = await tm.sync_mark_removed("P0", {"P0:T-P0-1"})
         assert count == 2
@@ -195,8 +172,8 @@ class TestSyncMarkRemoved:
     async def test_mark_removed_skips_already_deleted(self, session_factory) -> None:
         """Already-deleted tasks should not be double-deleted."""
         tm = TaskManager(session_factory)
-        await tm.create_task(_make_task(task_id="P0:T-P0-1", local_task_id="T-P0-1"))
-        await tm.create_task(_make_task(task_id="P0:T-P0-2", local_task_id="T-P0-2"))
+        await tm.create_task(make_task(task_id="P0:T-P0-1", local_task_id="T-P0-1"))
+        await tm.create_task(make_task(task_id="P0:T-P0-2", local_task_id="T-P0-2"))
 
         # User-delete T-P0-2
         await tm.delete_task("P0:T-P0-2")
@@ -207,8 +184,8 @@ class TestSyncMarkRemoved:
     async def test_mark_removed_does_not_touch_other_projects(self, session_factory) -> None:
         """sync_mark_removed should only affect the specified project."""
         tm = TaskManager(session_factory)
-        await tm.create_task(_make_task(task_id="P0:T-P0-1", project_id="P0", local_task_id="T-P0-1"))
-        await tm.create_task(_make_task(task_id="P1:T-P0-1", project_id="P1", local_task_id="T-P0-1"))
+        await tm.create_task(make_task(task_id="P0:T-P0-1", project_id="P0", local_task_id="T-P0-1"))
+        await tm.create_task(make_task(task_id="P1:T-P0-1", project_id="P1", local_task_id="T-P0-1"))
 
         count = await tm.sync_mark_removed("P0", set())
         assert count == 1
@@ -230,7 +207,7 @@ class TestSyncSkippedCount:
         tm = TaskManager(session_factory)
 
         # Create and user-delete a task
-        await tm.create_task(_make_task(task_id="P0:T-P0-1", local_task_id="T-P0-1"))
+        await tm.create_task(make_task(task_id="P0:T-P0-1", local_task_id="T-P0-1"))
         await tm.delete_task("P0:T-P0-1")
 
         # Write TASKS.md with the same task ID
@@ -333,7 +310,7 @@ class TestDeletedSourceMigration:
     async def test_deleted_source_column_exists(self, session_factory) -> None:
         """TaskRow should have deleted_source column defaulting to NULL."""
         tm = TaskManager(session_factory)
-        await tm.create_task(_make_task())
+        await tm.create_task(make_task())
 
         async with get_session(session_factory) as session:
             row = await session.get(TaskRow, "P0:T-P0-1")

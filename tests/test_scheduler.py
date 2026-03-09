@@ -17,6 +17,7 @@ from src.executors.code_executor import CodeExecutor
 from src.models import ExecutorType, Project, Task, TaskStatus
 from src.scheduler import RETRY_BACKOFF_SECONDS, Scheduler, validate_dependency_graph
 from src.task_manager import TaskManager, extract_priority
+from tests.factories import make_task
 
 # ---------------------------------------------------------------------------
 # Mock executor
@@ -160,25 +161,6 @@ def _make_config(
     return config
 
 
-def _make_task(
-    task_id: str = "proj:t1",
-    project_id: str = "proj",
-    local_task_id: str = "t1",
-    title: str = "Test Task",
-    status: TaskStatus = TaskStatus.QUEUED,
-    depends_on: list[str] | None = None,
-) -> Task:
-    """Build a Task for testing."""
-    return Task(
-        id=task_id,
-        project_id=project_id,
-        local_task_id=local_task_id,
-        title=title,
-        status=status,
-        executor_type=ExecutorType.CODE,
-        depends_on=depends_on or [],
-    )
-
 
 def _track_events(event_bus: EventBus) -> list[tuple[str, str, object]]:
     """Wrap event_bus.emit to track emitted events."""
@@ -233,7 +215,7 @@ class TestSchedulerTick:
         mock_exec = MockExecutor()
         scheduler._get_executor = lambda _: mock_exec
 
-        task = _make_task()
+        task = make_task("proj:t1", "proj", "t1", "Test Task", TaskStatus.QUEUED)
         await task_manager.create_task(task)
 
         await scheduler.tick()
@@ -285,7 +267,7 @@ class TestSchedulerTick:
         mock_exec = MockExecutor(result=fail_result)
         scheduler._get_executor = lambda _: mock_exec
 
-        task = _make_task()
+        task = make_task("proj:t1", "proj", "t1", "Test Task", TaskStatus.QUEUED)
         await task_manager.create_task(task)
 
         await scheduler.tick()
@@ -324,7 +306,7 @@ class TestSchedulerTick:
 
         scheduler._get_executor = lambda _: CrashingExecutor()
 
-        task = _make_task()
+        task = make_task("proj:t1", "proj", "t1", "Test Task", TaskStatus.QUEUED)
         await task_manager.create_task(task)
 
         await scheduler.tick()
@@ -347,7 +329,7 @@ class TestSchedulerTick:
         mock_exec = MockExecutor()
         scheduler._get_executor = lambda _: mock_exec
 
-        task = _make_task()
+        task = make_task("proj:t1", "proj", "t1", "Test Task", TaskStatus.QUEUED)
         await task_manager.create_task(task)
 
         await scheduler.tick()
@@ -402,8 +384,8 @@ class TestConcurrency:
         scheduler._get_executor = lambda _: hanging_exec
 
         # Create 2 QUEUED tasks for same project
-        await task_manager.create_task(_make_task("proj:a", "proj", "a", "Task A"))
-        await task_manager.create_task(_make_task("proj:b", "proj", "b", "Task B"))
+        await task_manager.create_task(make_task("proj:a", "proj", "a", "Task A", TaskStatus.QUEUED))
+        await task_manager.create_task(make_task("proj:b", "proj", "b", "Task B", TaskStatus.QUEUED))
 
         await scheduler.tick()
 
@@ -442,8 +424,8 @@ class TestConcurrency:
         hanging_exec = MockExecutor(hang=True)
         scheduler._get_executor = lambda _: hanging_exec
 
-        await task_manager.create_task(_make_task("p1:a", "p1", "a", "P1-A"))
-        await task_manager.create_task(_make_task("p2:a", "p2", "a", "P2-A"))
+        await task_manager.create_task(make_task("p1:a", "p1", "a", "P1-A", TaskStatus.QUEUED))
+        await task_manager.create_task(make_task("p2:a", "p2", "a", "P2-A", TaskStatus.QUEUED))
 
         await scheduler.tick()
         # Let the execution task start (it was scheduled but not yet running)
@@ -497,7 +479,7 @@ class TestConcurrency:
         scheduler._get_executor = lambda _: mock_exec
 
         await task_manager.create_task(
-            _make_task("manual:t1", "manual", "t1", "Manual Task")
+            make_task("manual:t1", "manual", "t1", "Manual Task", TaskStatus.QUEUED)
         )
 
         await scheduler.tick()
@@ -520,11 +502,11 @@ class TestDependencies:
         scheduler._get_executor = lambda _: mock_exec
 
         # Task B is QUEUED (not DONE)
-        dep_task = _make_task("proj:dep", "proj", "dep", "Dependency")
+        dep_task = make_task("proj:dep", "proj", "dep", "Dependency", TaskStatus.QUEUED)
         await task_manager.create_task(dep_task)
 
         # Task A depends on B
-        task = _make_task("proj:main", "proj", "main", "Main", depends_on=["proj:dep"])
+        task = make_task("proj:main", "proj", "main", "Main", TaskStatus.QUEUED, depends_on=["proj:dep"])
         await task_manager.create_task(task)
 
         await scheduler.tick()
@@ -547,15 +529,15 @@ class TestDependencies:
         scheduler._get_executor = lambda _: mock_exec
 
         # Create dependency task and manually set it to DONE
-        dep_task = _make_task("proj:dep", "proj", "dep", "Dependency")
+        dep_task = make_task("proj:dep", "proj", "dep", "Dependency", TaskStatus.QUEUED)
         await task_manager.create_task(dep_task)
         # Transition: QUEUED -> RUNNING -> DONE
         await task_manager.update_status("proj:dep", TaskStatus.RUNNING)
         await task_manager.update_status("proj:dep", TaskStatus.DONE)
 
         # Task that depends on the completed dep
-        task = _make_task(
-            "proj:main", "proj", "main", "Main Task", depends_on=["proj:dep"]
+        task = make_task(
+            "proj:main", "proj", "main", "Main Task", TaskStatus.QUEUED, depends_on=["proj:dep"]
         )
         await task_manager.create_task(task)
 
@@ -578,8 +560,8 @@ class TestDependencies:
         mock_exec = MockExecutor()
         scheduler._get_executor = lambda _: mock_exec
 
-        task = _make_task(
-            "proj:t1", "proj", "t1", "Task",
+        task = make_task(
+            "proj:t1", "proj", "t1", "Task", TaskStatus.QUEUED,
             depends_on=["proj:nonexistent"],
         )
         await task_manager.create_task(task)
@@ -669,7 +651,7 @@ class TestProjectIsBusy:
         scheduler, task_manager, _eb, _emitted = scheduler_env
 
         # Create and set a task to RUNNING
-        task = _make_task()
+        task = make_task("proj:t1", "proj", "t1", "Test Task", TaskStatus.QUEUED)
         await task_manager.create_task(task)
         await task_manager.update_status("proj:t1", TaskStatus.RUNNING)
 
@@ -692,29 +674,29 @@ class TestDepsFulfilled:
     async def test_no_deps(self, scheduler_env) -> None:
         """Task with no dependencies should always be fulfilled."""
         scheduler, _tm, _eb, _emitted = scheduler_env
-        task = _make_task(depends_on=[])
+        task = make_task("proj:t1", "proj", "t1", "Test Task", TaskStatus.QUEUED, depends_on=[])
         assert await scheduler._deps_fulfilled(task)
 
     async def test_all_deps_done(self, scheduler_env) -> None:
         """All deps DONE -> fulfilled."""
         scheduler, task_manager, _eb, _emitted = scheduler_env
 
-        dep = _make_task("proj:dep", "proj", "dep", "Dep")
+        dep = make_task("proj:dep", "proj", "dep", "Dep", TaskStatus.QUEUED)
         await task_manager.create_task(dep)
         await task_manager.update_status("proj:dep", TaskStatus.RUNNING)
         await task_manager.update_status("proj:dep", TaskStatus.DONE)
 
-        task = _make_task(depends_on=["proj:dep"])
+        task = make_task("proj:t1", "proj", "t1", "Test Task", TaskStatus.QUEUED, depends_on=["proj:dep"])
         assert await scheduler._deps_fulfilled(task)
 
     async def test_dep_not_done(self, scheduler_env) -> None:
         """Dep not DONE -> not fulfilled."""
         scheduler, task_manager, _eb, _emitted = scheduler_env
 
-        dep = _make_task("proj:dep", "proj", "dep", "Dep")
+        dep = make_task("proj:dep", "proj", "dep", "Dep", TaskStatus.QUEUED)
         await task_manager.create_task(dep)
 
-        task = _make_task(depends_on=["proj:dep"])
+        task = make_task("proj:t1", "proj", "t1", "Test Task", TaskStatus.QUEUED, depends_on=["proj:dep"])
         assert not await scheduler._deps_fulfilled(task)
 
 
@@ -737,7 +719,7 @@ class TestRetry:
         exec_instance = FailThenSucceedExecutor(fail_count=1)
         scheduler._get_executor = lambda _: exec_instance
 
-        task = _make_task()
+        task = make_task("proj:t1", "proj", "t1", "Test Task", TaskStatus.QUEUED)
         await task_manager.create_task(task)
 
         await scheduler.tick()
@@ -766,7 +748,7 @@ class TestRetry:
         exec_instance = FailThenSucceedExecutor(fail_count=2)
         scheduler._get_executor = lambda _: exec_instance
 
-        task = _make_task()
+        task = make_task("proj:t1", "proj", "t1", "Test Task", TaskStatus.QUEUED)
         await task_manager.create_task(task)
 
         await scheduler.tick()
@@ -799,7 +781,7 @@ class TestRetry:
         mock_exec = MockExecutor(result=fail_result)
         scheduler._get_executor = lambda _: mock_exec
 
-        task = _make_task()
+        task = make_task("proj:t1", "proj", "t1", "Test Task", TaskStatus.QUEUED)
         await task_manager.create_task(task)
 
         await scheduler.tick()
@@ -834,7 +816,7 @@ class TestRetry:
         mock_exec = MockExecutor(result=fail_result)
         scheduler._get_executor = lambda _: mock_exec
 
-        task = _make_task()
+        task = make_task("proj:t1", "proj", "t1", "Test Task", TaskStatus.QUEUED)
         await task_manager.create_task(task)
 
         await scheduler.tick()
@@ -861,7 +843,7 @@ class TestRetry:
         mock_exec = MockExecutor(result=fail_result)
         scheduler._get_executor = lambda _: mock_exec
 
-        task = _make_task()
+        task = make_task("proj:t1", "proj", "t1", "Test Task", TaskStatus.QUEUED)
         await task_manager.create_task(task)
 
         await scheduler.tick()
@@ -890,7 +872,7 @@ class TestRetry:
         mock_exec = MockExecutor()  # Default: success
         scheduler._get_executor = lambda _: mock_exec
 
-        task = _make_task()
+        task = make_task("proj:t1", "proj", "t1", "Test Task", TaskStatus.QUEUED)
         await task_manager.create_task(task)
 
         await scheduler.tick()
@@ -916,7 +898,7 @@ class TestStartupRecovery:
         scheduler, task_manager, _eb, emitted = scheduler_env
 
         # Create a task and move to RUNNING
-        task = _make_task()
+        task = make_task("proj:t1", "proj", "t1", "Test Task", TaskStatus.QUEUED)
         await task_manager.create_task(task)
         await task_manager.update_status("proj:t1", TaskStatus.RUNNING)
 
@@ -935,8 +917,8 @@ class TestStartupRecovery:
         scheduler, task_manager, _eb, emitted = scheduler_env
 
         # Create two tasks in RUNNING state
-        t1 = _make_task("proj:t1", "proj", "t1", "Task 1")
-        t2 = _make_task("proj:t2", "proj", "t2", "Task 2")
+        t1 = make_task("proj:t1", "proj", "t1", "Task 1", TaskStatus.QUEUED)
+        t2 = make_task("proj:t2", "proj", "t2", "Task 2", TaskStatus.QUEUED)
         await task_manager.create_task(t1)
         await task_manager.create_task(t2)
         await task_manager.update_status("proj:t1", TaskStatus.RUNNING)
@@ -972,8 +954,8 @@ class TestStartupRecovery:
         scheduler, task_manager, _eb, _emitted = scheduler_env
 
         # One QUEUED, one RUNNING
-        t1 = _make_task("proj:q1", "proj", "q1", "Queued Task")
-        t2 = _make_task("proj:r1", "proj", "r1", "Running Task")
+        t1 = make_task("proj:q1", "proj", "q1", "Queued Task", TaskStatus.QUEUED)
+        t2 = make_task("proj:r1", "proj", "r1", "Running Task", TaskStatus.QUEUED)
         await task_manager.create_task(t1)
         await task_manager.create_task(t2)
         await task_manager.update_status("proj:r1", TaskStatus.RUNNING)
@@ -1014,7 +996,7 @@ class TestCancelTask:
         hanging_exec = MockExecutor(hang=True)
         scheduler._get_executor = lambda _: hanging_exec
 
-        task = _make_task()
+        task = make_task("proj:t1", "proj", "t1", "Test Task", TaskStatus.QUEUED)
         await task_manager.create_task(task)
 
         await scheduler.tick()
@@ -1079,7 +1061,7 @@ class TestCancelTask:
         hanging_cancel_exec = HangingCancelExecutor()
         scheduler._get_executor = lambda _: hanging_cancel_exec
 
-        task = _make_task()
+        task = make_task("proj:t1", "proj", "t1", "Test Task", TaskStatus.QUEUED)
         await task_manager.create_task(task)
 
         await scheduler.tick()
@@ -1118,7 +1100,7 @@ class TestCancelTask:
         hanging_exec = MockExecutor(hang=True)
         scheduler._get_executor = lambda _: hanging_exec
 
-        task = _make_task()
+        task = make_task("proj:t1", "proj", "t1", "Test Task", TaskStatus.QUEUED)
         await task_manager.create_task(task)
 
         await scheduler.tick()
@@ -1136,7 +1118,7 @@ class TestCancelTask:
         hanging_exec = MockExecutor(hang=True)
         scheduler._get_executor = lambda _: hanging_exec
 
-        task = _make_task()
+        task = make_task("proj:t1", "proj", "t1", "Test Task", TaskStatus.QUEUED)
         await task_manager.create_task(task)
 
         await scheduler.tick()
@@ -1156,7 +1138,7 @@ class TestCancelTask:
         scheduler, task_manager, _eb, _emitted = scheduler_env
 
         # Create a task but don't start it
-        task = _make_task(status=TaskStatus.BACKLOG)
+        task = make_task("proj:t1", "proj", "t1", "Test Task", TaskStatus.BACKLOG)
         await task_manager.create_task(task)
 
         result = await scheduler.cancel_task("proj:t1")
@@ -1192,7 +1174,7 @@ class TestAutoCommitHook:
         mock_exec = MockExecutor()
         scheduler._get_executor = lambda _: mock_exec
 
-        task = _make_task()
+        task = make_task("proj:t1", "proj", "t1", "Test Task", TaskStatus.QUEUED)
         await task_manager.create_task(task)
 
         await scheduler.tick()
@@ -1224,7 +1206,7 @@ class TestAutoCommitHook:
         mock_exec = MockExecutor(result=fail_result)
         scheduler._get_executor = lambda _: mock_exec
 
-        task = _make_task()
+        task = make_task("proj:t1", "proj", "t1", "Test Task", TaskStatus.QUEUED)
         await task_manager.create_task(task)
 
         await scheduler.tick()
@@ -1347,7 +1329,7 @@ class TestErrorDetailsInAlerts:
         mock_exec = MockExecutor(result=fail_result)
         scheduler._get_executor = lambda _: mock_exec
 
-        task = _make_task()
+        task = make_task("proj:t1", "proj", "t1", "Test Task", TaskStatus.QUEUED)
         await task_manager.create_task(task)
 
         await scheduler.tick()
@@ -1380,7 +1362,7 @@ class TestErrorDetailsInAlerts:
 
         scheduler._get_executor = lambda _: CrashingExecutor()
 
-        task = _make_task()
+        task = make_task("proj:t1", "proj", "t1", "Test Task", TaskStatus.QUEUED)
         await task_manager.create_task(task)
 
         await scheduler.tick()
@@ -1412,7 +1394,7 @@ class TestErrorDetailsInAlerts:
         mock_exec = MockExecutor(result=fail_result)
         scheduler._get_executor = lambda _: mock_exec
 
-        task = _make_task()
+        task = make_task("proj:t1", "proj", "t1", "Test Task", TaskStatus.QUEUED)
         await task_manager.create_task(task)
 
         await scheduler.tick()
@@ -1444,7 +1426,7 @@ class TestSchedulerPauseResume:
         mock_exec = MockExecutor()
         scheduler._get_executor = lambda _: mock_exec
 
-        task = _make_task()
+        task = make_task("proj:t1", "proj", "t1", "Test Task", TaskStatus.QUEUED)
         await task_manager.create_task(task)
 
         await scheduler.pause_project("proj")
@@ -1462,7 +1444,7 @@ class TestSchedulerPauseResume:
         mock_exec = MockExecutor()
         scheduler._get_executor = lambda _: mock_exec
 
-        task = _make_task()
+        task = make_task("proj:t1", "proj", "t1", "Test Task", TaskStatus.QUEUED)
         await task_manager.create_task(task)
 
         await scheduler.pause_project("proj")
@@ -1518,7 +1500,7 @@ class TestSchedulerPauseResume:
         hang_exec = MockExecutor(hang=True)
         scheduler._get_executor = lambda _: hang_exec
 
-        task = _make_task()
+        task = make_task("proj:t1", "proj", "t1", "Test Task", TaskStatus.QUEUED)
         await task_manager.create_task(task)
 
         # Start the task
@@ -1627,7 +1609,7 @@ class TestTimeoutRaceGuards:
         mock_exec = MockExecutor()
         scheduler._get_executor = lambda _: mock_exec
 
-        task = _make_task()
+        task = make_task("proj:t1", "proj", "t1", "Test Task", TaskStatus.QUEUED)
         await task_manager.create_task(task)
 
         await scheduler.tick()
@@ -1657,7 +1639,7 @@ class TestTimeoutRaceGuards:
         # Simulate: the guard in the success path should detect DONE
         # and skip the transition.  We verify this by checking that a second
         # execution with success=True doesn't crash.
-        task_for_exec = _make_task(task_id="proj:t2", local_task_id="t2")
+        task_for_exec = make_task(task_id="proj:t2", project_id="proj", local_task_id="t2", status=TaskStatus.QUEUED)
         await task_manager.create_task(task_for_exec)
 
         # Pre-transition to DONE manually to simulate the race
@@ -1704,7 +1686,7 @@ class TestTimeoutRaceGuards:
         mock_exec = MockExecutor(result=fail_result)
         scheduler._get_executor = lambda _: mock_exec
 
-        task = _make_task(task_id="proj:t3", local_task_id="t3")
+        task = make_task(task_id="proj:t3", project_id="proj", local_task_id="t3", status=TaskStatus.QUEUED)
         await task_manager.create_task(task)
 
         # Transition to RUNNING, then immediately to DONE (simulating
@@ -1774,8 +1756,8 @@ class TestImmediateDispatch:
         scheduler._get_executor = lambda _: TimingExecutor()
 
         # concurrency=1 for the project, so only one at a time
-        task_a = _make_task(task_id="proj:a", local_task_id="a", title="Task A")
-        task_b = _make_task(task_id="proj:b", local_task_id="b", title="Task B")
+        task_a = make_task(task_id="proj:a", project_id="proj", local_task_id="a", title="Task A", status=TaskStatus.QUEUED)
+        task_b = make_task(task_id="proj:b", project_id="proj", local_task_id="b", title="Task B", status=TaskStatus.QUEUED)
         await task_manager.create_task(task_a)
         await task_manager.create_task(task_b)
 
@@ -1837,8 +1819,8 @@ class TestImmediateDispatch:
         scheduler._get_executor = lambda _: SlotExecutor()
 
         # Project max_concurrency=1, so only one task at a time
-        task_a = _make_task(task_id="proj:a", local_task_id="a", title="Task A")
-        task_b = _make_task(task_id="proj:b", local_task_id="b", title="Task B")
+        task_a = make_task(task_id="proj:a", project_id="proj", local_task_id="a", title="Task A", status=TaskStatus.QUEUED)
+        task_b = make_task(task_id="proj:b", project_id="proj", local_task_id="b", title="Task B", status=TaskStatus.QUEUED)
         await task_manager.create_task(task_a)
         await task_manager.create_task(task_b)
 
@@ -1908,7 +1890,7 @@ class TestImmediateDispatch:
 
         # Create 3 tasks: a and b run concurrently, c waits
         for tid in ("a", "b", "c"):
-            t = _make_task(task_id=f"proj:{tid}", local_task_id=tid, title=f"Task {tid}")
+            t = make_task(task_id=f"proj:{tid}", project_id="proj", local_task_id=tid, title=f"Task {tid}", status=TaskStatus.QUEUED)
             await task_manager.create_task(t)
 
         # Dispatch a and b
@@ -1951,7 +1933,7 @@ class TestImmediateDispatch:
         mock_exec = MockExecutor()
         scheduler._get_executor = lambda _: mock_exec
 
-        task = _make_task()
+        task = make_task("proj:t1", "proj", "t1", "Test Task", TaskStatus.QUEUED)
         await task_manager.create_task(task)
 
         # First tick should raise inside the lock
@@ -1986,7 +1968,7 @@ class TestSchedulerEpochId:
         mock_exec = MockExecutor(hang=True)
         scheduler._get_executor = lambda _: mock_exec
 
-        task = _make_task()
+        task = make_task("proj:t1", "proj", "t1", "Test Task", TaskStatus.QUEUED)
         await task_manager.create_task(task)
 
         await scheduler.tick()
@@ -2012,7 +1994,7 @@ class TestSchedulerEpochId:
         mock_exec = MockExecutor(hang=True)
         scheduler._get_executor = lambda _: mock_exec
 
-        task = _make_task()
+        task = make_task("proj:t1", "proj", "t1", "Test Task", TaskStatus.QUEUED)
         await task_manager.create_task(task)
 
         await scheduler.tick()
@@ -2046,7 +2028,7 @@ class TestSchedulerEpochId:
         mock_exec = MockExecutor()
         scheduler._get_executor = lambda _: mock_exec
 
-        task = _make_task()
+        task = make_task("proj:t1", "proj", "t1", "Test Task", TaskStatus.QUEUED)
         await task_manager.create_task(task)
 
         await scheduler.tick()
@@ -2082,7 +2064,7 @@ class TestSchedulerEpochId:
 
         scheduler._get_executor = lambda _: fail_exec
 
-        task = _make_task()
+        task = make_task("proj:t1", "proj", "t1", "Test Task", TaskStatus.QUEUED)
         await task_manager.create_task(task)
 
         await scheduler.tick()
@@ -2123,12 +2105,12 @@ class TestPriorityScheduling:
         scheduler._get_executor = lambda _: mock_exec
 
         # Create P2 first (earlier created_at), then P0
-        t_p2 = _make_task(
-            "proj:T-P2-1", "proj", "T-P2-1", "Low priority",
+        t_p2 = make_task(
+            "proj:T-P2-1", "proj", "T-P2-1", "Low priority", TaskStatus.QUEUED,
         )
         await task_manager.create_task(t_p2)
-        t_p0 = _make_task(
-            "proj:T-P0-1", "proj", "T-P0-1", "High priority",
+        t_p0 = make_task(
+            "proj:T-P0-1", "proj", "T-P0-1", "High priority", TaskStatus.QUEUED,
         )
         await task_manager.create_task(t_p0)
 
@@ -2152,20 +2134,20 @@ class TestPriorityScheduling:
         scheduler._get_executor = lambda _: mock_exec
 
         # P0 depends on a task that is not DONE
-        dep_task = _make_task(
+        dep_task = make_task(
             "proj:T-P0-dep", "proj", "T-P0-dep", "Dependency",
             status=TaskStatus.BACKLOG,
         )
         await task_manager.create_task(dep_task)
 
-        t_p0 = _make_task(
-            "proj:T-P0-1", "proj", "T-P0-1", "High with dep",
+        t_p0 = make_task(
+            "proj:T-P0-1", "proj", "T-P0-1", "High with dep", TaskStatus.QUEUED,
             depends_on=["proj:T-P0-dep"],
         )
         await task_manager.create_task(t_p0)
 
-        t_p1 = _make_task(
-            "proj:T-P1-1", "proj", "T-P1-1", "Medium no dep",
+        t_p1 = make_task(
+            "proj:T-P1-1", "proj", "T-P1-1", "Medium no dep", TaskStatus.QUEUED,
         )
         await task_manager.create_task(t_p1)
 
@@ -2202,9 +2184,9 @@ class TestPriorityScheduling:
         scheduler._get_executor = lambda _: TrackingExecutor()
 
         # Create tasks in reverse priority order (P2 first, P0 last)
-        t_p2 = _make_task("proj:T-P2-1", "proj", "T-P2-1", "Low")
-        t_p1 = _make_task("proj:T-P1-1", "proj", "T-P1-1", "Med")
-        t_p0 = _make_task("proj:T-P0-1", "proj", "T-P0-1", "High")
+        t_p2 = make_task("proj:T-P2-1", "proj", "T-P2-1", "Low", TaskStatus.QUEUED)
+        t_p1 = make_task("proj:T-P1-1", "proj", "T-P1-1", "Med", TaskStatus.QUEUED)
+        t_p0 = make_task("proj:T-P0-1", "proj", "T-P0-1", "High", TaskStatus.QUEUED)
         await task_manager.create_task(t_p2)
         await task_manager.create_task(t_p1)
         await task_manager.create_task(t_p0)
@@ -2244,8 +2226,8 @@ class TestDependencyGraphValidation:
     def test_no_deps_no_errors(self) -> None:
         """Tasks with no dependencies produce no errors."""
         tasks = [
-            _make_task("proj:t1", depends_on=[]),
-            _make_task("proj:t2", "proj", "t2", depends_on=[]),
+            make_task("proj:t1", depends_on=[]),
+            make_task("proj:t2", "proj", "t2", depends_on=[]),
         ]
         missing, cycles = validate_dependency_graph(tasks)
         assert missing == []
@@ -2254,8 +2236,8 @@ class TestDependencyGraphValidation:
     def test_valid_deps_no_errors(self) -> None:
         """Tasks with valid dependency references produce no errors."""
         tasks = [
-            _make_task("proj:t1", depends_on=[]),
-            _make_task("proj:t2", "proj", "t2", depends_on=["proj:t1"]),
+            make_task("proj:t1", depends_on=[]),
+            make_task("proj:t2", "proj", "t2", depends_on=["proj:t1"]),
         ]
         missing, cycles = validate_dependency_graph(tasks)
         assert missing == []
@@ -2264,7 +2246,7 @@ class TestDependencyGraphValidation:
     def test_missing_reference_detected(self) -> None:
         """A dependency on a non-existent task ID is reported."""
         tasks = [
-            _make_task("proj:t1", depends_on=["proj:nonexistent"]),
+            make_task("proj:t1", depends_on=["proj:nonexistent"]),
         ]
         missing, cycles = validate_dependency_graph(tasks)
         assert len(missing) == 1
@@ -2274,8 +2256,8 @@ class TestDependencyGraphValidation:
     def test_circular_dep_two_tasks(self) -> None:
         """Circular dependency A->B->A is detected."""
         tasks = [
-            _make_task("proj:a", "proj", "a", depends_on=["proj:b"]),
-            _make_task("proj:b", "proj", "b", depends_on=["proj:a"]),
+            make_task("proj:a", "proj", "a", depends_on=["proj:b"]),
+            make_task("proj:b", "proj", "b", depends_on=["proj:a"]),
         ]
         missing, cycles = validate_dependency_graph(tasks)
         assert missing == []
@@ -2290,9 +2272,9 @@ class TestDependencyGraphValidation:
     def test_circular_dep_three_tasks(self) -> None:
         """Circular dependency A->B->C->A is detected."""
         tasks = [
-            _make_task("proj:a", "proj", "a", depends_on=["proj:b"]),
-            _make_task("proj:b", "proj", "b", depends_on=["proj:c"]),
-            _make_task("proj:c", "proj", "c", depends_on=["proj:a"]),
+            make_task("proj:a", "proj", "a", depends_on=["proj:b"]),
+            make_task("proj:b", "proj", "b", depends_on=["proj:c"]),
+            make_task("proj:c", "proj", "c", depends_on=["proj:a"]),
         ]
         missing, cycles = validate_dependency_graph(tasks)
         assert missing == []
@@ -2301,7 +2283,7 @@ class TestDependencyGraphValidation:
     def test_self_dependency_detected(self) -> None:
         """A task depending on itself is a cycle."""
         tasks = [
-            _make_task("proj:a", "proj", "a", depends_on=["proj:a"]),
+            make_task("proj:a", "proj", "a", depends_on=["proj:a"]),
         ]
         missing, cycles = validate_dependency_graph(tasks)
         assert len(cycles) >= 1
@@ -2312,8 +2294,8 @@ class TestDependencyGraphValidation:
         mock_exec = MockExecutor()
         scheduler._get_executor = lambda _: mock_exec
 
-        task = _make_task(
-            "proj:t1", "proj", "t1", "Task with bad dep",
+        task = make_task(
+            "proj:t1", "proj", "t1", "Task with bad dep", TaskStatus.QUEUED,
             depends_on=["proj:ghost"],
         )
         await task_manager.create_task(task)
@@ -2335,8 +2317,8 @@ class TestDependencyGraphValidation:
         scheduler, task_manager, _eb, _emitted = scheduler_env
 
         # Create tasks with a cycle
-        t_a = _make_task("proj:a", "proj", "a", depends_on=["proj:b"])
-        t_b = _make_task("proj:b", "proj", "b", depends_on=["proj:a"])
+        t_a = make_task("proj:a", "proj", "a", status=TaskStatus.QUEUED, depends_on=["proj:b"])
+        t_b = make_task("proj:b", "proj", "b", status=TaskStatus.QUEUED, depends_on=["proj:a"])
         await task_manager.create_task(t_a)
         await task_manager.create_task(t_b)
 

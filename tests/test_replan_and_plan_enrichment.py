@@ -23,36 +23,9 @@ from src.config import (
 )
 from src.db import Base
 from src.executors.code_executor import CodeExecutor, _format_plan_json_for_prompt
-from src.models import ExecutorType, LLMReview, ReviewState, Task, TaskStatus
+from src.models import LLMReview, ReviewState, TaskStatus
 from src.task_manager import TaskManager
-
-# ------------------------------------------------------------------
-# Helpers
-# ------------------------------------------------------------------
-
-def _make_task(
-    task_id: str = "proj-a:T-P0-1",
-    project_id: str = "proj-a",
-    local_task_id: str = "T-P0-1",
-    title: str = "Test task",
-    status: TaskStatus = TaskStatus.BACKLOG,
-    description: str = "",
-    plan_json: str | None = None,
-    replan_attempt: int = 0,
-) -> Task:
-    """Create a test Task."""
-    return Task(
-        id=task_id,
-        project_id=project_id,
-        local_task_id=local_task_id,
-        title=title,
-        status=status,
-        executor_type=ExecutorType.CODE,
-        description=description,
-        plan_json=plan_json,
-        replan_attempt=replan_attempt,
-    )
-
+from tests.factories import make_task
 
 SAMPLE_PLAN_JSON = json.dumps({
     "plan": "Implement feature X",
@@ -176,8 +149,9 @@ class TestReplanDecision:
         self, client: AsyncClient, task_manager: TaskManager, app,
     ):
         """'replan' should be accepted as a valid decision value."""
-        task = _make_task(
+        task = make_task(
             task_id="proj-a:T-P0-RP1",
+            project_id="proj-a",
             local_task_id="T-P0-RP1",
             status=TaskStatus.REVIEW_NEEDS_HUMAN,
         )
@@ -203,8 +177,9 @@ class TestReplanDecision:
         self, client: AsyncClient, task_manager: TaskManager, app,
     ):
         """Replan should increment replan_attempt on the task."""
-        task = _make_task(
+        task = make_task(
             task_id="proj-a:T-P0-RP2",
+            project_id="proj-a",
             local_task_id="T-P0-RP2",
             status=TaskStatus.REVIEW_NEEDS_HUMAN,
             replan_attempt=0,
@@ -232,8 +207,9 @@ class TestReplanDecision:
         self, client: AsyncClient, task_manager: TaskManager, app,
     ):
         """3rd replan attempt should return 409."""
-        task = _make_task(
+        task = make_task(
             task_id="proj-a:T-P0-RP3",
+            project_id="proj-a",
             local_task_id="T-P0-RP3",
             status=TaskStatus.REVIEW_NEEDS_HUMAN,
             replan_attempt=2,  # Already at max
@@ -257,8 +233,9 @@ class TestReplanDecision:
         self, client: AsyncClient, task_manager: TaskManager, app,
     ):
         """Replan should set plan_status to 'generating'."""
-        task = _make_task(
+        task = make_task(
             task_id="proj-a:T-P0-RP4",
+            project_id="proj-a",
             local_task_id="T-P0-RP4",
             status=TaskStatus.REVIEW_NEEDS_HUMAN,
         )
@@ -285,8 +262,9 @@ class TestReplanDecision:
         self, client: AsyncClient, task_manager: TaskManager, app,
     ):
         """Replan should persist the decision to review history."""
-        task = _make_task(
+        task = make_task(
             task_id="proj-a:T-P0-RP5",
+            project_id="proj-a",
             local_task_id="T-P0-RP5",
             status=TaskStatus.REVIEW_NEEDS_HUMAN,
         )
@@ -315,8 +293,9 @@ class TestReplanDecision:
         self, client: AsyncClient, task_manager: TaskManager,
     ):
         """Replan should return 503 when Claude SDK is not available."""
-        task = _make_task(
+        task = make_task(
             task_id="proj-a:T-P0-RP6",
+            project_id="proj-a",
             local_task_id="T-P0-RP6",
             status=TaskStatus.REVIEW_NEEDS_HUMAN,
         )
@@ -343,8 +322,9 @@ class TestReplanDecision:
             ("approve", "queued"),
             ("reject", "backlog"),
         ]:
-            task = _make_task(
+            task = make_task(
                 task_id=f"proj-a:T-P0-EX{decision}",
+                project_id="proj-a",
                 local_task_id=f"T-P0-EX{decision}",
                 status=TaskStatus.REVIEW_NEEDS_HUMAN,
             )
@@ -367,8 +347,9 @@ class TestReplanDecision:
         self, client: AsyncClient, task_manager: TaskManager,
     ):
         """Invalid decision value should return 400."""
-        task = _make_task(
+        task = make_task(
             task_id="proj-a:T-P0-INV1",
+            project_id="proj-a",
             local_task_id="T-P0-INV1",
             status=TaskStatus.REVIEW_NEEDS_HUMAN,
         )
@@ -533,7 +514,7 @@ class TestBuildPromptWithPlanJson:
         """_build_prompt should include plan steps from plan_json."""
         config = OrchestratorSettings()
         executor = CodeExecutor(config)
-        task = _make_task(
+        task = make_task(
             description="Do a test thing",
             plan_json=SAMPLE_PLAN_JSON,
         )
@@ -546,7 +527,7 @@ class TestBuildPromptWithPlanJson:
         """_build_prompt should work normally when plan_json is None."""
         config = OrchestratorSettings()
         executor = CodeExecutor(config)
-        task = _make_task(description="Do a test thing")
+        task = make_task(description="Do a test thing")
         prompt = executor._build_prompt(task)
         assert "Do a test thing" in prompt
         assert "## Implementation Steps" not in prompt
@@ -555,7 +536,7 @@ class TestBuildPromptWithPlanJson:
         """_build_prompt should not crash with malformed plan_json."""
         config = OrchestratorSettings()
         executor = CodeExecutor(config)
-        task = _make_task(
+        task = make_task(
             description="Do a test thing",
             plan_json="{invalid",
         )
@@ -569,7 +550,7 @@ class TestBuildPromptWithPlanJson:
         """Both plan_json and review_feedback should appear in prompt."""
         config = OrchestratorSettings()
         executor = CodeExecutor(config)
-        task = _make_task(
+        task = make_task(
             description="Do a test thing",
             plan_json=SAMPLE_PLAN_JSON,
         )
@@ -590,12 +571,12 @@ class TestReplanAttemptField:
 
     def test_default_replan_attempt_is_zero(self):
         """New tasks should have replan_attempt=0."""
-        task = _make_task()
+        task = make_task()
         assert task.replan_attempt == 0
 
     def test_replan_attempt_roundtrip(self):
         """replan_attempt should survive model_copy updates."""
-        task = _make_task(replan_attempt=1)
+        task = make_task(replan_attempt=1)
         assert task.replan_attempt == 1
         updated = task.model_copy(update={"replan_attempt": 2})
         assert updated.replan_attempt == 2
@@ -604,8 +585,9 @@ class TestReplanAttemptField:
         self, task_manager: TaskManager,
     ):
         """replan_attempt should persist through DB round-trip."""
-        task = _make_task(
+        task = make_task(
             task_id="proj-a:T-P0-DB1",
+            project_id="proj-a",
             local_task_id="T-P0-DB1",
             replan_attempt=1,
         )
@@ -626,21 +608,21 @@ class TestBuildReplanFeedback:
     def test_with_user_reason(self):
         """User reason should appear in feedback."""
         from src.routes.reviews import _build_replan_feedback
-        task = _make_task()
+        task = make_task()
         result = _build_replan_feedback(task, "Please add error handling")
         assert "Please add error handling" in result
 
     def test_without_review_state(self):
         """Should produce feedback even without review state."""
         from src.routes.reviews import _build_replan_feedback
-        task = _make_task()
+        task = make_task()
         result = _build_replan_feedback(task, "")
         assert "rejected" in result.lower()
 
     def test_with_review_suggestions(self):
         """Review suggestions from LLMReview should appear in feedback."""
         from src.routes.reviews import _build_replan_feedback
-        task = _make_task()
+        task = make_task()
         review = ReviewState(
             rounds_total=1, rounds_completed=1,
             consensus_score=0.5, human_decision_needed=True,

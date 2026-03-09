@@ -14,7 +14,7 @@ from __future__ import annotations
 
 import pytest
 
-from src.models import ExecutionState, ExecutorType, Task, TaskStatus
+from src.models import ExecutionState, TaskStatus
 from src.task_manager import (
     VALID_TRANSITIONS,
     OptimisticLockError,
@@ -22,31 +22,7 @@ from src.task_manager import (
     TaskManager,
     _build_transition_error,
 )
-
-# ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
-
-
-def _make_task(
-    task_id: str = "P0:T-P0-1",
-    project_id: str = "P0",
-    local_task_id: str = "T-P0-1",
-    title: str = "Test task",
-    status: TaskStatus = TaskStatus.BACKLOG,
-    **kwargs,
-) -> Task:
-    """Create a Task with sensible defaults."""
-    return Task(
-        id=task_id,
-        project_id=project_id,
-        local_task_id=local_task_id,
-        title=title,
-        status=status,
-        executor_type=kwargs.pop("executor_type", ExecutorType.CODE),
-        **kwargs,
-    )
-
+from tests.factories import make_task
 
 # ---------------------------------------------------------------------------
 # Backward transition validity tests
@@ -59,63 +35,63 @@ class TestBackwardTransitions:
     async def test_review_to_backlog(self, session_factory) -> None:
         """REVIEW -> BACKLOG is valid."""
         tm = TaskManager(session_factory)
-        await tm.create_task(_make_task(status=TaskStatus.REVIEW))
+        await tm.create_task(make_task(status=TaskStatus.REVIEW))
         updated = await tm.update_status("P0:T-P0-1", TaskStatus.BACKLOG)
         assert updated.status == TaskStatus.BACKLOG
 
     async def test_review_auto_approved_to_backlog(self, session_factory) -> None:
         """REVIEW_AUTO_APPROVED -> BACKLOG is valid."""
         tm = TaskManager(session_factory)
-        await tm.create_task(_make_task(status=TaskStatus.REVIEW_AUTO_APPROVED))
+        await tm.create_task(make_task(status=TaskStatus.REVIEW_AUTO_APPROVED))
         updated = await tm.update_status("P0:T-P0-1", TaskStatus.BACKLOG)
         assert updated.status == TaskStatus.BACKLOG
 
     async def test_review_needs_human_to_backlog(self, session_factory) -> None:
         """REVIEW_NEEDS_HUMAN -> BACKLOG is valid."""
         tm = TaskManager(session_factory)
-        await tm.create_task(_make_task(status=TaskStatus.REVIEW_NEEDS_HUMAN))
+        await tm.create_task(make_task(status=TaskStatus.REVIEW_NEEDS_HUMAN))
         updated = await tm.update_status("P0:T-P0-1", TaskStatus.BACKLOG)
         assert updated.status == TaskStatus.BACKLOG
 
     async def test_queued_to_backlog(self, session_factory) -> None:
         """QUEUED -> BACKLOG is valid."""
         tm = TaskManager(session_factory)
-        await tm.create_task(_make_task(status=TaskStatus.QUEUED))
+        await tm.create_task(make_task(status=TaskStatus.QUEUED))
         updated = await tm.update_status("P0:T-P0-1", TaskStatus.BACKLOG)
         assert updated.status == TaskStatus.BACKLOG
 
     async def test_queued_to_review(self, session_factory) -> None:
         """QUEUED -> REVIEW is valid."""
         tm = TaskManager(session_factory)
-        await tm.create_task(_make_task(status=TaskStatus.QUEUED))
+        await tm.create_task(make_task(status=TaskStatus.QUEUED))
         updated = await tm.update_status("P0:T-P0-1", TaskStatus.REVIEW)
         assert updated.status == TaskStatus.REVIEW
 
     async def test_failed_to_backlog(self, session_factory) -> None:
         """FAILED -> BACKLOG is valid."""
         tm = TaskManager(session_factory)
-        await tm.create_task(_make_task(status=TaskStatus.FAILED))
+        await tm.create_task(make_task(status=TaskStatus.FAILED))
         updated = await tm.update_status("P0:T-P0-1", TaskStatus.BACKLOG)
         assert updated.status == TaskStatus.BACKLOG
 
     async def test_done_to_backlog(self, session_factory) -> None:
         """DONE -> BACKLOG (reopen) is valid."""
         tm = TaskManager(session_factory)
-        await tm.create_task(_make_task(status=TaskStatus.DONE))
+        await tm.create_task(make_task(status=TaskStatus.DONE))
         updated = await tm.update_status("P0:T-P0-1", TaskStatus.BACKLOG)
         assert updated.status == TaskStatus.BACKLOG
 
     async def test_done_to_queued(self, session_factory) -> None:
         """DONE -> QUEUED (reopen, skip review) is valid."""
         tm = TaskManager(session_factory)
-        await tm.create_task(_make_task(status=TaskStatus.DONE))
+        await tm.create_task(make_task(status=TaskStatus.DONE))
         updated = await tm.update_status("P0:T-P0-1", TaskStatus.QUEUED)
         assert updated.status == TaskStatus.QUEUED
 
     async def test_blocked_to_backlog(self, session_factory) -> None:
         """BLOCKED -> BACKLOG is valid."""
         tm = TaskManager(session_factory)
-        await tm.create_task(_make_task(status=TaskStatus.BLOCKED))
+        await tm.create_task(make_task(status=TaskStatus.BLOCKED))
         updated = await tm.update_status("P0:T-P0-1", TaskStatus.BACKLOG)
         assert updated.status == TaskStatus.BACKLOG
 
@@ -131,42 +107,42 @@ class TestRunningRestrictions:
     async def test_running_to_done_valid(self, session_factory) -> None:
         """RUNNING -> DONE is still valid."""
         tm = TaskManager(session_factory)
-        await tm.create_task(_make_task(status=TaskStatus.RUNNING))
+        await tm.create_task(make_task(status=TaskStatus.RUNNING))
         updated = await tm.update_status("P0:T-P0-1", TaskStatus.DONE)
         assert updated.status == TaskStatus.DONE
 
     async def test_running_to_failed_valid(self, session_factory) -> None:
         """RUNNING -> FAILED is still valid."""
         tm = TaskManager(session_factory)
-        await tm.create_task(_make_task(status=TaskStatus.RUNNING))
+        await tm.create_task(make_task(status=TaskStatus.RUNNING))
         updated = await tm.update_status("P0:T-P0-1", TaskStatus.FAILED)
         assert updated.status == TaskStatus.FAILED
 
     async def test_running_to_backlog_blocked(self, session_factory) -> None:
         """RUNNING -> BACKLOG is blocked with clear message."""
         tm = TaskManager(session_factory)
-        await tm.create_task(_make_task(status=TaskStatus.RUNNING))
+        await tm.create_task(make_task(status=TaskStatus.RUNNING))
         with pytest.raises(ValueError, match="currently running"):
             await tm.update_status("P0:T-P0-1", TaskStatus.BACKLOG)
 
     async def test_running_to_queued_blocked(self, session_factory) -> None:
         """RUNNING -> QUEUED is blocked with clear message."""
         tm = TaskManager(session_factory)
-        await tm.create_task(_make_task(status=TaskStatus.RUNNING))
+        await tm.create_task(make_task(status=TaskStatus.RUNNING))
         with pytest.raises(ValueError, match="currently running"):
             await tm.update_status("P0:T-P0-1", TaskStatus.QUEUED)
 
     async def test_running_to_review_blocked(self, session_factory) -> None:
         """RUNNING -> REVIEW is blocked with clear message."""
         tm = TaskManager(session_factory)
-        await tm.create_task(_make_task(status=TaskStatus.RUNNING))
+        await tm.create_task(make_task(status=TaskStatus.RUNNING))
         with pytest.raises(ValueError, match="currently running"):
             await tm.update_status("P0:T-P0-1", TaskStatus.REVIEW)
 
     async def test_running_to_blocked_blocked(self, session_factory) -> None:
         """RUNNING -> BLOCKED is blocked with clear message."""
         tm = TaskManager(session_factory)
-        await tm.create_task(_make_task(status=TaskStatus.RUNNING))
+        await tm.create_task(make_task(status=TaskStatus.RUNNING))
         with pytest.raises(ValueError, match="currently running"):
             await tm.update_status("P0:T-P0-1", TaskStatus.BLOCKED)
 
@@ -184,7 +160,7 @@ class TestTimestampCleanup:
     ) -> None:
         """DONE -> BACKLOG clears completed_at and execution_json."""
         tm = TaskManager(session_factory)
-        task = _make_task(
+        task = make_task(
             status=TaskStatus.DONE,
             execution=ExecutionState(result="success"),
         )
@@ -201,7 +177,7 @@ class TestTimestampCleanup:
     ) -> None:
         """DONE -> QUEUED clears completed_at and execution state."""
         tm = TaskManager(session_factory)
-        task = _make_task(
+        task = make_task(
             status=TaskStatus.DONE,
             execution=ExecutionState(result="success"),
         )
@@ -218,7 +194,7 @@ class TestTimestampCleanup:
     ) -> None:
         """FAILED -> QUEUED clears execution state."""
         tm = TaskManager(session_factory)
-        task = _make_task(
+        task = make_task(
             status=TaskStatus.FAILED,
             execution=ExecutionState(
                 result="failed",
@@ -236,7 +212,7 @@ class TestTimestampCleanup:
     ) -> None:
         """FAILED -> BACKLOG clears completed_at, execution, error_summary."""
         tm = TaskManager(session_factory)
-        task = _make_task(
+        task = make_task(
             status=TaskStatus.FAILED,
             execution=ExecutionState(
                 result="failed",
@@ -256,7 +232,7 @@ class TestTimestampCleanup:
     ) -> None:
         """QUEUED -> REVIEW does NOT clear any fields."""
         tm = TaskManager(session_factory)
-        await tm.create_task(_make_task(status=TaskStatus.QUEUED))
+        await tm.create_task(make_task(status=TaskStatus.QUEUED))
 
         updated = await tm.update_status("P0:T-P0-1", TaskStatus.REVIEW)
         assert updated.status == TaskStatus.REVIEW
@@ -268,7 +244,7 @@ class TestTimestampCleanup:
     ) -> None:
         """QUEUED -> BACKLOG clears execution state (if any)."""
         tm = TaskManager(session_factory)
-        await tm.create_task(_make_task(status=TaskStatus.QUEUED))
+        await tm.create_task(make_task(status=TaskStatus.QUEUED))
 
         updated = await tm.update_status("P0:T-P0-1", TaskStatus.BACKLOG)
         assert updated.status == TaskStatus.BACKLOG
@@ -286,7 +262,7 @@ class TestReasonField:
     async def test_backward_with_reason(self, session_factory) -> None:
         """Backward transition with reason succeeds."""
         tm = TaskManager(session_factory)
-        await tm.create_task(_make_task(status=TaskStatus.QUEUED))
+        await tm.create_task(make_task(status=TaskStatus.QUEUED))
         updated = await tm.update_status(
             "P0:T-P0-1",
             TaskStatus.BACKLOG,
@@ -297,7 +273,7 @@ class TestReasonField:
     async def test_backward_with_empty_reason(self, session_factory) -> None:
         """Backward transition with empty reason succeeds."""
         tm = TaskManager(session_factory)
-        await tm.create_task(_make_task(status=TaskStatus.QUEUED))
+        await tm.create_task(make_task(status=TaskStatus.QUEUED))
         updated = await tm.update_status(
             "P0:T-P0-1",
             TaskStatus.BACKLOG,
@@ -308,7 +284,7 @@ class TestReasonField:
     async def test_forward_with_reason(self, session_factory) -> None:
         """Forward transition with reason also succeeds (no-op for reason)."""
         tm = TaskManager(session_factory)
-        await tm.create_task(_make_task(status=TaskStatus.BACKLOG))
+        await tm.create_task(make_task(status=TaskStatus.BACKLOG))
         updated = await tm.update_status(
             "P0:T-P0-1",
             TaskStatus.QUEUED,
@@ -328,7 +304,7 @@ class TestOptimisticLocking:
     async def test_matching_updated_at_succeeds(self, session_factory) -> None:
         """Transition succeeds when expected_updated_at matches."""
         tm = TaskManager(session_factory)
-        task = _make_task(status=TaskStatus.BACKLOG)
+        task = make_task(status=TaskStatus.BACKLOG)
         await tm.create_task(task)
 
         # Get current updated_at
@@ -346,7 +322,7 @@ class TestOptimisticLocking:
     async def test_mismatched_updated_at_raises(self, session_factory) -> None:
         """Transition fails when expected_updated_at does not match."""
         tm = TaskManager(session_factory)
-        await tm.create_task(_make_task(status=TaskStatus.BACKLOG))
+        await tm.create_task(make_task(status=TaskStatus.BACKLOG))
 
         with pytest.raises(OptimisticLockError, match="just updated"):
             await tm.update_status(
@@ -358,7 +334,7 @@ class TestOptimisticLocking:
     async def test_no_expected_updated_at_skips_check(self, session_factory) -> None:
         """Without expected_updated_at, no locking check is done."""
         tm = TaskManager(session_factory)
-        await tm.create_task(_make_task(status=TaskStatus.BACKLOG))
+        await tm.create_task(make_task(status=TaskStatus.BACKLOG))
         # Should succeed regardless of updated_at value
         updated = await tm.update_status("P0:T-P0-1", TaskStatus.QUEUED)
         assert updated.status == TaskStatus.QUEUED
@@ -366,7 +342,7 @@ class TestOptimisticLocking:
     async def test_concurrent_edit_scenario(self, session_factory) -> None:
         """Simulate two users trying to transition the same task."""
         tm = TaskManager(session_factory)
-        await tm.create_task(_make_task(status=TaskStatus.BACKLOG))
+        await tm.create_task(make_task(status=TaskStatus.BACKLOG))
 
         fetched = await tm.get_task("P0:T-P0-1")
         assert fetched is not None
@@ -430,28 +406,28 @@ class TestForwardTransitionsUnchanged:
     async def test_backlog_to_review(self, session_factory) -> None:
         """BACKLOG -> REVIEW still works."""
         tm = TaskManager(session_factory)
-        await tm.create_task(_make_task())
+        await tm.create_task(make_task())
         updated = await tm.update_status("P0:T-P0-1", TaskStatus.REVIEW)
         assert updated.status == TaskStatus.REVIEW
 
     async def test_backlog_to_queued(self, session_factory) -> None:
         """BACKLOG -> QUEUED still works."""
         tm = TaskManager(session_factory)
-        await tm.create_task(_make_task())
+        await tm.create_task(make_task())
         updated = await tm.update_status("P0:T-P0-1", TaskStatus.QUEUED)
         assert updated.status == TaskStatus.QUEUED
 
     async def test_review_to_auto_approved(self, session_factory) -> None:
         """REVIEW -> REVIEW_AUTO_APPROVED still works."""
         tm = TaskManager(session_factory)
-        await tm.create_task(_make_task(status=TaskStatus.REVIEW))
+        await tm.create_task(make_task(status=TaskStatus.REVIEW))
         updated = await tm.update_status("P0:T-P0-1", TaskStatus.REVIEW_AUTO_APPROVED)
         assert updated.status == TaskStatus.REVIEW_AUTO_APPROVED
 
     async def test_queued_to_running(self, session_factory) -> None:
         """QUEUED -> RUNNING still works and initializes execution state."""
         tm = TaskManager(session_factory)
-        await tm.create_task(_make_task(status=TaskStatus.QUEUED))
+        await tm.create_task(make_task(status=TaskStatus.QUEUED))
         updated = await tm.update_status("P0:T-P0-1", TaskStatus.RUNNING)
         assert updated.status == TaskStatus.RUNNING
         assert updated.execution is not None
@@ -459,7 +435,7 @@ class TestForwardTransitionsUnchanged:
     async def test_running_to_done_sets_completed(self, session_factory) -> None:
         """RUNNING -> DONE still sets completed_at."""
         tm = TaskManager(session_factory)
-        await tm.create_task(_make_task(status=TaskStatus.RUNNING))
+        await tm.create_task(make_task(status=TaskStatus.RUNNING))
         updated = await tm.update_status("P0:T-P0-1", TaskStatus.DONE)
         assert updated.status == TaskStatus.DONE
         assert updated.completed_at is not None
@@ -467,14 +443,14 @@ class TestForwardTransitionsUnchanged:
     async def test_failed_to_queued(self, session_factory) -> None:
         """FAILED -> QUEUED (retry) still works."""
         tm = TaskManager(session_factory)
-        await tm.create_task(_make_task(status=TaskStatus.FAILED))
+        await tm.create_task(make_task(status=TaskStatus.FAILED))
         updated = await tm.update_status("P0:T-P0-1", TaskStatus.QUEUED)
         assert updated.status == TaskStatus.QUEUED
 
     async def test_review_gate_still_works(self, session_factory) -> None:
         """Review gate still blocks BACKLOG -> QUEUED."""
         tm = TaskManager(session_factory)
-        await tm.create_task(_make_task())
+        await tm.create_task(make_task())
         with pytest.raises(ReviewGateBlockedError):
             await tm.update_status(
                 "P0:T-P0-1",
@@ -485,7 +461,7 @@ class TestForwardTransitionsUnchanged:
     async def test_queued_to_blocked(self, session_factory) -> None:
         """QUEUED -> BLOCKED still works."""
         tm = TaskManager(session_factory)
-        await tm.create_task(_make_task(status=TaskStatus.QUEUED))
+        await tm.create_task(make_task(status=TaskStatus.QUEUED))
         updated = await tm.update_status("P0:T-P0-1", TaskStatus.BLOCKED)
         assert updated.status == TaskStatus.BLOCKED
 
@@ -567,7 +543,7 @@ class TestLifecycleScenarios:
     async def test_forward_backward_forward(self, session_factory) -> None:
         """BACKLOG -> QUEUED -> BACKLOG -> QUEUED -> RUNNING -> DONE."""
         tm = TaskManager(session_factory)
-        await tm.create_task(_make_task())
+        await tm.create_task(make_task())
 
         # Forward
         await tm.update_status("P0:T-P0-1", TaskStatus.QUEUED)
@@ -583,7 +559,7 @@ class TestLifecycleScenarios:
     async def test_done_reopen_cycle(self, session_factory) -> None:
         """DONE -> BACKLOG -> REVIEW -> ... -> DONE (reopen and redo)."""
         tm = TaskManager(session_factory)
-        await tm.create_task(_make_task(status=TaskStatus.DONE))
+        await tm.create_task(make_task(status=TaskStatus.DONE))
 
         # Reopen
         await tm.update_status("P0:T-P0-1", TaskStatus.BACKLOG)
@@ -598,7 +574,7 @@ class TestLifecycleScenarios:
     async def test_failed_retry_success(self, session_factory) -> None:
         """FAILED -> QUEUED -> RUNNING -> DONE (retry succeeds)."""
         tm = TaskManager(session_factory)
-        await tm.create_task(_make_task(status=TaskStatus.FAILED))
+        await tm.create_task(make_task(status=TaskStatus.FAILED))
 
         await tm.update_status("P0:T-P0-1", TaskStatus.QUEUED)
         await tm.update_status("P0:T-P0-1", TaskStatus.RUNNING)
@@ -608,7 +584,7 @@ class TestLifecycleScenarios:
     async def test_queued_send_back_to_review(self, session_factory) -> None:
         """QUEUED -> REVIEW (send back for review)."""
         tm = TaskManager(session_factory)
-        await tm.create_task(_make_task(status=TaskStatus.QUEUED))
+        await tm.create_task(make_task(status=TaskStatus.QUEUED))
 
         updated = await tm.update_status("P0:T-P0-1", TaskStatus.REVIEW)
         assert updated.status == TaskStatus.REVIEW

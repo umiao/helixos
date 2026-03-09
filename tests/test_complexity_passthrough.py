@@ -15,10 +15,10 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from src.config import ReviewerConfig, ReviewPipelineConfig
 from src.models import ExecutorType, Task, TaskStatus
 from src.review_pipeline import ReviewPipeline
 from src.sdk_adapter import ClaudeEvent, ClaudeEventType
+from tests.factories import make_review_pipeline_config, make_task
 
 # ------------------------------------------------------------------
 # Helpers
@@ -51,40 +51,6 @@ async def _mock_gen(events: list[ClaudeEvent]):
         yield e
 
 
-def _make_pipeline_config() -> ReviewPipelineConfig:
-    """Config with 1 required + 1 optional reviewer."""
-    return ReviewPipelineConfig(
-        reviewers=[
-            ReviewerConfig(
-                model="claude-sonnet-4-5",
-                focus="feasibility_and_edge_cases",
-                api="claude_cli",
-                required=True,
-            ),
-            ReviewerConfig(
-                model="claude-sonnet-4-5",
-                focus="adversarial_red_team",
-                api="claude_cli",
-                required=False,
-            ),
-        ],
-    )
-
-
-def _make_task(complexity: str = "S") -> Task:
-    """Create a task with the given complexity."""
-    return Task(
-        id="P0::T-P0-99",
-        project_id="P0",
-        local_task_id="T-P0-99",
-        title="Test task",
-        description="Test description",
-        status=TaskStatus.REVIEW,
-        executor_type=ExecutorType.CODE,
-        complexity=complexity,
-    )
-
-
 # ------------------------------------------------------------------
 # Tests: review_task receives complexity
 # ------------------------------------------------------------------
@@ -96,9 +62,9 @@ async def test_s_complexity_single_reviewer(mock_query: MagicMock) -> None:
     """S-complexity task should only run the required reviewer (1 call)."""
     mock_query.side_effect = lambda *a, **kw: _mock_gen(_make_review_events())
 
-    pipeline = ReviewPipeline(_make_pipeline_config(), threshold=0.8)
+    pipeline = ReviewPipeline(make_review_pipeline_config(), threshold=0.8)
     result = await pipeline.review_task(
-        _make_task("S"), "Plan text", lambda c, t, p: None,
+        make_task(status=TaskStatus.REVIEW, description="Test description", complexity="S"), "Plan text", lambda c, t, p: None,
         complexity="S",
     )
 
@@ -112,9 +78,9 @@ async def test_m_complexity_two_reviewers(mock_query: MagicMock) -> None:
     """M-complexity task should run required + adversarial reviewer (2 calls)."""
     mock_query.side_effect = lambda *a, **kw: _mock_gen(_make_review_events())
 
-    pipeline = ReviewPipeline(_make_pipeline_config(), threshold=0.8)
+    pipeline = ReviewPipeline(make_review_pipeline_config(), threshold=0.8)
     result = await pipeline.review_task(
-        _make_task("M"), "Plan text", lambda c, t, p: None,
+        make_task(status=TaskStatus.REVIEW, description="Test description", complexity="M"), "Plan text", lambda c, t, p: None,
         complexity="M",
     )
 
@@ -128,9 +94,9 @@ async def test_l_complexity_two_reviewers(mock_query: MagicMock) -> None:
     """L-complexity task should run required + adversarial reviewer (2 calls)."""
     mock_query.side_effect = lambda *a, **kw: _mock_gen(_make_review_events())
 
-    pipeline = ReviewPipeline(_make_pipeline_config(), threshold=0.8)
+    pipeline = ReviewPipeline(make_review_pipeline_config(), threshold=0.8)
     result = await pipeline.review_task(
-        _make_task("L"), "Plan text", lambda c, t, p: None,
+        make_task(status=TaskStatus.REVIEW, description="Test description", complexity="L"), "Plan text", lambda c, t, p: None,
         complexity="L",
     )
 
@@ -144,10 +110,10 @@ async def test_default_complexity_is_s(mock_query: MagicMock) -> None:
     """When complexity is not passed, default to S (1 reviewer only)."""
     mock_query.side_effect = lambda *a, **kw: _mock_gen(_make_review_events())
 
-    pipeline = ReviewPipeline(_make_pipeline_config(), threshold=0.8)
+    pipeline = ReviewPipeline(make_review_pipeline_config(), threshold=0.8)
     # Do NOT pass complexity -- should default to "S"
     result = await pipeline.review_task(
-        _make_task(), "Plan text", lambda c, t, p: None,
+        make_task(status=TaskStatus.REVIEW, description="Test description"), "Plan text", lambda c, t, p: None,
     )
 
     assert mock_query.call_count == 1
@@ -165,7 +131,7 @@ async def test_enqueue_passes_task_complexity() -> None:
     from src.events import EventBus
     from src.routes.reviews import _enqueue_review_pipeline
 
-    task = _make_task("M")
+    task = make_task(status=TaskStatus.REVIEW, description="Test description", complexity="M")
     event_bus = EventBus()
 
     mock_pipeline = MagicMock(spec=ReviewPipeline)

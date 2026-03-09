@@ -23,6 +23,7 @@ from src.models import ExecutorType, LLMReview, Project, Task, TaskStatus
 from src.project_settings import ProjectSettingsStore
 from src.scheduler import Scheduler
 from src.task_manager import ReviewGateBlockedError, TaskManager
+from tests.factories import make_task
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -69,22 +70,6 @@ def _make_config() -> OrchestratorConfig:
                 max_concurrency=1,
             ),
         },
-    )
-
-
-def _make_task(
-    task_id: str = "proj:t1",
-    project_id: str = "proj",
-    status: TaskStatus = TaskStatus.BACKLOG,
-) -> Task:
-    """Build a Task for testing."""
-    return Task(
-        id=task_id,
-        project_id=project_id,
-        local_task_id="t1",
-        title="Test Task",
-        status=status,
-        executor_type=ExecutorType.CODE,
     )
 
 
@@ -141,7 +126,7 @@ class TestTaskManagerReviewGate:
     ) -> None:
         """BACKLOG -> QUEUED should be rejected when review_gate_enabled=True."""
         tm = TaskManager(session_factory)
-        task = _make_task(status=TaskStatus.BACKLOG)
+        task = make_task(task_id="proj:t1", project_id="proj", local_task_id="t1", title="Test Task", status=TaskStatus.BACKLOG)
         await tm.create_task(task)
 
         with pytest.raises(ReviewGateBlockedError, match="(?i)review gate"):
@@ -155,7 +140,7 @@ class TestTaskManagerReviewGate:
     ) -> None:
         """BACKLOG -> QUEUED should succeed when review_gate_enabled=False."""
         tm = TaskManager(session_factory)
-        task = _make_task(status=TaskStatus.BACKLOG)
+        task = make_task(task_id="proj:t1", project_id="proj", local_task_id="t1", title="Test Task", status=TaskStatus.BACKLOG)
         await tm.create_task(task)
 
         updated = await tm.update_status(
@@ -169,7 +154,7 @@ class TestTaskManagerReviewGate:
     ) -> None:
         """BACKLOG -> REVIEW allowed when gate is on and plan is valid."""
         tm = TaskManager(session_factory)
-        task = _make_task(status=TaskStatus.BACKLOG)
+        task = make_task(task_id="proj:t1", project_id="proj", local_task_id="t1", title="Test Task", status=TaskStatus.BACKLOG)
         task = task.model_copy(
             update={"description": "This is a valid plan for the task."},
         )
@@ -186,7 +171,7 @@ class TestTaskManagerReviewGate:
     ) -> None:
         """Default review_gate_enabled=False should allow BACKLOG -> QUEUED."""
         tm = TaskManager(session_factory)
-        task = _make_task(status=TaskStatus.BACKLOG)
+        task = make_task(task_id="proj:t1", project_id="proj", local_task_id="t1", title="Test Task", status=TaskStatus.BACKLOG)
         await tm.create_task(task)
 
         # Default parameter value is False (backward compatible)
@@ -198,7 +183,7 @@ class TestTaskManagerReviewGate:
     ) -> None:
         """Review gate should only affect BACKLOG -> QUEUED, not other transitions."""
         tm = TaskManager(session_factory)
-        task = _make_task(status=TaskStatus.BACKLOG)
+        task = make_task(task_id="proj:t1", project_id="proj", local_task_id="t1", title="Test Task", status=TaskStatus.BACKLOG)
         task = task.model_copy(
             update={"description": "This is a valid plan for the task."},
         )
@@ -232,7 +217,7 @@ class TestSchedulerCanExecute:
         scheduler._get_executor = lambda _: mock_exec
 
         # Create a QUEUED task (simulating a bypass of Layer 1)
-        task = _make_task(status=TaskStatus.QUEUED)
+        task = make_task(task_id="proj:t1", project_id="proj", local_task_id="t1", title="Test Task", status=TaskStatus.QUEUED)
         await tm.create_task(task)
 
         # Review gate is enabled by default
@@ -254,7 +239,7 @@ class TestSchedulerCanExecute:
         mock_exec = MockExecutor()
         scheduler._get_executor = lambda _: mock_exec
 
-        task = _make_task(status=TaskStatus.QUEUED)
+        task = make_task(task_id="proj:t1", project_id="proj", local_task_id="t1", title="Test Task", status=TaskStatus.QUEUED)
         await tm.create_task(task)
 
         # Write an approved review record
@@ -293,7 +278,7 @@ class TestSchedulerCanExecute:
         mock_exec = MockExecutor()
         scheduler._get_executor = lambda _: mock_exec
 
-        task = _make_task(status=TaskStatus.QUEUED)
+        task = make_task(task_id="proj:t1", project_id="proj", local_task_id="t1", title="Test Task", status=TaskStatus.QUEUED)
         await tm.create_task(task)
 
         # Disable review gate
@@ -319,7 +304,7 @@ class TestSchedulerCanExecute:
         mock_exec = MockExecutor()
         scheduler._get_executor = lambda _: mock_exec
 
-        task = _make_task(status=TaskStatus.QUEUED)
+        task = make_task(task_id="proj:t1", project_id="proj", local_task_id="t1", title="Test Task", status=TaskStatus.QUEUED)
         await tm.create_task(task)
 
         from datetime import UTC, datetime
@@ -350,7 +335,7 @@ class TestSchedulerCanExecute:
         mock_exec = MockExecutor()
         scheduler._get_executor = lambda _: mock_exec
 
-        task = _make_task(status=TaskStatus.QUEUED)
+        task = make_task(task_id="proj:t1", project_id="proj", local_task_id="t1", title="Test Task", status=TaskStatus.QUEUED)
         await tm.create_task(task)
 
         from datetime import UTC, datetime

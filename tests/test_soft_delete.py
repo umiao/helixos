@@ -10,35 +10,9 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from src.models import ExecutorType, Task, TaskStatus
+from src.models import TaskStatus
 from src.task_manager import TaskManager
-
-# ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
-
-
-def _make_task(
-    task_id: str = "P0:T-P0-1",
-    project_id: str = "P0",
-    local_task_id: str = "T-P0-1",
-    title: str = "Test task",
-    status: TaskStatus = TaskStatus.BACKLOG,
-    depends_on: list[str] | None = None,
-    **kwargs,
-) -> Task:
-    """Create a Task with sensible defaults."""
-    return Task(
-        id=task_id,
-        project_id=project_id,
-        local_task_id=local_task_id,
-        title=title,
-        status=status,
-        executor_type=kwargs.pop("executor_type", ExecutorType.CODE),
-        depends_on=depends_on or [],
-        **kwargs,
-    )
-
+from tests.factories import make_task
 
 # ---------------------------------------------------------------------------
 # TaskManager.delete_task tests
@@ -51,7 +25,7 @@ class TestDeleteTask:
     async def test_delete_backlog_task(self, session_factory) -> None:
         """Deleting a BACKLOG task sets is_deleted=True."""
         tm = TaskManager(session_factory)
-        await tm.create_task(_make_task())
+        await tm.create_task(make_task())
 
         await tm.delete_task("P0:T-P0-1")
 
@@ -61,7 +35,7 @@ class TestDeleteTask:
     async def test_delete_done_task(self, session_factory) -> None:
         """Deleting a DONE task works (preserves DB row)."""
         tm = TaskManager(session_factory)
-        t = _make_task(status=TaskStatus.BACKLOG)
+        t = make_task(status=TaskStatus.BACKLOG)
         await tm.create_task(t)
         await tm.update_status("P0:T-P0-1", TaskStatus.QUEUED)
         await tm.update_status("P0:T-P0-1", TaskStatus.RUNNING)
@@ -73,7 +47,7 @@ class TestDeleteTask:
     async def test_delete_failed_task(self, session_factory) -> None:
         """Deleting a FAILED task works."""
         tm = TaskManager(session_factory)
-        t = _make_task(status=TaskStatus.BACKLOG)
+        t = make_task(status=TaskStatus.BACKLOG)
         await tm.create_task(t)
         await tm.update_status("P0:T-P0-1", TaskStatus.QUEUED)
         await tm.update_status("P0:T-P0-1", TaskStatus.RUNNING)
@@ -85,7 +59,7 @@ class TestDeleteTask:
     async def test_delete_running_raises(self, session_factory) -> None:
         """Cannot delete a RUNNING task -- should raise ValueError."""
         tm = TaskManager(session_factory)
-        t = _make_task(status=TaskStatus.BACKLOG)
+        t = make_task(status=TaskStatus.BACKLOG)
         await tm.create_task(t)
         await tm.update_status("P0:T-P0-1", TaskStatus.QUEUED)
         await tm.update_status("P0:T-P0-1", TaskStatus.RUNNING)
@@ -105,7 +79,7 @@ class TestDeleteTask:
     async def test_delete_already_deleted_raises(self, session_factory) -> None:
         """Deleting an already-deleted task raises ValueError (not found)."""
         tm = TaskManager(session_factory)
-        await tm.create_task(_make_task())
+        await tm.create_task(make_task())
         await tm.delete_task("P0:T-P0-1")
 
         with pytest.raises(ValueError, match="not found"):
@@ -114,9 +88,9 @@ class TestDeleteTask:
     async def test_delete_with_dependents_raises(self, session_factory) -> None:
         """Deleting a task with active dependents raises ValueError."""
         tm = TaskManager(session_factory)
-        await tm.create_task(_make_task(task_id="P0:T-P0-1", local_task_id="T-P0-1"))
+        await tm.create_task(make_task(task_id="P0:T-P0-1", local_task_id="T-P0-1"))
         await tm.create_task(
-            _make_task(
+            make_task(
                 task_id="P0:T-P0-2",
                 local_task_id="T-P0-2",
                 depends_on=["P0:T-P0-1"],
@@ -132,9 +106,9 @@ class TestDeleteTask:
     async def test_delete_with_dependents_force(self, session_factory) -> None:
         """Force-deleting a task with dependents succeeds."""
         tm = TaskManager(session_factory)
-        await tm.create_task(_make_task(task_id="P0:T-P0-1", local_task_id="T-P0-1"))
+        await tm.create_task(make_task(task_id="P0:T-P0-1", local_task_id="T-P0-1"))
         await tm.create_task(
-            _make_task(
+            make_task(
                 task_id="P0:T-P0-2",
                 local_task_id="T-P0-2",
                 depends_on=["P0:T-P0-1"],
@@ -147,9 +121,9 @@ class TestDeleteTask:
     async def test_delete_with_deleted_dependents_ok(self, session_factory) -> None:
         """Deleting a task whose only dependents are also deleted succeeds."""
         tm = TaskManager(session_factory)
-        await tm.create_task(_make_task(task_id="P0:T-P0-1", local_task_id="T-P0-1"))
+        await tm.create_task(make_task(task_id="P0:T-P0-1", local_task_id="T-P0-1"))
         await tm.create_task(
-            _make_task(
+            make_task(
                 task_id="P0:T-P0-2",
                 local_task_id="T-P0-2",
                 depends_on=["P0:T-P0-1"],
@@ -174,9 +148,9 @@ class TestSoftDeleteFiltering:
     async def test_list_tasks_excludes_deleted(self, session_factory) -> None:
         """list_tasks() should not return soft-deleted tasks."""
         tm = TaskManager(session_factory)
-        await tm.create_task(_make_task(task_id="P0:T-P0-1", local_task_id="T-P0-1"))
-        await tm.create_task(_make_task(task_id="P0:T-P0-2", local_task_id="T-P0-2"))
-        await tm.create_task(_make_task(task_id="P0:T-P0-3", local_task_id="T-P0-3"))
+        await tm.create_task(make_task(task_id="P0:T-P0-1", local_task_id="T-P0-1"))
+        await tm.create_task(make_task(task_id="P0:T-P0-2", local_task_id="T-P0-2"))
+        await tm.create_task(make_task(task_id="P0:T-P0-3", local_task_id="T-P0-3"))
 
         await tm.delete_task("P0:T-P0-2")
 
@@ -189,10 +163,10 @@ class TestSoftDeleteFiltering:
         """list_tasks(project_id=...) should exclude soft-deleted tasks."""
         tm = TaskManager(session_factory)
         await tm.create_task(
-            _make_task(task_id="P0:T-1", project_id="P0", local_task_id="T-1")
+            make_task(task_id="P0:T-1", project_id="P0", local_task_id="T-1")
         )
         await tm.create_task(
-            _make_task(task_id="P0:T-2", project_id="P0", local_task_id="T-2")
+            make_task(task_id="P0:T-2", project_id="P0", local_task_id="T-2")
         )
 
         await tm.delete_task("P0:T-1")
@@ -205,10 +179,10 @@ class TestSoftDeleteFiltering:
         """get_ready_tasks() should not return soft-deleted QUEUED tasks."""
         tm = TaskManager(session_factory)
         await tm.create_task(
-            _make_task(task_id="P0:T-P0-1", local_task_id="T-P0-1")
+            make_task(task_id="P0:T-P0-1", local_task_id="T-P0-1")
         )
         await tm.create_task(
-            _make_task(task_id="P0:T-P0-2", local_task_id="T-P0-2")
+            make_task(task_id="P0:T-P0-2", local_task_id="T-P0-2")
         )
         # Move both to QUEUED
         await tm.update_status("P0:T-P0-1", TaskStatus.QUEUED)
@@ -224,7 +198,7 @@ class TestSoftDeleteFiltering:
     async def test_update_status_deleted_task_raises(self, session_factory) -> None:
         """Trying to update_status on a deleted task raises ValueError."""
         tm = TaskManager(session_factory)
-        await tm.create_task(_make_task())
+        await tm.create_task(make_task())
         await tm.delete_task("P0:T-P0-1")
 
         with pytest.raises(ValueError, match="not found"):
@@ -233,7 +207,7 @@ class TestSoftDeleteFiltering:
     async def test_update_task_deleted_raises(self, session_factory) -> None:
         """Trying to update_task on a deleted task raises ValueError."""
         tm = TaskManager(session_factory)
-        t = _make_task()
+        t = make_task()
         await tm.create_task(t)
         await tm.delete_task("P0:T-P0-1")
 
@@ -244,16 +218,16 @@ class TestSoftDeleteFiltering:
     async def test_get_dependents(self, session_factory) -> None:
         """get_dependents() returns IDs of non-deleted tasks that depend on target."""
         tm = TaskManager(session_factory)
-        await tm.create_task(_make_task(task_id="P0:T-P0-1", local_task_id="T-P0-1"))
+        await tm.create_task(make_task(task_id="P0:T-P0-1", local_task_id="T-P0-1"))
         await tm.create_task(
-            _make_task(
+            make_task(
                 task_id="P0:T-P0-2",
                 local_task_id="T-P0-2",
                 depends_on=["P0:T-P0-1"],
             )
         )
         await tm.create_task(
-            _make_task(
+            make_task(
                 task_id="P0:T-P0-3",
                 local_task_id="T-P0-3",
                 depends_on=["P0:T-P0-1"],
@@ -385,7 +359,7 @@ class TestIsDeletedMigration:
         from src.db import TaskRow, get_session
 
         tm = TaskManager(session_factory)
-        await tm.create_task(_make_task())
+        await tm.create_task(make_task())
 
         async with get_session(session_factory) as session:
             row = await session.get(TaskRow, "P0:T-P0-1")

@@ -14,35 +14,20 @@ from __future__ import annotations
 
 import pytest
 
-from src.models import ExecutorType, Task, TaskStatus
+from src.models import TaskStatus
 from src.task_manager import (
     MIN_PLAN_LENGTH,
     PlanInvalidError,
     TaskManager,
     is_plan_valid,
 )
+from tests.factories import make_task
 
-# ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
-
-
-def _make_task(
-    task_id: str = "proj:t1",
-    project_id: str = "proj",
-    status: TaskStatus = TaskStatus.BACKLOG,
-    description: str = "",
-) -> Task:
-    """Build a Task for testing."""
-    return Task(
-        id=task_id,
-        project_id=project_id,
-        local_task_id="t1",
-        title="Test Task",
-        description=description,
-        status=status,
-        executor_type=ExecutorType.CODE,
-    )
+# Default IDs for this test module (matches the original local factory)
+_ID = "proj:t1"
+_PROJECT = "proj"
+_LOCAL = "t1"
+_TITLE = "Test Task"
 
 
 # ---------------------------------------------------------------------------
@@ -106,7 +91,7 @@ class TestPlanValidityGate:
     ) -> None:
         """BACKLOG -> REVIEW is blocked when gate=on and plan is empty."""
         tm = TaskManager(session_factory)
-        task = _make_task(description="")
+        task = make_task(task_id=_ID, project_id=_PROJECT, local_task_id=_LOCAL, title=_TITLE, description="")
         await tm.create_task(task)
 
         with pytest.raises(PlanInvalidError) as exc_info:
@@ -122,7 +107,7 @@ class TestPlanValidityGate:
     ) -> None:
         """BACKLOG -> REVIEW is blocked when gate=on and plan is too short."""
         tm = TaskManager(session_factory)
-        task = _make_task(description="short")
+        task = make_task(task_id=_ID, project_id=_PROJECT, local_task_id=_LOCAL, title=_TITLE, description="short")
         await tm.create_task(task)
 
         with pytest.raises(PlanInvalidError):
@@ -136,7 +121,7 @@ class TestPlanValidityGate:
     ) -> None:
         """BACKLOG -> REVIEW is blocked when plan is whitespace-only."""
         tm = TaskManager(session_factory)
-        task = _make_task(description="   \n\t  ")
+        task = make_task(task_id=_ID, project_id=_PROJECT, local_task_id=_LOCAL, title=_TITLE, description="   \n\t  ")
         await tm.create_task(task)
 
         with pytest.raises(PlanInvalidError):
@@ -150,7 +135,7 @@ class TestPlanValidityGate:
     ) -> None:
         """BACKLOG -> REVIEW succeeds when gate=on and plan is valid."""
         tm = TaskManager(session_factory)
-        task = _make_task(description="This is a detailed plan for implementing the feature.")
+        task = make_task(task_id=_ID, project_id=_PROJECT, local_task_id=_LOCAL, title=_TITLE, description="This is a detailed plan for implementing the feature.")
         await tm.create_task(task)
 
         updated = await tm.update_status(
@@ -164,7 +149,7 @@ class TestPlanValidityGate:
     ) -> None:
         """BACKLOG -> REVIEW succeeds when gate=off, regardless of plan."""
         tm = TaskManager(session_factory)
-        task = _make_task(description="")
+        task = make_task(task_id=_ID, project_id=_PROJECT, local_task_id=_LOCAL, title=_TITLE, description="")
         await tm.create_task(task)
 
         updated = await tm.update_status(
@@ -178,7 +163,7 @@ class TestPlanValidityGate:
     ) -> None:
         """Gate disabled: even short plans pass."""
         tm = TaskManager(session_factory)
-        task = _make_task(description="tiny")
+        task = make_task(task_id=_ID, project_id=_PROJECT, local_task_id=_LOCAL, title=_TITLE, description="tiny")
         await tm.create_task(task)
 
         updated = await tm.update_status(
@@ -193,7 +178,7 @@ class TestPlanValidityGate:
         """Plan validity only checked on BACKLOG -> REVIEW, not other transitions."""
         tm = TaskManager(session_factory)
         # Create a task in REVIEW with valid plan, move to BACKLOG
-        task = _make_task(description="This is a valid plan for the task.")
+        task = make_task(task_id=_ID, project_id=_PROJECT, local_task_id=_LOCAL, title=_TITLE, description="This is a valid plan for the task.")
         await tm.create_task(task)
         await tm.update_status(task.id, TaskStatus.REVIEW, review_gate_enabled=True)
         # Move back to BACKLOG (should work without plan check)
@@ -216,7 +201,7 @@ class TestPlanValidityJourney:
         tm = TaskManager(session_factory)
 
         # Step 1: Create planless task
-        task = _make_task(description="")
+        task = make_task(task_id=_ID, project_id=_PROJECT, local_task_id=_LOCAL, title=_TITLE, description="")
         await tm.create_task(task)
 
         # Step 2: Try to send to REVIEW -> blocked
@@ -246,7 +231,7 @@ class TestPlanValidityJourney:
     ) -> None:
         """Plan exactly at MIN_PLAN_LENGTH is accepted."""
         tm = TaskManager(session_factory)
-        task = _make_task(description="a" * MIN_PLAN_LENGTH)
+        task = make_task(task_id=_ID, project_id=_PROJECT, local_task_id=_LOCAL, title=_TITLE, description="a" * MIN_PLAN_LENGTH)
         await tm.create_task(task)
 
         updated = await tm.update_status(

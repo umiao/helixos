@@ -17,6 +17,7 @@ from src.models import (
     Task,
     TaskStatus,
 )
+from tests.factories import make_task
 
 # ---------------------------------------------------------------------------
 # TaskStatus enum
@@ -115,21 +116,9 @@ class TestProject:
 class TestTask:
     """Task model validation and serialization."""
 
-    def _make_task(self, **overrides) -> Task:
-        """Helper to create a task with sensible defaults."""
-        defaults = {
-            "id": "P0:T-P0-1",
-            "project_id": "P0",
-            "local_task_id": "T-P0-1",
-            "title": "Test task",
-            "executor_type": ExecutorType.CODE,
-        }
-        defaults.update(overrides)
-        return Task(**defaults)
-
     def test_defaults(self) -> None:
         """Default values should match PRD spec."""
-        t = self._make_task()
+        t = make_task()
         assert t.status == TaskStatus.BACKLOG
         assert t.description == ""
         assert t.depends_on == []
@@ -144,7 +133,7 @@ class TestTask:
             rounds_completed=1,
             consensus_score=0.9,
         )
-        t = self._make_task(review=review)
+        t = make_task(review=review)
         assert t.review is not None
         assert t.review.consensus_score == 0.9
 
@@ -156,14 +145,14 @@ class TestTask:
             result="failed",
             error_summary="Timeout",
         )
-        t = self._make_task(execution=execution)
+        t = make_task(execution=execution)
         assert t.execution is not None
         assert t.execution.result == "failed"
 
     def test_serialization_roundtrip(self) -> None:
         """Full round-trip serialization."""
         now = datetime.now(UTC)
-        t = self._make_task(
+        t = make_task(
             status=TaskStatus.RUNNING,
             depends_on=["P1:T-P1-1"],
             review=ReviewState(rounds_completed=2),

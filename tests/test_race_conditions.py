@@ -11,37 +11,11 @@ from __future__ import annotations
 import pytest
 
 from src.models import (
-    ExecutorType,
     ReviewLifecycleState,
-    Task,
     TaskStatus,
 )
 from src.task_manager import TaskManager
-
-# ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
-
-
-def _make_task(
-    task_id: str = "P0:T-P0-1",
-    project_id: str = "P0",
-    local_task_id: str = "T-P0-1",
-    title: str = "Test task",
-    status: TaskStatus = TaskStatus.BACKLOG,
-    **kwargs,
-) -> Task:
-    """Create a Task with sensible defaults."""
-    return Task(
-        id=task_id,
-        project_id=project_id,
-        local_task_id=local_task_id,
-        title=title,
-        status=status,
-        executor_type=kwargs.pop("executor_type", ExecutorType.CODE),
-        **kwargs,
-    )
-
+from tests.factories import make_task
 
 # ---------------------------------------------------------------------------
 # RACE-1: Scheduler finalization vs concurrent drag
@@ -56,7 +30,7 @@ class TestRaceSchedulerVsDrag:
     ) -> None:
         """If task is moved to DONE by drag, scheduler should skip FAILED."""
         tm = TaskManager(session_factory)
-        task = _make_task(status=TaskStatus.RUNNING)
+        task = make_task(status=TaskStatus.RUNNING)
         await tm.create_task(task)
 
         # User drags to DONE
@@ -76,7 +50,7 @@ class TestRaceSchedulerVsDrag:
     ) -> None:
         """If task is still RUNNING, scheduler can transition to FAILED."""
         tm = TaskManager(session_factory)
-        task = _make_task(status=TaskStatus.RUNNING)
+        task = make_task(status=TaskStatus.RUNNING)
         await tm.create_task(task)
 
         current = await tm.get_task("P0:T-P0-1")
@@ -93,7 +67,7 @@ class TestRaceSchedulerVsDrag:
         from src.task_manager import OptimisticLockError
 
         tm = TaskManager(session_factory)
-        task = _make_task(status=TaskStatus.RUNNING)
+        task = make_task(status=TaskStatus.RUNNING)
         await tm.create_task(task)
 
         # Read timestamp before concurrent update
@@ -126,7 +100,7 @@ class TestRaceDuplicateReviewEnqueue:
     ) -> None:
         """Task with review_status='running' should block re-enqueue."""
         tm = TaskManager(session_factory)
-        task = _make_task(status=TaskStatus.REVIEW)
+        task = make_task(status=TaskStatus.REVIEW)
         await tm.create_task(task)
 
         # Set review_status to running (as _enqueue_review_pipeline does)
@@ -142,7 +116,7 @@ class TestRaceDuplicateReviewEnqueue:
     ) -> None:
         """Transitioning to REVIEW atomically sets review_status='running'."""
         tm = TaskManager(session_factory)
-        task = _make_task(status=TaskStatus.BACKLOG)
+        task = make_task(status=TaskStatus.BACKLOG)
         await tm.create_task(task)
 
         updated = await tm.update_status("P0:T-P0-1", TaskStatus.REVIEW)
@@ -153,7 +127,7 @@ class TestRaceDuplicateReviewEnqueue:
     ) -> None:
         """Re-dragging REVIEW -> REVIEW when already running stays 'running'."""
         tm = TaskManager(session_factory)
-        task = _make_task(status=TaskStatus.REVIEW)
+        task = make_task(status=TaskStatus.REVIEW)
         await tm.create_task(task)
         await tm.set_review_status("P0:T-P0-1", "running")
 
@@ -178,7 +152,7 @@ class TestRaceReviewCompletionVsBackwardDrag:
     ) -> None:
         """Backward drag to BACKLOG resets review_lifecycle_state to NOT_STARTED."""
         tm = TaskManager(session_factory)
-        task = _make_task(status=TaskStatus.REVIEW)
+        task = make_task(status=TaskStatus.REVIEW)
         await tm.create_task(task)
 
         # Simulate review pipeline completing
@@ -205,7 +179,7 @@ class TestRaceReviewCompletionVsBackwardDrag:
     ) -> None:
         """Backward drag to BACKLOG resets lifecycle from REJECTED_SINGLE."""
         tm = TaskManager(session_factory)
-        task = _make_task(status=TaskStatus.REVIEW_NEEDS_HUMAN)
+        task = make_task(status=TaskStatus.REVIEW_NEEDS_HUMAN)
         await tm.create_task(task)
 
         await tm.set_review_lifecycle_state(
@@ -220,7 +194,7 @@ class TestRaceReviewCompletionVsBackwardDrag:
     ) -> None:
         """Review pipeline trying REVIEW -> REVIEW_AUTO_APPROVED on BACKLOG task fails."""
         tm = TaskManager(session_factory)
-        task = _make_task(status=TaskStatus.REVIEW)
+        task = make_task(status=TaskStatus.REVIEW)
         await tm.create_task(task)
 
         # User drags to BACKLOG while pipeline runs
@@ -236,7 +210,7 @@ class TestRaceReviewCompletionVsBackwardDrag:
     ) -> None:
         """FAILED -> BACKLOG also resets review_lifecycle_state."""
         tm = TaskManager(session_factory)
-        task = _make_task(status=TaskStatus.RUNNING)
+        task = make_task(status=TaskStatus.RUNNING)
         await tm.create_task(task)
 
         # Run through RUNNING -> FAILED
@@ -256,7 +230,7 @@ class TestRaceReviewCompletionVsBackwardDrag:
     ) -> None:
         """DONE -> BACKLOG resets review_lifecycle_state."""
         tm = TaskManager(session_factory)
-        task = _make_task(status=TaskStatus.RUNNING)
+        task = make_task(status=TaskStatus.RUNNING)
         await tm.create_task(task)
 
         await tm.update_status("P0:T-P0-1", TaskStatus.DONE)
@@ -281,7 +255,7 @@ class TestExecutionEpochId:
     async def test_set_and_verify_epoch(self, session_factory) -> None:
         """set_execution_epoch stores and verify_execution_epoch reads back."""
         tm = TaskManager(session_factory)
-        task = _make_task(status=TaskStatus.RUNNING)
+        task = make_task(status=TaskStatus.RUNNING)
         await tm.create_task(task)
 
         await tm.set_execution_epoch("P0:T-P0-1", "epoch-abc")
@@ -301,7 +275,7 @@ class TestExecutionEpochId:
     ) -> None:
         """verify_execution_epoch returns False for soft-deleted task."""
         tm = TaskManager(session_factory)
-        task = _make_task(status=TaskStatus.QUEUED)
+        task = make_task(status=TaskStatus.QUEUED)
         await tm.create_task(task)
         await tm.set_execution_epoch("P0:T-P0-1", "epoch-abc")
         await tm.delete_task("P0:T-P0-1")
@@ -313,7 +287,7 @@ class TestExecutionEpochId:
     ) -> None:
         """Drag to BACKLOG clears execution_epoch_id."""
         tm = TaskManager(session_factory)
-        task = _make_task(status=TaskStatus.RUNNING)
+        task = make_task(status=TaskStatus.RUNNING)
         await tm.create_task(task)
         await tm.set_execution_epoch("P0:T-P0-1", "epoch-abc")
 
@@ -334,7 +308,7 @@ class TestExecutionEpochId:
     ) -> None:
         """Simulates RACE-1: user drag changes state, epoch no longer matches."""
         tm = TaskManager(session_factory)
-        task = _make_task(status=TaskStatus.RUNNING)
+        task = make_task(status=TaskStatus.RUNNING)
         await tm.create_task(task)
 
         # Scheduler sets epoch when dispatching
@@ -356,7 +330,7 @@ class TestExecutionEpochId:
     ) -> None:
         """execution_epoch_id survives Task -> DB -> Task roundtrip."""
         tm = TaskManager(session_factory)
-        task = _make_task(status=TaskStatus.RUNNING)
+        task = make_task(status=TaskStatus.RUNNING)
         await tm.create_task(task)
         await tm.set_execution_epoch("P0:T-P0-1", "epoch-roundtrip")
 

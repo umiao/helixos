@@ -20,12 +20,9 @@ from httpx import ASGITransport, AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from src.config import (
-    GitConfig,
     OrchestratorConfig,
-    OrchestratorSettings,
     ProjectConfig,
     ProjectRegistry,
-    ReviewPipelineConfig,
 )
 from src.db import Base
 from src.events import EventBus
@@ -33,67 +30,13 @@ from src.models import (
     ExecutionState,
     ExecutorType,
     ReviewState,
-    Task,
     TaskStatus,
 )
 from src.process_manager import ProcessStatus
 from src.scheduler import Scheduler
 from src.sync.tasks_parser import sync_project_tasks
 from src.task_manager import ReviewGateBlockedError, TaskManager
-
-# ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
-
-
-def _make_config(tmp_path: Path) -> OrchestratorConfig:
-    """Create a minimal OrchestratorConfig with one test project."""
-    repo_path = tmp_path / "test_repo"
-    repo_path.mkdir(exist_ok=True)
-    tasks_md = repo_path / "TASKS.md"
-    tasks_md.write_text(
-        "# Task Backlog\n\n## Active Tasks\n\n"
-        "#### T-P0-1: Test task\n- Description\n\n"
-        "## Completed Tasks\n",
-        encoding="utf-8",
-    )
-
-    return OrchestratorConfig(
-        orchestrator=OrchestratorSettings(
-            state_db_path=tmp_path / "test.db",
-            unified_env_path=tmp_path / ".env",
-            global_concurrency_limit=3,
-        ),
-        projects={
-            "proj-a": ProjectConfig(
-                name="Project A",
-                repo_path=repo_path,
-                executor_type=ExecutorType.CODE,
-                max_concurrency=1,
-            ),
-        },
-        git=GitConfig(),
-        review_pipeline=ReviewPipelineConfig(),
-    )
-
-
-def _make_task(
-    task_id: str = "proj-a:T-P0-1",
-    project_id: str = "proj-a",
-    local_task_id: str = "T-P0-1",
-    title: str = "Test task",
-    status: TaskStatus = TaskStatus.BACKLOG,
-) -> Task:
-    """Create a test Task."""
-    return Task(
-        id=task_id,
-        project_id=project_id,
-        local_task_id=local_task_id,
-        title=title,
-        status=status,
-        executor_type=ExecutorType.CODE,
-    )
-
+from tests.factories import make_config, make_task
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -130,7 +73,7 @@ async def test_app(tmp_path: Path, test_session_factory):
     from src.events import sse_router
     from src.history_writer import HistoryWriter
 
-    config = _make_config(tmp_path)
+    config = make_config(tmp_path)
     task_manager = TaskManager(test_session_factory)
     registry = ProjectRegistry(config)
 
@@ -279,7 +222,7 @@ class TestStatusEndpointGate:
         self, client: AsyncClient, task_manager: TaskManager,
     ) -> None:
         """Gate on: BACKLOG -> QUEUED returns 428 with gate_action hint."""
-        await task_manager.create_task(_make_task())
+        await task_manager.create_task(make_task(task_id="proj-a:T-P0-1", project_id="proj-a"))
 
         resp = await client.patch(
             "/api/tasks/proj-a:T-P0-1/status",
@@ -294,7 +237,7 @@ class TestStatusEndpointGate:
         self, client: AsyncClient, task_manager: TaskManager,
     ) -> None:
         """Gate off: BACKLOG -> QUEUED succeeds as before."""
-        await task_manager.create_task(_make_task())
+        await task_manager.create_task(make_task(task_id="proj-a:T-P0-1", project_id="proj-a"))
 
         # Disable gate
         await client.patch("/api/projects/proj-a/review-gate?enabled=false")
@@ -311,7 +254,7 @@ class TestStatusEndpointGate:
     ) -> None:
         """Gate on: BACKLOG -> REVIEW allowed when plan is valid."""
         await task_manager.create_task(
-            _make_task().model_copy(
+            make_task(task_id="proj-a:T-P0-1", project_id="proj-a").model_copy(
                 update={"description": "This is a valid plan for the task."},
             )
         )
@@ -336,7 +279,7 @@ class TestExecuteGate:
         self, client: AsyncClient, task_manager: TaskManager,
     ) -> None:
         """Gate on: force-execute a BACKLOG task returns 428."""
-        await task_manager.create_task(_make_task())
+        await task_manager.create_task(make_task(task_id="proj-a:T-P0-1", project_id="proj-a"))
 
         resp = await client.post("/api/tasks/proj-a:T-P0-1/execute")
         assert resp.status_code == 428
@@ -347,7 +290,7 @@ class TestExecuteGate:
         self, client: AsyncClient, task_manager: TaskManager,
     ) -> None:
         """Gate off: force-execute a BACKLOG task returns 202."""
-        await task_manager.create_task(_make_task())
+        await task_manager.create_task(make_task(task_id="proj-a:T-P0-1", project_id="proj-a"))
         await client.patch("/api/projects/proj-a/review-gate?enabled=false")
 
         resp = await client.post("/api/tasks/proj-a:T-P0-1/execute")
@@ -360,10 +303,10 @@ class TestExecuteGate:
 
         The gate only blocks BACKLOG -> QUEUED, not FAILED -> QUEUED.
         """
-        task = _make_task(
-            task_id="proj-a:T-P0-2", local_task_id="T-P0-2",
-            status=TaskStatus.FAILED,
-        )
+        task = make_task(
+            task_id="proj-a:T-P0-2", project_id="proj-a",
+            local_task_id="T-P0-2", status=TaskStatus.FAILED,
+            )
         await task_manager.create_task(task)
 
         resp = await client.post("/api/tasks/proj-a:T-P0-2/execute")
@@ -382,7 +325,7 @@ class TestRetryGate:
         self, client: AsyncClient, task_manager: TaskManager,
     ) -> None:
         """Gate on: retrying a BACKLOG task returns 428."""
-        await task_manager.create_task(_make_task())
+        await task_manager.create_task(make_task(task_id="proj-a:T-P0-1", project_id="proj-a"))
 
         resp = await client.post("/api/tasks/proj-a:T-P0-1/retry")
         assert resp.status_code == 428
@@ -393,10 +336,10 @@ class TestRetryGate:
         self, client: AsyncClient, task_manager: TaskManager,
     ) -> None:
         """Gate on: retrying a FAILED task still works (FAILED -> QUEUED)."""
-        task = _make_task(
-            task_id="proj-a:T-P0-2", local_task_id="T-P0-2",
-            status=TaskStatus.FAILED,
-        )
+        task = make_task(
+            task_id="proj-a:T-P0-2", project_id="proj-a",
+            local_task_id="T-P0-2", status=TaskStatus.FAILED,
+            )
         task = task.model_copy(update={
             "execution": ExecutionState(retry_count=3),
         })
@@ -422,10 +365,10 @@ class TestReviewDecideGate:
 
         This transition is post-review, so the gate does not block it.
         """
-        task = _make_task(
-            task_id="proj-a:T-P0-2", local_task_id="T-P0-2",
-            status=TaskStatus.REVIEW_NEEDS_HUMAN,
-        )
+        task = make_task(
+            task_id="proj-a:T-P0-2", project_id="proj-a",
+            local_task_id="T-P0-2", status=TaskStatus.REVIEW_NEEDS_HUMAN,
+            )
         task = task.model_copy(update={
             "review": ReviewState(
                 rounds_total=1, rounds_completed=1,
@@ -445,10 +388,10 @@ class TestReviewDecideGate:
         self, client: AsyncClient, task_manager: TaskManager,
     ) -> None:
         """Gate on: rejecting REVIEW_NEEDS_HUMAN -> BACKLOG is allowed."""
-        task = _make_task(
-            task_id="proj-a:T-P0-3", local_task_id="T-P0-3",
-            status=TaskStatus.REVIEW_NEEDS_HUMAN,
-        )
+        task = make_task(
+            task_id="proj-a:T-P0-3", project_id="proj-a",
+            local_task_id="T-P0-3", status=TaskStatus.REVIEW_NEEDS_HUMAN,
+            )
         task = task.model_copy(update={
             "review": ReviewState(
                 rounds_total=1, rounds_completed=1,
@@ -478,7 +421,7 @@ class TestReviewGateBlockedError:
     ) -> None:
         """update_status raises ReviewGateBlockedError for gate block."""
         tm = TaskManager(test_session_factory)
-        await tm.create_task(_make_task())
+        await tm.create_task(make_task(task_id="proj-a:T-P0-1", project_id="proj-a"))
 
         with pytest.raises(ReviewGateBlockedError) as exc_info:
             await tm.update_status(
@@ -493,7 +436,7 @@ class TestReviewGateBlockedError:
     ) -> None:
         """update_status with gate off allows BACKLOG -> QUEUED."""
         tm = TaskManager(test_session_factory)
-        await tm.create_task(_make_task())
+        await tm.create_task(make_task(task_id="proj-a:T-P0-1", project_id="proj-a"))
 
         result = await tm.update_status(
             "proj-a:T-P0-1", TaskStatus.QUEUED,
@@ -506,7 +449,7 @@ class TestReviewGateBlockedError:
     ) -> None:
         """Invalid transitions still raise ValueError (not gate error)."""
         tm = TaskManager(test_session_factory)
-        await tm.create_task(_make_task())
+        await tm.create_task(make_task(task_id="proj-a:T-P0-1", project_id="proj-a"))
 
         with pytest.raises(ValueError, match="Cannot move"):
             await tm.update_status("proj-a:T-P0-1", TaskStatus.DONE)

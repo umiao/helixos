@@ -247,3 +247,10 @@
 - **Sanity check result**: TypeScript clean. Vite build clean. 1560 backend tests pass (test_scheduler pre-existing timeout excluded). Grep-based wiring verification confirms all 4 features connected. [AUTO-VERIFIED]
 - **Status**: [DONE]
 - **Request**: Move T-P0-124 to Completed
+
+## 2026-03-09 -- [T-P2-139] Test suite consolidation -- shared fixtures, file splitting, runtime baseline
+- **What I did**: Created `tests/factories.py` with centralized `make_task`, `make_config`, `make_review_pipeline_config`, and SDK event builder helpers. Migrated 21 test files from local `_make_task`/`_make_config` to shared factories. Split `test_enrichment.py` (2606->973 LOC) into `test_plan_generation.py` (1295) and `test_plan_models.py` (417). Split `test_review_pipeline.py` (2601->801 LOC) into `test_review_scoring.py` (1035) and `test_review_models.py` (875). Fixed 31 ruff import ordering issues. Eliminated `_make_task` duplication in `test_models.py` (3 remaining files use different-purpose helpers: DB dict builder and TASKS.md text generator).
+- **Deliverables**: `tests/factories.py` (new), `tests/test_plan_generation.py` (new), `tests/test_plan_models.py` (new), `tests/test_review_scoring.py` (new), `tests/test_review_models.py` (new), 21 test files modified to use shared factories
+- **Sanity check result**: 1560 passed, 6 skipped in 35.30s (scheduler excluded, pre-existing timeout). Ruff clean. All files under 1500 LOC. Slowest test: test_server_startup 1.05s. Top 20 durations captured.
+- **Status**: [DONE]
+- **Request**: Move T-P2-139 to Completed

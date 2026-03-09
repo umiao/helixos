@@ -13,33 +13,9 @@ import json
 
 import pytest
 
-from src.models import ExecutorType, PlanStatus, Task, TaskStatus
+from src.models import PlanStatus
 from src.task_manager import VALID_PLAN_TRANSITIONS, TaskManager
-
-# ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
-
-
-def _make_task(
-    task_id: str = "P0:T-P0-1",
-    project_id: str = "P0",
-    local_task_id: str = "T-P0-1",
-    title: str = "Test task",
-    status: TaskStatus = TaskStatus.BACKLOG,
-    **kwargs,
-) -> Task:
-    """Create a Task with sensible defaults."""
-    return Task(
-        id=task_id,
-        project_id=project_id,
-        local_task_id=local_task_id,
-        title=title,
-        status=status,
-        executor_type=kwargs.pop("executor_type", ExecutorType.CODE),
-        **kwargs,
-    )
-
+from tests.factories import make_task
 
 PLAN_JSON_WITH_PROPOSALS = json.dumps({
     "steps": [{"title": "Step 1", "description": "Do stuff"}],
@@ -108,7 +84,7 @@ class TestSetPlanStateValid:
     async def test_none_to_generating(self, session_factory) -> None:
         """NONE -> GENERATING: clears data, sets generation_id."""
         tm = TaskManager(session_factory)
-        await tm.create_task(_make_task(description="old desc"))
+        await tm.create_task(make_task(description="old desc"))
 
         await tm.set_plan_state(
             "P0:T-P0-1", "generating", plan_generation_id="gen-1",
@@ -125,7 +101,7 @@ class TestSetPlanStateValid:
     async def test_generating_to_ready_with_proposals(self, session_factory) -> None:
         """GENERATING -> READY: sets plan data, computes has_proposed_tasks=True."""
         tm = TaskManager(session_factory)
-        await tm.create_task(_make_task(plan_status="generating"))
+        await tm.create_task(make_task(plan_status="generating"))
 
         await tm.set_plan_state(
             "P0:T-P0-1", "ready",
@@ -145,7 +121,7 @@ class TestSetPlanStateValid:
     async def test_generating_to_ready_no_proposals(self, session_factory) -> None:
         """GENERATING -> READY: has_proposed_tasks=False when no proposals."""
         tm = TaskManager(session_factory)
-        await tm.create_task(_make_task(plan_status="generating"))
+        await tm.create_task(make_task(plan_status="generating"))
 
         await tm.set_plan_state(
             "P0:T-P0-1", "ready",
@@ -160,7 +136,7 @@ class TestSetPlanStateValid:
     async def test_generating_to_failed(self, session_factory) -> None:
         """GENERATING -> FAILED: clears plan_json, preserves description."""
         tm = TaskManager(session_factory)
-        await tm.create_task(_make_task(plan_status="generating"))
+        await tm.create_task(make_task(plan_status="generating"))
 
         await tm.set_plan_state(
             "P0:T-P0-1", "failed", description="Error context here",
@@ -175,7 +151,7 @@ class TestSetPlanStateValid:
     async def test_generating_to_none(self, session_factory) -> None:
         """GENERATING -> NONE: clears everything."""
         tm = TaskManager(session_factory)
-        await tm.create_task(_make_task(
+        await tm.create_task(make_task(
             plan_status="generating",
             plan_generation_id="old-gen",
         ))
@@ -193,7 +169,7 @@ class TestSetPlanStateValid:
     async def test_ready_to_decomposed(self, session_factory) -> None:
         """READY -> DECOMPOSED: preserves all fields."""
         tm = TaskManager(session_factory)
-        await tm.create_task(_make_task(plan_status="generating"))
+        await tm.create_task(make_task(plan_status="generating"))
         await tm.set_plan_state(
             "P0:T-P0-1", "ready",
             description="Plan with proposed tasks.",
@@ -213,7 +189,7 @@ class TestSetPlanStateValid:
     async def test_ready_to_none(self, session_factory) -> None:
         """READY -> NONE: clears everything."""
         tm = TaskManager(session_factory)
-        await tm.create_task(_make_task(plan_status="generating"))
+        await tm.create_task(make_task(plan_status="generating"))
         await tm.set_plan_state(
             "P0:T-P0-1", "ready",
             description="Plan text for testing.",
@@ -232,7 +208,7 @@ class TestSetPlanStateValid:
     async def test_ready_to_generating(self, session_factory) -> None:
         """READY -> GENERATING: regeneration clears old data."""
         tm = TaskManager(session_factory)
-        await tm.create_task(_make_task(plan_status="generating"))
+        await tm.create_task(make_task(plan_status="generating"))
         await tm.set_plan_state(
             "P0:T-P0-1", "ready",
             description="Old plan text for display.",
@@ -254,7 +230,7 @@ class TestSetPlanStateValid:
     async def test_failed_to_generating(self, session_factory) -> None:
         """FAILED -> GENERATING: retry clears and sets new generation_id."""
         tm = TaskManager(session_factory)
-        await tm.create_task(_make_task(plan_status="generating"))
+        await tm.create_task(make_task(plan_status="generating"))
         await tm.set_plan_state("P0:T-P0-1", "failed")
 
         await tm.set_plan_state(
@@ -269,7 +245,7 @@ class TestSetPlanStateValid:
     async def test_failed_to_none(self, session_factory) -> None:
         """FAILED -> NONE: reset after failure."""
         tm = TaskManager(session_factory)
-        await tm.create_task(_make_task(plan_status="generating"))
+        await tm.create_task(make_task(plan_status="generating"))
         await tm.set_plan_state("P0:T-P0-1", "failed")
 
         await tm.set_plan_state("P0:T-P0-1", "none")
@@ -281,7 +257,7 @@ class TestSetPlanStateValid:
     async def test_decomposed_to_generating(self, session_factory) -> None:
         """DECOMPOSED -> GENERATING: re-generate after decomposition."""
         tm = TaskManager(session_factory)
-        await tm.create_task(_make_task(plan_status="generating"))
+        await tm.create_task(make_task(plan_status="generating"))
         await tm.set_plan_state(
             "P0:T-P0-1", "ready",
             description="Plan ready for decompose.",
@@ -300,7 +276,7 @@ class TestSetPlanStateValid:
     async def test_decomposed_to_none(self, session_factory) -> None:
         """DECOMPOSED -> NONE: reset after decomposition."""
         tm = TaskManager(session_factory)
-        await tm.create_task(_make_task(plan_status="generating"))
+        await tm.create_task(make_task(plan_status="generating"))
         await tm.set_plan_state(
             "P0:T-P0-1", "ready",
             description="Plan ready for decompose.",
@@ -327,7 +303,7 @@ class TestSetPlanStateInvalid:
     async def test_none_to_ready_raises(self, session_factory) -> None:
         """NONE -> READY is invalid (must go through GENERATING)."""
         tm = TaskManager(session_factory)
-        await tm.create_task(_make_task())
+        await tm.create_task(make_task())
 
         with pytest.raises(ValueError, match="Invalid plan transition"):
             await tm.set_plan_state(
@@ -338,7 +314,7 @@ class TestSetPlanStateInvalid:
     async def test_none_to_failed_raises(self, session_factory) -> None:
         """NONE -> FAILED is invalid."""
         tm = TaskManager(session_factory)
-        await tm.create_task(_make_task())
+        await tm.create_task(make_task())
 
         with pytest.raises(ValueError, match="Invalid plan transition"):
             await tm.set_plan_state("P0:T-P0-1", "failed")
@@ -346,7 +322,7 @@ class TestSetPlanStateInvalid:
     async def test_none_to_decomposed_raises(self, session_factory) -> None:
         """NONE -> DECOMPOSED is invalid."""
         tm = TaskManager(session_factory)
-        await tm.create_task(_make_task())
+        await tm.create_task(make_task())
 
         with pytest.raises(ValueError, match="Invalid plan transition"):
             await tm.set_plan_state("P0:T-P0-1", "decomposed")
@@ -354,7 +330,7 @@ class TestSetPlanStateInvalid:
     async def test_ready_to_failed_raises(self, session_factory) -> None:
         """READY -> FAILED is invalid (must go through GENERATING)."""
         tm = TaskManager(session_factory)
-        await tm.create_task(_make_task(plan_status="generating"))
+        await tm.create_task(make_task(plan_status="generating"))
         await tm.set_plan_state(
             "P0:T-P0-1", "ready",
             description="Ready plan text for test.",
@@ -367,7 +343,7 @@ class TestSetPlanStateInvalid:
     async def test_failed_to_ready_raises(self, session_factory) -> None:
         """FAILED -> READY is invalid (must go through GENERATING)."""
         tm = TaskManager(session_factory)
-        await tm.create_task(_make_task(plan_status="generating"))
+        await tm.create_task(make_task(plan_status="generating"))
         await tm.set_plan_state("P0:T-P0-1", "failed")
 
         with pytest.raises(ValueError, match="Invalid plan transition"):
@@ -379,7 +355,7 @@ class TestSetPlanStateInvalid:
     async def test_failed_to_decomposed_raises(self, session_factory) -> None:
         """FAILED -> DECOMPOSED is invalid."""
         tm = TaskManager(session_factory)
-        await tm.create_task(_make_task(plan_status="generating"))
+        await tm.create_task(make_task(plan_status="generating"))
         await tm.set_plan_state("P0:T-P0-1", "failed")
 
         with pytest.raises(ValueError, match="Invalid plan transition"):
@@ -388,7 +364,7 @@ class TestSetPlanStateInvalid:
     async def test_decomposed_to_ready_raises(self, session_factory) -> None:
         """DECOMPOSED -> READY is invalid."""
         tm = TaskManager(session_factory)
-        await tm.create_task(_make_task(plan_status="generating"))
+        await tm.create_task(make_task(plan_status="generating"))
         await tm.set_plan_state(
             "P0:T-P0-1", "ready",
             description="Ready plan for decompose.",
@@ -405,7 +381,7 @@ class TestSetPlanStateInvalid:
     async def test_decomposed_to_failed_raises(self, session_factory) -> None:
         """DECOMPOSED -> FAILED is invalid."""
         tm = TaskManager(session_factory)
-        await tm.create_task(_make_task(plan_status="generating"))
+        await tm.create_task(make_task(plan_status="generating"))
         await tm.set_plan_state(
             "P0:T-P0-1", "ready",
             description="Ready plan for decompose.",
@@ -419,7 +395,7 @@ class TestSetPlanStateInvalid:
     async def test_generating_to_decomposed_raises(self, session_factory) -> None:
         """GENERATING -> DECOMPOSED is invalid."""
         tm = TaskManager(session_factory)
-        await tm.create_task(_make_task(plan_status="generating"))
+        await tm.create_task(make_task(plan_status="generating"))
 
         with pytest.raises(ValueError, match="Invalid plan transition"):
             await tm.set_plan_state("P0:T-P0-1", "decomposed")
@@ -437,7 +413,7 @@ class TestSetPlanStateInvariants:
     async def test_ready_requires_plan_json(self, session_factory) -> None:
         """READY state requires plan_json -- omitting it raises."""
         tm = TaskManager(session_factory)
-        await tm.create_task(_make_task(plan_status="generating"))
+        await tm.create_task(make_task(plan_status="generating"))
 
         with pytest.raises(ValueError, match="requires plan_json and description"):
             await tm.set_plan_state(
@@ -449,7 +425,7 @@ class TestSetPlanStateInvariants:
     async def test_ready_requires_description(self, session_factory) -> None:
         """READY state requires description -- omitting it raises."""
         tm = TaskManager(session_factory)
-        await tm.create_task(_make_task(plan_status="generating"))
+        await tm.create_task(make_task(plan_status="generating"))
 
         with pytest.raises(ValueError, match="requires plan_json and description"):
             await tm.set_plan_state(
@@ -461,7 +437,7 @@ class TestSetPlanStateInvariants:
     async def test_none_clears_generation_id(self, session_factory) -> None:
         """Transitioning to NONE clears plan_generation_id."""
         tm = TaskManager(session_factory)
-        await tm.create_task(_make_task(plan_status="generating"))
+        await tm.create_task(make_task(plan_status="generating"))
         await tm.set_plan_state(
             "P0:T-P0-1", "ready",
             plan_generation_id="gen-1",
@@ -478,7 +454,7 @@ class TestSetPlanStateInvariants:
     async def test_complexity_override(self, session_factory) -> None:
         """Complexity can be overridden during transition."""
         tm = TaskManager(session_factory)
-        await tm.create_task(_make_task(plan_status="generating"))
+        await tm.create_task(make_task(plan_status="generating"))
 
         await tm.set_plan_state(
             "P0:T-P0-1", "ready",
@@ -494,7 +470,7 @@ class TestSetPlanStateInvariants:
     async def test_replan_attempt_override(self, session_factory) -> None:
         """Replan attempt counter can be set during transition."""
         tm = TaskManager(session_factory)
-        await tm.create_task(_make_task())
+        await tm.create_task(make_task())
 
         await tm.set_plan_state(
             "P0:T-P0-1", "generating",
@@ -509,7 +485,7 @@ class TestSetPlanStateInvariants:
     async def test_has_proposed_tasks_malformed_json(self, session_factory) -> None:
         """Malformed plan_json sets has_proposed_tasks=False (no crash)."""
         tm = TaskManager(session_factory)
-        await tm.create_task(_make_task(plan_status="generating"))
+        await tm.create_task(make_task(plan_status="generating"))
 
         await tm.set_plan_state(
             "P0:T-P0-1", "ready",
@@ -531,7 +507,7 @@ class TestSetPlanStateInvariants:
     async def test_deleted_task_raises(self, session_factory) -> None:
         """set_plan_state raises ValueError for soft-deleted task."""
         tm = TaskManager(session_factory)
-        await tm.create_task(_make_task())
+        await tm.create_task(make_task())
         await tm.delete_task("P0:T-P0-1")
 
         with pytest.raises(ValueError, match="Task not found"):
@@ -542,7 +518,7 @@ class TestSetPlanStateInvariants:
     ) -> None:
         """FAILED preserves existing description if no override provided."""
         tm = TaskManager(session_factory)
-        await tm.create_task(_make_task())
+        await tm.create_task(make_task())
         await tm.set_plan_state(
             "P0:T-P0-1", "generating", plan_generation_id="g1",
         )
@@ -569,7 +545,7 @@ class TestNewFieldsRoundTrip:
     async def test_generation_id_persists(self, session_factory) -> None:
         """plan_generation_id round-trips through create -> get."""
         tm = TaskManager(session_factory)
-        await tm.create_task(_make_task(plan_generation_id="my-gen-id"))
+        await tm.create_task(make_task(plan_generation_id="my-gen-id"))
 
         task = await tm.get_task("P0:T-P0-1")
         assert task is not None
@@ -578,7 +554,7 @@ class TestNewFieldsRoundTrip:
     async def test_has_proposed_tasks_default(self, session_factory) -> None:
         """has_proposed_tasks defaults to False on new tasks."""
         tm = TaskManager(session_factory)
-        await tm.create_task(_make_task())
+        await tm.create_task(make_task())
 
         task = await tm.get_task("P0:T-P0-1")
         assert task is not None
@@ -587,7 +563,7 @@ class TestNewFieldsRoundTrip:
     async def test_has_proposed_tasks_true_roundtrip(self, session_factory) -> None:
         """has_proposed_tasks=True round-trips through create -> get."""
         tm = TaskManager(session_factory)
-        await tm.create_task(_make_task(has_proposed_tasks=True))
+        await tm.create_task(make_task(has_proposed_tasks=True))
 
         task = await tm.get_task("P0:T-P0-1")
         assert task is not None

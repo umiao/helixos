@@ -20,79 +20,16 @@ import pytest
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
-from src.config import (
-    GitConfig,
-    OrchestratorConfig,
-    OrchestratorSettings,
-    ProjectConfig,
-    ReviewPipelineConfig,
-)
 from src.db import Base
 from src.events import EventBus
 from src.models import (
-    ExecutorType,
     ReviewState,
-    Task,
     TaskStatus,
 )
 from src.process_manager import ProcessStatus
 from src.scheduler import Scheduler
 from src.task_manager import TaskManager
-
-# ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
-
-
-def _make_config(tmp_path: Path) -> OrchestratorConfig:
-    """Create a minimal OrchestratorConfig with one test project."""
-    repo_path = tmp_path / "test_repo"
-    repo_path.mkdir(exist_ok=True)
-    tasks_md = repo_path / "TASKS.md"
-    tasks_md.write_text(
-        "# Task Backlog\n\n## Active Tasks\n\n"
-        "#### T-P0-1: Test task\n- Description\n\n"
-        "## Completed Tasks\n",
-        encoding="utf-8",
-    )
-    return OrchestratorConfig(
-        orchestrator=OrchestratorSettings(
-            state_db_path=tmp_path / "test.db",
-            unified_env_path=tmp_path / ".env",
-            global_concurrency_limit=3,
-        ),
-        projects={
-            "proj-a": ProjectConfig(
-                name="Project A",
-                repo_path=repo_path,
-                executor_type=ExecutorType.CODE,
-                max_concurrency=1,
-            ),
-        },
-        git=GitConfig(),
-        review_pipeline=ReviewPipelineConfig(),
-    )
-
-
-def _make_task(
-    task_id: str = "proj-a:T-P0-1",
-    project_id: str = "proj-a",
-    local_task_id: str = "T-P0-1",
-    title: str = "Test task",
-    status: TaskStatus = TaskStatus.BACKLOG,
-    review_status: str = "idle",
-) -> Task:
-    """Create a test Task."""
-    return Task(
-        id=task_id,
-        project_id=project_id,
-        local_task_id=local_task_id,
-        title=title,
-        status=status,
-        executor_type=ExecutorType.CODE,
-        review_status=review_status,
-    )
-
+from tests.factories import make_config, make_task
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -142,7 +79,7 @@ async def test_app(tmp_path: Path, session_factory, event_bus):
     from src.events import sse_router
     from src.history_writer import HistoryWriter
 
-    config = _make_config(tmp_path)
+    config = make_config(tmp_path)
     tm = TaskManager(session_factory)
     registry = ProjectRegistry(config)
 
@@ -213,7 +150,7 @@ class TestReviewStatusInResponse:
 
     async def test_get_task_includes_review_status(self, client, tm):
         """GET /api/tasks/{id} should include review_status field."""
-        task = _make_task()
+        task = make_task(task_id="proj-a:T-P0-1", project_id="proj-a")
         await tm.create_task(task)
 
         resp = await client.get("/api/tasks/proj-a:T-P0-1")
@@ -224,7 +161,7 @@ class TestReviewStatusInResponse:
 
     async def test_list_tasks_includes_review_status(self, client, tm):
         """GET /api/tasks should include review_status on each task."""
-        task = _make_task()
+        task = make_task(task_id="proj-a:T-P0-1", project_id="proj-a")
         await tm.create_task(task)
 
         resp = await client.get("/api/tasks")
@@ -244,7 +181,7 @@ class TestReviewStatusLifecycle:
 
     async def test_backlog_to_review_sets_running(self, task_manager):
         """Transitioning BACKLOG -> REVIEW should set review_status to running."""
-        task = _make_task()
+        task = make_task(task_id="proj-a:T-P0-1", project_id="proj-a")
         await task_manager.create_task(task)
 
         updated = await task_manager.update_status(
@@ -254,7 +191,7 @@ class TestReviewStatusLifecycle:
 
     async def test_review_to_backlog_resets_idle(self, task_manager):
         """Transitioning REVIEW -> BACKLOG should reset review_status to idle."""
-        task = _make_task(status=TaskStatus.REVIEW, review_status="running")
+        task = make_task(task_id="proj-a:T-P0-1", project_id="proj-a", status=TaskStatus.REVIEW, review_status="running")
         await task_manager.create_task(task)
 
         updated = await task_manager.update_status(
@@ -264,7 +201,7 @@ class TestReviewStatusLifecycle:
 
     async def test_set_review_status_to_done(self, task_manager):
         """set_review_status should update the review_status column."""
-        task = _make_task(status=TaskStatus.REVIEW, review_status="running")
+        task = make_task(task_id="proj-a:T-P0-1", project_id="proj-a", status=TaskStatus.REVIEW, review_status="running")
         await task_manager.create_task(task)
 
         await task_manager.set_review_status("proj-a:T-P0-1", "done")
@@ -274,7 +211,7 @@ class TestReviewStatusLifecycle:
 
     async def test_set_review_status_to_failed(self, task_manager):
         """set_review_status should update to failed."""
-        task = _make_task(status=TaskStatus.REVIEW, review_status="running")
+        task = make_task(task_id="proj-a:T-P0-1", project_id="proj-a", status=TaskStatus.REVIEW, review_status="running")
         await task_manager.create_task(task)
 
         await task_manager.set_review_status("proj-a:T-P0-1", "failed")
@@ -289,7 +226,7 @@ class TestReviewStatusLifecycle:
 
     async def test_queued_to_review_sets_running(self, task_manager):
         """QUEUED -> REVIEW should also set review_status to running."""
-        task = _make_task(status=TaskStatus.QUEUED)
+        task = make_task(task_id="proj-a:T-P0-1", project_id="proj-a", status=TaskStatus.QUEUED)
         await task_manager.create_task(task)
 
         updated = await task_manager.update_status(
@@ -310,7 +247,7 @@ class TestTransitionDrivenPipeline:
         self, client, test_app, tm,
     ):
         """Dragging BACKLOG -> REVIEW should enqueue review pipeline."""
-        task = _make_task()
+        task = make_task(task_id="proj-a:T-P0-1", project_id="proj-a")
         await tm.create_task(task)
 
         mock_pipeline = MagicMock()
@@ -342,7 +279,7 @@ class TestTransitionDrivenPipeline:
         self, client, test_app, tm,
     ):
         """When no Claude CLI, dragging to REVIEW should set review_status=failed."""
-        task = _make_task()
+        task = make_task(task_id="proj-a:T-P0-1", project_id="proj-a")
         await tm.create_task(task)
 
         # review_pipeline is None by default (no Claude CLI)
@@ -364,7 +301,7 @@ class TestTransitionDrivenPipeline:
         self, client, test_app, tm,
     ):
         """Pipeline success with score >= threshold -> REVIEW_AUTO_APPROVED."""
-        task = _make_task()
+        task = make_task(task_id="proj-a:T-P0-1", project_id="proj-a")
         await tm.create_task(task)
 
         mock_pipeline = MagicMock()
@@ -396,7 +333,7 @@ class TestTransitionDrivenPipeline:
         self, client, test_app, tm,
     ):
         """Pipeline with low score -> REVIEW_NEEDS_HUMAN."""
-        task = _make_task()
+        task = make_task(task_id="proj-a:T-P0-1", project_id="proj-a")
         await tm.create_task(task)
 
         mock_pipeline = MagicMock()
@@ -428,7 +365,7 @@ class TestTransitionDrivenPipeline:
         self, client, test_app, tm,
     ):
         """Pipeline exception -> task stays REVIEW, review_status=failed."""
-        task = _make_task()
+        task = make_task(task_id="proj-a:T-P0-1", project_id="proj-a")
         await tm.create_task(task)
 
         mock_pipeline = MagicMock()
@@ -454,7 +391,7 @@ class TestTransitionDrivenPipeline:
         self, client, test_app, tm,
     ):
         """Transitioning to non-REVIEW status should not trigger pipeline."""
-        task = _make_task(status=TaskStatus.REVIEW)
+        task = make_task(task_id="proj-a:T-P0-1", project_id="proj-a", status=TaskStatus.REVIEW)
         await tm.create_task(task)
 
         mock_pipeline = MagicMock()
@@ -479,7 +416,7 @@ class TestIdempotentReDrag:
 
     async def test_review_to_review_is_invalid(self, task_manager):
         """REVIEW -> REVIEW is not in VALID_TRANSITIONS (same status)."""
-        task = _make_task(status=TaskStatus.REVIEW, review_status="running")
+        task = make_task(task_id="proj-a:T-P0-1", project_id="proj-a", status=TaskStatus.REVIEW, review_status="running")
         await task_manager.create_task(task)
 
         # REVIEW -> REVIEW should fail because it's not in the transitions map
@@ -499,7 +436,7 @@ class TestRetryReviewEndpoint:
 
     async def test_retry_from_failed(self, client, test_app, tm):
         """Retry when review_status=failed should return 202."""
-        task = _make_task(status=TaskStatus.REVIEW, review_status="failed")
+        task = make_task(task_id="proj-a:T-P0-1", project_id="proj-a", status=TaskStatus.REVIEW, review_status="failed")
         await tm.create_task(task)
 
         mock_pipeline = MagicMock()
@@ -518,7 +455,7 @@ class TestRetryReviewEndpoint:
 
     async def test_retry_from_idle(self, client, test_app, tm):
         """Retry when review_status=idle should work (manual trigger)."""
-        task = _make_task(status=TaskStatus.BACKLOG, review_status="idle")
+        task = make_task(task_id="proj-a:T-P0-1", project_id="proj-a", status=TaskStatus.BACKLOG, review_status="idle")
         await tm.create_task(task)
 
         mock_pipeline = MagicMock()
@@ -536,7 +473,7 @@ class TestRetryReviewEndpoint:
 
     async def test_retry_rejects_running(self, client, tm):
         """Retry when review_status=running should return 409."""
-        task = _make_task(status=TaskStatus.REVIEW, review_status="running")
+        task = make_task(task_id="proj-a:T-P0-1", project_id="proj-a", status=TaskStatus.REVIEW, review_status="running")
         await tm.create_task(task)
 
         resp = await client.post("/api/tasks/proj-a:T-P0-1/review")
@@ -545,7 +482,7 @@ class TestRetryReviewEndpoint:
 
     async def test_retry_rejects_done(self, client, tm):
         """Retry when review_status=done should return 409."""
-        task = _make_task(status=TaskStatus.REVIEW, review_status="done")
+        task = make_task(task_id="proj-a:T-P0-1", project_id="proj-a", status=TaskStatus.REVIEW, review_status="done")
         await tm.create_task(task)
 
         resp = await client.post("/api/tasks/proj-a:T-P0-1/review")
@@ -568,7 +505,7 @@ class TestBackwardTransitionReset:
 
     async def test_review_to_backlog_resets(self, client, tm):
         """REVIEW -> BACKLOG via API should reset review_status to idle."""
-        task = _make_task(status=TaskStatus.REVIEW, review_status="failed")
+        task = make_task(task_id="proj-a:T-P0-1", project_id="proj-a", status=TaskStatus.REVIEW, review_status="failed")
         await tm.create_task(task)
 
         resp = await client.patch(
@@ -580,10 +517,10 @@ class TestBackwardTransitionReset:
 
     async def test_review_auto_approved_to_backlog_resets(self, client, tm):
         """REVIEW_AUTO_APPROVED -> BACKLOG should reset review_status."""
-        task = _make_task(
-            status=TaskStatus.REVIEW_AUTO_APPROVED,
-            review_status="done",
-        )
+        task = make_task(
+            task_id="proj-a:T-P0-1", project_id="proj-a",
+            status=TaskStatus.REVIEW_AUTO_APPROVED, review_status="done",
+            )
         await tm.create_task(task)
 
         resp = await client.patch(
@@ -606,7 +543,7 @@ class TestSSEEventsEmitted:
         self, client, test_app, tm, event_bus,
     ):
         """When pipeline is unavailable, SSE alert and review_failed should fire."""
-        task = _make_task()
+        task = make_task(task_id="proj-a:T-P0-1", project_id="proj-a")
         await tm.create_task(task)
 
         # Collect events
@@ -635,7 +572,7 @@ class TestSSEEventsEmitted:
         self, client, test_app, tm, event_bus,
     ):
         """When pipeline available, review_started SSE should fire."""
-        task = _make_task()
+        task = make_task(task_id="proj-a:T-P0-1", project_id="proj-a")
         await tm.create_task(task)
 
         mock_pipeline = MagicMock()
@@ -678,13 +615,11 @@ class TestReviewStatusMigration:
 
     async def test_review_status_has_default_idle(self, task_manager):
         """New tasks should have review_status=idle by default."""
-        task = Task(
-            id="proj-a:T-P0-99",
+        task = make_task(
+            task_id="proj-a:T-P0-99",
             project_id="proj-a",
             local_task_id="T-P0-99",
             title="Migration test",
-            status=TaskStatus.BACKLOG,
-            executor_type=ExecutorType.CODE,
         )
         await task_manager.create_task(task)
 

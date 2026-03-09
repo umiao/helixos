@@ -17,13 +17,6 @@ import pytest
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
-from src.config import (
-    GitConfig,
-    OrchestratorConfig,
-    OrchestratorSettings,
-    ProjectConfig,
-    ReviewPipelineConfig,
-)
 from src.db import Base
 from src.events import EventBus
 from src.models import ExecutorType, PlanStatus, Task, TaskStatus
@@ -31,41 +24,7 @@ from src.process_manager import ProcessStatus
 from src.process_monitor import ProcessMonitor
 from src.scheduler import Scheduler
 from src.task_manager import TaskManager
-
-# ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
-
-
-def _make_config(tmp_path: Path) -> OrchestratorConfig:
-    """Create a minimal OrchestratorConfig with one test project."""
-    repo_path = tmp_path / "test_repo"
-    repo_path.mkdir(exist_ok=True)
-    tasks_md = repo_path / "TASKS.md"
-    tasks_md.write_text(
-        "# Task Backlog\n\n## Active Tasks\n\n"
-        "#### T-P0-1: Test task\n- Description\n\n"
-        "## Completed Tasks\n",
-        encoding="utf-8",
-    )
-    return OrchestratorConfig(
-        orchestrator=OrchestratorSettings(
-            state_db_path=tmp_path / "test.db",
-            unified_env_path=tmp_path / ".env",
-            global_concurrency_limit=3,
-        ),
-        projects={
-            "proj-a": ProjectConfig(
-                name="Project A",
-                repo_path=repo_path,
-                executor_type=ExecutorType.CODE,
-                max_concurrency=1,
-            ),
-        },
-        git=GitConfig(),
-        review_pipeline=ReviewPipelineConfig(),
-    )
-
+from tests.factories import make_config
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -103,7 +62,7 @@ async def test_app(tmp_path: Path, test_session_factory):
     from src.events import sse_router
     from src.history_writer import HistoryWriter
 
-    config = _make_config(tmp_path)
+    config = make_config(tmp_path)
     task_manager = TaskManager(test_session_factory)
     registry = ProjectRegistry(config)
 

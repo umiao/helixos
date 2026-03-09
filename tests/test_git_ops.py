@@ -11,7 +11,8 @@ import pytest
 from src.config import GitConfig, StagedSafetyCheck
 from src.events import EventBus
 from src.git_ops import GitOps
-from src.models import ExecutorType, Project, Task, TaskStatus
+from src.models import ExecutorType, Project, TaskStatus
+from tests.factories import make_task
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -69,18 +70,6 @@ def _make_project(repo_path: Path) -> Project:
     )
 
 
-def _make_task() -> Task:
-    """Return a minimal Task for testing."""
-    return Task(
-        id="proj-1/T-001",
-        project_id="proj-1",
-        local_task_id="T-001",
-        title="Add widget",
-        status=TaskStatus.DONE,
-        executor_type=ExecutorType.CODE,
-    )
-
-
 def _default_git_config(**overrides: object) -> GitConfig:
     """Return a GitConfig with optional overrides."""
     kwargs: dict[str, object] = {}
@@ -117,7 +106,7 @@ async def test_auto_commit_success(tmp_path: Path) -> None:
     (tmp_path / "hello.py").write_text("print('hi')\n", encoding="utf-8")
 
     project = _make_project(tmp_path)
-    task = _make_task()
+    task = make_task(task_id="proj-1/T-001", project_id="proj-1", local_task_id="T-001", title="Add widget", status=TaskStatus.DONE)
     config = _default_git_config()
     bus = EventBus()
 
@@ -141,7 +130,7 @@ async def test_auto_commit_safety_abort(tmp_path: Path) -> None:
         )
 
     project = _make_project(tmp_path)
-    task = _make_task()
+    task = make_task(task_id="proj-1/T-001", project_id="proj-1", local_task_id="T-001", title="Add widget", status=TaskStatus.DONE)
     config = _default_git_config(max_files=5)
     bus = EventBus()
 
@@ -174,7 +163,7 @@ async def test_auto_commit_no_changes(tmp_path: Path) -> None:
     _init_repo(tmp_path)
 
     project = _make_project(tmp_path)
-    task = _make_task()
+    task = make_task(task_id="proj-1/T-001", project_id="proj-1", local_task_id="T-001", title="Add widget", status=TaskStatus.DONE)
     config = _default_git_config()
     bus = EventBus()
 
@@ -193,7 +182,7 @@ async def test_auto_commit_message_format(tmp_path: Path) -> None:
     (tmp_path / "code.py").write_text("x = 1\n", encoding="utf-8")
 
     project = _make_project(tmp_path)
-    task = _make_task()
+    task = make_task(task_id="proj-1/T-001", project_id="proj-1", local_task_id="T-001", title="Add widget", status=TaskStatus.DONE)
     template = "auto: {project} -- {task_id} -- {task_title}"
     config = _default_git_config(commit_message_template=template)
     bus = EventBus()
@@ -220,7 +209,7 @@ async def test_auto_commit_disabled(tmp_path: Path) -> None:
     )
 
     project = _make_project(tmp_path)
-    task = _make_task()
+    task = make_task(task_id="proj-1/T-001", project_id="proj-1", local_task_id="T-001", title="Add widget", status=TaskStatus.DONE)
     config = _default_git_config(auto_commit=False)
     bus = EventBus()
 
@@ -264,7 +253,7 @@ async def test_auto_commit_no_repo_path() -> None:
         repo_path=None,
         executor_type=ExecutorType.CODE,
     )
-    task = _make_task()
+    task = make_task(task_id="proj-1/T-001", project_id="proj-1", local_task_id="T-001", title="Add widget", status=TaskStatus.DONE)
     config = _default_git_config()
     bus = EventBus()
 

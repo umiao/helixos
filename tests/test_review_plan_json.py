@@ -16,27 +16,10 @@ from unittest.mock import patch
 import pytest
 
 from src.config import ReviewerConfig, ReviewPipelineConfig
-from src.models import ExecutorType, Task, TaskStatus
+from src.models import TaskStatus
 from src.review_pipeline import ReviewPipeline, _format_plan_json_for_review
 from src.sdk_adapter import ClaudeEvent, ClaudeEventType
-
-# ------------------------------------------------------------------
-# Helpers
-# ------------------------------------------------------------------
-
-
-def _make_task(plan_json: str | None = None) -> Task:
-    """Create a Task with optional plan_json."""
-    return Task(
-        id="task-1",
-        title="Test task",
-        description="A test task description",
-        status=TaskStatus.REVIEW,
-        executor_type=ExecutorType.CODE,
-        project_id="proj-1",
-        local_task_id="1",
-        plan_json=plan_json,
-    )
+from tests.factories import make_task
 
 
 def _make_review_events(verdict: str = "approve") -> list[ClaudeEvent]:
@@ -184,7 +167,7 @@ class TestCallReviewerPlanJsonInjection:
         self, pipeline: ReviewPipeline,
     ) -> None:
         """When task has plan_json, structured data appears in prompt sent to SDK."""
-        task = _make_task(plan_json=SAMPLE_PLAN_JSON)
+        task = make_task(status=TaskStatus.REVIEW, description="A test task description", plan_json=SAMPLE_PLAN_JSON)
         captured_prompts: list[str] = []
 
         async def _mock_query(prompt: str, options: Any = None):
@@ -212,7 +195,7 @@ class TestCallReviewerPlanJsonInjection:
         self, pipeline: ReviewPipeline,
     ) -> None:
         """When task has no plan_json, no structured section in prompt."""
-        task = _make_task(plan_json=None)
+        task = make_task(status=TaskStatus.REVIEW, description="A test task description", plan_json=None)
         captured_prompts: list[str] = []
 
         async def _mock_query(prompt: str, options: Any = None):
@@ -238,7 +221,7 @@ class TestCallReviewerPlanJsonInjection:
         self, pipeline: ReviewPipeline,
     ) -> None:
         """Malformed plan_json doesn't crash; falls back to description only."""
-        task = _make_task(plan_json="{invalid json")
+        task = make_task(status=TaskStatus.REVIEW, description="A test task description", plan_json="{invalid json")
         captured_prompts: list[str] = []
 
         async def _mock_query(prompt: str, options: Any = None):
@@ -263,7 +246,7 @@ class TestCallReviewerPlanJsonInjection:
         self, pipeline: ReviewPipeline,
     ) -> None:
         """Structured plan data appears after the plan content, not replacing it."""
-        task = _make_task(plan_json=SAMPLE_PLAN_JSON)
+        task = make_task(status=TaskStatus.REVIEW, description="A test task description", plan_json=SAMPLE_PLAN_JSON)
         captured_prompts: list[str] = []
 
         async def _mock_query(prompt: str, options: Any = None):

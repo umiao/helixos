@@ -20,34 +20,9 @@ from src.config import (
     ProjectConfig,
 )
 from src.db import Base
-from src.models import ExecutorType, ReviewState, Task, TaskStatus
+from src.models import ReviewState, TaskStatus
 from src.task_manager import TaskManager
-
-# ------------------------------------------------------------------
-# Helpers
-# ------------------------------------------------------------------
-
-def _make_task(
-    task_id: str = "proj-a:T-P0-1",
-    project_id: str = "proj-a",
-    local_task_id: str = "T-P0-1",
-    title: str = "Test task",
-    status: TaskStatus = TaskStatus.BACKLOG,
-    description: str = "",
-    replan_attempt: int = 0,
-) -> Task:
-    """Create a test Task."""
-    return Task(
-        id=task_id,
-        project_id=project_id,
-        local_task_id=local_task_id,
-        title=title,
-        status=status,
-        executor_type=ExecutorType.CODE,
-        description=description,
-        replan_attempt=replan_attempt,
-    )
-
+from tests.factories import make_task
 
 # ------------------------------------------------------------------
 # Fixtures
@@ -146,8 +121,9 @@ class TestReplanReviewAttemptIncrement:
         self, client: AsyncClient, task_manager: TaskManager, app,
     ):
         """After replan, review_attempt should be max_existing + 1, not 1."""
-        task = _make_task(
+        task = make_task(
             task_id="proj-a:T-P0-RA1",
+            project_id="proj-a",
             local_task_id="T-P0-RA1",
             status=TaskStatus.REVIEW_NEEDS_HUMAN,
             replan_attempt=0,
@@ -208,8 +184,9 @@ class TestReplanReviewAttemptIncrement:
         self, client: AsyncClient, task_manager: TaskManager, app,
     ):
         """If no prior reviews exist, post-replan review_attempt should be 1."""
-        task = _make_task(
+        task = make_task(
             task_id="proj-a:T-P0-RA2",
+            project_id="proj-a",
             local_task_id="T-P0-RA2",
             status=TaskStatus.REVIEW_NEEDS_HUMAN,
             replan_attempt=0,
@@ -257,8 +234,9 @@ class TestReplanReviewAttemptIncrement:
         self, client: AsyncClient, task_manager: TaskManager, app,
     ):
         """After 2nd replan (attempt=1), review_attempt should still use DB max."""
-        task = _make_task(
+        task = make_task(
             task_id="proj-a:T-P0-RA3",
+            project_id="proj-a",
             local_task_id="T-P0-RA3",
             status=TaskStatus.REVIEW_NEEDS_HUMAN,
             replan_attempt=1,  # Already replanned once

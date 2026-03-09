@@ -16,18 +16,10 @@ import pytest
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
-from src.config import (
-    GitConfig,
-    OrchestratorConfig,
-    OrchestratorSettings,
-    ProjectConfig,
-    ReviewPipelineConfig,
-)
 from src.db import Base
 from src.events import EventBus, TaskEvent
 from src.models import (
     ExecutionState,
-    ExecutorType,
     ReviewState,
     Task,
     TaskStatus,
@@ -36,61 +28,7 @@ from src.process_manager import ProcessStatus
 from src.process_monitor import ProcessMonitor
 from src.scheduler import Scheduler
 from src.task_manager import TaskManager
-
-# ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
-
-
-def _make_config(tmp_path: Path) -> OrchestratorConfig:
-    """Create a minimal OrchestratorConfig with one test project."""
-    repo_path = tmp_path / "test_repo"
-    repo_path.mkdir(exist_ok=True)
-    # Create a minimal TASKS.md
-    tasks_md = repo_path / "TASKS.md"
-    tasks_md.write_text(
-        "# Task Backlog\n\n## Active Tasks\n\n"
-        "#### T-P0-1: Test task\n- Description\n\n"
-        "## Completed Tasks\n",
-        encoding="utf-8",
-    )
-
-    return OrchestratorConfig(
-        orchestrator=OrchestratorSettings(
-            state_db_path=tmp_path / "test.db",
-            unified_env_path=tmp_path / ".env",
-            global_concurrency_limit=3,
-        ),
-        projects={
-            "proj-a": ProjectConfig(
-                name="Project A",
-                repo_path=repo_path,
-                executor_type=ExecutorType.CODE,
-                max_concurrency=1,
-            ),
-        },
-        git=GitConfig(),
-        review_pipeline=ReviewPipelineConfig(),
-    )
-
-
-def _make_task(
-    task_id: str = "proj-a:T-P0-1",
-    project_id: str = "proj-a",
-    local_task_id: str = "T-P0-1",
-    title: str = "Test task",
-    status: TaskStatus = TaskStatus.BACKLOG,
-) -> Task:
-    """Create a test Task."""
-    return Task(
-        id=task_id,
-        project_id=project_id,
-        local_task_id=local_task_id,
-        title=title,
-        status=status,
-        executor_type=ExecutorType.CODE,
-    )
-
+from tests.factories import make_config, make_task
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -128,7 +66,7 @@ async def test_app(tmp_path: Path, test_session_factory):
     from src.events import sse_router
     from src.history_writer import HistoryWriter
 
-    config = _make_config(tmp_path)
+    config = make_config(tmp_path)
     task_manager = TaskManager(test_session_factory)
     registry = ProjectRegistry(config)
 
@@ -208,7 +146,7 @@ async def task_manager(test_app) -> TaskManager:
 @pytest.fixture
 async def seeded_task(task_manager: TaskManager) -> Task:
     """Create a single seeded BACKLOG task."""
-    task = _make_task()
+    task = make_task(task_id="proj-a:T-P0-1", project_id="proj-a")
     return await task_manager.create_task(task)
 
 
@@ -369,8 +307,9 @@ class TestAutoCancel:
         self, client: AsyncClient, test_app, task_manager: TaskManager,
     ):
         """Moving RUNNING -> FAILED should call scheduler.cancel_task()."""
-        task = _make_task(
+        task = make_task(
             task_id="proj-a:T-P0-7",
+            project_id="proj-a",
             local_task_id="T-P0-7",
             status=TaskStatus.RUNNING,
         )
@@ -389,8 +328,9 @@ class TestAutoCancel:
         self, client: AsyncClient, test_app, task_manager: TaskManager,
     ):
         """Moving RUNNING -> DONE should call scheduler.cancel_task()."""
-        task = _make_task(
+        task = make_task(
             task_id="proj-a:T-P0-8",
+            project_id="proj-a",
             local_task_id="T-P0-8",
             status=TaskStatus.RUNNING,
         )
@@ -425,8 +365,9 @@ class TestAutoCancel:
         self, client: AsyncClient, test_app, task_manager: TaskManager,
     ):
         """Auto-cancel should not error when scheduler returns None."""
-        task = _make_task(
+        task = make_task(
             task_id="proj-a:T-P0-9",
+            project_id="proj-a",
             local_task_id="T-P0-9",
             status=TaskStatus.RUNNING,
         )
@@ -451,7 +392,7 @@ class TestRetryReview:
     ):
         """Should return 202 when review_status is failed and pipeline available."""
         # Create task in REVIEW with review_status=failed
-        task = _make_task(status=TaskStatus.REVIEW)
+        task = make_task(task_id="proj-a:T-P0-1", project_id="proj-a", status=TaskStatus.REVIEW)
         task = task.model_copy(update={"review_status": "failed"})
         await task_manager.create_task(task)
 
@@ -477,7 +418,7 @@ class TestRetryReview:
         self, client: AsyncClient, task_manager: TaskManager,
     ):
         """Should return 409 when review_status is running."""
-        task = _make_task(status=TaskStatus.REVIEW)
+        task = make_task(task_id="proj-a:T-P0-1", project_id="proj-a", status=TaskStatus.REVIEW)
         task = task.model_copy(update={"review_status": "running"})
         await task_manager.create_task(task)
 
@@ -499,8 +440,9 @@ class TestReviewDecide:
     ):
         """Approve decision should move task to QUEUED."""
         # Create task in REVIEW_NEEDS_HUMAN state
-        task = _make_task(
+        task = make_task(
             task_id="proj-a:T-P0-2",
+            project_id="proj-a",
             local_task_id="T-P0-2",
             status=TaskStatus.REVIEW_NEEDS_HUMAN,
         )
@@ -525,8 +467,9 @@ class TestReviewDecide:
         self, client: AsyncClient, task_manager: TaskManager,
     ):
         """Reject decision should move task to BACKLOG."""
-        task = _make_task(
+        task = make_task(
             task_id="proj-a:T-P0-3",
+            project_id="proj-a",
             local_task_id="T-P0-3",
             status=TaskStatus.REVIEW_NEEDS_HUMAN,
         )
@@ -561,8 +504,9 @@ class TestReviewDecide:
         self, client: AsyncClient, task_manager: TaskManager,
     ):
         """request_changes should transition to REVIEW with review_status=idle."""
-        task = _make_task(
+        task = make_task(
             task_id="proj-a:T-P0-RC1",
+            project_id="proj-a",
             local_task_id="T-P0-RC1",
             status=TaskStatus.REVIEW_NEEDS_HUMAN,
         )
@@ -589,8 +533,9 @@ class TestReviewDecide:
         self, client: AsyncClient, task_manager: TaskManager,
     ):
         """request_changes with empty reason should return 400."""
-        task = _make_task(
+        task = make_task(
             task_id="proj-a:T-P0-RC2",
+            project_id="proj-a",
             local_task_id="T-P0-RC2",
             status=TaskStatus.REVIEW_NEEDS_HUMAN,
         )
@@ -615,8 +560,9 @@ class TestReviewDecide:
         self, client: AsyncClient, task_manager: TaskManager,
     ):
         """request_changes with whitespace-only reason should return 400."""
-        task = _make_task(
+        task = make_task(
             task_id="proj-a:T-P0-RC3",
+            project_id="proj-a",
             local_task_id="T-P0-RC3",
             status=TaskStatus.REVIEW_NEEDS_HUMAN,
         )
@@ -640,8 +586,9 @@ class TestReviewDecide:
         self, client: AsyncClient, task_manager: TaskManager,
     ):
         """An unrecognized decision type should return 400."""
-        task = _make_task(
+        task = make_task(
             task_id="proj-a:T-P0-RC4",
+            project_id="proj-a",
             local_task_id="T-P0-RC4",
             status=TaskStatus.REVIEW_NEEDS_HUMAN,
         )
@@ -686,8 +633,9 @@ class TestForceExecute:
         RUNNING is the only status that truly cannot move to QUEUED
         (DONE -> QUEUED is valid since bidirectional transitions).
         """
-        task = _make_task(
+        task = make_task(
             task_id="proj-a:T-P0-4",
+            project_id="proj-a",
             local_task_id="T-P0-4",
             status=TaskStatus.RUNNING,
         )
@@ -704,8 +652,9 @@ class TestRetryTask:
         self, client: AsyncClient, task_manager: TaskManager,
     ):
         """FAILED task should move to QUEUED."""
-        task = _make_task(
+        task = make_task(
             task_id="proj-a:T-P0-5",
+            project_id="proj-a",
             local_task_id="T-P0-5",
             status=TaskStatus.FAILED,
         )
@@ -743,8 +692,9 @@ class TestCancelTask:
         self, client: AsyncClient, test_app, task_manager: TaskManager,
     ):
         """Should return 200 if scheduler accepts the cancellation."""
-        task = _make_task(
+        task = make_task(
             task_id="proj-a:T-P0-6",
+            project_id="proj-a",
             local_task_id="T-P0-6",
             status=TaskStatus.RUNNING,
         )
@@ -816,13 +766,15 @@ class TestDashboardSummary:
         self, client: AsyncClient, task_manager: TaskManager,
     ):
         """Should aggregate task stats correctly."""
-        await task_manager.create_task(_make_task(
+        await task_manager.create_task(make_task(
             task_id="proj-a:T-P0-10",
+            project_id="proj-a",
             local_task_id="T-P0-10",
             status=TaskStatus.BACKLOG,
         ))
-        await task_manager.create_task(_make_task(
+        await task_manager.create_task(make_task(
             task_id="proj-a:T-P0-11",
+            project_id="proj-a",
             local_task_id="T-P0-11",
             status=TaskStatus.QUEUED,
         ))
@@ -851,9 +803,9 @@ class TestDashboardCosts:
     ):
         """Should aggregate costs for a single project."""
         from datetime import UTC, datetime
-        task = _make_task(
-            task_id="proj-a:T-P0-20", local_task_id="T-P0-20",
-            status=TaskStatus.DONE,
+        task = make_task(
+            task_id="proj-a:T-P0-20", project_id="proj-a",
+            local_task_id="T-P0-20", status=TaskStatus.DONE,
         )
         await task_manager.create_task(task)
 
@@ -881,11 +833,11 @@ class TestDashboardCosts:
     ):
         """Should group costs by project correctly."""
         from datetime import UTC, datetime
-        task_a = _make_task(
+        task_a = make_task(
             task_id="proj-a:T-P0-30", local_task_id="T-P0-30",
             project_id="proj-a", status=TaskStatus.DONE,
         )
-        task_b = _make_task(
+        task_b = make_task(
             task_id="proj-b:T-P0-31", local_task_id="T-P0-31",
             project_id="proj-b", status=TaskStatus.DONE,
         )
@@ -914,9 +866,9 @@ class TestDashboardCosts:
     ):
         """Reviews with null cost_usd should still be counted."""
         from datetime import UTC, datetime
-        task = _make_task(
-            task_id="proj-a:T-P0-40", local_task_id="T-P0-40",
-            status=TaskStatus.DONE,
+        task = make_task(
+            task_id="proj-a:T-P0-40", project_id="proj-a",
+            local_task_id="T-P0-40", status=TaskStatus.DONE,
         )
         await task_manager.create_task(task)
 
@@ -966,8 +918,9 @@ class TestStatusTransitionToRunning:
         self, client: AsyncClient, task_manager: TaskManager,
     ):
         """QUEUED -> RUNNING should succeed."""
-        task = _make_task(
+        task = make_task(
             task_id="proj-a:T-P0-20",
+            project_id="proj-a",
             local_task_id="T-P0-20",
             status=TaskStatus.QUEUED,
         )
@@ -984,8 +937,9 @@ class TestStatusTransitionToRunning:
         self, client: AsyncClient, task_manager: TaskManager,
     ):
         """RUNNING -> DONE should succeed."""
-        task = _make_task(
+        task = make_task(
             task_id="proj-a:T-P0-21",
+            project_id="proj-a",
             local_task_id="T-P0-21",
             status=TaskStatus.RUNNING,
         )
@@ -1002,8 +956,9 @@ class TestStatusTransitionToRunning:
         self, client: AsyncClient, task_manager: TaskManager,
     ):
         """RUNNING -> FAILED should succeed."""
-        task = _make_task(
+        task = make_task(
             task_id="proj-a:T-P0-22",
+            project_id="proj-a",
             local_task_id="T-P0-22",
             status=TaskStatus.RUNNING,
         )
@@ -1322,8 +1277,9 @@ class TestBoardSync:
         # Create a BACKLOG task with plan_status=ready
         from src.models import PlanStatus
 
-        planned_task = _make_task(
+        planned_task = make_task(
             task_id="proj-a:T-P0-50",
+            project_id="proj-a",
             local_task_id="T-P0-50",
             status=TaskStatus.BACKLOG,
         )

@@ -32,17 +32,6 @@
 
 ### P2 -- Nice to Have
 
-#### T-P2-139: Test suite consolidation -- shared fixtures, file splitting, runtime baseline
-- **Priority**: P2
-- **Complexity**: M (1-2 sessions)
-- **Depends on**: None
-- **Description**: Test suite has 1,596 tests across 62 files. `_make_task()` fixture duplicated in 10+ files (violates CLAUDE.md). `test_enrichment.py` (2,606 lines) and `test_review_pipeline.py` (2,601 lines) are bloated. Need consolidation for maintainability and runtime control. Current runtime ~33s.
-- **Acceptance Criteria**:
-  1. `_make_task()` and similar factory helpers centralized in `tests/conftest.py`. Zero duplication across test files.
-  2. Files exceeding 1,500 LOC split by concern: `test_enrichment.py` -> 2-3 files, `test_review_pipeline.py` -> 2-3 files.
-  3. `pytest --durations=20` output captured as baseline in this task's PROGRESS entry.
-  4. No test regressions: all tests still pass with same count.
-  5. Ruff clean.
 
 #### T-P2-140: Document dirty state lesson in LESSONS.md
 - **Priority**: P2
@@ -80,6 +69,9 @@ T-P1-127 depends on T-P1-123 (completed)
 
 
 > 21 completed tasks archived to [archive/completed_tasks.md](archive/completed_tasks.md).
+
+#### [x] T-P2-139: Test suite consolidation -- shared fixtures, file splitting, runtime baseline -- 2026-03-09
+- Created `tests/factories.py` with `make_task`, `make_config`, `make_review_pipeline_config`, SDK event builders. Migrated 21 test files to use shared factories. Split `test_enrichment.py` (2606->973 LOC) into `test_plan_generation.py` (1295) and `test_plan_models.py` (417). Split `test_review_pipeline.py` (2601->801 LOC) into `test_review_scoring.py` (1035) and `test_review_models.py` (875). All files under 1500 LOC. 1560 tests pass, 35s baseline, ruff clean.
 
 #### [x] T-P0-124: UI improvements -- conversation folding, plan MD rendering, log highlighting, running status indicators -- 2026-03-09
 - ConversationView: orphaned tool_results hidden entirely, tool_use collapsed by default with expand on click. PlanReviewPanel: plan summary rendered via ReactMarkdown (not `<pre>`). ExecutionLog: source-based color coding (review=purple, plan=violet, scheduler=cyan, executor=blue) with source badges. BottomPanelContainer: animated pulsing green dots on Conversation/Log tabs for running tasks. TypeScript clean, Vite build clean.
