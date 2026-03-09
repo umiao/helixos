@@ -1324,3 +1324,10 @@
 - **Sanity check result**: 1532 pass, 6 skipped, ruff clean. [AUTO-VERIFIED]
 - **Status**: [DONE]
 - **Request**: Move T-P1-129 to Completed
+
+## 2026-03-09 -- [T-P1-130] Parallelize review pipeline reviewer calls
+- **What I did**: Replaced sequential `for` loop in `review_task()` with `asyncio.gather()` for multi-reviewer cases. Single-reviewer path unchanged (no concurrency overhead). Failed reviewers produce error-reject reviews via `return_exceptions=True` so partial results are always captured. Progress callbacks emit all "Starting" messages first, then "Completed" as results are collected.
+- **Deliverables**: `src/review_pipeline.py` (review_task method rewritten), `tests/test_review_pipeline.py` (3 new tests: concurrency verification, partial failure, single-reviewer regression; 1 updated progress callback assertion)
+- **Sanity check result**: 1502 pass, 2 skipped, ruff clean. [AUTO-VERIFIED]
+- **Status**: [DONE]
+- **Request**: Move T-P1-130 to Completed

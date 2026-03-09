@@ -30,21 +30,6 @@
 
 ### P1 -- Should Have (agentic intelligence)
 
-
-
-
-#### T-P1-130: Parallelize review pipeline reviewer calls
-- **Priority**: P1
-- **Complexity**: S (< 1 session)
-- **Depends on**: None
-- **Description**: `review_task()` in review_pipeline.py:320 runs reviewers sequentially in a `for` loop. For M/L complexity tasks with 2+ reviewers, this doubles the review wait time. Reviewers are independent and can be parallelized with `asyncio.gather()`.
-- **Acceptance Criteria**:
-  1. Multiple reviewers run concurrently via `asyncio.gather()` or equivalent
-  2. Progress callbacks still report per-reviewer completion (completed count increments)
-  3. If one reviewer fails, the other's result is still captured (partial result)
-  4. Single-reviewer case is unchanged (no regression)
-  5. Test: mock two reviewers, verify both are called concurrently (not sequentially)
-
 ### P2 -- Nice to Have
 
 #### T-P2-131: Move reviewer personas from Python to config templates
@@ -100,6 +85,7 @@ T-P2-131 depends on T-P1-124 (completed -- T-P2-131 now unblocked)
 
 > 120 completed tasks archived to [archive/completed_tasks.md](archive/completed_tasks.md).
 
+- T-P1-130: Parallelize review pipeline reviewer calls
 - T-P1-129: Remove dead synthesis code from review pipeline
 - T-P1-128: Add pass/fail calibration example to review prompt
 - T-P1-127: Add specific structural check items to review prompt

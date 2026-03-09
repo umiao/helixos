@@ -313,10 +313,12 @@ async def test_progress_callback(mock_query: MagicMock) -> None:
         complexity="M",
     )
 
+    # With parallel execution, all "Starting" messages are emitted first,
+    # then "Completed" messages as results are collected.
     assert progress_calls == [
         (0, 2, "Starting feasibility_and_edge_cases review..."),
-        (1, 2, "Completed feasibility_and_edge_cases review"),
         (1, 2, "Starting adversarial_red_team review..."),
+        (1, 2, "Completed feasibility_and_edge_cases review"),
         (2, 2, "Completed adversarial_red_team review"),
     ]
 
@@ -2382,3 +2384,114 @@ async def test_review_injects_session_context(mock_query: MagicMock) -> None:
         assert "Session Context" in options.system_prompt, (
             "Expected session context in system prompt"
         )
+
+
+# ------------------------------------------------------------------
+# Parallel reviewer execution (T-P1-130)
+# ------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+@patch("src.review_pipeline.run_claude_query")
+async def test_parallel_reviewers_both_called_concurrently(
+    mock_query: MagicMock,
+) -> None:
+    """Two reviewers are called via asyncio.gather, not sequentially."""
+    call_times: list[tuple[str, float]] = []
+    original_events = [
+        _make_review_events("approve", "Feasible"),
+        _make_review_events("approve", "No risks"),
+    ]
+
+    call_count = 0
+
+    async def _delayed_query(prompt: str, options: Any = None):
+        nonlocal call_count
+        idx = min(call_count, len(original_events) - 1)
+        call_count += 1
+        # Record when each call starts
+        call_times.append(("start", asyncio.get_event_loop().time()))
+        # Small delay to prove concurrency
+        await asyncio.sleep(0.05)
+        call_times.append(("end", asyncio.get_event_loop().time()))
+        for event in original_events[idx]:
+            yield event
+
+    mock_query.side_effect = _delayed_query
+
+    pipeline = ReviewPipeline(_default_config(), threshold=0.8)
+
+    result = await pipeline.review_task(
+        _sample_task(), "Plan", lambda c, t, p: None, complexity="M",
+    )
+
+    assert len(result.reviews) == 2
+    assert mock_query.call_count == 2
+    # Both calls should start before either finishes (concurrent)
+    starts = [t for label, t in call_times if label == "start"]
+    ends = [t for label, t in call_times if label == "end"]
+    assert len(starts) == 2
+    # Second call starts before first call ends -> concurrent
+    assert starts[1] < ends[0], (
+        "Expected concurrent execution: second reviewer should start "
+        "before first reviewer finishes"
+    )
+
+
+@pytest.mark.asyncio
+@patch("src.review_pipeline.run_claude_query")
+async def test_parallel_partial_failure_captures_successful_review(
+    mock_query: MagicMock,
+) -> None:
+    """If one reviewer returns an error, the other's result is still captured."""
+    # First reviewer approves, second returns SDK error events
+    _setup_mock_query(mock_query, [
+        _make_review_events("approve", "Looks good"),
+        _make_error_events("SDK timeout"),
+    ])
+
+    pipeline = ReviewPipeline(_default_config(), threshold=0.8)
+
+    result = await pipeline.review_task(
+        _sample_task(), "Plan", lambda c, t, p: None, complexity="M",
+    )
+
+    # Both reviews captured: one success, one error-reject
+    assert len(result.reviews) == 2
+    assert result.reviews[0].verdict == "approve"
+    assert result.reviews[1].verdict == "reject"
+    assert "SDK timeout" in result.reviews[1].summary
+    # Consensus: 1 approve / 2 total = 0.5
+    assert result.consensus_score == 0.5
+
+
+@pytest.mark.asyncio
+@patch("src.review_pipeline.run_claude_query")
+async def test_single_reviewer_unchanged_with_parallel_code(
+    mock_query: MagicMock,
+) -> None:
+    """Single reviewer (S complexity) still works as before -- no regression."""
+    _setup_mock_query(mock_query, [
+        _make_review_events("approve", "All good"),
+    ])
+
+    pipeline = ReviewPipeline(_default_config(), threshold=0.8)
+
+    progress_calls: list[tuple[int, int, str]] = []
+    result = await pipeline.review_task(
+        _sample_task(),
+        "Plan",
+        lambda c, t, p: progress_calls.append((c, t, p)),
+        complexity="S",
+    )
+
+    assert result.consensus_score == 1.0
+    assert len(result.reviews) == 1
+    assert result.reviews[0].verdict == "approve"
+    assert result.lifecycle_state == ReviewLifecycleState.APPROVED
+    assert mock_query.call_count == 1
+    # Progress follows sequential pattern for single reviewer
+    assert progress_calls == [
+        (0, 1, "Starting feasibility_and_edge_cases review..."),
+        (1, 1, "Completed feasibility_and_edge_cases review"),
+    ]

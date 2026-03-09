@@ -377,9 +377,13 @@ class ReviewPipeline:
 
         _emit_log("Review started")
 
-        for i, reviewer in enumerate(active_reviewers):
+        total = len(active_reviewers)
+
+        if total == 1:
+            # Single reviewer: sequential path (no concurrency overhead)
+            reviewer = active_reviewers[0]
             phase = f"Starting {reviewer.focus} review..."
-            on_progress(i, len(active_reviewers), phase)
+            on_progress(0, total, phase)
             _emit_log(phase)
             review = await self._call_reviewer(
                 reviewer, task, plan_content,
@@ -390,8 +394,53 @@ class ReviewPipeline:
             )
             reviews.append(review)
             completed_msg = f"Completed {reviewer.focus} review"
-            on_progress(i + 1, len(active_reviewers), completed_msg)
+            on_progress(1, total, completed_msg)
             _emit_log(completed_msg)
+        else:
+            # Multiple reviewers: run concurrently
+            for i, reviewer in enumerate(active_reviewers):
+                phase = f"Starting {reviewer.focus} review..."
+                on_progress(i, total, phase)
+                _emit_log(phase)
+
+            # Launch all reviewer calls in parallel; capture exceptions
+            # so one failure doesn't cancel the others.
+            results = await asyncio.gather(
+                *(
+                    self._call_reviewer(
+                        reviewer, task, plan_content,
+                        human_feedback=human_feedback,
+                        on_log=on_log,
+                        on_raw_artifact=on_raw_artifact,
+                        on_stream_event=on_stream_event,
+                    )
+                    for reviewer in active_reviewers
+                ),
+                return_exceptions=True,
+            )
+
+            for i, (reviewer, result) in enumerate(
+                zip(active_reviewers, results, strict=True),
+            ):
+                if isinstance(result, BaseException):
+                    logger.warning(
+                        "Reviewer %s failed: %s", reviewer.focus, result,
+                    )
+                    # Create a reject review for the failed reviewer
+                    reviews.append(LLMReview(
+                        model=reviewer.model,
+                        focus=reviewer.focus,
+                        verdict="reject",
+                        summary=f"Reviewer error: {result}",
+                        suggestions=[],
+                        blocking_issues=[f"Reviewer error: {result}"],
+                        timestamp=datetime.now(UTC),
+                    ))
+                else:
+                    reviews.append(result)
+                completed_msg = f"Completed {reviewer.focus} review"
+                on_progress(i + 1, total, completed_msg)
+                _emit_log(completed_msg)
 
         # Deterministic merge (no synthesis LLM call needed for pass/fail)
         if len(reviews) > 1:
