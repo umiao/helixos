@@ -1345,3 +1345,10 @@
 - **Sanity check result**: 1539 pass, 6 skipped, ruff clean. [AUTO-VERIFIED]
 - **Status**: [DONE]
 - **Request**: Move T-P2-132 to Completed
+
+## 2026-03-09 -- [T-P2-133] Remove unused generate-tasks-preview endpoint
+- **What I did**: Removed the dead `POST /api/tasks/{task_id}/generate-tasks-preview` endpoint from `src/routes/tasks.py` and its associated `GeneratedTaskPreview` and `GenerateTasksPreviewResponse` schemas from `src/schemas.py`. The endpoint was never called from the frontend -- PlanReviewPanel goes straight to `confirm-generated-tasks`.
+- **Deliverables**: `src/routes/tasks.py` (removed endpoint + imports), `src/schemas.py` (removed 2 schema classes)
+- **Sanity check result**: 1539 pass, 6 skipped, ruff clean. [AUTO-VERIFIED]
+- **Status**: [DONE]
+- **Request**: Move T-P2-133 to Completed

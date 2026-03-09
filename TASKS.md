@@ -32,18 +32,6 @@
 
 ### P2 -- Nice to Have
 
-
-
-#### T-P2-133: Remove unused generate-tasks-preview endpoint or wire it into frontend
-- **Priority**: P2
-- **Complexity**: S (< 1 session)
-- **Depends on**: None
-- **Description**: `POST /api/tasks/{task_id}/generate-tasks-preview` endpoint exists in tasks.py but the frontend `confirm-generated-tasks` flow doesn't call it -- going straight to confirm without preview. Either remove the dead endpoint or add a preview step in PlanReviewPanel before confirm.
-- **Acceptance Criteria**:
-  1. Either: endpoint removed and tests cleaned up
-  2. Or: PlanReviewPanel shows a diff preview before user confirms task creation
-  3. No dead API endpoints remain
-
 ## Dependency Graph
 
 > Full historical dependency graph relocated to [docs/architecture/dependency-graph-history.md](docs/architecture/dependency-graph-history.md).
@@ -65,6 +53,7 @@ T-P1-127 depends on T-P1-123 (completed -- T-P1-127 now unblocked)
 
 > 120 completed tasks archived to [archive/completed_tasks.md](archive/completed_tasks.md).
 
+- T-P2-133: Remove unused generate-tasks-preview endpoint
 - T-P2-132: Fix misleading enrichment prompt text about plan context
 - T-P2-131: Move reviewer personas from Python to config templates
 - T-P1-130: Parallelize review pipeline reviewer calls

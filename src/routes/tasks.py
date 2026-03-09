@@ -3,7 +3,6 @@
 Endpoints: POST /api/projects/{project_id}/tasks, GET /api/tasks,
 GET /api/tasks/{task_id}, PATCH /api/tasks/{task_id},
 POST /api/tasks/enrich, POST /api/tasks/{task_id}/generate-plan,
-POST /api/tasks/{task_id}/generate-tasks-preview,
 POST /api/tasks/{task_id}/confirm-generated-tasks,
 DELETE /api/tasks/{task_id}.
 """
@@ -40,8 +39,6 @@ from src.schemas import (
     EnrichTaskRequest,
     EnrichTaskResponse,
     ErrorResponse,
-    GeneratedTaskPreview,
-    GenerateTasksPreviewResponse,
     SyncResponse,
     TaskResponse,
     UpdateTaskRequest,
@@ -403,90 +400,6 @@ async def reject_plan(task_id: str, request: Request) -> JSONResponse:
 # ------------------------------------------------------------------
 # Task generator endpoints (proposal-to-TASKS.md pipeline)
 # ------------------------------------------------------------------
-
-
-@router.post(
-    "/api/tasks/{task_id}/generate-tasks-preview",
-    responses={
-        404: {"model": ErrorResponse},
-        409: {"model": ErrorResponse},
-        422: {"model": ErrorResponse},
-    },
-)
-async def generate_tasks_preview(
-    task_id: str,
-    request: Request,
-) -> GenerateTasksPreviewResponse:
-    """Preview proposed tasks from a plan before writing to TASKS.md.
-
-    Extracts ``proposed_tasks[]`` from the task's ``plan_json``,
-    allocates IDs, validates dependencies, detects cycles, and
-    returns a diff for human review.
-    """
-    task_manager: TaskManager = request.app.state.task_manager
-    registry: ProjectRegistry = request.app.state.registry
-
-    task = await task_manager.get_task(task_id)
-    if task is None:
-        raise HTTPException(status_code=404, detail=f"Task {task_id} not found")
-
-    if task.plan_status != "ready":
-        raise HTTPException(
-            status_code=409,
-            detail=f"Task {task_id} plan_status is {task.plan_status!r}, expected 'ready'",
-        )
-
-    proposals = extract_proposals_from_plan(task.plan_json)
-    if not proposals:
-        raise HTTPException(
-            status_code=422,
-            detail=f"Task {task_id} has no proposed_tasks in plan_json",
-        )
-
-    # Read TASKS.md content for ID allocation
-    project = registry.get_project(task.project_id)
-    if project.repo_path is None:
-        raise HTTPException(
-            status_code=422,
-            detail=f"Project {task.project_id} has no repo_path",
-        )
-
-    tasks_md_path = project.repo_path / project.tasks_file
-    if not tasks_md_path.is_file():
-        raise HTTPException(
-            status_code=422,
-            detail=f"TASKS.md not found at {tasks_md_path}",
-        )
-
-    tasks_md_content = tasks_md_path.read_text(encoding="utf-8")
-
-    result = process_proposals(
-        proposals=proposals,
-        tasks_md_content=tasks_md_content,
-        parent_task_id=task.local_task_id,
-    )
-
-    if not result.success:
-        raise HTTPException(status_code=422, detail=result.error or "Unknown error")
-
-    preview_tasks = [
-        GeneratedTaskPreview(
-            task_id=t.task_id,
-            title=t.title,
-            priority=t.priority,
-            complexity=t.complexity,
-            depends_on=t.depends_on,
-            acceptance_criteria=t.acceptance_criteria,
-        )
-        for t in result.allocated_tasks
-    ]
-
-    return GenerateTasksPreviewResponse(
-        parent_task_id=task.local_task_id,
-        tasks=preview_tasks,
-        diff_text=result.diff_text,
-        count=len(result.allocated_tasks),
-    )
 
 
 @router.post(
