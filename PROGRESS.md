@@ -233,3 +233,10 @@
 - **Sanity check result**: TypeScript clean (`npx tsc --noEmit`). Vite build clean. 1560 backend tests pass (test_scheduler pre-existing timeout excluded). Ruff clean. [AUTO-VERIFIED] -- no browser available for manual smoke test.
 - **Status**: [DONE]
 - **Request**: Move T-P0-137 to Completed
+
+## 2026-03-09 -- [T-P0-138] Clean up T-P0-124 dirty state + plan integrity check
+- **What I did**: Created `scripts/repair_plan_state.py` to detect and fix plan state invariant violations in the database. Found 151 inconsistent rows: 148 tasks with `plan_status='none'` but non-empty description (legacy data from before state machine), 3 tasks with `plan_status='ready'` but NULL plan_json (helixos:T-P0-62, T-P0-66, T-P0-67). Script supports dry-run (default) and --fix mode. All inconsistencies fixed and verified with 0 remaining. Rewrote T-P0-124 task spec with proper schema fields, journey ACs, inverse case ACs, and smoke test AC per CLAUDE.md rules. Updated dependency graph (T-P0-124 now unblocked).
+- **Deliverables**: `scripts/repair_plan_state.py` (new -- plan state integrity check and repair tool), `TASKS.md` (mod -- T-P0-138 completed, T-P0-124 rewritten with proper ACs, dependency graph updated)
+- **Sanity check result**: Repair script ran successfully, 151 rows fixed, verification pass shows 0 remaining inconsistencies. 1560 backend tests pass (test_scheduler pre-existing timeout excluded). Ruff clean.
+- **Status**: [DONE]
+- **Request**: Move T-P0-138 to Completed

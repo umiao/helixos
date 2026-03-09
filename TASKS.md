@@ -29,30 +29,20 @@
 
 ### P0 -- Must Have (core functionality)
 
-#### T-P0-138: Clean up T-P0-124 dirty state + plan integrity check
-- **Priority**: P0
-- **Complexity**: S (< 1 session)
-- **Depends on**: T-P0-134, T-P0-136
-- **Description**: T-P0-124 has dirty DB state where stale plan data overwrites user-generated plans. After the state machine is deployed, run an integrity check for all tasks with inconsistent plan fields, fix via the new DELETE endpoint or set_plan_state. Also rewrite the T-P0-124 task spec in TASKS.md with proper fields.
-- **Acceptance Criteria**:
-  1. Run SQL query to find all tasks with inconsistent plan state: `(plan_status='none' AND (plan_json IS NOT NULL OR description != ''))` OR `(plan_status='generating')` (orphaned) OR `(plan_status='ready' AND plan_json IS NULL)`.
-  2. If only a few rows: fix via DELETE /plan endpoint. If widespread: write `scripts/repair_plan_state.py` using `set_plan_state("none")`.
-  3. T-P0-124 specifically has its plan state reset to "none".
-  4. T-P0-124 entry in TASKS.md is rewritten with proper task schema fields (priority, complexity, depends_on, description, ACs).
-  5. Verification: SQL query returns 0 inconsistent rows after fix.
-
 #### T-P0-124: UI improvements -- conversation folding, plan MD rendering, log highlighting, running status indicators
 - **Priority**: P0
 - **Complexity**: M (1-2 sessions)
-- **Depends on**: T-P0-138 (state cleanup first)
+- **Depends on**: None (T-P0-138 cleanup completed)
 - **Description**: Multiple UI issues need correction: (1) Conversation view shows nothing -- need to fold all content except AI replies (tool_use inputs collapsed, tool_result outputs hidden entirely). (2) Plan tab generated MD not rendered properly -- needs ReactMarkdown rendering. (3) Plain Log needs syntax-aware highlighting with distinct colors for AI output, tool_use, and tool_result. (4) Running tasks need animated status dots (red/blue/green) on conversation, log, and plan tabs.
 - **Acceptance Criteria**:
   1. Conversation view: AI text responses shown expanded. tool_use blocks collapsed by default (show tool name + summary). tool_result blocks completely hidden. User can expand tool_use blocks on click.
   2. Plan tab: task.description rendered via ReactMarkdown (not raw `<pre>` tag). Code blocks syntax-highlighted. Headers, lists, tables render correctly.
   3. Plain Log: AI output lines styled with distinct foreground color. tool_use lines styled differently (e.g., muted blue). tool_result lines styled differently (e.g., gray). Clear visual hierarchy.
   4. When a task has status=running: conversation tab shows animated dot (e.g., pulsing green). log tab shows animated dot. plan tab shows animated dot (if plan is generating).
-  5. Manual verification: Open a running task -> see animated dots on tabs -> conversation shows folded tool blocks -> plan shows rendered markdown -> log has color-coded entries.
-  6. TypeScript clean. Vite build clean.
+  5. Journey AC: User opens a running task -> sees animated dots on active tabs -> conversation shows AI text with collapsed tool_use blocks (expandable on click, tool_result hidden) -> plan tab shows rendered markdown with headers/lists/code blocks -> log tab has color-coded entries with clear visual hierarchy.
+  6. Inverse case: Non-running tasks show no animated dots. Tasks with plan_status='none' show empty plan tab (no stale content).
+  7. TypeScript clean. Vite build clean.
+  8. Manual smoke test: Open running task in browser, verify all 4 sub-features visually. [AUTO-VERIFIED] acceptable in autonomous mode.
 
 ### P1 -- Should Have (agentic intelligence)
 
@@ -84,11 +74,11 @@
 > Full historical dependency graph relocated to [docs/architecture/dependency-graph-history.md](docs/architecture/dependency-graph-history.md).
 
 ### Current
-T-P0-138 depends on T-P0-134, T-P0-136
-T-P0-124 depends on T-P0-138
 T-P2-140 depends on T-P0-134
 
 ### Historical (completed)
+T-P0-138 depends on T-P0-134, T-P0-136 (completed)
+T-P0-124 depended on T-P0-138 (completed, dependency cleared)
 T-P0-137 depends on T-P0-134 (completed)
 T-P1-115 depends on T-P1-113, T-P1-120 (both completed)
 T-P1-116 depends on T-P1-114 (completed)
@@ -106,6 +96,9 @@ T-P1-127 depends on T-P1-123 (completed)
 
 
 > 21 completed tasks archived to [archive/completed_tasks.md](archive/completed_tasks.md).
+
+#### [x] T-P0-138: Clean up T-P0-124 dirty state + plan integrity check -- 2026-03-09
+- Created `scripts/repair_plan_state.py` to detect and fix plan state invariant violations. Found 151 inconsistent rows (148 with plan_status='none' but stale description, 3 with plan_status='ready' but no plan_json). All fixed and verified with 0 remaining. Rewrote T-P0-124 task spec with proper ACs including journey AC and inverse cases.
 
 #### [x] T-P0-137: Execution decomposition gate (backend + frontend) -- 2026-03-09
 - Added `DecompositionRequiredError` and Layer 3 decomposition gate in `update_status()` blocking QUEUED->RUNNING when `has_proposed_tasks=True` and `plan_status="ready"`, with `force_decompose_bypass` flag. Scheduler `_can_execute()` also checks. PATCH endpoint accepts `force_decompose_bypass` in body. Frontend `DecomposeRequiredModal.tsx` with "Go to Plan Review" (green), "Cancel", "Execute Anyway" (danger link). KanbanBoard intercepts forward drag to RUNNING. `api.ts` updated. 8 new tests. 1560 pass, ruff clean, TS clean, Vite build clean.
