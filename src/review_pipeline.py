@@ -60,12 +60,6 @@ class ReviewResult(BaseModel):
     pass_: bool = Field(alias="pass")
 
 
-class SynthesisResult(BaseModel):
-    """Result of synthesizing multiple reviewer verdicts."""
-
-    score: float
-    disagreements: list[str]
-
 
 # ------------------------------------------------------------------
 # JSON schemas for Claude CLI structured output
@@ -89,15 +83,6 @@ _REVIEW_JSON_SCHEMA = json.dumps({
         "pass": {"type": "boolean"},
     },
     "required": ["blocking_issues", "suggestions", "pass"],
-})
-
-_SYNTHESIS_JSON_SCHEMA = json.dumps({
-    "type": "object",
-    "properties": {
-        "score": {"type": "number"},
-        "disagreements": {"type": "array", "items": {"type": "string"}},
-    },
-    "required": ["score", "disagreements"],
 })
 
 
@@ -871,83 +856,6 @@ class ReviewPipeline:
             blocking_issues=blocking_issues,
             timestamp=datetime.now(UTC),
         )
-
-    async def _synthesize(
-        self,
-        reviews: list[LLMReview],
-        plan_content: str,
-        task_id: str | None = None,
-        on_stream_event: Callable[[dict], None] | None = None,
-    ) -> SynthesisResult:
-        """Synthesize multiple reviews into a consensus score.
-
-        Uses Claude CLI to analyze all reviews and determine a consensus score
-        and list of key disagreements.
-
-        Args:
-            reviews: List of individual reviewer verdicts.
-            plan_content: The original plan being reviewed.
-            task_id: Optional task ID for JSONL log file naming.
-            on_stream_event: Optional callback for parsed stream-json events.
-
-        Returns:
-            SynthesisResult with score and disagreements.
-        """
-        review_texts = "\n---\n".join(
-            f"[{r.focus}] ({r.model}): {r.verdict}\n{r.summary}"
-            for r in reviews
-        )
-
-        synthesis_prompt = (
-            f"Given these {len(reviews)} reviews of a task plan, determine:\n"
-            f"1. Consensus score (0.0-1.0) where 1.0 = full agreement to approve\n"
-            f"2. Key disagreements (if any)\n\n"
-            f"Reviews:\n{review_texts}\n\n"
-            f"Original plan:\n{plan_content}\n\n"
-            'Respond in JSON: {{"score": 0.85, "disagreements": ["..."]}}'
-        )
-
-        cli_output, _events = await self._call_claude_sdk(
-            prompt=synthesis_prompt,
-            system_prompt="You are a review synthesis engine.",
-            model="claude-opus-4-6",
-            json_schema=_SYNTHESIS_JSON_SCHEMA,
-            on_stream_event=on_stream_event,
-            task_id=task_id,
-        )
-
-        # structured_output is a dict when --json-schema was used; fall back to result
-        synthesis_data = cli_output.get("structured_output") or cli_output.get("result", "")
-        return self._parse_synthesis(synthesis_data)
-
-    def _parse_synthesis(self, text: str | dict) -> SynthesisResult:
-        """Parse synthesis result text into a SynthesisResult.
-
-        Args:
-            text: The ``structured_output`` (dict) or ``result`` (str) field
-                from Claude CLI JSON output.
-
-        Returns:
-            SynthesisResult with score and disagreements.
-        """
-        try:
-            data = text if isinstance(text, dict) else json.loads(text)
-            result = SynthesisResult.model_validate(data)
-            score = result.score
-            disagreements = result.disagreements
-        except (json.JSONDecodeError, ValidationError, KeyError, ValueError) as exc:
-            raw_repr = str(text)
-            logger.warning(
-                "Failed to parse synthesis response: %s. Raw (%d chars): %.500s",
-                exc, len(raw_repr), raw_repr,
-            )
-            score = 0.5
-            disagreements = ["Synthesis parsing failed -- manual review recommended"]
-
-        # Clamp score to [0.0, 1.0]
-        score = max(0.0, min(1.0, score))
-
-        return SynthesisResult(score=score, disagreements=disagreements)
 
 
 # ------------------------------------------------------------------

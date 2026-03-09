@@ -23,7 +23,6 @@ from src.review_pipeline import (
     MAX_RAW_RESPONSE_BYTES,
     ReviewPipeline,
     ReviewResult,
-    SynthesisResult,
     _extract_conversation_summary,
     _extract_cost_usd,
     _truncate_raw_response,
@@ -2076,32 +2075,6 @@ class TestReviewResultModel:
             })
 
 
-class TestSynthesisResultModel:
-    """Tests for SynthesisResult Pydantic validation."""
-
-    def test_valid_synthesis(self) -> None:
-        """Valid synthesis data passes validation."""
-        result = SynthesisResult.model_validate({
-            "score": 0.85,
-            "disagreements": ["Minor issue"],
-        })
-        assert result.score == 0.85
-        assert result.disagreements == ["Minor issue"]
-
-    def test_missing_score_rejected(self) -> None:
-        """Missing required score field is rejected."""
-        from pydantic import ValidationError
-        with pytest.raises(ValidationError, match="score"):
-            SynthesisResult.model_validate({"disagreements": []})
-
-    def test_string_score_coerced(self) -> None:
-        """Pydantic coerces numeric strings to float."""
-        result = SynthesisResult.model_validate({
-            "score": "0.9",
-            "disagreements": [],
-        })
-        assert result.score == 0.9
-
 
 class TestParseReviewWithValidation:
     """Tests that _parse_review uses Pydantic and logs raw content."""
@@ -2131,27 +2104,6 @@ class TestParseReviewWithValidation:
         assert "Raw" in caplog.text
         assert "not json!" in caplog.text
 
-
-class TestParseSynthesisWithValidation:
-    """Tests that _parse_synthesis uses Pydantic and logs raw content."""
-
-    def test_malformed_json_logs_raw(self, caplog: pytest.LogCaptureFixture) -> None:
-        """Malformed JSON logs raw content."""
-        pipeline = ReviewPipeline(_default_config())
-        with caplog.at_level("WARNING"):
-            result = pipeline._parse_synthesis("bad json!!!")
-        assert result.score == 0.5  # default fallback
-        assert "Raw" in caplog.text
-        assert "bad json" in caplog.text
-
-    def test_missing_score_logs_raw(self, caplog: pytest.LogCaptureFixture) -> None:
-        """Missing required field triggers Pydantic rejection."""
-        text = json.dumps({"disagreements": ["issue"]})
-        pipeline = ReviewPipeline(_default_config())
-        with caplog.at_level("WARNING"):
-            result = pipeline._parse_synthesis(text)
-        assert result.score == 0.5  # default fallback
-        assert "Raw" in caplog.text
 
 
 # ------------------------------------------------------------------

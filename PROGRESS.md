@@ -1317,3 +1317,10 @@
 - **Sanity check result**: 1537 pass, 6 skipped, ruff clean. [AUTO-VERIFIED]
 - **Status**: [DONE]
 - **Request**: Move T-P1-128 to Completed
+
+## 2026-03-09 -- [T-P1-129] Remove dead synthesis code from review pipeline
+- **What I did**: Removed `SynthesisResult` model, `_SYNTHESIS_JSON_SCHEMA` constant, `_synthesize()` method, and `_parse_synthesis()` method from `review_pipeline.py`. These were fully implemented but never called -- `review_task()` uses deterministic merge instead. Removed corresponding test classes (`TestSynthesisResultModel`, `TestParseSynthesisWithValidation`) and import from test file.
+- **Deliverables**: `src/review_pipeline.py` (~90 lines removed), `tests/test_review_pipeline.py` (8 tests removed, import cleaned)
+- **Sanity check result**: 1532 pass, 6 skipped, ruff clean. [AUTO-VERIFIED]
+- **Status**: [DONE]
+- **Request**: Move T-P1-129 to Completed

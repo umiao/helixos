@@ -23,6 +23,7 @@
 ## In Progress
 <!-- Only ONE task here at a time. Focus. -->
 
+
 ## Active Tasks
 
 ### P0 -- Must Have (core functionality)
@@ -31,19 +32,6 @@
 
 
 
-
-#### T-P1-129: Remove dead synthesis code from review pipeline
-- **Priority**: P1
-- **Complexity**: S (< 1 session)
-- **Depends on**: None
-- **Description**: `ReviewPipeline._synthesize()` (review_pipeline.py:795-870) and `_SYNTHESIS_JSON_SCHEMA` (review_pipeline.py:94-101) are fully implemented but never called -- `review_task()` uses deterministic merge instead. Dead code adds maintenance burden and confuses readers.
-- **Acceptance Criteria**:
-  1. `_synthesize()` method removed from ReviewPipeline class
-  2. `_SYNTHESIS_JSON_SCHEMA` constant removed
-  3. `_parse_synthesis()` method removed
-  4. `SynthesisResult` model removed (if no other consumers)
-  5. All existing tests still pass
-  6. No remaining references to removed code
 
 #### T-P1-130: Parallelize review pipeline reviewer calls
 - **Priority**: P1
@@ -112,6 +100,7 @@ T-P2-131 depends on T-P1-124 (completed -- T-P2-131 now unblocked)
 
 > 120 completed tasks archived to [archive/completed_tasks.md](archive/completed_tasks.md).
 
+- T-P1-129: Remove dead synthesis code from review pipeline
 - T-P1-128: Add pass/fail calibration example to review prompt
 - T-P1-127: Add specific structural check items to review prompt
 - T-P1-126: Rewrite plan_system.md with phased thinking and strict output contract
