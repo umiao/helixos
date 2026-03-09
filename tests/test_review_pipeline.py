@@ -12,6 +12,7 @@ from __future__ import annotations
 import asyncio
 import json
 from datetime import UTC, datetime
+from pathlib import Path
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -598,6 +599,109 @@ def test_review_prompts_include_calibration_examples() -> None:
         assert "dependency cycle" in prompt.lower(), (
             f"{focus} missing dependency cycle example in fail case"
         )
+
+
+# ------------------------------------------------------------------
+# Config-driven reviewer personas
+# ------------------------------------------------------------------
+
+
+def test_override_reviewer_persona_from_yaml(tmp_path: Any) -> None:
+    """Override reviewer personas via custom YAML, verify new persona is used."""
+    from src.review_pipeline import (
+        _clear_reviewer_params_cache,
+        _load_reviewer_personas,
+    )
+
+    custom_yaml = tmp_path / "custom_personas.yaml"
+    custom_yaml.write_text(
+        "custom_focus:\n"
+        '  role: "You are a security auditor."\n'
+        '  questions: "Check for OWASP top 10 issues."\n'
+        "default:\n"
+        '  role: "You are a generic reviewer."\n'
+        '  questions: "Is this plan good?"\n',
+        encoding="utf-8",
+    )
+
+    params = _load_reviewer_personas(custom_yaml)
+
+    assert "custom_focus" in params
+    assert params["custom_focus"][0] == "You are a security auditor."
+    assert "OWASP" in params["custom_focus"][1]
+    assert "default" in params
+    _clear_reviewer_params_cache()
+
+
+def test_missing_personas_file_falls_back_to_defaults(tmp_path: Any) -> None:
+    """Missing YAML file returns defaults without crashing."""
+    from src.review_pipeline import _load_reviewer_personas
+
+    params = _load_reviewer_personas(tmp_path / "nonexistent.yaml")
+
+    assert "default" in params
+    assert "code reviewer" in params["default"][0].lower()
+
+
+def test_custom_persona_used_in_build_review_prompt(tmp_path: Any) -> None:
+    """End-to-end: custom YAML persona flows through _build_review_prompt."""
+    from src.review_pipeline import (
+        _clear_reviewer_params_cache,
+        _load_reviewer_personas,
+    )
+
+    custom_yaml = tmp_path / "personas.yaml"
+    custom_yaml.write_text(
+        "my_new_persona:\n"
+        '  role: "You are a performance reviewer."\n'
+        '  questions: "Analyze for latency and throughput issues."\n'
+        "default:\n"
+        '  role: "You are a code reviewer."\n'
+        '  questions: "Is this plan sound?"\n',
+        encoding="utf-8",
+    )
+
+    import src.review_pipeline as rp
+
+    # Inject custom personas into cache
+    rp._reviewer_params_cache = _load_reviewer_personas(custom_yaml)
+    try:
+        pipeline = ReviewPipeline(_default_config())
+        prompt = pipeline._build_review_prompt("my_new_persona")
+        assert "performance reviewer" in prompt.lower()
+        assert "latency" in prompt.lower()
+    finally:
+        _clear_reviewer_params_cache()
+
+
+def test_adding_new_persona_requires_only_config() -> None:
+    """Verify that _load_reviewer_personas accepts arbitrary focus keys."""
+    import tempfile
+
+    from src.review_pipeline import _load_reviewer_personas
+
+    with tempfile.NamedTemporaryFile(
+        mode="w", suffix=".yaml", delete=False, encoding="utf-8",
+    ) as f:
+        f.write(
+            "alpha:\n"
+            '  role: "Alpha reviewer"\n'
+            '  questions: "Alpha questions"\n'
+            "beta:\n"
+            '  role: "Beta reviewer"\n'
+            '  questions: "Beta questions"\n'
+            "gamma:\n"
+            '  role: "Gamma reviewer"\n'
+            '  questions: "Gamma questions"\n'
+        )
+        f.flush()
+        params = _load_reviewer_personas(Path(f.name))
+
+    assert len(params) == 4  # alpha, beta, gamma, + auto-added default
+    assert "alpha" in params
+    assert "beta" in params
+    assert "gamma" in params
+    assert "default" in params
 
 
 # ------------------------------------------------------------------

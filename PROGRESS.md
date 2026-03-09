@@ -1331,3 +1331,10 @@
 - **Sanity check result**: 1502 pass, 2 skipped, ruff clean. [AUTO-VERIFIED]
 - **Status**: [DONE]
 - **Request**: Move T-P1-130 to Completed
+
+## 2026-03-09 -- [T-P2-131] Move reviewer personas from Python to config templates
+- **What I did**: Extracted hardcoded `_REVIEWER_PARAMS` dict from `review_pipeline.py` into `config/reviewer_personas.yaml`. Added `_load_reviewer_personas()` loader with YAML parsing, caching, and graceful fallback to defaults if file is missing. `_build_review_prompt()` now reads personas from YAML via `_get_reviewer_params()`. Adding a new reviewer persona requires only adding a YAML entry -- no code changes needed.
+- **Deliverables**: `config/reviewer_personas.yaml` (new, 3 personas), `src/review_pipeline.py` (replaced hardcoded dict with YAML loader), `tests/test_review_pipeline.py` (4 new tests: custom YAML override, missing file fallback, end-to-end prompt integration, arbitrary persona keys)
+- **Sanity check result**: 1539 pass, 6 skipped, ruff clean. [AUTO-VERIFIED]
+- **Status**: [DONE]
+- **Request**: Move T-P2-131 to Completed

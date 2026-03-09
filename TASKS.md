@@ -32,17 +32,6 @@
 
 ### P2 -- Nice to Have
 
-#### T-P2-131: Move reviewer personas from Python to config templates
-- **Priority**: P2
-- **Complexity**: S (< 1 session)
-- **Depends on**: T-P1-124
-- **Description**: The 3 reviewer personas (`_REVIEWER_PARAMS` dict in review_pipeline.py:111-141) are hardcoded as Python strings. Moving them to config files would make them easier to iterate on without code changes.
-- **Acceptance Criteria**:
-  1. Reviewer role and questions defined in config files (YAML or prompt templates)
-  2. `_REVIEWER_PARAMS` dict populated from config instead of hardcoded
-  3. Adding a new reviewer persona requires only config changes, not code changes
-  4. Existing reviewer behavior unchanged
-  5. Test: override reviewer config, verify new persona is used
 
 #### T-P2-132: Fix misleading enrichment prompt text about plan context
 - **Priority**: P2
@@ -73,7 +62,6 @@ T-P1-116 depends on T-P1-114 (completed -- T-P1-116 unblocked)
 T-P1-125 depends on T-P1-124 (completed -- T-P1-125 now unblocked)
 T-P1-126 depends on T-P1-124 (both completed)
 T-P1-127 depends on T-P1-123 (completed -- T-P1-127 now unblocked)
-T-P2-131 depends on T-P1-124 (completed -- T-P2-131 now unblocked)
 
 
 ---
@@ -85,6 +73,7 @@ T-P2-131 depends on T-P1-124 (completed -- T-P2-131 now unblocked)
 
 > 120 completed tasks archived to [archive/completed_tasks.md](archive/completed_tasks.md).
 
+- T-P2-131: Move reviewer personas from Python to config templates
 - T-P1-130: Parallelize review pipeline reviewer calls
 - T-P1-129: Remove dead synthesis code from review pipeline
 - T-P1-128: Add pass/fail calibration example to review prompt

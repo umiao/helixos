@@ -17,6 +17,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Literal
 
+import yaml
 from pydantic import BaseModel, Field, ValidationError
 
 from src.config import ReviewerConfig, ReviewPipelineConfig
@@ -87,47 +88,78 @@ _REVIEW_JSON_SCHEMA = json.dumps({
 
 
 # ------------------------------------------------------------------
-# Focus-area system prompts
+# Focus-area system prompts (loaded from config/reviewer_personas.yaml)
 # ------------------------------------------------------------------
 
-# Per-focus reviewer params: maps focus key -> (role, questions) for the
-# unified review.md template.  Three parallel reviewer calls are preserved;
-# only the template file is unified.
-_REVIEWER_PARAMS: dict[str, tuple[str, str]] = {
-    "feasibility_and_edge_cases": (
-        "You are an expert code reviewer focusing on feasibility and edge cases.",
-        (
-            "Analyze the following task plan with these structural checks:\n"
-            "1. For each step: is it actionable (specific files, specific changes)?\n"
-            "2. Does at least one AC verify each step's outcome?\n"
-            "3. Are listed files consistent with the codebase structure?\n"
-            "4. Are there edge cases or failure modes not addressed?\n"
-            "5. Are the acceptance criteria clear and testable?\n"
-            "6. Does the plan follow the project's task planning rules and conventions?"
-        ),
-    ),
-    "adversarial_red_team": (
-        "You are an adversarial reviewer (red team) looking for plan-level logic gaps.",
-        (
-            "Analyze the following task plan with these structural checks:\n"
-            "1. Do proposed_tasks dependencies form a DAG (no cycles)?\n"
-            "2. Is each proposed task independently testable?\n"
-            "3. Are there hidden assumptions or missing boundary conditions?\n"
-            "4. Does the plan risk scope creep beyond the original task description?\n"
-            "5. Could it break existing functionality?\n"
-            "6. Are there architectural risks or hidden dependencies?"
-        ),
-    ),
-    "default": (
-        "You are a code reviewer.",
-        (
-            "Analyze the following task plan and determine:\n"
-            "1. Is this plan sound?\n"
-            "2. Are there issues or improvements needed?\n"
-            "3. Does the plan follow project conventions and task planning rules?"
-        ),
-    ),
-}
+_PERSONAS_PATH = Path(__file__).resolve().parent.parent / "config" / "reviewer_personas.yaml"
+
+# Module-level cache: populated on first access via _get_reviewer_params().
+_reviewer_params_cache: dict[str, tuple[str, str]] | None = None
+
+_DEFAULT_PERSONA: tuple[str, str] = (
+    "You are a code reviewer.",
+    "Analyze the following task plan and determine:\n"
+    "1. Is this plan sound?\n"
+    "2. Are there issues or improvements needed?\n"
+    "3. Does the plan follow project conventions and task planning rules?\n",
+)
+
+
+def _load_reviewer_personas(path: Path | None = None) -> dict[str, tuple[str, str]]:
+    """Load reviewer personas from a YAML config file.
+
+    Each key maps to a ``(role, questions)`` tuple used by the unified
+    ``review.md`` template.
+
+    Args:
+        path: Path to the YAML file. Defaults to ``config/reviewer_personas.yaml``.
+
+    Returns:
+        Dict mapping focus key to ``(role, questions)`` tuple.
+    """
+    target = path or _PERSONAS_PATH
+    if not target.is_file():
+        logger.warning("Reviewer personas file not found: %s, using defaults", target)
+        return {"default": _DEFAULT_PERSONA}
+
+    with open(target, encoding="utf-8") as f:
+        data = yaml.safe_load(f)
+
+    if not isinstance(data, dict):
+        logger.warning("Invalid reviewer personas file format, using defaults")
+        return {"default": _DEFAULT_PERSONA}
+
+    params: dict[str, tuple[str, str]] = {}
+    for key, entry in data.items():
+        if not isinstance(entry, dict):
+            continue
+        role = str(entry.get("role", "")).strip()
+        questions = str(entry.get("questions", "")).strip()
+        if role and questions:
+            params[key] = (role, questions)
+
+    if "default" not in params:
+        params["default"] = _DEFAULT_PERSONA
+
+    return params
+
+
+def _get_reviewer_params() -> dict[str, tuple[str, str]]:
+    """Return cached reviewer params, loading from YAML on first access.
+
+    Returns:
+        Dict mapping focus key to ``(role, questions)`` tuple.
+    """
+    global _reviewer_params_cache  # noqa: PLW0603
+    if _reviewer_params_cache is None:
+        _reviewer_params_cache = _load_reviewer_personas()
+    return _reviewer_params_cache
+
+
+def _clear_reviewer_params_cache() -> None:
+    """Clear the reviewer params cache (useful for testing)."""
+    global _reviewer_params_cache  # noqa: PLW0603
+    _reviewer_params_cache = None
 
 
 # ------------------------------------------------------------------
@@ -847,8 +879,9 @@ class ReviewPipeline:
         Returns:
             System prompt string.
         """
-        role, questions = _REVIEWER_PARAMS.get(
-            focus, _REVIEWER_PARAMS["default"],
+        params = _get_reviewer_params()
+        role, questions = params.get(
+            focus, params["default"],
         )
         return render_prompt(
             "review",
