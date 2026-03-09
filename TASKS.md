@@ -33,14 +33,6 @@
 ### P2 -- Nice to Have
 
 
-#### T-P2-132: Fix misleading enrichment prompt text about plan context
-- **Priority**: P2
-- **Complexity**: S (< 1 session)
-- **Depends on**: None
-- **Description**: `enrichment_system.md` line 9 says "This prompt receives plan context when available" but enrichment is typically called on new tasks before plan generation, so plan context is rarely if ever available. The claim is misleading.
-- **Acceptance Criteria**:
-  1. If plan context IS wired into enrichment calls, document where; if NOT, remove the misleading line
-  2. Verify `enrich_task_title()` call sites to confirm whether plan context is ever passed
 
 #### T-P2-133: Remove unused generate-tasks-preview endpoint or wire it into frontend
 - **Priority**: P2
@@ -73,6 +65,7 @@ T-P1-127 depends on T-P1-123 (completed -- T-P1-127 now unblocked)
 
 > 120 completed tasks archived to [archive/completed_tasks.md](archive/completed_tasks.md).
 
+- T-P2-132: Fix misleading enrichment prompt text about plan context
 - T-P2-131: Move reviewer personas from Python to config templates
 - T-P1-130: Parallelize review pipeline reviewer calls
 - T-P1-129: Remove dead synthesis code from review pipeline

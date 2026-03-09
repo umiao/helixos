@@ -1338,3 +1338,10 @@
 - **Sanity check result**: 1539 pass, 6 skipped, ruff clean. [AUTO-VERIFIED]
 - **Status**: [DONE]
 - **Request**: Move T-P2-131 to Completed
+
+## 2026-03-09 -- [T-P2-132] Fix misleading enrichment prompt text about plan context
+- **What I did**: Verified that `enrich_task_title()` has no plan context parameter and no call site passes plan context. Removed the misleading line "This prompt receives plan context when available" from `config/prompts/enrichment_system.md`. Updated `test_prompt_eval.py` to assert the claim is absent rather than present.
+- **Deliverables**: `config/prompts/enrichment_system.md` (removed misleading line), `tests/test_prompt_eval.py` (flipped assertion: `test_plan_context_note` -> `test_no_plan_context_claim`)
+- **Sanity check result**: 1539 pass, 6 skipped, ruff clean. [AUTO-VERIFIED]
+- **Status**: [DONE]
+- **Request**: Move T-P2-132 to Completed

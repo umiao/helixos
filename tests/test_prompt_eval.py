@@ -179,10 +179,10 @@ class TestEnrichmentPromptEval:
         content = load_prompt("enrichment_system")
         assert "Do NOT expand the scope" in content
 
-    def test_plan_context_note(self) -> None:
-        """Enrichment prompt mentions receiving plan context."""
+    def test_no_plan_context_claim(self) -> None:
+        """Enrichment prompt must NOT claim plan context is available (it is not wired)."""
         content = load_prompt("enrichment_system")
-        assert "plan context" in content.lower()
+        assert "plan context" not in content.lower()
 
     def test_json_response_format(self) -> None:
         """Enrichment prompt specifies JSON response format."""
