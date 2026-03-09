@@ -576,6 +576,29 @@ def test_adversarial_no_owasp_security_checks() -> None:
     assert "xss" not in prompt.lower()
 
 
+def test_review_prompts_include_calibration_examples() -> None:
+    """All review prompts include pass/fail calibration examples."""
+    pipeline = ReviewPipeline(_default_config())
+
+    for focus in ["feasibility_and_edge_cases", "adversarial_red_team", "unknown_focus"]:
+        prompt = pipeline._build_review_prompt(focus)
+        # Verify pass example is present
+        assert "calibration examples" in prompt.lower(), (
+            f"{focus} missing calibration examples heading"
+        )
+        assert '"pass": true' in prompt, f"{focus} missing pass=true example"
+        assert '"pass": false' in prompt, f"{focus} missing pass=false example"
+        # Verify threshold guidance is present
+        assert "threshold guidance" in prompt.lower(), (
+            f"{focus} missing threshold guidance"
+        )
+        # Verify examples show the distinction clearly
+        assert "blocking_issues" in prompt, f"{focus} missing blocking_issues in example"
+        assert "dependency cycle" in prompt.lower(), (
+            f"{focus} missing dependency cycle example in fail case"
+        )
+
+
 # ------------------------------------------------------------------
 # SDK call content verification
 # ------------------------------------------------------------------

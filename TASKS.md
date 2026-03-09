@@ -31,16 +31,6 @@
 
 
 
-#### T-P1-128: Add pass/fail calibration example to review prompt
-- **Priority**: P1
-- **Complexity**: S (< 1 session)
-- **Depends on**: None
-- **Description**: The review prompt tells the LLM to "set pass to true if acceptable" but gives no examples of what constitutes a pass vs fail. This leads to inconsistent severity thresholds across reviews. Add a few-shot example showing a passing review and a failing review with blocking issues.
-- **Acceptance Criteria**:
-  1. Review prompt includes at least one example of a passing review response (minor suggestions, pass=true)
-  2. Review prompt includes at least one example of a failing review response (blocking issues, pass=false)
-  3. Examples clearly show the threshold: what severity/type of issue should block vs suggest
-  4. Test: render review prompt, verify examples are present in output
 
 #### T-P1-129: Remove dead synthesis code from review pipeline
 - **Priority**: P1
@@ -122,6 +112,7 @@ T-P2-131 depends on T-P1-124 (completed -- T-P2-131 now unblocked)
 
 > 120 completed tasks archived to [archive/completed_tasks.md](archive/completed_tasks.md).
 
+- T-P1-128: Add pass/fail calibration example to review prompt
 - T-P1-127: Add specific structural check items to review prompt
 - T-P1-126: Rewrite plan_system.md with phased thinking and strict output contract
 - T-P0-121: Fix complexity parameter not passed to review pipeline

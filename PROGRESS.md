@@ -1310,3 +1310,10 @@
 - **Sanity check result**: 1536 pass, 6 skipped, ruff clean. [AUTO-VERIFIED]
 - **Status**: [DONE]
 - **Request**: Move T-P1-127 to Completed
+
+## 2026-03-09 -- [T-P1-128] Add pass/fail calibration example to review prompt
+- **What I did**: Added calibration examples to `config/prompts/review.md` showing a passing review (minor suggestions, pass=true) and a failing review (blocking issues including missing migration, dependency cycle, missing inverse case, pass=false). Added threshold guidance section defining what constitutes pass vs fail. Added 1 new test verifying calibration examples are present in all rendered review prompts.
+- **Deliverables**: `config/prompts/review.md` (calibration examples + threshold guidance), `tests/test_review_pipeline.py` (1 new test)
+- **Sanity check result**: 1537 pass, 6 skipped, ruff clean. [AUTO-VERIFIED]
+- **Status**: [DONE]
+- **Request**: Move T-P1-128 to Completed
