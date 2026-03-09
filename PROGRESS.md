@@ -268,3 +268,10 @@
 - **Sanity check result**: Manual DB test passed (get/set/update/missing key). Frontend TypeScript clean (pre-existing errors in PlanReviewPanel unrelated). Backend tests passing (sample run: test_api.py suite 100% pass). Verified acceptance criteria: checkbox state persists to DB, API fallback to localStorage works, [PROGRESS] lines removed, Conversation view filters log artifacts, assistant text has indigo left border.
 - **Status**: [DONE]
 - **Request**: Move T-P0-139 to Completed
+
+## 2026-03-09 -- [T-P2-141] Security hardening -- cleanup + hook enforcement
+- **What I did**: (1) Replaced 4 hardcoded `~\...` paths in orchestrator_config.yaml with `~/` relative paths. (2) git rm'd accidental `=0.1.40` pip output file. (3) Untracked `.claude/settings.local.json` (git rm --cached). (4) Expanded `secret_guard.py`: added PEM block and Windows user path patterns to SECRET_PATTERNS, renamed `_is_env_file` to `_is_sensitive_file` with expanded patterns (*.cookie, *.pem, *.key, credentials*, settings.local.json). (5) Added .gitignore rules for `=*`, `*.pem`, `*.key`, `.claude/settings.local.json`. (6) Added LESSONS.md entry #27. (7) Removed 2 stale heartbeat tests from test_code_executor.py (tested [PROGRESS] emission removed in T-P0-139).
+- **Deliverables**: `orchestrator_config.yaml`, `.gitignore`, `.claude/hooks/secret_guard.py`, `LESSONS.md`, `tests/test_code_executor.py`, `TASKS.md`, `PROGRESS.md`
+- **Sanity check result**: ruff clean on secret_guard.py. 1603 tests pass, 2 skipped, 40 deselected. settings.local.json still exists locally (untracked).
+- **Status**: [PARTIAL] Steps 1-6 done. Step 7 (git filter-repo) and Step 8 (force push) require user confirmation.
+- **Request**: No change (user must run filter-repo separately)

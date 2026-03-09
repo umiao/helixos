@@ -61,6 +61,9 @@ T-P1-127 depends on T-P1-123 (completed)
 
 > 21 completed tasks archived to [archive/completed_tasks.md](archive/completed_tasks.md).
 
+#### [x] T-P2-141: Security hardening -- cleanup personal paths, accidental files, hook enforcement -- 2026-03-09
+- Replaced hardcoded Windows user paths in orchestrator_config.yaml with ~/. git rm'd accidental =0.1.40 pip output and untracked .claude/settings.local.json. Expanded secret_guard.py with PEM/personal-path patterns and sensitive file blocking. Added .gitignore rules for =*, *.pem, *.key, settings.local.json. Removed stale heartbeat tests. Added LESSONS.md entry #27.
+
 #### [x] T-P0-139: Three QoL improvements: DB-persisted project selection, removed [PROGRESS] heartbeat logging, filtered log artifacts in Conversation view -- 2026-03-09
 - (1) Added `ui_preferences` table to db.py with get/set_preference helpers, GET/PUT `/api/ui-preferences/{key}` endpoints in projects.py, fetchSelectedProjects/saveSelectedProjects in api.ts, updated useProjectState to load from API with debounced saves (1s) and localStorage fallback, flush on beforeunload. (2) Removed on_log [PROGRESS] emission in code_executor.py (lines 337-343), keeping timeout checks. (3) In ConversationView, added regex filter `/^\[(RESULT|TOOL|INIT|DONE|PROGRESS)\]/` to skip log text prefixes, added indigo left border to assistant text bubbles, fixed TypeScript errors (pre-existing) by adding React.ReactNode types to ReactMarkdown component overrides. All acceptance criteria met: checkbox state persists across browsers, API fallback to localStorage works, [PROGRESS] lines removed from logs, Conversation tab shows clean structured view with no log clutter, Plain Log unchanged.
 

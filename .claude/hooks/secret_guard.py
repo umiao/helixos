@@ -1,7 +1,8 @@
-"""PreToolUse hook: block writes containing API key patterns or targeting .env files."""
+"""PreToolUse hook: block writes containing secrets, personal paths, or targeting sensitive files."""
 import json
 import re
 import sys
+from fnmatch import fnmatch
 from pathlib import Path, PurePosixPath, PureWindowsPath
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -15,21 +16,37 @@ SECRET_PATTERNS: list[tuple[str, re.Pattern[str]]] = [
     ("GitHub OAuth token", re.compile(r"gho_[a-zA-Z0-9]{36}")),
     ("Anthropic API key", re.compile(r"sk-ant-[a-zA-Z0-9-]{20,}")),
     ("Slack token", re.compile(r"xox[baprs]-[0-9a-zA-Z-]{10,}")),
-    ("Generic secret assignment", re.compile(r"""(?:api[_-]?key|secret|token|password)\s*[=:]\s*["'][^"']{8,}["']""", re.IGNORECASE)),
+    ("Generic secret assignment", re.compile(
+        r"""(?:api[_-]?key|secret|token|password)\s*[=:]\s*["'][^"']{8,}["']""",
+        re.IGNORECASE,
+    )),
+    ("Private key block", re.compile(r"-----BEGIN.*PRIVATE KEY-----")),
+    ("Windows user profile path", re.compile(r"[Cc]:[/\\]+Users[/\\]+[^/\\]+[/\\]")),
+]
+
+SENSITIVE_FILE_PATTERNS: list[str] = [
+    ".env",
+    ".env.*",
+    "*.cookie",
+    "*.pem",
+    "*.key",
+    "credentials*",
+    "settings.local.json",
 ]
 
 
-def _is_env_file(file_path: str) -> bool:
-    """Check if the path targets a .env file."""
+def _is_sensitive_file(file_path: str) -> bool:
+    """Check if the path targets a sensitive file that should not be written by AI."""
     for cls in (PurePosixPath, PureWindowsPath):
         name = cls(file_path).name
-        if name == ".env" or name.startswith(".env."):
-            return True
+        for pattern in SENSITIVE_FILE_PATTERNS:
+            if fnmatch(name, pattern):
+                return True
     return False
 
 
 def main(hook_input: dict) -> None:
-    """Block file writes that contain API key patterns or target .env files."""
+    """Block file writes that contain secrets/personal paths or target sensitive files."""
     tool_name = hook_input.get("tool_name", "")
     if tool_name not in ("Write", "Edit"):
         sys.exit(0)
@@ -37,13 +54,13 @@ def main(hook_input: dict) -> None:
     tool_input = hook_input.get("tool_input", {})
     file_path = tool_input.get("file_path", "")
 
-    # Block writes to .env files
-    if _is_env_file(file_path):
+    # Block writes to sensitive files
+    if _is_sensitive_file(file_path):
         print(
             json.dumps({
                 "decision": "block",
-                "reason": f"Blocked: writing to .env file '{file_path}'. "
-                "Secrets must be managed manually, not by AI.",
+                "reason": f"Blocked: writing to sensitive file '{file_path}'. "
+                "Secrets and local settings must be managed manually, not by AI.",
             })
         )
         sys.exit(0)
@@ -56,7 +73,7 @@ def main(hook_input: dict) -> None:
                 json.dumps({
                     "decision": "block",
                     "reason": f"Blocked: content appears to contain a {secret_name}. "
-                    "Never hardcode secrets in source files.",
+                    "Never hardcode secrets or personal paths in source files.",
                 })
             )
             sys.exit(0)

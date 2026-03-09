@@ -47,6 +47,16 @@ frontend/dist/
 # Database
 *.db
 
+# Local-only Claude settings (user permissions, not shared)
+.claude/settings.local.json
+
+# Accidental pip output
+=*
+
+# Private keys and certificates
+*.pem
+*.key
+
 # Misc
 *.log
 *.md.bak

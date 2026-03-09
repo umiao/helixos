@@ -34,14 +34,14 @@ projects:
     executor_type: code
     tasks_file: TASKS.md
     max_concurrency: 1
-    claude_md_path: ~/Desktop/Gen_AI_Proj/homestead_asset_management_system\CLAUDE.md
+    claude_md_path: ~/Desktop/Gen_AI_Proj/homestead_asset_management_system/CLAUDE.md
   blog-proj:
     name: blog_proj
     repo_path: ~/Desktop/blog_proj
     executor_type: code
     tasks_file: TASKS.md
     max_concurrency: 1
-    claude_md_path: ~/Desktop/blog_proj\CLAUDE.md
+    claude_md_path: ~/Desktop/blog_proj/CLAUDE.md
 git:
   auto_commit: true
   commit_message_template: "[helixos] {project}: {task_id} {task_title}"
