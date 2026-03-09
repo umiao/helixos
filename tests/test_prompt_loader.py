@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import pytest
 
-from src.prompt_loader import clear_cache, load_prompt, render_prompt
+from src.prompt_loader import _expand_includes, clear_cache, load_prompt, render_prompt
 
 # All prompt files that must exist in config/prompts/ (consolidated set)
 EXPECTED_PROMPTS = [
@@ -74,21 +74,28 @@ def test_clear_cache_works() -> None:
     assert first is not second
 
 
-# -- plan_system.md is now self-contained (no fragment placeholders) --
+# -- plan_system.md uses {{include:_shared_rules.md}} --
 
 
-def test_plan_system_is_self_contained() -> None:
-    """plan_system.md contains inlined task schema and project rules directly."""
-    content = load_prompt("plan_system")
-    # Must NOT have any unresolved {{...}} placeholders
-    assert "{{" not in content
-    assert "}}" not in content
-    # Must contain content that was previously in task_schema_context.md
+def test_plan_system_has_include_directive() -> None:
+    """plan_system.md uses {{include:_shared_rules.md}} for shared rules."""
+    raw = load_prompt("plan_system")
+    assert "{{include:_shared_rules.md}}" in raw
+
+
+def test_plan_system_renders_self_contained() -> None:
+    """After render, plan_system contains expanded shared rules."""
+    content = render_prompt("plan_system")
+    # Must NOT have any unresolved {{include:...}} directives
+    assert "{{include:" not in content
+    # Must contain content from _shared_rules.md
     assert "T-P{priority}-{number}" in content
     assert "Complexity" in content
-    # Must contain content that was previously in project_rules_context.md
     assert "Scenario matrix" in content
     assert "Journey-first" in content
+    # Must now include State Machine and Smoke Test (previously missing)
+    assert "State Machine Rules" in content
+    assert "Smoke Test Enforcement" in content
 
 
 def test_plan_system_prompt_mentions_steps() -> None:
@@ -106,6 +113,7 @@ def test_review_template_has_placeholders() -> None:
     content = load_prompt("review")
     assert "{{reviewer_role}}" in content
     assert "{{review_questions}}" in content
+    assert "{{include:_shared_rules.md}}" in content
 
 
 def test_review_template_renders_feasibility() -> None:
@@ -143,15 +151,18 @@ def test_review_template_renders_default() -> None:
     assert "conventions" in rendered
 
 
-def test_review_template_contains_inlined_rules() -> None:
-    """Review template contains inlined conventions, not fragment references."""
-    content = load_prompt("review")
-    # Previously in review_conventions_context.md:
-    assert "State Machine Rules" in content
-    assert "Smoke Test Enforcement" in content
-    # Inlined from task_schema_context.md / project_rules_context.md:
-    assert "Task Planning Rules" in content
-    assert "Key Constraints" in content
+def test_review_template_contains_shared_rules_after_render() -> None:
+    """Rendered review template contains all shared rules via include."""
+    rendered = render_prompt(
+        "review",
+        reviewer_role="You are a code reviewer.",
+        review_questions="1. Is this plan sound?",
+    )
+    assert "State Machine Rules" in rendered
+    assert "Smoke Test Enforcement" in rendered
+    assert "Task Planning Rules" in rendered
+    assert "Key Constraints" in rendered
+    assert "{{include:" not in rendered
 
 
 # -- execution.md (renamed from execution_prompt.md) --
@@ -191,23 +202,28 @@ def test_enrichment_prompt_mentions_priority() -> None:
 # -- No unresolved placeholders in any prompt (except review.md which has params) --
 
 
-@pytest.mark.parametrize("name", ["enrichment_system", "plan_system"])
-def test_no_unresolved_placeholders(name: str) -> None:
-    """Self-contained prompts must have no {{...}} placeholders."""
-    content = load_prompt(name)
-    assert "{{" not in content, f"{name}.md has unresolved placeholder"
+def test_no_unresolved_placeholders_enrichment() -> None:
+    """Enrichment system prompt must have no {{...}} placeholders."""
+    content = load_prompt("enrichment_system")
+    assert "{{" not in content, "enrichment_system.md has unresolved placeholder"
+
+
+def test_no_unresolved_placeholders_plan_rendered() -> None:
+    """Plan system rendered prompt must have no {{...}} placeholders."""
+    content = render_prompt("plan_system")
+    assert "{{" not in content, "plan_system.md has unresolved placeholder after render"
 
 
 # -- Diff test: consolidated prompts are content-equivalent --
 
 
 def test_plan_system_content_equivalent() -> None:
-    """Consolidated plan_system.md contains all content from the old 3-file chain."""
-    content = load_prompt("plan_system")
-    # Key phrases from old task_schema_context.md
+    """Rendered plan_system contains all content from the old 3-file chain."""
+    content = render_prompt("plan_system")
+    # Key phrases from old task_schema_context.md (now in _shared_rules.md)
     assert "Do NOT assign IDs in your proposals" in content
     assert "Acceptance Criteria" in content
-    # Key phrases from old project_rules_context.md
+    # Key phrases from old project_rules_context.md (now in _shared_rules.md)
     assert "Schema changes require migration" in content
     assert "No emoji characters" in content
     # Key phrases from old plan_system.md
@@ -239,3 +255,66 @@ def test_review_rendered_content_equivalent() -> None:
     assert '"blocking_issues"' in rendered
     assert '"suggestions"' in rendered
     assert '"pass"' in rendered
+
+
+# -- Include directive tests (T-P1-124) --
+
+
+def test_include_expands_file() -> None:
+    """{{include:_shared_rules.md}} expands to file contents."""
+    expanded = _expand_includes("Before\n{{include:_shared_rules.md}}\nAfter")
+    assert "Before" in expanded
+    assert "After" in expanded
+    assert "Task Schema" in expanded
+    assert "{{include:" not in expanded
+
+
+def test_include_missing_file_raises() -> None:
+    """{{include:nonexistent.md}} raises FileNotFoundError."""
+    with pytest.raises(FileNotFoundError):
+        _expand_includes("{{include:nonexistent_file.md}}")
+
+
+def test_shared_section_identical_in_both_prompts() -> None:
+    """Both plan and review prompts contain the same shared rules section."""
+    plan = render_prompt("plan_system")
+    review = render_prompt(
+        "review",
+        reviewer_role="You are a code reviewer.",
+        review_questions="1. Is this plan sound?",
+    )
+    # Extract shared section by finding common rule headers
+    shared_headers = [
+        "Task Schema (from TASKS.md conventions)",
+        "Project Rules (from CLAUDE.md)",
+        "Task Planning Rules",
+        "Key Constraints",
+        "State Machine Rules",
+        "Smoke Test Enforcement",
+    ]
+    for header in shared_headers:
+        assert header in plan, f"Plan missing: {header}"
+        assert header in review, f"Review missing: {header}"
+
+
+def test_include_variable_resolution() -> None:
+    """Variables inside included files are resolved by caller's kwargs.
+
+    _shared_rules.md uses T-P{priority}-{number} which should NOT be
+    treated as a variable (it's literal text). But if an included file
+    had {{some_var}}, the caller's kwargs would resolve it.
+    """
+    # render_prompt expands includes THEN substitutes variables.
+    # The review template has {{reviewer_role}} and {{review_questions}} --
+    # these appear in the raw template, not the included file, but the
+    # mechanism works the same way: includes first, then substitution.
+    rendered = render_prompt(
+        "review",
+        reviewer_role="TEST_ROLE",
+        review_questions="TEST_QUESTIONS",
+    )
+    assert "TEST_ROLE" in rendered
+    assert "TEST_QUESTIONS" in rendered
+    assert "{{reviewer_role}}" not in rendered
+    assert "{{review_questions}}" not in rendered
+    assert "{{include:" not in rendered

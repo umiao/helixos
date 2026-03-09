@@ -49,8 +49,8 @@ class TestPlanPromptEval:
         assert "fewer, well-scoped tasks" in content
 
     def test_schema_docs_preserved(self) -> None:
-        """Plan prompt still contains existing schema documentation."""
-        content = load_prompt("plan_system")
+        """Plan prompt still contains existing schema documentation after render."""
+        content = render_prompt("plan_system")
         assert "T-P{priority}-{number}" in content
         assert "Complexity" in content
         assert '"plan"' in content

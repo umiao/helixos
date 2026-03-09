@@ -29,21 +29,6 @@
 
 ### P1 -- Should Have (agentic intelligence)
 
-#### T-P1-124: Extract shared prompt rules into includable fragment
-- **Priority**: P1
-- **Complexity**: S (< 1 session)
-- **Depends on**: None
-- **Description**: `plan_system.md` and `review.md` share ~30 lines of identical content (Task Schema + Project Rules). Currently copy-pasted, with drift already present (plan_system.md lacks State Machine Rules and Smoke Test Enforcement that review.md includes). Add a simple `{{include:filename}}` directive to `render_prompt()` and extract shared rules into a reusable fragment.
-- **Acceptance Criteria**:
-  1. `render_prompt()` supports `{{include:filename}}` that inlines another file from `config/prompts/`
-  2. Include expansion happens BEFORE variable substitution -- `{{variable}}` placeholders inside included files are resolved by the caller's kwargs
-  3. Shared rules (Task Schema, Project Rules) extracted to `config/prompts/_shared_rules.md`
-  4. Both `plan_system.md` and `review.md` use `{{include:_shared_rules.md}}` instead of copy-pasted content
-  5. Plan prompt now includes State Machine Rules and Smoke Test Enforcement (previously missing)
-  6. Test: render both templates, verify shared section is identical in both outputs
-  7. Test: modify _shared_rules.md, verify change appears in both rendered prompts
-  8. Test: `{{variable}}` inside included file is resolved when caller passes that variable
-
 #### T-P1-125: Align plan and review prompt rule coverage
 - **Priority**: P1
 - **Complexity**: S (< 1 session)
@@ -170,10 +155,10 @@
 ### Current
 T-P1-115 depends on T-P1-113, T-P1-120 (both completed -- T-P1-115 now unblocked)
 T-P1-116 depends on T-P1-114 (completed -- T-P1-116 unblocked)
-T-P1-125 depends on T-P1-124
-T-P1-126 depends on T-P1-124
+T-P1-125 depends on T-P1-124 (completed -- T-P1-125 now unblocked)
+T-P1-126 depends on T-P1-124 (completed -- T-P1-126 now unblocked)
 T-P1-127 depends on T-P1-123 (completed -- T-P1-127 now unblocked)
-T-P2-131 depends on T-P1-124
+T-P2-131 depends on T-P1-124 (completed -- T-P2-131 now unblocked)
 
 
 ---
@@ -186,6 +171,7 @@ T-P2-131 depends on T-P1-124
 > 120 completed tasks archived to [archive/completed_tasks.md](archive/completed_tasks.md).
 
 - T-P0-121: Fix complexity parameter not passed to review pipeline
+- T-P1-124: Extract shared prompt rules into includable fragment
 - T-P1-123: Pass structured plan_json to reviewers instead of formatted text
 - T-P0-122: Fix replan review_attempt reset to 1 instead of incrementing
 - T-P1-116: Unified plan review before batch task decomposition

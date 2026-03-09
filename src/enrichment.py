@@ -30,7 +30,7 @@ from pydantic import BaseModel, ValidationError
 from src.config import PlanValidationConfig
 from src.dependency_graph import detect_cycles
 from src.executors.code_executor import _LazyFileWriter
-from src.prompt_loader import load_prompt
+from src.prompt_loader import load_prompt, render_prompt
 from src.sdk_adapter import ClaudeEventType, QueryOptions, run_claude_query
 from src.session_context_loader import get_session_context
 
@@ -362,7 +362,7 @@ _PLAN_JSON_SCHEMA = json.dumps({
     "required": ["plan", "steps", "acceptance_criteria"],
 })
 
-_PLAN_SYSTEM_PROMPT = load_prompt("plan_system")
+_PLAN_SYSTEM_PROMPT = render_prompt("plan_system")
 
 
 async def _call_plan_sdk(

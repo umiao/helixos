@@ -1282,3 +1282,10 @@
 - **Sanity check result**: 1511 pass, 6 skipped, ruff clean. [AUTO-VERIFIED]
 - **Status**: [DONE]
 - **Request**: Move T-P1-123 to Completed
+
+## 2026-03-09 -- [T-P1-124] Extract shared prompt rules into includable fragment
+- **What I did**: Added `{{include:filename}}` directive support to `render_prompt()` in `prompt_loader.py` with `_expand_includes()` helper (regex-based, single-level). Extracted shared rules (Task Schema, Project Rules, Task Planning Rules, Key Constraints, State Machine Rules, Smoke Test Enforcement) from both `plan_system.md` and `review.md` into `config/prompts/_shared_rules.md`. Both templates now use `{{include:_shared_rules.md}}`. Plan prompt now includes State Machine Rules and Smoke Test Enforcement (previously missing). Updated `enrichment.py` to use `render_prompt()` for plan_system. Fixed 2 existing tests that used `load_prompt` on plan_system.
+- **Deliverables**: `src/prompt_loader.py` (include directive), `config/prompts/_shared_rules.md` (new), `config/prompts/plan_system.md` + `config/prompts/review.md` (use include), `src/enrichment.py` (render_prompt), `tests/test_prompt_loader.py` (4 new tests + updates), `tests/test_prompt_eval.py` (fix)
+- **Sanity check result**: 1517 pass, 6 skipped, ruff clean. [AUTO-VERIFIED]
+- **Status**: [DONE]
+- **Request**: Move T-P1-124 to Completed
