@@ -1,9 +1,6 @@
 # Completed Tasks Archive
 
-> Archived from TASKS.md. 120 completed tasks as of 2026-03-08.
-> See [TASKS.md](../TASKS.md) for active tasks.
-
----
+> 21 completed tasks archived as of latest archival.
 
 #### [x] T-P1-105: Split api.py into domain-specific route modules -- 2026-03-07
 - Split src/api.py (2470 lines) into 5 route modules under src/routes/ (dashboard, execution, projects, reviews, tasks) + src/api_helpers.py for shared helpers. api.py retained lifespan, middleware, create_app(), router mounting (323 lines). All 1359 tests pass unmodified, ruff clean.
@@ -450,3 +447,65 @@
 
 #### [x] T-P0-55: Execution log visual markers for review activity -- 2026-03-04
 - Added purple "REVIEW" badge on review-originated log entries. Extended LogEntry with source field, SSE handlers pass source="review" for review_started/review_progress events. Uses SSE event type for origin detection.
+#### [x] T-P0-123: Automated PROGRESS.md archiving hook + pytest timeout fix -- 2026-03-09
+- Created `.claude/hooks/archive_check.py` SessionStart hook with hysteresis-based archival (PROGRESS.md: >80 entries keep 40, TASKS.md: >20 completed keep 5). Added `pytest-timeout>=2.2.0` with 30s per-test timeout. Updated test_check.py to exclude integration/slow tests, use `--maxfail=1`, 300s hook timeout. Added `pytest_collection_modifyitems` to integration conftest. Marked 2 pre-existing hanging tests as slow. 14 new archive tests pass, 1517 total pass.
+
+#### [x] T-P0-125: Review MD rendering + executor feedback verification + title inline edit -- 2026-03-09
+- ReviewPanel.tsx: entry.summary and suggestions now render markdown via MarkdownRenderer with maxHeight="6rem" and "8rem" respectively. TaskCardPopover.tsx: title is now click-to-edit with hover pencil icon, Enter/blur saves, Escape cancels, max 200 chars. Verified scheduler.py correctly injects reviewer feedback (lines 694-714, log "Injecting previous review feedback into prompt"). Frontend builds successfully (no TS errors in changed files).
+
+#### [x] T-P2-133: Remove unused generate-tasks-preview endpoint -- 2026-03-09
+- Removed dead `POST /api/tasks/{task_id}/generate-tasks-preview` endpoint and its `GeneratedTaskPreview`/`GenerateTasksPreviewResponse` schemas. Never called from frontend.
+
+#### [x] T-P2-132: Fix misleading enrichment prompt text about plan context -- 2026-03-09
+- Removed misleading "This prompt receives plan context when available" from `enrichment_system.md`. Updated test assertion.
+
+#### [x] T-P2-131: Move reviewer personas from Python to config templates -- 2026-03-09
+- Extracted `_REVIEWER_PARAMS` into `config/reviewer_personas.yaml` with YAML loader, caching, and fallback. New persona = YAML entry only. 4 new tests.
+
+#### [x] T-P1-130: Parallelize review pipeline reviewer calls -- 2026-03-09
+- Replaced sequential loop with `asyncio.gather()` for multi-reviewer cases. Partial failure handled via `return_exceptions=True`. 3 new tests.
+
+#### [x] T-P1-129: Remove dead synthesis code from review pipeline -- 2026-03-09
+- Removed unused `SynthesisResult`, `_SYNTHESIS_JSON_SCHEMA`, `_synthesize()`, `_parse_synthesis()` (~90 lines). Deterministic merge is the actual path.
+
+#### [x] T-P1-128: Add pass/fail calibration example to review prompt -- 2026-03-09
+- Added passing/failing calibration examples and threshold guidance to `review.md`. 1 new test.
+
+#### [x] T-P1-127: Add specific structural check items to review prompt -- 2026-03-09
+- Updated `_REVIEWER_PARAMS` with structural checks (actionable steps, AC coverage, DAG deps, hidden assumptions). Removed generic OWASP checks. 3 new tests.
+
+#### [x] T-P1-126: Rewrite plan_system.md with phased thinking and strict output contract -- 2026-03-09
+- Rewrote plan prompt with 4-phase guidance + `{{complexity_hint}}` variable. Added `_strip_markdown_fences()` fallback. 15 new tests.
+
+#### [x] T-P1-125: Align plan and review prompt rule coverage -- 2026-03-09
+- Moved Anti-Patterns from `plan_system.md` into `_shared_rules.md` so both plan and review prompts get it via include. 1 new test.
+
+#### [x] T-P1-124: Extract shared prompt rules into includable fragment -- 2026-03-09
+- Added `{{include:filename}}` directive to `render_prompt()`. Extracted shared rules into `_shared_rules.md`, used by both plan and review prompts. 4 new tests.
+
+#### [x] T-P1-123: Pass structured plan_json to reviewers instead of formatted text -- 2026-03-08
+- Added `_format_plan_json_for_review()` helper formatting steps/ACs/tasks with indexed prefixes. Injected into reviewer content with graceful fallback. 17 new tests.
+
+#### [x] T-P0-122: Fix replan review_attempt reset to 1 instead of incrementing -- 2026-03-08
+- Fixed `_run_replan()` hardcoded `review_attempt=1` to query `get_max_review_attempt()` and increment. 3 new tests.
+
+#### [x] T-P0-121: Fix complexity parameter not passed to review pipeline -- 2026-03-08
+- Fixed `_run_review_bg()` always defaulting to "S". Added `complexity` field to Task/TaskRow with auto-migration. Inference from plan structure. 10 new tests.
+
+#### [x] T-P1-116: Unified plan review before batch task decomposition -- 2026-03-08
+- Implemented plan review panel: SSE `proposed_tasks[]`, reject-plan endpoint, PlanReviewPanel.tsx with confirm/reject, Plan tab with status badges. 10 new tests.
+
+#### [x] T-P1-115: Upgrade agent prompts to production-grade (Phase 3: quality) -- 2026-03-08
+- Upgraded all 5 prompts: plan few-shot + anti-patterns, review `{blocking_issues, suggestions, pass}` schema, deterministic merge, enrichment scope prohibition, execution scope constraint. 15 eval tests.
+
+#### [x] T-P1-118: Harden task cancel with timeout enforcement and force-kill -- 2026-03-08
+- Added `timeout_seconds=30` param to `cancel_task()` with graceful/forced paths. Cancel endpoint returns `{"graceful": bool}`. Both paths guarantee FAILED status. 2 new tests (graceful, force-kill timeout). 1123 pass, ruff clean.
+
+#### [x] T-P1-117: Audit and fix SDK invocation settings -- 2026-03-08
+- Added `setting_sources=[]` to enrichment QueryOptions. Added `execution_model` config field (default `claude-sonnet-4-5`) to `OrchestratorSettings` and `orchestrator_config.yaml`. Execution agent gains `model` from config and `system_prompt` from new `config/prompts/execution_system.md`. All 4 SDK callsites have code comments explaining setting_sources choice. 6 new tests. 1453 pass, ruff clean.
+
+#### [x] T-P1-120: Consolidate prompt templates from 9 files to 4 -- 2026-03-08
+- Consolidated `config/prompts/` from 9 files to 4: inlined fragments into `plan_system.md`, merged review files into parameterized `review.md`, renamed `execution_prompt.md` to `execution.md`. `_REVIEWER_PARAMS` config dict replaces 3 separate module-level prompt vars. `enrich_task_title()` gains conditional skip for non-empty descriptions. 6 files deleted. 11 new tests. 1447 pass, ruff clean.
+
+#### [x] T-P1-119: Add reject-to-replan loop and enrich execution prompt with plan data -- 2026-03-08
+- Added `replan` decision to review decide endpoint with max 2 attempts enforcement. `generate_task_plan()` gains `review_feedback` param for structured feedback injection. `Task` model gains `replan_attempt: int = 0` field with auto-migration. `_build_prompt()` injects structured `plan_json` (Implementation Steps + Acceptance Criteria) into execution prompt with graceful fallback. Background replan auto-enqueues review pipeline on success. 29 new tests. 1436 pass, ruff clean.
