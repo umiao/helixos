@@ -1254,3 +1254,10 @@
 - **Sanity check result**: 1391 pass, 6 skipped, ruff clean on modified files. [AUTO-VERIFIED]
 - **Status**: [DONE]
 - **Request**: Move T-P1-115 to Completed
+
+## 2026-03-08 -- [T-P1-116] Unified plan review before batch task decomposition
+- **What I did**: Implemented unified plan review panel for human review before batch task decomposition. Backend: `plan_status_change` SSE event now includes `proposed_tasks[]` when plan_status=ready (AC1). Added `POST /api/tasks/{task_id}/reject-plan` endpoint that resets plan_status to none and clears plan_json (AC4). Updated `TaskManager.update_plan()` to accept `plan_json: str | None`. Frontend: Added `ProposedTask` interface and `proposed_tasks` field to Task type. Added `confirmGeneratedTasks()` and `rejectPlan()` API functions. SSE handler captures proposed_tasks from plan_status_change events and auto-switches to Plan tab when ready. Created `PlanReviewPanel.tsx` component with plan summary display, expandable proposed task cards (with priority/complexity badges, acceptance criteria, files, dependencies), Confirm/Reject action buttons. Added "Plan" tab to BottomPanelContainer with status badge indicator. Handles all plan states: generating (spinner), failed (error + retry), ready (unified review), decomposed (confirmation), none (empty state).
+- **Deliverables**: `src/routes/tasks.py` (SSE proposed_tasks payload, reject-plan endpoint), `src/task_manager.py` (update_plan nullable plan_json), `frontend/src/types.ts` (ProposedTask, ConfirmGeneratedTasksResponse), `frontend/src/api.ts` (confirmGeneratedTasks, rejectPlan), `frontend/src/hooks/useSSEHandler.ts` (proposed_tasks capture, auto-switch), `frontend/src/hooks/useTaskState.ts` (plan tab type), `frontend/src/components/PlanReviewPanel.tsx` (new: plan review UI), `frontend/src/components/BottomPanelContainer.tsx` (Plan tab), `frontend/src/App.tsx` (handlePlanConfirmed, sync after confirm), `tests/test_plan_review.py` (new: 10 tests)
+- **Sanity check result**: 1482 pass, 6 skipped, ruff clean, TS clean, Vite build clean. [AUTO-VERIFIED]
+- **Status**: [DONE]
+- **Request**: Move T-P1-116 to Completed

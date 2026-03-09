@@ -5,6 +5,7 @@
 
 import type {
   BrowseResult,
+  ConfirmGeneratedTasksResponse,
   CostDashboardResponse,
   CreateTaskResult,
   EnrichResult,
@@ -432,4 +433,26 @@ export async function fetchReviewHistory(
 export async function fetchCostDashboard(): Promise<CostDashboardResponse> {
   const res = await fetch("/api/dashboard/costs");
   return handleResponse<CostDashboardResponse>(res);
+}
+
+/** Confirm generated tasks -- batch-write proposed tasks to TASKS.md. */
+export async function confirmGeneratedTasks(
+  taskId: string,
+): Promise<ConfirmGeneratedTasksResponse> {
+  const res = await fetch(
+    `/api/tasks/${encodeURIComponent(taskId)}/confirm-generated-tasks`,
+    { method: "POST" },
+  );
+  return handleResponse<ConfirmGeneratedTasksResponse>(res);
+}
+
+/** Reject a plan, resetting plan_status to 'none'. */
+export async function rejectPlan(
+  taskId: string,
+): Promise<{ task_id: string; plan_status: string }> {
+  const res = await fetch(
+    `/api/tasks/${encodeURIComponent(taskId)}/reject-plan`,
+    { method: "POST" },
+  );
+  return handleResponse(res);
 }

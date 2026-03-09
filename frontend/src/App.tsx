@@ -11,7 +11,7 @@ import ReviewSubmitModal from "./components/ReviewSubmitModal";
 import EditTaskModal from "./components/EditTaskModal";
 import { ErrorBoundary } from "./components/ErrorBoundary";
 import BottomPanelContainer from "./components/BottomPanelContainer";
-import { fetchProjects, fetchTasks, ApiError } from "./api";
+import { fetchProjects, fetchTasks, ApiError, syncProject } from "./api";
 import { useToasts } from "./hooks/useToasts";
 import { useTaskState } from "./hooks/useTaskState";
 import { useProjectState } from "./hooks/useProjectState";
@@ -137,6 +137,28 @@ function App() {
   }, [activeProjectIds, globallyFiltered]);
 
   const soloLane = activeProjectIds.length === 1;
+
+  // Handler for plan confirmation: sync to pick up new tasks
+  const handlePlanConfirmed = useCallback(
+    async (taskId: string, writtenIds: string[]) => {
+      addToast(
+        `Created ${writtenIds.length} task(s) from plan: ${writtenIds.join(", ")}`,
+        "success",
+      );
+      // Sync the project to bring new tasks into the board
+      const task = tasks.find((t) => t.id === taskId);
+      if (task) {
+        try {
+          await syncProject(task.project_id);
+          const updatedTasks = await fetchTasks();
+          setTasks(updatedTasks);
+        } catch {
+          // board_sync SSE will eventually refresh
+        }
+      }
+    },
+    [addToast, tasks, setTasks],
+  );
 
   return (
     <div className="flex flex-col h-screen bg-gray-100">
@@ -396,6 +418,7 @@ function App() {
                 prev.map((t) => (t.id === updated.id ? updated : t)),
               )
             }
+            onPlanConfirmed={handlePlanConfirmed}
           />
         </div>
       </ErrorBoundary>

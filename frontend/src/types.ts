@@ -86,6 +86,8 @@ export interface Task {
   plan_error_type?: string;
   /** Actionable error message from last plan generation failure (if any). */
   plan_error_message?: string;
+  /** Proposed sub-tasks from plan generation (populated via SSE when plan_status=ready). */
+  proposed_tasks?: ProposedTask[];
 }
 
 export interface Dependency {
@@ -183,10 +185,29 @@ export interface GeneratePlanResult {
   formatted: string;
 }
 
+/** A proposed sub-task from plan generation (not yet assigned an ID). */
+export interface ProposedTask {
+  title: string;
+  description: string;
+  files: string[];
+  suggested_priority: string;
+  suggested_complexity: string;
+  dependencies: string[];
+  acceptance_criteria: string[];
+}
+
 /** 202 Accepted response from async plan generation endpoint. */
 export interface GeneratePlanAccepted {
   task_id: string;
   plan_status: string;
+}
+
+/** Response from confirming generated tasks. */
+export interface ConfirmGeneratedTasksResponse {
+  parent_task_id: string;
+  written_ids: string[];
+  auto_paused: boolean;
+  detail: string;
 }
 
 /** Result of creating a task. */

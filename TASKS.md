@@ -31,20 +31,6 @@
 ### P1 -- Should Have (agentic intelligence)
 
 
-#### T-P1-116: Unified plan review before batch task decomposition
-- **Priority**: P1
-- **Complexity**: M (1-2 sessions)
-- **Depends on**: T-P1-114
-- **Description**: Present generated plan with proposed sub-tasks as a single unified document for human review. After human confirms, all tasks batch-created via existing confirm-decomposition endpoint. Tasks are NOT shown as individual cards until confirmed.
-- **Acceptance Criteria**:
-  1. `plan_status_change` SSE event includes `proposed_tasks[]` when plan_status = `ready`
-  2. Frontend: "Plan Review" panel shows plan summary + all proposed tasks as readable document
-  3. "Confirm and Create All Tasks" button calls `confirm-decomposition`, batch-writes all tasks to TASKS.md
-  4. "Reject Plan" resets plan_status to `none`; no tasks created
-  5. Generating state: spinner. Failed state: error message with retry option
-  6. Manually verify: Generate Plan -> unified review panel -> Confirm -> tasks appear on board [AUTO-VERIFIED]
-
-
 
 ### P2 -- Nice to Have
 
@@ -66,6 +52,7 @@ T-P1-116 depends on T-P1-114 (completed -- T-P1-116 unblocked)
 
 > 120 completed tasks archived to [archive/completed_tasks.md](archive/completed_tasks.md).
 
+- T-P1-116: Unified plan review before batch task decomposition
 - T-P1-115: Upgrade agent prompts to production-grade (Phase 3: quality)
 
 #### [x] T-P1-118: Harden task cancel with timeout enforcement and force-kill -- 2026-03-08

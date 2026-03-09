@@ -241,14 +241,33 @@ async def generate_plan(task_id: str, request: Request) -> JSONResponse:
             formatted = format_plan_as_text(plan_data)
 
             # Atomic update: description + plan_status + plan_json in one transaction
+            plan_data_json = json.dumps(plan_data)
             await task_manager.update_plan(
                 task_id=task_id,
                 description=formatted,
                 plan_status="ready",
-                plan_json=json.dumps(plan_data),
+                plan_json=plan_data_json,
             )
+
+            # AC1 (T-P1-116): Include proposed_tasks in SSE event
+            proposed_tasks_payload: list[dict] = []
+            if isinstance(plan_data, dict):
+                for pt in plan_data.get("proposed_tasks", []):
+                    if isinstance(pt, dict):
+                        proposed_tasks_payload.append({
+                            "title": pt.get("title", ""),
+                            "description": pt.get("description", ""),
+                            "files": pt.get("files", []),
+                            "suggested_priority": pt.get("suggested_priority", "P1"),
+                            "suggested_complexity": pt.get("suggested_complexity", "M"),
+                            "dependencies": pt.get("dependencies", []),
+                            "acceptance_criteria": pt.get("acceptance_criteria", []),
+                        })
             event_bus.emit(
-                "plan_status_change", task_id, {"plan_status": "ready"},
+                "plan_status_change", task_id, {
+                    "plan_status": "ready",
+                    "proposed_tasks": proposed_tasks_payload,
+                },
                 origin="plan",
             )
 
@@ -315,6 +334,56 @@ async def generate_plan(task_id: str, request: Request) -> JSONResponse:
     return JSONResponse(
         status_code=202,
         content={"task_id": task_id, "plan_status": "generating"},
+    )
+
+
+# ------------------------------------------------------------------
+# Plan rejection endpoint (T-P1-116 AC4)
+# ------------------------------------------------------------------
+
+
+@router.post(
+    "/api/tasks/{task_id}/reject-plan",
+    responses={
+        404: {"model": ErrorResponse},
+        409: {"model": ErrorResponse},
+    },
+)
+async def reject_plan(task_id: str, request: Request) -> JSONResponse:
+    """Reject a generated plan, resetting plan_status to 'none'.
+
+    Returns 404 if task not found.
+    Returns 409 if plan_status is not 'ready' (nothing to reject).
+    """
+    task_manager: TaskManager = request.app.state.task_manager
+    event_bus: EventBus = request.app.state.event_bus
+
+    task = await task_manager.get_task(task_id)
+    if task is None:
+        raise HTTPException(status_code=404, detail=f"Task not found: {task_id}")
+
+    if task.plan_status != "ready":
+        raise HTTPException(
+            status_code=409,
+            detail=f"Task {task_id} plan_status is {task.plan_status!r}, "
+                   f"expected 'ready' to reject",
+        )
+
+    # Reset plan state
+    await task_manager.update_plan(
+        task_id=task_id,
+        description=task.description,
+        plan_status="none",
+        plan_json=None,
+    )
+    event_bus.emit(
+        "plan_status_change", task_id, {"plan_status": "none"},
+        origin="plan",
+    )
+
+    return JSONResponse(
+        status_code=200,
+        content={"task_id": task_id, "plan_status": "none"},
     )
 
 

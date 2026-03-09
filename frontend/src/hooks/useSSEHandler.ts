@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef } from "react";
 import { normalizeStreamEvents } from "../components/ConversationView";
 import { fetchTask, fetchTasks } from "../api";
 import useSSE, { type SSEEvent } from "./useSSE";
-import type { Task, TaskStatus, StreamDisplayItem } from "../types";
+import type { Task, TaskStatus, StreamDisplayItem, ProposedTask } from "../types";
 import type { Project } from "../types";
 
 interface UseSSEHandlerDeps {
@@ -11,7 +11,7 @@ interface UseSSEHandlerDeps {
   setTasks: React.Dispatch<React.SetStateAction<Task[]>>;
   setProjects: React.Dispatch<React.SetStateAction<Project[]>>;
   setSelectedTask: React.Dispatch<React.SetStateAction<Task | null>>;
-  setBottomPanel: React.Dispatch<React.SetStateAction<"log" | "review" | "running" | "costs">>;
+  setBottomPanel: React.Dispatch<React.SetStateAction<"log" | "review" | "plan" | "running" | "costs">>;
   setReviewPhase: React.Dispatch<React.SetStateAction<string>>;
   setStreamEvents: React.Dispatch<React.SetStateAction<Record<string, StreamDisplayItem[]>>>;
   selectedTaskRef: React.MutableRefObject<Task | null>;
@@ -127,29 +127,46 @@ export function useSSEHandler(deps: UseSSEHandlerDeps) {
                   plan_error_message: (event.data.error_message as string) || undefined,
                 }
               : { plan_error_type: undefined, plan_error_message: undefined };
+          // AC1 (T-P1-116): Capture proposed_tasks from SSE event when ready
+          const proposedTasksPatch: Partial<Task> =
+            newPlanStatus === "ready" && Array.isArray(event.data.proposed_tasks)
+              ? { proposed_tasks: event.data.proposed_tasks as ProposedTask[] }
+              : newPlanStatus === "none"
+                ? { proposed_tasks: undefined }
+                : {};
           setTasks((prev) =>
             prev.map((t) =>
               t.id === event.task_id
-                ? { ...t, plan_status: newPlanStatus as Task["plan_status"], ...errorPatch }
+                ? { ...t, plan_status: newPlanStatus as Task["plan_status"], ...errorPatch, ...proposedTasksPatch }
                 : t,
             ),
           );
           setSelectedTask((sel) =>
             sel && sel.id === event.task_id
-              ? { ...sel, plan_status: newPlanStatus as Task["plan_status"], ...errorPatch }
+              ? { ...sel, plan_status: newPlanStatus as Task["plan_status"], ...errorPatch, ...proposedTasksPatch }
               : sel,
           );
           if (newPlanStatus === "ready" || newPlanStatus === "failed") {
             fetchTask(event.task_id)
               .then((updated) => {
+                // Preserve proposed_tasks from SSE (not returned by API)
+                const withProposed = newPlanStatus === "ready" && Array.isArray(event.data.proposed_tasks)
+                  ? { ...updated, proposed_tasks: event.data.proposed_tasks as ProposedTask[] }
+                  : updated;
                 setTasks((prev) =>
-                  prev.map((t) => (t.id === updated.id ? updated : t)),
+                  prev.map((t) => (t.id === updated.id ? withProposed : t)),
                 );
                 setSelectedTask((sel) =>
-                  sel && sel.id === updated.id ? updated : sel,
+                  sel && sel.id === updated.id ? withProposed : sel,
                 );
               })
               .catch(() => { /* ignore */ });
+          }
+          // Auto-switch to Plan tab when plan becomes ready
+          if (newPlanStatus === "ready") {
+            if (selectedTaskRef.current?.id === event.task_id) {
+              setBottomPanel("plan");
+            }
           }
           break;
         }

@@ -1,14 +1,17 @@
 import ConversationView from "./ConversationView";
 import CostDashboard from "./CostDashboard";
 import ExecutionLog from "./ExecutionLog";
+import PlanReviewPanel from "./PlanReviewPanel";
 import ReviewPanel from "./ReviewPanel";
 import RunningJobsPanel from "./RunningJobsPanel";
 import type { LogEntry } from "./ExecutionLog";
 import type { Task, Project, StreamDisplayItem } from "../types";
 
+export type BottomPanelTab = "log" | "review" | "plan" | "running" | "costs";
+
 interface BottomPanelContainerProps {
-  bottomPanel: "log" | "review" | "running" | "costs";
-  setBottomPanel: (panel: "log" | "review" | "running" | "costs") => void;
+  bottomPanel: BottomPanelTab;
+  setBottomPanel: (panel: BottomPanelTab) => void;
   viewMode: "conversation" | "log";
   setViewMode: (mode: "conversation" | "log") => void;
   selectedTask: Task | null;
@@ -25,6 +28,7 @@ interface BottomPanelContainerProps {
   onSelectTask: (task: Task) => void;
   onError: (msg: string) => void;
   onTaskUpdated: (updated: Task) => void;
+  onPlanConfirmed: (taskId: string, writtenIds: string[]) => void;
 }
 
 export default function BottomPanelContainer({
@@ -46,7 +50,14 @@ export default function BottomPanelContainer({
   onSelectTask,
   onError,
   onTaskUpdated,
+  onPlanConfirmed,
 }: BottomPanelContainerProps) {
+  // Determine if the plan tab should be highlighted (task has actionable plan state)
+  const showPlanBadge = selectedTask != null && (
+    selectedTask.plan_status === "ready" ||
+    selectedTask.plan_status === "generating" ||
+    selectedTask.plan_status === "failed"
+  );
   return (
     <>
       {/* Panel tabs */}
@@ -83,6 +94,22 @@ export default function BottomPanelContainer({
           title="View review progress and make approval decisions"
         >
           Review
+        </button>
+        <button
+          onClick={() => setBottomPanel("plan")}
+          className={`px-3 py-1.5 text-xs font-medium border-b-2 transition-colors ${
+            bottomPanel === "plan"
+              ? "border-indigo-500 text-indigo-700"
+              : "border-transparent text-gray-500 hover:text-gray-700"
+          }`}
+          title="Review generated plan and proposed tasks"
+        >
+          Plan{showPlanBadge ? (
+            <span className={`ml-1 inline-block w-1.5 h-1.5 rounded-full ${
+              selectedTask?.plan_status === "generating" ? "bg-blue-500 animate-pulse" :
+              selectedTask?.plan_status === "ready" ? "bg-green-500" : "bg-red-500"
+            }`} />
+          ) : null}
         </button>
         <button
           onClick={() => setBottomPanel("running")}
@@ -151,6 +178,19 @@ export default function BottomPanelContainer({
             onError={onError}
             onTaskUpdated={onTaskUpdated}
           />
+        ) : bottomPanel === "plan" ? (
+          selectedTask ? (
+            <PlanReviewPanel
+              task={selectedTask}
+              onTaskUpdated={onTaskUpdated}
+              onError={onError}
+              onConfirmed={onPlanConfirmed}
+            />
+          ) : (
+            <div className="flex items-center justify-center h-full text-gray-400 text-sm">
+              Select a task to view its plan
+            </div>
+          )
         ) : bottomPanel === "costs" ? (
           <CostDashboard />
         ) : (

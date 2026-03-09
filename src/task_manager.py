@@ -520,7 +520,7 @@ class TaskManager:
         task_id: str,
         description: str,
         plan_status: str,
-        plan_json: str,
+        plan_json: str | None,
     ) -> None:
         """Atomically update plan fields (description + status + json).
 
@@ -533,7 +533,7 @@ class TaskManager:
             task_id: The task to update.
             description: Formatted plan text for display.
             plan_status: New plan lifecycle state (e.g. 'ready').
-            plan_json: JSON string of the structured plan data.
+            plan_json: JSON string of the structured plan data, or None to clear.
 
         Raises:
             ValueError: If the task is not found or is deleted.
