@@ -8,8 +8,9 @@
 import { useDraggable } from "@dnd-kit/core";
 import { CSS } from "@dnd-kit/utilities";
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { Task, TaskStatus, PlanStatus, StreamSummary } from "../types";
+import type { Task, TaskStatus, StreamSummary } from "../types";
 import { generatePlan } from "../api";
+import { planStatePatch } from "../utils/planState";
 import TaskCardPopover from "./TaskCardPopover";
 
 interface TaskCardProps {
@@ -105,10 +106,10 @@ export default function TaskCard({ task, onClick, onContextMenu, onTaskUpdated, 
     if (generatingLocal || isGeneratingPlan) return;
     setGeneratingLocal(true);
     try {
-      await generatePlan(task.id);
+      const accepted = await generatePlan(task.id);
       onTaskUpdated?.({
         ...task,
-        plan_status: "generating" as PlanStatus,
+        ...planStatePatch("generating", { generationId: accepted.generation_id }),
       });
     } catch {
       // Error handling deferred to popover; card button is a quick-action shortcut

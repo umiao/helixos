@@ -351,3 +351,10 @@
 - **Sanity check result**: 1590 passed, 2 skipped, 40 deselected in 38.3s. Ruff clean. All 73 new tests cover valid transitions, invalid transitions, field invariants, malformed JSON, task-not-found, and round-trip persistence.
 - **Status**: [DONE]
 - **Request**: Move T-P0-134 to Completed
+
+## 2026-03-09 -- [T-P0-135] Frontend plan staleness fix with shared utility and generation_id filtering
+- **What I did**: Created `frontend/src/utils/planState.ts` with `planStatePatch()` utility that returns correct partial Task for each plan status transition (none: clears all fields, generating: clears errors+proposed_tasks+preserves generationId, failed: sets error fields, ready: sets proposed_tasks, decomposed: clears errors). Added `plan_generation_id` and `has_proposed_tasks` to Task interface and `generation_id` to `GeneratePlanAccepted`. Migrated all 3 components (TaskCard, TaskCardPopover, PlanReviewPanel) to use `planStatePatch()` instead of inline clearing. Updated `useSSEHandler.ts` to filter stale SSE completion events by comparing `generation_id` from SSE against task's `plan_generation_id`, and to use `planStatePatch()` for all plan state updates.
+- **Deliverables**: `frontend/src/utils/planState.ts` (new -- shared utility), `frontend/src/types.ts` (mod -- 3 new fields), `frontend/src/components/TaskCard.tsx` (mod -- uses planStatePatch), `frontend/src/components/TaskCardPopover.tsx` (mod -- uses planStatePatch), `frontend/src/components/PlanReviewPanel.tsx` (mod -- uses planStatePatch for retry/reject/confirm), `frontend/src/hooks/useSSEHandler.ts` (mod -- generation_id filtering + planStatePatch)
+- **Sanity check result**: TypeScript clean (`npx tsc --noEmit`). Vite build clean. 1509 backend tests pass (test_scheduler pre-existing timeout excluded). Ruff clean. [AUTO-VERIFIED] -- no browser available for manual smoke test.
+- **Status**: [DONE]
+- **Request**: Move T-P0-135 to Completed

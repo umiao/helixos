@@ -4,6 +4,7 @@ import { fetchTask, fetchTasks } from "../api";
 import useSSE, { type SSEEvent } from "./useSSE";
 import type { Task, TaskStatus, StreamDisplayItem, ProposedTask } from "../types";
 import type { Project } from "../types";
+import { planStatePatch } from "../utils/planState";
 
 interface UseSSEHandlerDeps {
   addToast: (text: string, type: "success" | "error") => void;
@@ -120,39 +121,60 @@ export function useSSEHandler(deps: UseSSEHandlerDeps) {
         }
         case "plan_status_change": {
           const newPlanStatus = event.data.plan_status as string;
-          const errorPatch: Partial<Task> =
-            newPlanStatus === "failed"
-              ? {
-                  plan_error_type: (event.data.error_type as string) || undefined,
-                  plan_error_message: (event.data.error_message as string) || undefined,
-                }
-              : { plan_error_type: undefined, plan_error_message: undefined };
-          // AC1 (T-P1-116): Capture proposed_tasks from SSE event when ready
-          const proposedTasksPatch: Partial<Task> =
+          const eventGenId = (event.data.generation_id as string) || undefined;
+
+          // Filter stale SSE events: if a completion event (ready/failed)
+          // carries a generation_id that doesn't match the task's current
+          // plan_generation_id, the event is from a superseded generation.
+          if (
+            (newPlanStatus === "ready" || newPlanStatus === "failed") &&
+            eventGenId
+          ) {
+            let isStale = false;
+            setTasks((prev) => {
+              const target = prev.find((t) => t.id === event.task_id);
+              if (
+                target?.plan_generation_id &&
+                target.plan_generation_id !== eventGenId
+              ) {
+                isStale = true;
+              }
+              return prev; // no mutation -- just reading
+            });
+            if (isStale) break;
+          }
+
+          // Build the optimistic patch using the shared utility
+          const proposedTasks =
             newPlanStatus === "ready" && Array.isArray(event.data.proposed_tasks)
-              ? { proposed_tasks: event.data.proposed_tasks as ProposedTask[] }
-              : newPlanStatus === "none"
-                ? { proposed_tasks: undefined }
-                : {};
+              ? (event.data.proposed_tasks as ProposedTask[])
+              : undefined;
+          const patch = planStatePatch(
+            newPlanStatus as Task["plan_status"],
+            {
+              generationId: eventGenId,
+              errorType: (event.data.error_type as string) || undefined,
+              errorMessage: (event.data.error_message as string) || undefined,
+              proposedTasks: proposedTasks,
+            },
+          );
+
           setTasks((prev) =>
             prev.map((t) =>
-              t.id === event.task_id
-                ? { ...t, plan_status: newPlanStatus as Task["plan_status"], ...errorPatch, ...proposedTasksPatch }
-                : t,
+              t.id === event.task_id ? { ...t, ...patch } : t,
             ),
           );
           setSelectedTask((sel) =>
-            sel && sel.id === event.task_id
-              ? { ...sel, plan_status: newPlanStatus as Task["plan_status"], ...errorPatch, ...proposedTasksPatch }
-              : sel,
+            sel && sel.id === event.task_id ? { ...sel, ...patch } : sel,
           );
           if (newPlanStatus === "ready" || newPlanStatus === "failed") {
             fetchTask(event.task_id)
               .then((updated) => {
                 // Preserve proposed_tasks from SSE (not returned by API)
-                const withProposed = newPlanStatus === "ready" && Array.isArray(event.data.proposed_tasks)
-                  ? { ...updated, proposed_tasks: event.data.proposed_tasks as ProposedTask[] }
-                  : updated;
+                const withProposed =
+                  newPlanStatus === "ready" && proposedTasks
+                    ? { ...updated, proposed_tasks: proposedTasks }
+                    : updated;
                 setTasks((prev) =>
                   prev.map((t) => (t.id === updated.id ? withProposed : t)),
                 );

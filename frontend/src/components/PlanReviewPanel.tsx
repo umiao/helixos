@@ -11,6 +11,7 @@
 import { useState } from "react";
 import { confirmGeneratedTasks, generatePlan, rejectPlan } from "../api";
 import type { Task, ProposedTask } from "../types";
+import { planStatePatch } from "../utils/planState";
 
 interface PlanReviewPanelProps {
   task: Task;
@@ -140,8 +141,8 @@ export default function PlanReviewPanel({
     const handleRetry = async () => {
       setRetrying(true);
       try {
-        await generatePlan(task.id);
-        onTaskUpdated({ ...task, plan_status: "generating" });
+        const accepted = await generatePlan(task.id);
+        onTaskUpdated({ ...task, ...planStatePatch("generating", { generationId: accepted.generation_id }) });
       } catch (err) {
         onError(`Retry failed: ${err instanceof Error ? err.message : String(err)}`);
       } finally {
@@ -194,7 +195,7 @@ export default function PlanReviewPanel({
     setConfirming(true);
     try {
       const result = await confirmGeneratedTasks(task.id);
-      onTaskUpdated({ ...task, plan_status: "decomposed" as Task["plan_status"] });
+      onTaskUpdated({ ...task, ...planStatePatch("decomposed") });
       onConfirmed(task.id, result.written_ids);
     } catch (err) {
       onError(`Confirm failed: ${err instanceof Error ? err.message : String(err)}`);
@@ -207,7 +208,7 @@ export default function PlanReviewPanel({
     setRejecting(true);
     try {
       await rejectPlan(task.id);
-      onTaskUpdated({ ...task, plan_status: "none", proposed_tasks: undefined });
+      onTaskUpdated({ ...task, ...planStatePatch("none") });
     } catch (err) {
       onError(`Reject failed: ${err instanceof Error ? err.message : String(err)}`);
     } finally {

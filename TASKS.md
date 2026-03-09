@@ -29,20 +29,6 @@
 
 ### P0 -- Must Have (core functionality)
 
-#### T-P0-135: Frontend plan staleness fix with shared utility and generation_id filtering
-- **Priority**: P0
-- **Complexity**: S (< 1 session)
-- **Depends on**: T-P0-134
-- **Description**: Frontend clears stale plan data in 4+ places with inline logic -- fragile and incomplete. Need a single `planStatePatch()` utility in `frontend/src/utils/planState.ts` used by TaskCard, TaskCardPopover, and PlanReviewPanel. SSE handler must filter stale events using `generation_id` from backend. Task type needs `plan_generation_id` field.
-- **Acceptance Criteria**:
-  1. New `frontend/src/utils/planState.ts` exports `planStatePatch(status)` returning correct partial Task for each status (generating: clears proposed_tasks + errors; none: clears everything).
-  2. `TaskCard.tsx`, `TaskCardPopover.tsx`, `PlanReviewPanel.tsx` (retry handler) all use `planStatePatch("generating")` -- no inline clearing logic.
-  3. `frontend/src/types.ts` Task interface includes `plan_generation_id?: string`.
-  4. `useSSEHandler.ts` extracts `generation_id` from SSE events, stores in task state, and filters stale completion events (ready/failed with old generation_id are ignored).
-  5. `src/api_helpers.py` `_task_to_response()` includes `plan_generation_id` in API response so `fetchTask()` returns authoritative value.
-  6. Manual verification: Generate plan -> complete -> regenerate -> UI shows spinner immediately (not old plan) -> new plan appears when ready. If stale SSE arrives from old generation, it is ignored.
-  7. TypeScript clean (`npx tsc --noEmit`). Vite build clean.
-
 #### T-P0-136: Plan deletion with confirmation dialog (all plan states)
 - **Priority**: P0
 - **Complexity**: S (< 1 session)
@@ -133,7 +119,6 @@
 > Full historical dependency graph relocated to [docs/architecture/dependency-graph-history.md](docs/architecture/dependency-graph-history.md).
 
 ### Current
-T-P0-135 depends on T-P0-134
 T-P0-136 depends on T-P0-134
 T-P0-137 depends on T-P0-134
 T-P0-138 depends on T-P0-134, T-P0-136
@@ -157,6 +142,9 @@ T-P1-127 depends on T-P1-123 (completed)
 
 
 > 21 completed tasks archived to [archive/completed_tasks.md](archive/completed_tasks.md).
+
+#### [x] T-P0-135: Frontend plan staleness fix with shared utility and generation_id filtering -- 2026-03-09
+- Created `planStatePatch()` shared utility in `frontend/src/utils/planState.ts`. Added `plan_generation_id` and `has_proposed_tasks` to Task interface. Migrated TaskCard, TaskCardPopover, PlanReviewPanel to use shared utility. SSE handler filters stale events via generation_id comparison. TypeScript clean, Vite build clean.
 
 #### [x] T-P0-134: Backend plan state machine with transition rules and field invariants -- 2026-03-09
 - Added `VALID_PLAN_TRANSITIONS` + `set_plan_state()` to TaskManager with per-state invariant enforcement. New `plan_generation_id` and `has_proposed_tasks` columns on TaskRow with auto-migration. Migrated all call sites (generate-plan, reject-plan, confirm-tasks, replan, zombie reset) to use `set_plan_state()`. SSE events include `generation_id`. 73 new tests. 1590 pass, ruff clean.

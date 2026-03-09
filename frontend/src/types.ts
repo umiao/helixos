@@ -88,6 +88,10 @@ export interface Task {
   plan_error_message?: string;
   /** Proposed sub-tasks from plan generation (populated via SSE when plan_status=ready). */
   proposed_tasks?: ProposedTask[];
+  /** Backend generation_id for race-condition filtering of stale SSE events. */
+  plan_generation_id?: string;
+  /** Whether the current plan contains proposed sub-tasks (backend-computed). */
+  has_proposed_tasks?: boolean;
 }
 
 export interface Dependency {
@@ -200,6 +204,7 @@ export interface ProposedTask {
 export interface GeneratePlanAccepted {
   task_id: string;
   plan_status: string;
+  generation_id: string;
 }
 
 /** Response from confirming generated tasks. */
