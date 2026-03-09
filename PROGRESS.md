@@ -1268,3 +1268,10 @@
 - **Sanity check result**: 1492 pass, 6 skipped, ruff clean. [AUTO-VERIFIED]
 - **Status**: [DONE]
 - **Request**: Move T-P0-121 to Completed
+
+## 2026-03-08 -- [T-P0-122] Fix replan review_attempt reset to 1 instead of incrementing
+- **What I did**: Fixed the bug in `_run_replan()` (reviews.py:695) where `review_attempt=1` was hardcoded when auto-enqueuing the review pipeline after a replan. Now queries `history_writer.get_max_review_attempt(task_id)` and passes `max_attempt + 1`, matching the pattern already used in the normal review start flow (reviews.py:402-404). This ensures review history correctly shows separate attempts for pre-replan and post-replan reviews.
+- **Deliverables**: `src/routes/reviews.py` (query max attempt before enqueue), `tests/test_replan_review_attempt.py` (new: 3 tests)
+- **Sanity check result**: 1495 pass, 6 skipped, ruff clean. [AUTO-VERIFIED]
+- **Status**: [DONE]
+- **Request**: Move T-P0-122 to Completed

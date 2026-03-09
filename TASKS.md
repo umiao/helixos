@@ -27,16 +27,6 @@
 
 ### P0 -- Must Have (core functionality)
 
-#### T-P0-122: Fix replan review_attempt reset to 1 instead of incrementing
-- **Priority**: P0
-- **Complexity**: S (< 1 session)
-- **Depends on**: None
-- **Description**: In `src/routes/reviews.py:694`, after a replan completes and auto-enqueues the review pipeline, `review_attempt=1` is hardcoded instead of using the correct next attempt number. This breaks review history continuity -- all post-replan reviews overwrite attempt 1 instead of creating new attempt entries.
-- **Acceptance Criteria**:
-  1. After replan, auto-enqueued review uses `review_attempt = max_existing_attempt + 1`
-  2. Review history correctly shows separate attempts for pre-replan and post-replan reviews
-  3. Test: replan a task, verify the new review's attempt number is greater than previous
-
 ### P1 -- Should Have (agentic intelligence)
 
 #### T-P1-123: Pass structured plan_json to reviewers instead of formatted text
@@ -208,6 +198,7 @@ T-P2-131 depends on T-P1-124
 > 120 completed tasks archived to [archive/completed_tasks.md](archive/completed_tasks.md).
 
 - T-P0-121: Fix complexity parameter not passed to review pipeline
+- T-P0-122: Fix replan review_attempt reset to 1 instead of incrementing
 - T-P1-116: Unified plan review before batch task decomposition
 - T-P1-115: Upgrade agent prompts to production-grade (Phase 3: quality)
 

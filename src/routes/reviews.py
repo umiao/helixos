@@ -686,13 +686,16 @@ async def _handle_replan(
                 review_pipeline: ReviewPipeline | None = getattr(
                     request.app.state, "review_pipeline", None,
                 )
+                max_attempt = await history_writer.get_max_review_attempt(
+                    task_id,
+                )
                 _enqueue_review_pipeline(
                     task_manager=task_manager,
                     review_pipeline=review_pipeline,
                     event_bus=event_bus,
                     task=refreshed,
                     task_id=task_id,
-                    review_attempt=1,
+                    review_attempt=max_attempt + 1,
                     history_writer=history_writer,
                 )
 
