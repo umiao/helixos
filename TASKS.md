@@ -27,18 +27,6 @@
 
 ### P0 -- Must Have (core functionality)
 
-#### T-P0-121: Fix complexity parameter not passed to review pipeline
-- **Priority**: P0
-- **Complexity**: S (< 1 session)
-- **Depends on**: None
-- **Description**: `_run_review_bg()` in `src/routes/reviews.py:147` calls `review_pipeline.review_task()` without passing the `complexity` parameter, so it defaults to `"S"`. This means the adversarial red-team reviewer (configured as optional for M/L tasks) is never triggered. The entire adversarial review feature is dead.
-- **Acceptance Criteria**:
-  1. `review_task()` receives `complexity` from the task object (task.complexity or equivalent field)
-  2. For S-complexity tasks, only the required reviewer runs (1 reviewer)
-  3. For M/L-complexity tasks, both required + optional adversarial reviewer run (2 reviewers)
-  4. If task has no complexity field, default to "S" (backward compat)
-  5. Test: mock review pipeline, create M-complexity task, verify adversarial reviewer is invoked
-
 #### T-P0-122: Fix replan review_attempt reset to 1 instead of incrementing
 - **Priority**: P0
 - **Complexity**: S (< 1 session)
@@ -219,6 +207,7 @@ T-P2-131 depends on T-P1-124
 
 > 120 completed tasks archived to [archive/completed_tasks.md](archive/completed_tasks.md).
 
+- T-P0-121: Fix complexity parameter not passed to review pipeline
 - T-P1-116: Unified plan review before batch task decomposition
 - T-P1-115: Upgrade agent prompts to production-grade (Phase 3: quality)
 

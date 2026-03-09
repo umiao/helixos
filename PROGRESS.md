@@ -1261,3 +1261,10 @@
 - **Sanity check result**: 1482 pass, 6 skipped, ruff clean, TS clean, Vite build clean. [AUTO-VERIFIED]
 - **Status**: [DONE]
 - **Request**: Move T-P1-116 to Completed
+
+## 2026-03-08 -- [T-P0-121] Fix complexity parameter not passed to review pipeline
+- **What I did**: Fixed the bug where `_run_review_bg()` in `reviews.py` called `review_pipeline.review_task()` without passing the `complexity` parameter, causing it to always default to "S" and never triggering the adversarial red-team reviewer for M/L tasks. Added `complexity` field to `Task` model and `TaskRow` DB model (with auto-migration). Updated `_run_review_bg()` to pass `task.complexity` to `review_task()`. Added complexity inference from plan structure during plan generation (number of steps and proposed tasks determines S/M/L). Updated `update_plan()` to accept optional `complexity` parameter.
+- **Deliverables**: `src/models.py` (complexity field on Task), `src/db.py` (complexity column on TaskRow, task_row_to_dict, task_dict_to_row_kwargs), `src/routes/reviews.py` (pass complexity to review_task), `src/routes/tasks.py` (infer complexity from plan data), `src/task_manager.py` (update_plan complexity param), `tests/test_complexity_passthrough.py` (new: 10 tests)
+- **Sanity check result**: 1492 pass, 6 skipped, ruff clean. [AUTO-VERIFIED]
+- **Status**: [DONE]
+- **Request**: Move T-P0-121 to Completed

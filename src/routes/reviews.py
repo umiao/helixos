@@ -148,6 +148,7 @@ def _enqueue_review_pipeline(
                 task=task,
                 plan_content=task.description,
                 on_progress=on_progress,
+                complexity=task.complexity or "S",
                 review_attempt=review_attempt,
                 human_feedback=human_feedback,
                 on_log=on_review_log,

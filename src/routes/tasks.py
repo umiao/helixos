@@ -242,11 +242,23 @@ async def generate_plan(task_id: str, request: Request) -> JSONResponse:
 
             # Atomic update: description + plan_status + plan_json in one transaction
             plan_data_json = json.dumps(plan_data)
+
+            # Infer task complexity from plan structure
+            inferred_complexity = "S"
+            if isinstance(plan_data, dict):
+                proposed = plan_data.get("proposed_tasks", [])
+                num_steps = len(plan_data.get("steps", []))
+                if len(proposed) > 3 or num_steps > 8:
+                    inferred_complexity = "L"
+                elif len(proposed) > 0 or num_steps > 4:
+                    inferred_complexity = "M"
+
             await task_manager.update_plan(
                 task_id=task_id,
                 description=formatted,
                 plan_status="ready",
                 plan_json=plan_data_json,
+                complexity=inferred_complexity,
             )
 
             # AC1 (T-P1-116): Include proposed_tasks in SSE event

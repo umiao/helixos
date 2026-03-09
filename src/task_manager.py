@@ -521,6 +521,7 @@ class TaskManager:
         description: str,
         plan_status: str,
         plan_json: str | None,
+        complexity: str | None = None,
     ) -> None:
         """Atomically update plan fields (description + status + json).
 
@@ -534,6 +535,7 @@ class TaskManager:
             description: Formatted plan text for display.
             plan_status: New plan lifecycle state (e.g. 'ready').
             plan_json: JSON string of the structured plan data, or None to clear.
+            complexity: Optional complexity override (``"S"``, ``"M"``, ``"L"``).
 
         Raises:
             ValueError: If the task is not found or is deleted.
@@ -545,6 +547,8 @@ class TaskManager:
             row.description = description
             row.plan_status = plan_status
             row.plan_json = plan_json
+            if complexity is not None:
+                row.complexity = complexity
             row.updated_at = datetime.now(UTC).isoformat()
 
     async def update_task(self, task: Task) -> Task:
