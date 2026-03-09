@@ -64,21 +64,50 @@ T-P1-127 depends on T-P1-123 (completed -- T-P1-127 now unblocked)
 #### [x] T-P0-125: Review MD rendering + executor feedback verification + title inline edit -- 2026-03-09
 - ReviewPanel.tsx: entry.summary and suggestions now render markdown via MarkdownRenderer with maxHeight="6rem" and "8rem" respectively. TaskCardPopover.tsx: title is now click-to-edit with hover pencil icon, Enter/blur saves, Escape cancels, max 200 chars. Verified scheduler.py correctly injects reviewer feedback (lines 694-714, log "Injecting previous review feedback into prompt"). Frontend builds successfully (no TS errors in changed files).
 
-- T-P2-133: Remove unused generate-tasks-preview endpoint
-- T-P2-132: Fix misleading enrichment prompt text about plan context
-- T-P2-131: Move reviewer personas from Python to config templates
-- T-P1-130: Parallelize review pipeline reviewer calls
-- T-P1-129: Remove dead synthesis code from review pipeline
-- T-P1-128: Add pass/fail calibration example to review prompt
-- T-P1-127: Add specific structural check items to review prompt
-- T-P1-126: Rewrite plan_system.md with phased thinking and strict output contract
-- T-P0-121: Fix complexity parameter not passed to review pipeline
-- T-P1-125: Align plan and review prompt rule coverage
-- T-P1-124: Extract shared prompt rules into includable fragment
-- T-P1-123: Pass structured plan_json to reviewers instead of formatted text
-- T-P0-122: Fix replan review_attempt reset to 1 instead of incrementing
-- T-P1-116: Unified plan review before batch task decomposition
-- T-P1-115: Upgrade agent prompts to production-grade (Phase 3: quality)
+#### [x] T-P2-133: Remove unused generate-tasks-preview endpoint -- 2026-03-09
+- Removed dead `POST /api/tasks/{task_id}/generate-tasks-preview` endpoint and its `GeneratedTaskPreview`/`GenerateTasksPreviewResponse` schemas. Never called from frontend.
+
+#### [x] T-P2-132: Fix misleading enrichment prompt text about plan context -- 2026-03-09
+- Removed misleading "This prompt receives plan context when available" from `enrichment_system.md`. Updated test assertion.
+
+#### [x] T-P2-131: Move reviewer personas from Python to config templates -- 2026-03-09
+- Extracted `_REVIEWER_PARAMS` into `config/reviewer_personas.yaml` with YAML loader, caching, and fallback. New persona = YAML entry only. 4 new tests.
+
+#### [x] T-P1-130: Parallelize review pipeline reviewer calls -- 2026-03-09
+- Replaced sequential loop with `asyncio.gather()` for multi-reviewer cases. Partial failure handled via `return_exceptions=True`. 3 new tests.
+
+#### [x] T-P1-129: Remove dead synthesis code from review pipeline -- 2026-03-09
+- Removed unused `SynthesisResult`, `_SYNTHESIS_JSON_SCHEMA`, `_synthesize()`, `_parse_synthesis()` (~90 lines). Deterministic merge is the actual path.
+
+#### [x] T-P1-128: Add pass/fail calibration example to review prompt -- 2026-03-09
+- Added passing/failing calibration examples and threshold guidance to `review.md`. 1 new test.
+
+#### [x] T-P1-127: Add specific structural check items to review prompt -- 2026-03-09
+- Updated `_REVIEWER_PARAMS` with structural checks (actionable steps, AC coverage, DAG deps, hidden assumptions). Removed generic OWASP checks. 3 new tests.
+
+#### [x] T-P1-126: Rewrite plan_system.md with phased thinking and strict output contract -- 2026-03-09
+- Rewrote plan prompt with 4-phase guidance + `{{complexity_hint}}` variable. Added `_strip_markdown_fences()` fallback. 15 new tests.
+
+#### [x] T-P1-125: Align plan and review prompt rule coverage -- 2026-03-09
+- Moved Anti-Patterns from `plan_system.md` into `_shared_rules.md` so both plan and review prompts get it via include. 1 new test.
+
+#### [x] T-P1-124: Extract shared prompt rules into includable fragment -- 2026-03-09
+- Added `{{include:filename}}` directive to `render_prompt()`. Extracted shared rules into `_shared_rules.md`, used by both plan and review prompts. 4 new tests.
+
+#### [x] T-P1-123: Pass structured plan_json to reviewers instead of formatted text -- 2026-03-08
+- Added `_format_plan_json_for_review()` helper formatting steps/ACs/tasks with indexed prefixes. Injected into reviewer content with graceful fallback. 17 new tests.
+
+#### [x] T-P0-122: Fix replan review_attempt reset to 1 instead of incrementing -- 2026-03-08
+- Fixed `_run_replan()` hardcoded `review_attempt=1` to query `get_max_review_attempt()` and increment. 3 new tests.
+
+#### [x] T-P0-121: Fix complexity parameter not passed to review pipeline -- 2026-03-08
+- Fixed `_run_review_bg()` always defaulting to "S". Added `complexity` field to Task/TaskRow with auto-migration. Inference from plan structure. 10 new tests.
+
+#### [x] T-P1-116: Unified plan review before batch task decomposition -- 2026-03-08
+- Implemented plan review panel: SSE `proposed_tasks[]`, reject-plan endpoint, PlanReviewPanel.tsx with confirm/reject, Plan tab with status badges. 10 new tests.
+
+#### [x] T-P1-115: Upgrade agent prompts to production-grade (Phase 3: quality) -- 2026-03-08
+- Upgraded all 5 prompts: plan few-shot + anti-patterns, review `{blocking_issues, suggestions, pass}` schema, deterministic merge, enrichment scope prohibition, execution scope constraint. 15 eval tests.
 
 #### [x] T-P1-118: Harden task cancel with timeout enforcement and force-kill -- 2026-03-08
 - Added `timeout_seconds=30` param to `cancel_task()` with graceful/forced paths. Cancel endpoint returns `{"graceful": bool}`. Both paths guarantee FAILED status. 2 new tests (graceful, force-kill timeout). 1123 pass, ruff clean.

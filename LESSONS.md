@@ -187,3 +187,10 @@
   - Fix: Added SUBPROCESS_STREAM_LIMIT = 8 MiB constant to src/config.py and passed limit=SUBPROCESS_STREAM_LIMIT to all three call sites. 8 MiB is generous but memory impact is trivial (one buffer per subprocess).
   - Rule: Any asyncio.create_subprocess_exec using PIPE + readline() must set limit= to a value larger than the maximum expected line size. The 64KB default is a landmine for LLM streaming pipelines where single JSON lines can be arbitrarily large.
   - Tags: #asyncio #subprocess #streaming #buffer-limit #readline
+
+  25. "Move to Completed" means reformat, not just relocate
+  - Context: 15 tasks (T-P0-121 through T-P2-133) were moved from Active to Completed as bare `- T-XX-N: title` lines, skipping the required `#### [x] T-XX-N: title -- date` format with summary. Discovered during cleanup on 2026-03-09.
+  - Root cause: Rapid autonomous batch completion (~15 tasks in 4 hours). Each session's exit protocol said "Move to Completed" but the actual edit just relocated the line without reformatting.
+  - Fix: Reformatted all 15 entries with proper `#### [x]` heading, date, and one-line summary from PROGRESS.md.
+  - Rule: Moving a task to Completed requires: (1) `#### [x] T-XX-N: Title -- YYYY-MM-DD` heading, (2) one-line summary of what was done. A bare bullet line is NOT a valid completed entry.
+  - Tags: #tasks-md #formatting #exit-protocol #autonomous
