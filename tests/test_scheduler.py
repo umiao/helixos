@@ -997,18 +997,18 @@ class TestStartupRecovery:
 
 
 class TestCancelTask:
-    """Tests for cancel_task()."""
+    """Tests for cancel_task() with timeout enforcement."""
 
-    async def test_cancel_nonexistent_returns_false(
+    async def test_cancel_nonexistent_returns_none(
         self, scheduler_env,
     ) -> None:
-        """Cancelling a task that is not running should return False."""
+        """Cancelling a task that is not running should return None."""
         scheduler, _tm, _eb, _emitted = scheduler_env
         result = await scheduler.cancel_task("proj:nonexistent")
-        assert result is False
+        assert result is None
 
-    async def test_cancel_running_task(self, scheduler_env) -> None:
-        """cancel_task should stop a running task and mark it FAILED."""
+    async def test_cancel_running_task_graceful(self, scheduler_env) -> None:
+        """cancel_task should stop a running task, mark FAILED, return graceful=True."""
         scheduler, task_manager, _eb, emitted = scheduler_env
 
         hanging_exec = MockExecutor(hang=True)
@@ -1024,7 +1024,8 @@ class TestCancelTask:
         assert "proj:t1" in scheduler.running
 
         result = await scheduler.cancel_task("proj:t1")
-        assert result is True
+        assert result is not None
+        assert result["graceful"] is True
 
         # Task removed from running
         assert "proj:t1" not in scheduler.running
@@ -1034,13 +1035,79 @@ class TestCancelTask:
         assert updated is not None
         assert updated.status == TaskStatus.FAILED
 
-        # Alert emitted
+        # Alert emitted with cancel type
         alert_events = [e for e in emitted if e[0] == "alert"]
         cancelled_alerts = [
             e for e in alert_events
             if "cancelled" in str(e[2]).lower()
         ]
         assert len(cancelled_alerts) >= 1
+
+    async def test_cancel_timeout_force_kill(self, scheduler_env) -> None:
+        """cancel_task should force-kill when graceful cancel exceeds timeout."""
+        scheduler, task_manager, _eb, emitted = scheduler_env
+
+        # Create an executor whose cancel() hangs forever
+        class HangingCancelExecutor(BaseExecutor):
+            """Executor whose cancel() never completes."""
+
+            def __init__(self) -> None:
+                """Initialize."""
+                self._execute_event = asyncio.Event()
+
+            async def execute(
+                self,
+                task: Task,
+                project: Project,
+                env: dict[str, str],
+                on_log: Callable[[str], None],
+                on_stream_event: Callable[[dict], None] | None = None,
+                review_feedback: str | None = None,
+            ) -> ExecutorResult:
+                """Hang until cancelled."""
+                on_log("started")
+                await self._execute_event.wait()
+                return ExecutorResult(
+                    success=False, exit_code=-1, log_lines=[],
+                    duration_seconds=0.0,
+                )
+
+            async def cancel(self) -> None:
+                """Hang forever -- simulates a stuck cancel."""
+                await asyncio.Event().wait()
+
+        hanging_cancel_exec = HangingCancelExecutor()
+        scheduler._get_executor = lambda _: hanging_cancel_exec
+
+        task = _make_task()
+        await task_manager.create_task(task)
+
+        await scheduler.tick()
+        await asyncio.sleep(0)
+
+        assert "proj:t1" in scheduler.running
+
+        # Use a very short timeout to trigger force-kill quickly
+        result = await scheduler.cancel_task("proj:t1", timeout_seconds=0.1)
+        assert result is not None
+        assert result["graceful"] is False
+
+        # Task MUST be FAILED even after forced cancel
+        updated = await task_manager.get_task("proj:t1")
+        assert updated is not None
+        assert updated.status == TaskStatus.FAILED
+
+        # Cleanup happened
+        assert "proj:t1" not in scheduler.running
+        assert "proj:t1" not in scheduler._executors
+
+        # Alert mentions forced cancel
+        alert_events = [e for e in emitted if e[0] == "alert"]
+        forced_alerts = [
+            e for e in alert_events
+            if "forced" in str(e[2]).lower()
+        ]
+        assert len(forced_alerts) >= 1
 
     async def test_cancel_calls_executor_cancel(
         self, scheduler_env,
@@ -1081,6 +1148,21 @@ class TestCancelTask:
         assert "proj:t1" not in scheduler.running
         assert "proj:t1" not in scheduler._executors
         assert "proj:t1" not in scheduler._cancelled
+
+    async def test_cancel_returns_none_for_non_running(
+        self, scheduler_env,
+    ) -> None:
+        """cancel_task returns None (falsy) for non-running tasks."""
+        scheduler, task_manager, _eb, _emitted = scheduler_env
+
+        # Create a task but don't start it
+        task = _make_task(status=TaskStatus.BACKLOG)
+        await task_manager.create_task(task)
+
+        result = await scheduler.cancel_task("proj:t1")
+        assert result is None
+        # Verify bool(None) is False for callers that do `if not result:`
+        assert not result
 
 
 # ---------------------------------------------------------------------------

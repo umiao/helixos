@@ -1240,3 +1240,10 @@
 - **Sanity check result**: 1453 tests pass + 6 skipped (6 new), ruff clean. [AUTO-VERIFIED]
 - **Status**: [DONE]
 - **Request**: Move T-P1-117 to Completed
+
+## 2026-03-08 -- [T-P1-118] Harden task cancel with timeout enforcement and force-kill
+- **What I did**: Added timeout enforcement to `scheduler.cancel_task()` with `timeout_seconds=30` parameter and force-kill fallback. Refactored cancel into two paths: (1) graceful cancel via new `_graceful_cancel()` helper wrapped in `asyncio.wait_for(timeout=...)`, (2) force-kill path when graceful times out (cancels asyncio task directly). Both paths guarantee FAILED status transition. Cancel endpoint now returns `{"graceful": bool}` indicating cancel type. Updated all callers (`routes/execution.py`, `routes/reviews.py`) and all mock return values across 7 test files (changed from `bool` to `dict|None`). Frontend already had loading state ("Stopping...") via `TaskContextMenu.tsx`. Updated API type in `frontend/src/api.ts`.
+- **Deliverables**: `src/scheduler.py` (cancel_task with timeout, _graceful_cancel helper), `src/routes/execution.py` (graceful/forced response), `src/routes/reviews.py` (updated caller), `frontend/src/api.ts` (updated type), `tests/test_scheduler.py` (2 new tests: graceful cancel, timeout force-kill, non-running returns None), `tests/test_api.py` (updated mock values + cancel response assertion), 5 other test files (mock return value updates)
+- **Sanity check result**: 1123 pass (full suite), 12 cancel-related tests pass, ruff clean. [AUTO-VERIFIED]
+- **Status**: [DONE]
+- **Request**: Move T-P1-118 to Completed

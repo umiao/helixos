@@ -403,10 +403,10 @@ export async function fetchStreamLog(
   return handleResponse<StreamLogResponse>(res);
 }
 
-/** Cancel a running task. Returns confirmation on success. */
+/** Cancel a running task. Returns confirmation with graceful/forced indicator. */
 export async function cancelTask(
   taskId: string,
-): Promise<{ detail: string; task_id: string }> {
+): Promise<{ detail: string; task_id: string; graceful: boolean }> {
   const res = await fetch(
     `/api/tasks/${encodeURIComponent(taskId)}/cancel`,
     { method: "POST" },

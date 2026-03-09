@@ -325,43 +325,63 @@ class Scheduler:
     # Cancel
     # ------------------------------------------------------------------
 
-    async def cancel_task(self, task_id: str) -> bool:
-        """Cancel a running task execution.
+    async def cancel_task(
+        self,
+        task_id: str,
+        timeout_seconds: float = 30,
+    ) -> dict[str, object] | None:
+        """Cancel a running task execution with timeout enforcement.
 
-        Calls executor.cancel() on the running task, updates status to
-        FAILED, and removes from self.running.
+        Attempts a graceful cancel (executor.cancel + await asyncio task)
+        within *timeout_seconds*.  If the graceful path exceeds the timeout,
+        force-cancels the asyncio task without waiting.
 
         Args:
             task_id: The task to cancel.
+            timeout_seconds: Max seconds to wait for graceful cancel before
+                force-killing.  Defaults to 30.
 
         Returns:
-            True if the task was running and cancelled, False otherwise.
+            ``None`` if the task was not running (caller should 409).
+            A dict ``{"graceful": bool}`` on success -- ``True`` if the
+            cancel completed within the timeout, ``False`` if force-killed.
         """
         if task_id not in self.running:
-            return False
+            return None
 
         self._cancelled.add(task_id)
 
-        # Cancel the executor (terminates subprocess)
-        executor = self._executors.get(task_id)
-        if executor is not None:
-            await executor.cancel()
+        graceful = True
+        try:
+            await asyncio.wait_for(
+                self._graceful_cancel(task_id),
+                timeout=timeout_seconds,
+            )
+        except TimeoutError:
+            graceful = False
+            logger.warning(
+                "Graceful cancel timed out for task %s after %.0fs, "
+                "force-killing",
+                task_id, timeout_seconds,
+            )
+            # Force-cancel the asyncio task and give the event loop one
+            # cycle to deliver the CancelledError before we update status.
+            asyncio_task = self.running.get(task_id)
+            if asyncio_task is not None and not asyncio_task.done():
+                asyncio_task.cancel()
+                with contextlib.suppress(asyncio.CancelledError):
+                    await asyncio_task
 
-        # Cancel the asyncio task (interrupts retry backoff sleep)
-        asyncio_task = self.running.get(task_id)
-        if asyncio_task is not None:
-            asyncio_task.cancel()
-            with contextlib.suppress(asyncio.CancelledError):
-                await asyncio_task
-
-        # Update status and emit events (the _execute_task CancelledError
-        # handler may not have been able to do async DB work)
+        # Guarantee FAILED status regardless of graceful/forced path
         with contextlib.suppress(ValueError):
             await self._task_manager.update_status(
                 task_id, TaskStatus.FAILED,
             )
+
+        cancel_type = "graceful" if graceful else "forced"
         self._event_bus.emit(
-            "alert", task_id, {"error": "Task cancelled"},
+            "alert", task_id,
+            {"error": f"Task cancelled ({cancel_type})"},
             origin="scheduler",
         )
         self._event_bus.emit(
@@ -374,7 +394,28 @@ class Scheduler:
         self._executors.pop(task_id, None)
         self._cancelled.discard(task_id)
 
-        return True
+        return {"graceful": graceful}
+
+    async def _graceful_cancel(self, task_id: str) -> None:
+        """Attempt graceful cancellation of executor and asyncio task.
+
+        Called by :meth:`cancel_task` inside an ``asyncio.wait_for``
+        wrapper so that a hung executor does not block forever.
+
+        Args:
+            task_id: The task to gracefully cancel.
+        """
+        # Cancel the executor (terminates subprocess / SDK query)
+        executor = self._executors.get(task_id)
+        if executor is not None:
+            await executor.cancel()
+
+        # Cancel the asyncio task (interrupts retry backoff sleep)
+        asyncio_task = self.running.get(task_id)
+        if asyncio_task is not None:
+            asyncio_task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await asyncio_task
 
     # ------------------------------------------------------------------
     # Main tick

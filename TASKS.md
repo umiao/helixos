@@ -56,19 +56,6 @@
   5. Generating state: spinner. Failed state: error message with retry option
   6. Manually verify: Generate Plan -> unified review panel -> Confirm -> tasks appear on board [AUTO-VERIFIED]
 
-#### T-P1-118: Harden task cancel with timeout enforcement and force-kill
-- **Priority**: P1
-- **Complexity**: S (< 1 session)
-- **Depends on**: None
-- **Description**: Add timeout to cancel_task() with force-cleanup fallback. Guarantee FAILED status after cancel. Frontend shows spinner during cancel.
-- **Acceptance Criteria**:
-  1. `scheduler.cancel_task()` gains `timeout_seconds=30` param; force-cancels asyncio task if exceeded
-  2. Task status guaranteed to transition to FAILED after cancel (graceful or forced)
-  3. Cancel endpoint returns whether cancel was graceful or forced
-  4. Frontend "Stop Execution" button shows loading state during cancel
-  5. Cancel on non-running task returns 409 (verify no regression)
-  6. New tests: graceful cancel, timeout force-cancel, cancel on non-running task
-  7. Manually verify: Start execution -> Stop -> FAILED within 30s [AUTO-VERIFIED]
 
 
 ### P2 -- Nice to Have
@@ -80,7 +67,6 @@
 ### Current
 T-P1-115 depends on T-P1-113, T-P1-120 (both completed -- T-P1-115 now unblocked)
 T-P1-116 depends on T-P1-114 (completed -- T-P1-116 unblocked)
-T-P1-118 independent
 
 
 ---
@@ -91,6 +77,9 @@ T-P1-118 independent
 ## Completed Tasks
 
 > 120 completed tasks archived to [archive/completed_tasks.md](archive/completed_tasks.md).
+
+#### [x] T-P1-118: Harden task cancel with timeout enforcement and force-kill -- 2026-03-08
+- Added `timeout_seconds=30` param to `cancel_task()` with graceful/forced paths. Cancel endpoint returns `{"graceful": bool}`. Both paths guarantee FAILED status. 2 new tests (graceful, force-kill timeout). 1123 pass, ruff clean.
 
 #### [x] T-P1-117: Audit and fix SDK invocation settings -- 2026-03-08
 - Added `setting_sources=[]` to enrichment QueryOptions. Added `execution_model` config field (default `claude-sonnet-4-5`) to `OrchestratorSettings` and `orchestrator_config.yaml`. Execution agent gains `model` from config and `system_prompt` from new `config/prompts/execution_system.md`. All 4 SDK callsites have code comments explaining setting_sources choice. 6 new tests. 1453 pass, ruff clean.

@@ -336,8 +336,8 @@ async def update_task_status(
     # updated above, so cancel_task's own FAILED transition is harmlessly
     # suppressed by its contextlib.suppress(ValueError).
     if existing.status == TaskStatus.RUNNING and body.status != TaskStatus.RUNNING:
-        cancelled = await scheduler.cancel_task(task_id)
-        if cancelled:
+        cancel_result = await scheduler.cancel_task(task_id)
+        if cancel_result:
             logger.info("Auto-cancelled execution for task %s (moved to %s)", task_id, body.status.value)
 
     # Transition-driven pipeline trigger: enqueue review when entering REVIEW

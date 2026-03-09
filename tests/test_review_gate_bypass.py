@@ -143,7 +143,7 @@ async def test_app(tmp_path: Path, test_session_factory):
 
     # Mock scheduler with review gate ON by default
     scheduler = MagicMock(spec=Scheduler)
-    scheduler.cancel_task = AsyncMock(return_value=False)
+    scheduler.cancel_task = AsyncMock(return_value=None)
     scheduler.is_project_paused = MagicMock(return_value=False)
     scheduler.pause_project = AsyncMock()
     scheduler.resume_project = AsyncMock()

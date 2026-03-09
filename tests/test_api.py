@@ -142,7 +142,7 @@ async def test_app(tmp_path: Path, test_session_factory):
 
     # Mock scheduler (no real tick loop)
     scheduler = MagicMock(spec=Scheduler)
-    scheduler.cancel_task = AsyncMock(return_value=False)
+    scheduler.cancel_task = AsyncMock(return_value=None)
     scheduler.is_project_paused = MagicMock(return_value=False)
     scheduler.pause_project = AsyncMock()
     scheduler.resume_project = AsyncMock()
@@ -376,7 +376,7 @@ class TestAutoCancel:
         )
         await task_manager.create_task(task)
 
-        test_app.state.scheduler.cancel_task = AsyncMock(return_value=True)
+        test_app.state.scheduler.cancel_task = AsyncMock(return_value={"graceful": True})
 
         resp = await client.patch(
             "/api/tasks/proj-a:T-P0-7/status",
@@ -396,7 +396,7 @@ class TestAutoCancel:
         )
         await task_manager.create_task(task)
 
-        test_app.state.scheduler.cancel_task = AsyncMock(return_value=True)
+        test_app.state.scheduler.cancel_task = AsyncMock(return_value={"graceful": True})
 
         resp = await client.patch(
             "/api/tasks/proj-a:T-P0-8/status",
@@ -412,7 +412,7 @@ class TestAutoCancel:
         # Disable review gate for BACKLOG -> QUEUED
         await client.patch("/api/projects/proj-a/review-gate?enabled=false")
 
-        test_app.state.scheduler.cancel_task = AsyncMock(return_value=False)
+        test_app.state.scheduler.cancel_task = AsyncMock(return_value=None)
 
         resp = await client.patch(
             "/api/tasks/proj-a:T-P0-1/status",
@@ -424,7 +424,7 @@ class TestAutoCancel:
     async def test_cancel_not_in_scheduler_is_harmless(
         self, client: AsyncClient, test_app, task_manager: TaskManager,
     ):
-        """Auto-cancel should not error when scheduler returns False."""
+        """Auto-cancel should not error when scheduler returns None."""
         task = _make_task(
             task_id="proj-a:T-P0-9",
             local_task_id="T-P0-9",
@@ -432,8 +432,8 @@ class TestAutoCancel:
         )
         await task_manager.create_task(task)
 
-        # Scheduler returns False (task not in its running dict)
-        test_app.state.scheduler.cancel_task = AsyncMock(return_value=False)
+        # Scheduler returns None (task not in its running dict)
+        test_app.state.scheduler.cancel_task = AsyncMock(return_value=None)
 
         resp = await client.patch(
             "/api/tasks/proj-a:T-P0-9/status",
@@ -750,11 +750,13 @@ class TestCancelTask:
         )
         await task_manager.create_task(task)
 
-        test_app.state.scheduler.cancel_task = AsyncMock(return_value=True)
+        test_app.state.scheduler.cancel_task = AsyncMock(return_value={"graceful": True})
 
         resp = await client.post("/api/tasks/proj-a:T-P0-6/cancel")
         assert resp.status_code == 200
-        assert resp.json()["detail"] == "Task cancelled"
+        data = resp.json()
+        assert data["detail"] == "Task cancelled (graceful)"
+        assert data["graceful"] is True
 
 
 # ---------------------------------------------------------------------------

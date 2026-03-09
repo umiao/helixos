@@ -431,11 +431,17 @@ async def cancel_task(task_id: str, request: Request) -> dict:
     if task is None:
         raise HTTPException(status_code=404, detail=f"Task not found: {task_id}")
 
-    cancelled = await scheduler.cancel_task(task_id)
-    if not cancelled:
+    result = await scheduler.cancel_task(task_id)
+    if not result:
         raise HTTPException(
             status_code=409,
             detail=f"Task is not currently running (status: {task.status.value})",
         )
 
-    return {"detail": "Task cancelled", "task_id": task_id}
+    graceful = result["graceful"]
+    cancel_type = "graceful" if graceful else "forced"
+    return {
+        "detail": f"Task cancelled ({cancel_type})",
+        "task_id": task_id,
+        "graceful": graceful,
+    }
