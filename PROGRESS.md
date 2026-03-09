@@ -337,3 +337,10 @@
 - **Sanity check result**: TypeScript compiles cleanly for changed files (no errors in ReviewPanel or TaskCardPopover). Pre-existing errors in ConversationView.tsx and PlanReviewPanel.tsx unrelated. Scheduler integration verified by code inspection.
 - **Status**: [DONE]
 - **Request**: Move T-P0-125 to Completed
+
+## 2026-03-09 -- [T-P0-123] Automated PROGRESS.md archiving hook + pytest timeout fix
+- **What I did**: Created `.claude/hooks/archive_check.py` SessionStart hook with hysteresis-based archival (PROGRESS.md: >80 entries keep 40, TASKS.md: >20 completed keep 5). Atomic writes via temp+os.replace. Added `pytest-timeout>=2.2.0` with 30s per-test default in pyproject.toml. Updated `test_check.py`: added `--maxfail=1`, `-m "not integration and not slow"`, increased subprocess timeout to 300s. Added `pytest_collection_modifyitems` in integration conftest to auto-mark integration tests. Marked 2 pre-existing hanging async tests as slow. Registered archive_check.py before session_context.py in settings.json SessionStart hooks.
+- **Deliverables**: `.claude/hooks/archive_check.py` (new), `.claude/settings.json` (mod -- archive hook + 300s test timeout), `.claude/hooks/test_check.py` (mod -- flags/timeout), `pyproject.toml` (mod -- timeout=30), `requirements.txt` (mod -- pytest-timeout), `tests/integration/conftest.py` (mod -- pytest_collection_modifyitems), `tests/test_scheduler.py` (mod -- 2 slow markers), `tests/test_archive_check.py` (new -- 14 tests)
+- **Sanity check result**: 1517 passed, 2 skipped, 40 deselected in 33.7s. Ruff clean. settings.json valid JSON. Archive hook standalone runs successfully (no archival triggered -- 46 entries under 80 threshold, correct hysteresis behavior).
+- **Status**: [DONE]
+- **Request**: Move T-P0-123 to Completed

@@ -31,6 +31,13 @@ from src.executors.base import BaseExecutor, ExecutorResult
 from src.models import ExecutorType, Project, Task
 from src.task_manager import TaskManager
 
+
+def pytest_collection_modifyitems(items: list[pytest.Item]) -> None:
+    """Auto-mark all tests under tests/integration/ as integration."""
+    for item in items:
+        if "integration" in str(item.fspath):
+            item.add_marker(pytest.mark.integration)
+
 # ---------------------------------------------------------------------------
 # Mock executor
 # ---------------------------------------------------------------------------

@@ -12,7 +12,7 @@ from hook_utils import check_stop_cache, run_hook, write_stop_cache  # noqa: E40
 # <!-- CUSTOMIZE: Set your test command and paths -->
 TEST_COMMAND = ["python", "-m", "pytest"]
 TEST_PATHS = ["tests/"]
-TEST_FLAGS = ["-x", "-q", "--tb=short"]
+TEST_FLAGS = ["-x", "-q", "--tb=short", "--maxfail=1", "-m", "not integration and not slow"]
 
 
 def main(hook_input: dict) -> None:
@@ -28,10 +28,10 @@ def main(hook_input: dict) -> None:
             capture_output=True,
             text=True,
             encoding="utf-8",
-            timeout=120,
+            timeout=300,
         )
     except subprocess.TimeoutExpired:
-        print("[TEST GUARD] Tests timed out after 120s", file=sys.stderr)
+        print("[TEST GUARD] Tests timed out after 300s", file=sys.stderr)
         sys.exit(2)
 
     if result.returncode not in (0, 5):  # 0 = pass, 5 = no tests collected

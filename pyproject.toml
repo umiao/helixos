@@ -45,6 +45,7 @@ ignore_missing_imports = true
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "-v --tb=short"
+timeout = 30
 asyncio_mode = "auto"
 markers = [
     "slow: marks tests as slow",
