@@ -30,23 +30,6 @@
 ### P1 -- Should Have (agentic intelligence)
 
 
-#### T-P1-127: Add specific structural check items to review prompt
-- **Priority**: P1
-- **Complexity**: S (< 1 session)
-- **Depends on**: T-P1-123
-- **Description**: Reviewer prompts use generic instructions like "check feasibility" instead of specific structural verification items. With structured plan_json now available (T-P1-123), reviewers can perform precise checks on steps, ACs, files, and dependency graphs. Adversarial reviewer should focus on plan-level logic gaps, not code-level security (reviewer has no code to inspect at plan stage).
-- **Acceptance Criteria**:
-  1. Feasibility reviewer (`_REVIEWER_PARAMS["feasibility_and_edge_cases"]`) includes:
-     - "For each step: is it actionable (specific files, specific changes)?"
-     - "Does at least one AC verify each step's outcome?"
-     - "Are listed files consistent with the codebase structure?"
-  2. Adversarial reviewer (`_REVIEWER_PARAMS["adversarial_red_team"]`) includes:
-     - "Do proposed_tasks dependencies form a DAG (no cycles)?"
-     - "Is each proposed task independently testable?"
-     - "Are there hidden assumptions or missing boundary conditions?"
-     - "Does the plan risk scope creep beyond the original task description?"
-  3. No OWASP/security checks in plan-only review context (no code available to inspect)
-  4. Test: mock reviewer call, verify user content includes structural check prompts
 
 #### T-P1-128: Add pass/fail calibration example to review prompt
 - **Priority**: P1
@@ -139,6 +122,7 @@ T-P2-131 depends on T-P1-124 (completed -- T-P2-131 now unblocked)
 
 > 120 completed tasks archived to [archive/completed_tasks.md](archive/completed_tasks.md).
 
+- T-P1-127: Add specific structural check items to review prompt
 - T-P1-126: Rewrite plan_system.md with phased thinking and strict output contract
 - T-P0-121: Fix complexity parameter not passed to review pipeline
 - T-P1-125: Align plan and review prompt rule coverage

@@ -112,21 +112,25 @@ _REVIEWER_PARAMS: dict[str, tuple[str, str]] = {
     "feasibility_and_edge_cases": (
         "You are an expert code reviewer focusing on feasibility and edge cases.",
         (
-            "Analyze the following task plan and determine:\n"
-            "1. Is this plan technically feasible given the codebase context?\n"
-            "2. Are there edge cases or failure modes not addressed?\n"
-            "3. Are the acceptance criteria clear and testable?\n"
-            "4. Does the plan follow the project's task planning rules and conventions?"
+            "Analyze the following task plan with these structural checks:\n"
+            "1. For each step: is it actionable (specific files, specific changes)?\n"
+            "2. Does at least one AC verify each step's outcome?\n"
+            "3. Are listed files consistent with the codebase structure?\n"
+            "4. Are there edge cases or failure modes not addressed?\n"
+            "5. Are the acceptance criteria clear and testable?\n"
+            "6. Does the plan follow the project's task planning rules and conventions?"
         ),
     ),
     "adversarial_red_team": (
-        "You are an adversarial reviewer (red team) looking for risks and vulnerabilities.",
+        "You are an adversarial reviewer (red team) looking for plan-level logic gaps.",
         (
-            "Analyze the following task plan and determine:\n"
-            "1. Could this plan introduce security vulnerabilities?\n"
-            "2. Could it break existing functionality?\n"
-            "3. Are there architectural risks or hidden dependencies?\n"
-            "4. Does the plan violate any project constraints or conventions?"
+            "Analyze the following task plan with these structural checks:\n"
+            "1. Do proposed_tasks dependencies form a DAG (no cycles)?\n"
+            "2. Is each proposed task independently testable?\n"
+            "3. Are there hidden assumptions or missing boundary conditions?\n"
+            "4. Does the plan risk scope creep beyond the original task description?\n"
+            "5. Could it break existing functionality?\n"
+            "6. Are there architectural risks or hidden dependencies?"
         ),
     ),
     "default": (

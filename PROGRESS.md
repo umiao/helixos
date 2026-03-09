@@ -1303,3 +1303,10 @@
 - **Sanity check result**: 1533 pass, 6 skipped, ruff clean. [AUTO-VERIFIED]
 - **Status**: [DONE]
 - **Request**: Move T-P1-126 to Completed
+
+## 2026-03-09 -- [T-P1-127] Add specific structural check items to review prompt
+- **What I did**: Updated `_REVIEWER_PARAMS` in `review_pipeline.py` with specific structural checks. Feasibility reviewer now checks: actionable steps (specific files/changes), AC coverage per step, file consistency with codebase. Adversarial reviewer now checks: DAG dependencies (no cycles), independent testability, hidden assumptions, scope creep. Removed generic security/vulnerability checks from adversarial reviewer (no code to inspect at plan stage). Added 3 new tests verifying structural check presence and absence of OWASP checks.
+- **Deliverables**: `src/review_pipeline.py` (updated `_REVIEWER_PARAMS`), `tests/test_review_pipeline.py` (3 new tests, 1 updated test)
+- **Sanity check result**: 1536 pass, 6 skipped, ruff clean. [AUTO-VERIFIED]
+- **Status**: [DONE]
+- **Request**: Move T-P1-127 to Completed

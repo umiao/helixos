@@ -485,7 +485,7 @@ def test_build_review_prompt_adversarial() -> None:
     prompt = pipeline._build_review_prompt("adversarial_red_team")
 
     assert "adversarial" in prompt.lower()
-    assert "vulnerabilities" in prompt.lower()
+    assert "logic gaps" in prompt.lower()
 
 
 def test_build_review_prompt_unknown_focus() -> None:
@@ -539,6 +539,41 @@ def test_review_prompts_include_state_machine_rules() -> None:
     prompt = pipeline._build_review_prompt("feasibility_and_edge_cases")
     assert "state machine" in prompt.lower() or "status transitions" in prompt.lower()
     assert "side-effects" in prompt.lower()
+
+
+def test_feasibility_includes_structural_checks() -> None:
+    """Feasibility reviewer includes specific structural check items."""
+    pipeline = ReviewPipeline(_default_config())
+
+    prompt = pipeline._build_review_prompt("feasibility_and_edge_cases")
+
+    assert "for each step: is it actionable" in prompt.lower()
+    assert "does at least one ac verify each step" in prompt.lower()
+    assert "are listed files consistent with the codebase" in prompt.lower()
+
+
+def test_adversarial_includes_structural_checks() -> None:
+    """Adversarial reviewer includes specific structural check items."""
+    pipeline = ReviewPipeline(_default_config())
+
+    prompt = pipeline._build_review_prompt("adversarial_red_team")
+
+    assert "dag" in prompt.lower() or "dag (no cycles)" in prompt.lower()
+    assert "independently testable" in prompt.lower()
+    assert "hidden assumptions" in prompt.lower()
+    assert "scope creep" in prompt.lower()
+
+
+def test_adversarial_no_owasp_security_checks() -> None:
+    """Adversarial reviewer does not include code-level security checks (no code to inspect)."""
+    pipeline = ReviewPipeline(_default_config())
+
+    prompt = pipeline._build_review_prompt("adversarial_red_team")
+
+    assert "owasp" not in prompt.lower()
+    assert "security vulnerabilities" not in prompt.lower()
+    assert "sql injection" not in prompt.lower()
+    assert "xss" not in prompt.lower()
 
 
 # ------------------------------------------------------------------
