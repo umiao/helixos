@@ -1,6 +1,6 @@
 # Progress Log Archive
 
-> Archived from PROGRESS.md. 147 session entries (sessions 1-147) as of 2026-03-09.
+> Archived from PROGRESS.md. 170 session entries (sessions 1-170) as of 2026-03-09.
 > See [PROGRESS.md](../PROGRESS.md) for recent sessions.
 
 ---
@@ -1030,3 +1030,141 @@
 - **Status**: [DONE]
 - **Request**: No further TASKS.md changes needed (already applied)
 
+## 2026-03-06 -- [T-P0-101] Priority-based dependency-aware queue scheduling + cycle detection
+- **What I did**: Added priority-based ordering to `get_ready_tasks()` (extracts priority from task ID format T-P{n}-{m}, sorts P0 before P1 before P2). Added `validate_dependency_graph()` pure function for cycle detection (DFS-based) and missing dependency reference validation. Integrated missing-ref alerts into scheduler's `_deps_fulfilled()`. Fixed tick candidate fetch to over-fetch (5x slots) so skipped tasks don't block lower-priority eligible ones.
+- **Deliverables**: `src/task_manager.py` (mod -- `extract_priority()` helper, priority-sorted `get_ready_tasks()`), `src/scheduler.py` (mod -- `validate_dependency_graph()`, `_detect_cycles()`, scheduler method, enhanced `_deps_fulfilled()`, tick over-fetch), `tests/test_scheduler.py` (mod -- 16 new tests: 3 priority scheduling, 8 dependency graph validation, 5 extract_priority)
+- **Sanity check result**: 79 scheduler tests pass (16 new + 63 existing). 51 related tests pass. Ruff clean.
+- **Status**: [DONE]
+- **Request**: Move T-P0-101 to Completed (REMOVE spec from Active, ADD summary to Completed Tasks)
+
+## 2026-03-06 -- [T-P0-100] Fix stop/cancel task signal propagation
+- **What I did**: Root cause: no frontend mechanism to cancel a running task, and no backend auto-cancel when a RUNNING task's status changed via API. Added `cancelTask()` frontend API function calling `POST /api/tasks/{id}/cancel`. Added "Stop Execution" button to TaskContextMenu for RUNNING tasks. Added backend auto-cancel in `update_task_status()` -- when a RUNNING task transitions to DONE/FAILED via the API, `scheduler.cancel_task()` is now called automatically to terminate the SDK query and clean up. The scheduler's existing epoch guards and state checks handle race conditions gracefully.
+- **Deliverables**: `src/api.py` (mod -- auto-cancel on RUNNING status change), `frontend/src/api.ts` (mod -- `cancelTask()` function), `frontend/src/components/TaskContextMenu.tsx` (mod -- "Stop Execution" button for RUNNING tasks, `onTaskCancelled` prop), `frontend/src/components/KanbanBoard.tsx` (mod -- pass `onTaskCancelled`), `tests/test_api.py` (mod -- 4 new tests in TestAutoCancel)
+- **Sanity check result**: 1257 tests pass + 4 skipped. Ruff clean. TypeScript clean. Pre-existing uvicorn import failure in test_windows_asyncio.py unrelated.
+- **Status**: [DONE]
+- **Request**: Move T-P0-100 to Completed (REMOVE spec from Active, ADD summary to Completed Tasks)
+
+## 2026-03-06 -- [T-P0-99] Auto-sync frontend board after drag and task completion
+- **What I did**: Added `board_sync` SSE event emission to backend on every task state change (status updates, start-all-planned batch, task deletion, scheduler dispatch/completion/failure/cancellation). Frontend App.tsx now handles `board_sync` events with a debounced (500ms) full `fetchTasks()` refresh, coalescing rapid events into a single API call. Added `onStarted` callback to StartAllPlanned component for success toast feedback. Fixed test_soft_delete assertion to account for new board_sync emit.
+- **Deliverables**: `src/api.py` (mod -- board_sync emit after status_change, start_all_planned, task_deleted), `src/scheduler.py` (mod -- board_sync emit after running/done/blocked/cancelled), `frontend/src/App.tsx` (mod -- debouncedBoardSync + board_sync SSE handler), `frontend/src/components/StartAllPlanned.tsx` (mod -- onStarted callback), `frontend/src/components/SwimLane.tsx` (mod -- thread onStarted), `frontend/src/components/SwimLaneHeader.tsx` (mod -- thread onStarted), `tests/test_api.py` (mod -- 3 new tests in TestBoardSync), `tests/test_soft_delete.py` (mod -- updated emit assertion)
+- **Sanity check result**: 1259 tests pass + 4 skipped. Ruff clean. TypeScript clean. Vite build clean. Pre-existing test_windows_asyncio failures unrelated. [AUTO-VERIFIED]
+- **Status**: [DONE]
+- **Request**: Move T-P0-99 to Completed (REMOVE spec from Active, ADD summary to Completed Tasks)
+
+## 2026-03-06 -- [T-P1-100] Enable plan mode + upgrade plan model to opus 4.6
+- **What I did**: Changed `generate_task_plan()` in `enrichment.py` to use `model="claude-opus-4-6"` (was `claude-sonnet-4-5`) and added `permission_mode="plan"` to `QueryOptions`. Plan mode restricts the plan agent to read-only tools (Read/Glob/Grep/LS), preventing accidental file edits during planning. Updated test assertion to verify new model and permission_mode.
+- **Deliverables**: `src/enrichment.py` (mod -- QueryOptions model + permission_mode), `tests/test_enrichment.py` (mod -- updated test_query_options_configured assertion)
+- **Sanity check result**: 1260 tests pass + 4 skipped. Ruff clean. Pre-existing test_windows_asyncio failure unrelated. [AUTO-VERIFIED]
+- **Status**: [DONE]
+- **Request**: Move T-P1-100 to Completed (REMOVE spec from Active, ADD summary to Completed Tasks)
+
+## 2026-03-06 -- [T-P1-101] Enrich plan prompt with project context + proposed_tasks schema
+- **What I did**: Enriched plan system prompt with CLAUDE.md project rules (task planning rules, key constraints) and TASKS.md schema conventions (ID format, required fields). Extended JSON schema and `PlanResult` model with `proposed_tasks[]` array (title, description, suggested_priority, suggested_complexity, dependencies, acceptance_criteria). Added `ProposedTask` Pydantic model. Added `MAX_TASKS_PER_PLAN=8` constant enforced in `_validate_plan_structure()`. Updated `_parse_plan()` and `format_plan_as_text()` to handle proposed tasks.
+- **Deliverables**: `src/enrichment.py` (mod -- ProposedTask model, extended schema/prompt/validation/parsing), `tests/test_enrichment.py` (mod -- 13 new tests for proposed tasks, schema, prompt context, validation)
+- **Sanity check result**: 1273 tests pass + 4 skipped. Ruff clean. Pre-existing test_windows_asyncio failure unrelated. [AUTO-VERIFIED]
+- **Status**: [DONE]
+- **Request**: Move T-P1-101 to Completed (REMOVE spec from Active, ADD summary to Completed Tasks)
+
+## 2026-03-06 -- [T-P1-102] Enrich review prompt with project conventions
+- **What I did**: Injected CLAUDE.md project rules (task planning rules, key constraints, state machine rules, smoke test enforcement) and TASKS.md schema conventions into all review system prompts (feasibility, adversarial, default). Imported shared context constants from `enrichment.py` to avoid duplication. Upgraded adversarial reviewer model to `claude-opus-4-6` in config. Upgraded synthesis model to `claude-opus-4-6` in code. Added 4 new tests verifying project conventions presence in review prompts.
+- **Deliverables**: `src/review_pipeline.py` (mod -- import shared context, enriched prompts, opus 4.6 synthesis), `orchestrator_config.yaml` (mod -- adversarial reviewer to opus 4.6), `tests/test_review_pipeline.py` (mod -- 4 new tests for conventions context)
+- **Sanity check result**: 1244 tests pass + 13 deselected. 103 review pipeline tests pass. Ruff clean. [AUTO-VERIFIED]
+- **Status**: [DONE]
+- **Request**: Move T-P1-102 to Completed (REMOVE spec from Active, ADD summary to Completed Tasks)
+
+## 2026-03-07 -- [T-P1-103] Selective hooks loading for plan/review agents
+- **What I did**: Added `setting_sources` field to `QueryOptions` and wired it through `_build_sdk_options` to `ClaudeAgentOptions`. Plan agent (`enrichment.py`) and review agent (`review_pipeline.py`) now use `setting_sources=[]` to disable CLI hooks (block_dangerous, secret_guard, etc.) during their sessions. Created `src/session_context_loader.py` to build session context text (active tasks, session state) and injected it into plan/review system prompts as a replacement for the SessionStart hook (which is CLI-only, not an SDK hook type). Execution agent (`code_executor.py`) remains unchanged, inheriting all CLI hooks from settings.json.
+- **Deliverables**: `src/sdk_adapter.py` (mod -- setting_sources field), `src/session_context_loader.py` (new -- context builder), `src/enrichment.py` (mod -- setting_sources=[], session context injection), `src/review_pipeline.py` (mod -- setting_sources=[], session context injection), `tests/test_sdk_adapter.py` (mod -- 4 new tests), `tests/test_enrichment.py` (mod -- 2 new tests), `tests/test_review_pipeline.py` (mod -- 2 new tests), `tests/test_code_executor.py` (mod -- 1 new test), `tests/test_session_context_loader.py` (new -- 7 tests)
+- **Sanity check result**: 1292 tests pass + 4 skipped. Ruff clean. Pre-existing test_windows_asyncio failure unrelated. [AUTO-VERIFIED]
+- **Status**: [DONE]
+- **Request**: Move T-P1-103 to Completed (REMOVE spec from Active, ADD summary to Completed Tasks)
+
+## 2026-03-07 -- [T-P1-104] Task Generator -- deterministic proposal-to-TASKS.md pipeline
+- **What I did**: Created `src/task_generator.py` -- a pure Python (no LLM) module that processes `proposed_tasks[]` from plan output into fully-formed TASKS.md entries. Pipeline: validate proposals (schema + count <= 8), allocate sequential T-PX-NN IDs per priority, resolve dependencies (existing task IDs or cross-proposal title references), detect cycles via DFS, generate human-readable diff. Two new API endpoints: `POST /api/tasks/{id}/generate-tasks-preview` (returns diff for review) and `POST /api/tasks/{id}/confirm-generated-tasks` (writes to TASKS.md atomically + auto-pauses pipeline). Added `DECOMPOSED` to PlanStatus enum. Updated tasks_parser valid plan statuses. Added 3 new schema types.
+- **Deliverables**: `src/task_generator.py` (new -- 310 lines), `src/api.py` (mod -- 2 new endpoints + imports), `src/schemas.py` (mod -- 3 new response schemas), `src/models.py` (mod -- DECOMPOSED plan status), `src/sync/tasks_parser.py` (mod -- added "decomposed" to valid statuses), `tests/test_task_generator.py` (new -- 43 tests)
+- **Sanity check result**: 1308 tests pass + pre-existing test_windows_asyncio failure (unrelated). Ruff clean. [AUTO-VERIFIED]
+- **Status**: [DONE]
+- **Request**: Move T-P1-104 to Completed (REMOVE spec from Active, ADD summary to Completed Tasks)
+
+## 2026-03-07 -- [T-P2-100] Clean up plan log display (hide raw JSON artifacts)
+- **What I did**: Modified `get_logs()` and `count_logs()` in `history_writer.py` to exclude `level='artifact'` entries by default. Added `include_artifacts` parameter (default False) to both methods. Updated `GET /api/tasks/{task_id}/logs` endpoint with `include_artifacts` query param. Artifacts remain persisted in DB and accessible via `level=artifact` filter or `include_artifacts=true`.
+- **Deliverables**: `src/history_writer.py` (mod -- artifact filtering in get_logs/count_logs), `src/api.py` (mod -- include_artifacts query param), `tests/test_history_writer.py` (mod -- 5 new tests)
+- **Sanity check result**: 1312 tests pass + pre-existing test_windows_asyncio failure (unrelated). Ruff clean. [AUTO-VERIFIED]
+- **Status**: [DONE]
+- **Request**: Move T-P2-100 to Completed (REMOVE spec from Active, ADD summary to Completed Tasks)
+
+## 2026-03-07 -- Fix CI failures in test_windows_asyncio.py
+- **What I did**: Fixed 3 test failures in `tests/test_windows_asyncio.py` that broke on Linux CI. (1) Added `patch.object(asyncio, "WindowsProactorEventLoopPolicy", MagicMock(), create=True)` to `test_run_server_passes_loop_none_on_windows` so it doesn't crash when `WindowsProactorEventLoopPolicy` doesn't exist on Linux. (2-3) Wrapped `LOOP_SETUPS` and `LOOP_CHOICES` imports in `test_uvicorn_accepts_loop_none_programmatically` and `test_uvicorn_cli_rejects_loop_none` with try/except + `pytest.skip()` for newer uvicorn versions that removed these internals.
+- **Deliverables**: `tests/test_windows_asyncio.py` (mod -- 3 test fixes)
+- **Sanity check result**: 1350 passed, 6 skipped (full suite). Ruff clean.
+- **Status**: [DONE]
+
+## 2026-03-07 -- [T-P2-101] Typography + contrast improvements for log display
+- **What I did**: Improved readability of ConversationView and ExecutionLog components. ConversationView body text bumped from `text-xs` (12px) to `text-sm` (14px), headings scaled up. ExecutionLog message text bumped to `text-[13px]` with consistent `leading-relaxed`. All `text-[10px]` badges/labels in both components normalized to `text-xs` (12px). Improved contrast: tool input/output text from gray-400 to gray-300, timestamps from gray-500 to gray-400, debug level text from gray-500 to gray-400.
+- **Deliverables**: `frontend/src/components/ConversationView.tsx` (mod), `frontend/src/components/ExecutionLog.tsx` (mod)
+- **Sanity check result**: 1350 passed, 6 skipped. Ruff clean. TypeScript clean. Vite build clean. [AUTO-VERIFIED] grep confirms no text-[10px] in either component, body text-sm (14px), log text-[13px].
+- **Status**: [DONE]
+- **Request**: Move T-P2-101 to Completed
+
+## 2026-03-07 -- [T-P2-104] ExecutionLog filter UX improvement
+- **What I did**: Replaced the single-select level filter dropdown in ExecutionLog with multi-select toggle chips for common levels (ERROR, WARN, INFO) and a "More" dropdown for less common levels (DEBUG). Active chips show colored ring + background matching level severity. A "Clear" button appears when filters are active. Filter state persists during session (React state). Outside-click closes the More dropdown.
+- **Deliverables**: `frontend/src/components/ExecutionLog.tsx` (mod)
+- **Sanity check result**: 1350 passed, 6 skipped. TypeScript clean. Vite build clean. [AUTO-VERIFIED] grep confirms chipClass, COMMON_LEVELS, MORE_LEVELS, toggleLevel, filterLevels all present in source. No old single-select filterLevel references remain.
+- **Status**: [DONE]
+- **Request**: Move T-P2-104 to Completed
+
+## 2026-03-07 -- [T-P2-102] Markdown + code syntax highlighting via Prism
+- **What I did**: Added rehype-prism-plus, remark-gfm, and prism-themes packages to the frontend. Wired remarkGfm and rehypePrism plugins into the ReactMarkdown pipeline in ConversationView.tsx. Imported prism-one-dark CSS theme in main.tsx. Added 5KB size guard that strips language tags from oversized fenced code blocks so Prism skips them. Preserved language-* class on code elements so Prism CSS selectors apply correctly.
+- **Deliverables**: `frontend/src/components/ConversationView.tsx` (mod), `frontend/src/main.tsx` (mod), `frontend/package.json` (mod), `frontend/package-lock.json` (mod)
+- **Sanity check result**: 1350 passed, 6 skipped. Vite build clean. [AUTO-VERIFIED] grep confirms remarkGfm, rehypePrism, REMARK_PLUGINS, REHYPE_PLUGINS, CODE_SIZE_LIMIT, stripLargeCodeBlockLanguages, prism-one-dark all present in source. Dependencies installed in package.json.
+- **Status**: [DONE]
+- **Request**: Move T-P2-102 to Completed
+
+## 2026-03-07 -- [T-P2-103] Tool block structured rendering
+- **What I did**: Refactored tool_use + tool_result rendering in ConversationView to display as visually connected bordered blocks. Tools default to collapsed, showing a compact summary (e.g., "Read: .../foo.py (42 lines)", "Bash: npm test (12 lines)"). Single expand/collapse per tool block reveals Input and Output sections. Added `toolSummary()` function that extracts details from common input fields (file_path, command, pattern, query, url) and appends line count from result. Orphaned tool_results also render as collapsible blocks.
+- **Deliverables**: `frontend/src/components/ConversationView.tsx` (mod)
+- **Sanity check result**: 1350 passed, 6 skipped. TypeScript clean. Vite build clean. [AUTO-VERIFIED] grep confirms toolSummary, toggleExpand, expandedTools, shortenPath all present in source. Tool_use + tool_result rendered within single bordered div. No nested accordions.
+- **Status**: [DONE]
+- **Request**: Move T-P2-103 to Completed
+
+## 2026-03-07 -- [T-P0-102] Project research and improvement decomposition
+- **What I did**: Analyzed codebase (99 completed tasks, 30+ backend modules, 25+ frontend components) to identify highest-value improvements. Decomposed findings into 8 concrete tasks: ErrorBoundary (T-P0-107), review feedback loop (T-P0-111), Playwright E2E (T-P1-108), api.py split (T-P1-105), scheduler extraction (T-P1-112), App.tsx decomposition (T-P1-106), priority/complexity filter (T-P1-110), cost dashboard (T-P1-109). Incorporated user review feedback on ordering and dependencies.
+- **Deliverables**: `TASKS.md` (8 new tasks added, T-P0-102 moved to Completed, dependency graph updated)
+- **Sanity check result**: TASKS.md at 227 lines (under 300 limit). All task IDs follow T-P{X}-{NNN} format. No duplicate IDs with completed tasks. Only dependency: T-P1-106 -> T-P1-108. No cycles.
+- **Status**: [DONE]
+- **Request**: Move T-P0-102 to Completed
+
+## 2026-03-07 -- [T-P0-107] Add React ErrorBoundary to crash-prone components
+- **What I did**: Created reusable `ErrorBoundary.tsx` class component with `componentDidCatch` (logs error + component stack to console), `getDerivedStateFromError`, fallback UI showing component name + error message + retry button. Wrapped entire bottom panel container in App.tsx with `<ErrorBoundary name="Bottom Panel">`. KanbanBoard and header remain functional when bottom panel crashes; retry button remounts children.
+- **Deliverables**: `frontend/src/components/ErrorBoundary.tsx` (new), `frontend/src/App.tsx` (import + wrapping)
+- **Sanity check result**: TypeScript clean (`npx tsc --noEmit`), Vite build clean, 1350 tests pass + 6 skipped. [AUTO-VERIFIED]
+- **Status**: [DONE]
+- **Request**: Move T-P0-107 to Completed
+
+## 2026-03-07 -- [T-P0-111] Inject review suggestions into re-execution prompt
+- **What I did**: Added `build_review_feedback()` helper in scheduler.py that extracts suggestions, summaries, and human reasons from the last 3 reviews and formats as numbered "## Previous Review Feedback" block. Scheduler's `_execute_task()` fetches review history via `HistoryWriter.get_reviews()` and passes formatted feedback through `_run_with_retry` -> `executor.execute(review_feedback=...)` -> `_build_prompt()`. Updated `BaseExecutor.execute()` signature with optional `review_feedback` parameter. Updated all mock executors across 4 test files.
+- **Deliverables**: `src/scheduler.py` (build_review_feedback + wiring), `src/executors/base.py` (signature), `src/executors/code_executor.py` (execute + _build_prompt), `tests/test_code_executor.py` (10 new tests), `tests/test_scheduler.py` + `tests/test_review_gate.py` + `tests/integration/conftest.py` + `tests/integration/test_sync_to_execute.py` (mock executor updates)
+- **Sanity check result**: 1359 pass + 6 skipped, ruff clean. [AUTO-VERIFIED]
+- **Status**: [DONE]
+- **Request**: Move T-P0-111 to Completed
+
+## 2026-03-07 -- [T-P1-112] Extract dependency_graph module from scheduler.py
+- **What I did**: Created `src/dependency_graph.py` with `validate_dependency_graph()`, `detect_cycles()`, and `extract_priority()`. Scheduler.py imports and re-exports from new module (backward-compatible). task_manager.py imports `extract_priority` from new module. task_generator.py's duplicate `_detect_cycles` replaced with wrapper calling shared `detect_cycles()`. Net: scheduler.py reduced, no duplicate cycle detection.
+- **Deliverables**: `src/dependency_graph.py` (new, 103 lines), `src/scheduler.py` (reduced), `src/task_manager.py` (imports updated), `src/task_generator.py` (deduplicated), `tests/test_task_generator.py` (import alias)
+- **Sanity check result**: 1359 pass + 6 skipped, ruff clean. `from src.dependency_graph import validate_dependency_graph` detects cycle in {"A":["B"],"B":["A"]}. [AUTO-VERIFIED]
+- **Status**: [DONE]
+- **Request**: Move T-P1-112 to Completed
+
+## 2026-03-07 -- [T-P1-105] Split api.py into domain-specific route modules
+- **What I did**: Split src/api.py (2470 lines) into 5 domain-specific route modules under src/routes/ (dashboard.py, execution.py, projects.py, reviews.py, tasks.py). Extracted shared helpers (_task_to_response, _project_to_response, CONFIG_PATH) into src/api_helpers.py to avoid circular imports. api.py retained lifespan, middleware, create_app(), and router mounting (323 lines). Updated test imports in test_browse.py and test_enrichment.py.
+- **Deliverables**: `src/api.py` (reduced 2470->323 lines), `src/api_helpers.py` (new, 85 lines), `src/routes/__init__.py` (new), `src/routes/dashboard.py` (new, 211 lines), `src/routes/execution.py` (new, 441 lines), `src/routes/projects.py` (new, 385 lines), `src/routes/reviews.py` (new, 523 lines), `src/routes/tasks.py` (new, 719 lines), `tests/test_browse.py` (updated imports), `tests/test_enrichment.py` (updated imports)
+- **Sanity check result**: All 1359 tests pass + 6 skipped, ruff clean. URLs unchanged, no test modifications needed beyond import paths. [AUTO-VERIFIED]
+- **Status**: [DONE]
+- **Request**: Move T-P1-105 to Completed
+
+## 2026-03-07 -- [T-P1-110] Add task filtering by priority and complexity
+- **What I did**: Added priority (P0/P1/P2/P3) and complexity/size (S/M/L) multi-select toggle chips to the filter bar in App.tsx. Priority extracted from `local_task_id` via regex. Complexity extracted from task description `**Complexity**: S|M|L` pattern. Both compose with existing status/project/search filters via AND logic. Clear button appears when either filter is active. Filter state persists during session (React state).
+- **Deliverables**: `frontend/src/App.tsx` (filter state + filter logic + chip UI)
+- **Sanity check result**: TypeScript clean (`npx tsc --noEmit`), Vite build clean, 1359 tests pass + 6 skipped. [AUTO-VERIFIED]
+- **Status**: [DONE]
+- **Request**: Move T-P1-110 to Completed

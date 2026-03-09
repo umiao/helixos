@@ -29,24 +29,6 @@
 
 ### P0 -- Must Have (core functionality)
 
-#### T-P0-136: Plan deletion with confirmation dialog (all plan states)
-- **Priority**: P0
-- **Complexity**: S (< 1 session)
-- **Depends on**: T-P0-134
-- **Description**: Plans currently have no deletion mechanism. Need `DELETE /api/tasks/{task_id}/plan` endpoint that works from ready/failed/decomposed/generating states (generating clears generation_id so in-flight result is discarded). Frontend needs inline confirmation in PlanReviewPanel for each state.
-- **Acceptance Criteria**:
-  1. Backend `DELETE /api/tasks/{task_id}/plan` endpoint in `src/routes/tasks.py`: uses `set_plan_state("none")`, returns 200. Returns 409 if already "none". Works for ready/failed/decomposed/generating (generating = cancel semantics via generation_id clearing).
-  2. SSE `plan_status_change` event emitted with `plan_status: "none"` on deletion.
-  3. `frontend/src/api.ts` exports `deletePlan(taskId)` function.
-  4. PlanReviewPanel shows "Delete Plan" button (red styling) in ready state header alongside existing buttons.
-  5. PlanReviewPanel shows "Cancel" link under spinner in generating state.
-  6. PlanReviewPanel shows "Delete Plan" in failed state alongside "Retry".
-  7. PlanReviewPanel shows "Delete Plan" in decomposed state with warning "This will not remove already-created subtasks".
-  8. All delete buttons show inline confirmation (warning text + "Yes, Delete" red button + "Cancel") before calling API. This is a dangerous operation.
-  9. On confirm: calls `deletePlan()`, then `onTaskUpdated({ ...task, ...planStatePatch("none") })`.
-  10. Manual verification: Delete plan from each state -> plan_status resets to "none", all fields cleared.
-  11. TypeScript clean. Vite build clean.
-
 #### T-P0-137: Execution decomposition gate (backend + frontend)
 - **Priority**: P0
 - **Complexity**: M (1-2 sessions)
@@ -119,7 +101,6 @@
 > Full historical dependency graph relocated to [docs/architecture/dependency-graph-history.md](docs/architecture/dependency-graph-history.md).
 
 ### Current
-T-P0-136 depends on T-P0-134
 T-P0-137 depends on T-P0-134
 T-P0-138 depends on T-P0-134, T-P0-136
 T-P0-124 depends on T-P0-138
@@ -142,6 +123,9 @@ T-P1-127 depends on T-P1-123 (completed)
 
 
 > 21 completed tasks archived to [archive/completed_tasks.md](archive/completed_tasks.md).
+
+#### [x] T-P0-136: Plan deletion with confirmation dialog (all plan states) -- 2026-03-09
+- Added `DELETE /api/tasks/{task_id}/plan` endpoint using `set_plan_state("none")` from any non-none state. Frontend `deletePlan()` API function. PlanReviewPanel updated with inline confirmation delete buttons for all states (generating=Cancel, failed=Delete alongside Retry, decomposed=Delete with subtask warning, ready=Delete in header). 7 new backend tests. TypeScript clean, Vite build clean.
 
 #### [x] T-P0-135: Frontend plan staleness fix with shared utility and generation_id filtering -- 2026-03-09
 - Created `planStatePatch()` shared utility in `frontend/src/utils/planState.ts`. Added `plan_generation_id` and `has_proposed_tasks` to Task interface. Migrated TaskCard, TaskCardPopover, PlanReviewPanel to use shared utility. SSE handler filters stale events via generation_id comparison. TypeScript clean, Vite build clean.

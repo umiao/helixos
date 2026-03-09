@@ -4,7 +4,7 @@ Endpoints: POST /api/projects/{project_id}/tasks, GET /api/tasks,
 GET /api/tasks/{task_id}, PATCH /api/tasks/{task_id},
 POST /api/tasks/enrich, POST /api/tasks/{task_id}/generate-plan,
 POST /api/tasks/{task_id}/confirm-generated-tasks,
-DELETE /api/tasks/{task_id}.
+DELETE /api/tasks/{task_id}, DELETE /api/tasks/{task_id}/plan.
 """
 
 from __future__ import annotations
@@ -421,6 +421,63 @@ async def reject_plan(task_id: str, request: Request) -> JSONResponse:
     return JSONResponse(
         status_code=200,
         content={"task_id": task_id, "plan_status": "none"},
+    )
+
+
+# ------------------------------------------------------------------
+# Plan deletion endpoint (T-P0-136)
+# ------------------------------------------------------------------
+
+
+@router.delete(
+    "/api/tasks/{task_id}/plan",
+    responses={
+        404: {"model": ErrorResponse},
+        409: {"model": ErrorResponse},
+    },
+)
+async def delete_plan(task_id: str, request: Request) -> JSONResponse:
+    """Delete a task's plan, resetting plan_status to 'none'.
+
+    Works from any non-none state: ready, failed, decomposed, generating.
+    When deleting from generating state, clears generation_id so any
+    in-flight result will be discarded (cancel semantics).
+
+    Returns 404 if task not found.
+    Returns 409 if plan_status is already 'none'.
+    """
+    task_manager: TaskManager = request.app.state.task_manager
+    event_bus: EventBus = request.app.state.event_bus
+
+    task = await task_manager.get_task(task_id)
+    if task is None:
+        raise HTTPException(status_code=404, detail=f"Task not found: {task_id}")
+
+    if task.plan_status == "none":
+        raise HTTPException(
+            status_code=409,
+            detail=f"Task {task_id} plan_status is already 'none'",
+        )
+
+    previous_status = task.plan_status
+    await task_manager.set_plan_state(task_id, "none")
+
+    logger.info(
+        "Plan deleted for %s (was %s)", task_id, previous_status,
+    )
+
+    event_bus.emit(
+        "plan_status_change", task_id, {"plan_status": "none"},
+        origin="plan",
+    )
+
+    return JSONResponse(
+        status_code=200,
+        content={
+            "task_id": task_id,
+            "plan_status": "none",
+            "previous_status": previous_status,
+        },
     )
 
 

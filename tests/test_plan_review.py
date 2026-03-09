@@ -447,3 +447,140 @@ class TestProposedTasksPayload:
                 "title": pt.get("title", ""),
             })
         assert proposed_tasks_payload == []
+
+
+# ==================================================================
+# T-P0-136: DELETE /api/tasks/{task_id}/plan endpoint
+# ==================================================================
+
+
+class TestDeletePlanEndpoint:
+    """Tests for DELETE /api/tasks/{task_id}/plan."""
+
+    @pytest.mark.asyncio
+    async def test_delete_plan_from_ready(self, test_app, client: AsyncClient) -> None:
+        """Deleting a ready plan resets plan_status to none."""
+        task_manager: TaskManager = test_app.state.task_manager
+        await _create_task_in_db(
+            task_manager,
+            plan_status="ready",
+            plan_json=json.dumps(SAMPLE_PLAN_DATA),
+            description="Generated plan text",
+        )
+
+        resp = await client.delete("/api/tasks/test-proj::T-P0-99/plan")
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["plan_status"] == "none"
+        assert body["task_id"] == "test-proj::T-P0-99"
+        assert body["previous_status"] == "ready"
+
+        # Verify DB state
+        task = await task_manager.get_task("test-proj::T-P0-99")
+        assert task is not None
+        assert task.plan_status == "none"
+        assert task.plan_json is None
+
+    @pytest.mark.asyncio
+    async def test_delete_plan_from_failed(self, test_app, client: AsyncClient) -> None:
+        """Deleting a failed plan resets plan_status to none."""
+        task_manager: TaskManager = test_app.state.task_manager
+        await _create_task_in_db(task_manager, plan_status="failed")
+
+        resp = await client.delete("/api/tasks/test-proj::T-P0-99/plan")
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["previous_status"] == "failed"
+        assert body["plan_status"] == "none"
+
+    @pytest.mark.asyncio
+    async def test_delete_plan_from_decomposed(
+        self, test_app, client: AsyncClient,
+    ) -> None:
+        """Deleting a decomposed plan resets plan_status to none."""
+        task_manager: TaskManager = test_app.state.task_manager
+        await _create_task_in_db(
+            task_manager,
+            plan_status="ready",
+            plan_json=json.dumps(SAMPLE_PLAN_DATA),
+            description="Plan text",
+        )
+        # Transition to decomposed via state machine
+        await task_manager.set_plan_state("test-proj::T-P0-99", "decomposed")
+
+        resp = await client.delete("/api/tasks/test-proj::T-P0-99/plan")
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["previous_status"] == "decomposed"
+        assert body["plan_status"] == "none"
+
+    @pytest.mark.asyncio
+    async def test_delete_plan_from_generating(
+        self, test_app, client: AsyncClient,
+    ) -> None:
+        """Deleting from generating state clears generation_id (cancel semantics)."""
+        task_manager: TaskManager = test_app.state.task_manager
+        # Create task at none, then transition to generating with generation_id
+        await _create_task_in_db(task_manager, plan_status="none")
+        await task_manager.set_plan_state(
+            "test-proj::T-P0-99", "generating",
+            plan_generation_id="test-gen-id-123",
+        )
+
+        resp = await client.delete("/api/tasks/test-proj::T-P0-99/plan")
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["previous_status"] == "generating"
+
+        # Verify generation_id is cleared (so in-flight result is discarded)
+        task = await task_manager.get_task("test-proj::T-P0-99")
+        assert task is not None
+        assert task.plan_status == "none"
+        assert task.plan_generation_id is None
+
+    @pytest.mark.asyncio
+    async def test_delete_plan_emits_sse(self, test_app, client: AsyncClient) -> None:
+        """Deleting emits a plan_status_change event with plan_status=none."""
+        task_manager: TaskManager = test_app.state.task_manager
+        event_bus: EventBus = test_app.state.event_bus
+
+        await _create_task_in_db(
+            task_manager,
+            plan_status="ready",
+            plan_json=json.dumps(SAMPLE_PLAN_DATA),
+        )
+
+        captured: list[TaskEvent] = []
+        original_emit = event_bus.emit
+
+        def capturing_emit(event_type, task_id, data, **kwargs):
+            captured.append(TaskEvent(
+                type=event_type, task_id=task_id, data=data,
+                origin=kwargs.get("origin", "system"),
+            ))
+            original_emit(event_type, task_id, data, **kwargs)
+
+        event_bus.emit = capturing_emit
+
+        await client.delete("/api/tasks/test-proj::T-P0-99/plan")
+
+        plan_events = [e for e in captured if e.type == "plan_status_change"]
+        assert len(plan_events) == 1
+        assert plan_events[0].data["plan_status"] == "none"
+
+    @pytest.mark.asyncio
+    async def test_delete_plan_404(self, client: AsyncClient) -> None:
+        """Deleting plan for non-existent task returns 404."""
+        resp = await client.delete("/api/tasks/nonexistent/plan")
+        assert resp.status_code == 404
+
+    @pytest.mark.asyncio
+    async def test_delete_plan_409_already_none(
+        self, test_app, client: AsyncClient,
+    ) -> None:
+        """Deleting when plan_status is already none returns 409."""
+        task_manager: TaskManager = test_app.state.task_manager
+        await _create_task_in_db(task_manager, plan_status="none")
+
+        resp = await client.delete("/api/tasks/test-proj::T-P0-99/plan")
+        assert resp.status_code == 409

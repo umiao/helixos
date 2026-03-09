@@ -2,14 +2,15 @@
  * PlanReviewPanel -- unified plan review before batch task decomposition.
  *
  * Shows the generated plan summary and all proposed sub-tasks as a readable
- * document. Provides "Confirm and Create All Tasks" and "Reject Plan" actions.
- * Handles generating (spinner), failed (error + retry), and ready states.
+ * document. Provides "Confirm and Create All Tasks", "Reject Plan", and
+ * "Delete Plan" actions. Handles generating (cancel), failed (retry + delete),
+ * decomposed (delete with warning), and ready states.
  *
- * T-P1-116
+ * T-P1-116, T-P0-136
  */
 
 import { useState } from "react";
-import { confirmGeneratedTasks, generatePlan, rejectPlan } from "../api";
+import { confirmGeneratedTasks, deletePlan, generatePlan, rejectPlan } from "../api";
 import type { Task, ProposedTask } from "../types";
 import { planStatePatch } from "../utils/planState";
 
@@ -38,6 +39,39 @@ function complexityColor(c: string): string {
     case "L": return "bg-purple-100 text-purple-700";
     default: return "bg-gray-100 text-gray-600";
   }
+}
+
+/** Inline confirmation for dangerous delete operations. */
+function DeleteConfirmation({
+  warningText,
+  onConfirm,
+  onCancel,
+  deleting,
+}: {
+  warningText: string;
+  onConfirm: () => void;
+  onCancel: () => void;
+  deleting: boolean;
+}) {
+  return (
+    <div className="flex items-center gap-2 bg-red-50 border border-red-200 rounded px-3 py-1.5">
+      <span className="text-xs text-red-700">{warningText}</span>
+      <button
+        onClick={onConfirm}
+        disabled={deleting}
+        className="px-2 py-0.5 text-xs font-medium bg-red-600 text-white rounded hover:bg-red-700 disabled:opacity-50"
+      >
+        {deleting ? "Deleting..." : "Yes, Delete"}
+      </button>
+      <button
+        onClick={onCancel}
+        disabled={deleting}
+        className="px-2 py-0.5 text-xs font-medium text-gray-600 hover:text-gray-800 disabled:opacity-50"
+      >
+        Cancel
+      </button>
+    </div>
+  );
 }
 
 function ProposedTaskCard({ task, index }: { task: ProposedTask; index: number }) {
@@ -123,20 +157,50 @@ export default function PlanReviewPanel({
   const [confirming, setConfirming] = useState(false);
   const [rejecting, setRejecting] = useState(false);
   const [retrying, setRetrying] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
 
   const proposedTasks = task.proposed_tasks ?? [];
 
-  // -- Generating state: spinner (AC5)
+  const handleDelete = async () => {
+    setDeleting(true);
+    try {
+      await deletePlan(task.id);
+      onTaskUpdated({ ...task, ...planStatePatch("none") });
+    } catch (err) {
+      onError(`Delete failed: ${err instanceof Error ? err.message : String(err)}`);
+    } finally {
+      setDeleting(false);
+      setShowDeleteConfirm(false);
+    }
+  };
+
+  // -- Generating state: spinner + cancel link (AC5)
   if (task.plan_status === "generating") {
     return (
       <div className="flex flex-col items-center justify-center h-full gap-3 text-gray-500">
         <div className="animate-spin h-8 w-8 border-2 border-indigo-500 border-t-transparent rounded-full" />
         <span className="text-sm">Generating plan for {task.local_task_id}...</span>
+        {showDeleteConfirm ? (
+          <DeleteConfirmation
+            warningText="Cancel plan generation?"
+            onConfirm={handleDelete}
+            onCancel={() => setShowDeleteConfirm(false)}
+            deleting={deleting}
+          />
+        ) : (
+          <button
+            onClick={() => setShowDeleteConfirm(true)}
+            className="text-xs text-red-500 hover:text-red-700 underline"
+          >
+            Cancel
+          </button>
+        )}
       </div>
     );
   }
 
-  // -- Failed state: error message with retry (AC5)
+  // -- Failed state: error message with retry + delete (AC5, AC6)
   if (task.plan_status === "failed") {
     const handleRetry = async () => {
       setRetrying(true);
@@ -159,13 +223,32 @@ export default function PlanReviewPanel({
         {task.plan_error_type && (
           <span className="text-[10px] font-mono text-gray-400">{task.plan_error_type}</span>
         )}
-        <button
-          onClick={handleRetry}
-          disabled={retrying}
-          className="px-3 py-1.5 text-xs font-medium bg-indigo-600 text-white rounded hover:bg-indigo-700 disabled:opacity-50"
-        >
-          {retrying ? "Retrying..." : "Retry Plan Generation"}
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={handleRetry}
+            disabled={retrying || deleting}
+            className="px-3 py-1.5 text-xs font-medium bg-indigo-600 text-white rounded hover:bg-indigo-700 disabled:opacity-50"
+          >
+            {retrying ? "Retrying..." : "Retry"}
+          </button>
+          {!showDeleteConfirm && (
+            <button
+              onClick={() => setShowDeleteConfirm(true)}
+              disabled={retrying || deleting}
+              className="px-3 py-1.5 text-xs font-medium text-red-600 border border-red-300 rounded hover:bg-red-50 disabled:opacity-50"
+            >
+              Delete Plan
+            </button>
+          )}
+        </div>
+        {showDeleteConfirm && (
+          <DeleteConfirmation
+            warningText="This will remove the failed plan."
+            onConfirm={handleDelete}
+            onCancel={() => setShowDeleteConfirm(false)}
+            deleting={deleting}
+          />
+        )}
       </div>
     );
   }
@@ -180,17 +263,33 @@ export default function PlanReviewPanel({
     );
   }
 
-  // -- Decomposed state
+  // -- Decomposed state with delete option (AC7)
   if (task.plan_status === "decomposed") {
     return (
       <div className="flex flex-col items-center justify-center h-full gap-2 text-gray-500">
         <span className="text-sm font-medium text-green-600">Plan decomposed</span>
         <span className="text-xs">Tasks have been created from this plan.</span>
+        {showDeleteConfirm ? (
+          <DeleteConfirmation
+            warningText="This will not remove already-created subtasks."
+            onConfirm={handleDelete}
+            onCancel={() => setShowDeleteConfirm(false)}
+            deleting={deleting}
+          />
+        ) : (
+          <button
+            onClick={() => setShowDeleteConfirm(true)}
+            disabled={deleting}
+            className="px-3 py-1.5 text-xs font-medium text-red-600 border border-red-300 rounded hover:bg-red-50 disabled:opacity-50 mt-2"
+          >
+            Delete Plan
+          </button>
+        )}
       </div>
     );
   }
 
-  // -- Ready state: unified plan review (AC2)
+  // -- Ready state: unified plan review (AC2, AC4)
   const handleConfirm = async () => {
     setConfirming(true);
     try {
@@ -227,20 +326,38 @@ export default function PlanReviewPanel({
           <span className="text-xs text-gray-600">{task.title}</span>
         </div>
         <div className="flex items-center gap-2">
-          <button
-            onClick={handleReject}
-            disabled={rejecting || confirming}
-            className="px-3 py-1 text-xs font-medium text-red-600 border border-red-300 rounded hover:bg-red-50 disabled:opacity-50"
-          >
-            {rejecting ? "Rejecting..." : "Reject Plan"}
-          </button>
-          <button
-            onClick={handleConfirm}
-            disabled={confirming || rejecting}
-            className="px-3 py-1 text-xs font-medium bg-green-600 text-white rounded hover:bg-green-700 disabled:opacity-50"
-          >
-            {confirming ? "Creating Tasks..." : `Confirm and Create All Tasks (${proposedTasks.length})`}
-          </button>
+          {showDeleteConfirm ? (
+            <DeleteConfirmation
+              warningText="Delete this plan? This cannot be undone."
+              onConfirm={handleDelete}
+              onCancel={() => setShowDeleteConfirm(false)}
+              deleting={deleting}
+            />
+          ) : (
+            <>
+              <button
+                onClick={() => setShowDeleteConfirm(true)}
+                disabled={rejecting || confirming || deleting}
+                className="px-3 py-1 text-xs font-medium text-red-600 border border-red-300 rounded hover:bg-red-50 disabled:opacity-50"
+              >
+                Delete Plan
+              </button>
+              <button
+                onClick={handleReject}
+                disabled={rejecting || confirming || deleting}
+                className="px-3 py-1 text-xs font-medium text-gray-600 border border-gray-300 rounded hover:bg-gray-50 disabled:opacity-50"
+              >
+                {rejecting ? "Rejecting..." : "Reject Plan"}
+              </button>
+              <button
+                onClick={handleConfirm}
+                disabled={confirming || rejecting || deleting}
+                className="px-3 py-1 text-xs font-medium bg-green-600 text-white rounded hover:bg-green-700 disabled:opacity-50"
+              >
+                {confirming ? "Creating Tasks..." : `Confirm and Create All Tasks (${proposedTasks.length})`}
+              </button>
+            </>
+          )}
         </div>
       </div>
 

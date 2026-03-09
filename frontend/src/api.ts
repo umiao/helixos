@@ -456,3 +456,14 @@ export async function rejectPlan(
   );
   return handleResponse(res);
 }
+
+/** Delete a plan from any non-none state, resetting plan_status to 'none'. */
+export async function deletePlan(
+  taskId: string,
+): Promise<{ task_id: string; plan_status: string; previous_status: string }> {
+  const res = await fetch(
+    `/api/tasks/${encodeURIComponent(taskId)}/plan`,
+    { method: "DELETE" },
+  );
+  return handleResponse(res);
+}
