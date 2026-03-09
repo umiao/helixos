@@ -1275,3 +1275,10 @@
 - **Sanity check result**: 1495 pass, 6 skipped, ruff clean. [AUTO-VERIFIED]
 - **Status**: [DONE]
 - **Request**: Move T-P0-122 to Completed
+
+## 2026-03-08 -- [T-P1-123] Pass structured plan_json to reviewers instead of formatted text
+- **What I did**: Added `_format_plan_json_for_review()` helper to `review_pipeline.py` that extracts steps, acceptance_criteria, and proposed_tasks from `task.plan_json` and formats them with indexed prefixes (Step N, AC N, Task N) for precise reviewer references. Modified `_call_reviewer()` to inject this structured data into the user content when `task.plan_json` is available, with graceful fallback to description-only when plan_json is None or malformed.
+- **Deliverables**: `src/review_pipeline.py` (new helper + _call_reviewer modification), `tests/test_review_plan_json.py` (new: 17 tests)
+- **Sanity check result**: 1511 pass, 6 skipped, ruff clean. [AUTO-VERIFIED]
+- **Status**: [DONE]
+- **Request**: Move T-P1-123 to Completed

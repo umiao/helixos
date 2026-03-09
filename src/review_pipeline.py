@@ -150,6 +150,77 @@ MAX_RAW_RESPONSE_BYTES = 200 * 1024
 _TRUNCATION_MARKER = "\n[TRUNCATED at 200KB]"
 
 
+def _format_plan_json_for_review(plan_json: str | None) -> str:
+    """Format structured plan_json fields for reviewer consumption.
+
+    Extracts steps, acceptance_criteria, and proposed_tasks from the
+    plan_json blob and formats them as indexed, parseable sections so
+    reviewers can reference specific items by index.
+
+    Returns an empty string if plan_json is None or malformed.
+
+    Args:
+        plan_json: Raw JSON string from ``Task.plan_json``.
+
+    Returns:
+        Formatted string with structured plan sections, or ``""``.
+    """
+    if not plan_json:
+        return ""
+    try:
+        data = json.loads(plan_json) if isinstance(plan_json, str) else plan_json
+    except (json.JSONDecodeError, TypeError):
+        logger.debug("Malformed plan_json for review, skipping structured injection")
+        return ""
+
+    if not isinstance(data, dict):
+        return ""
+
+    parts: list[str] = []
+
+    # Implementation steps (indexed for precise reviewer references)
+    steps = data.get("steps")
+    if steps and isinstance(steps, list):
+        parts.append("--- Structured Plan Data ---")
+        parts.append("## Implementation Steps")
+        for i, step in enumerate(steps, 1):
+            if isinstance(step, dict):
+                desc = step.get("step", step.get("description", ""))
+                files = step.get("files", [])
+                parts.append(f"  Step {i}: {desc}")
+                if files and isinstance(files, list):
+                    for f in files:
+                        parts.append(f"    - File: {f}")
+            elif isinstance(step, str):
+                parts.append(f"  Step {i}: {step}")
+
+    # Acceptance criteria (indexed)
+    criteria = data.get("acceptance_criteria")
+    if criteria and isinstance(criteria, list):
+        parts.append("## Acceptance Criteria")
+        for i, ac in enumerate(criteria, 1):
+            if isinstance(ac, str):
+                parts.append(f"  AC {i}: {ac}")
+
+    # Proposed sub-tasks (indexed, with dependencies)
+    proposed = data.get("proposed_tasks")
+    if proposed and isinstance(proposed, list):
+        parts.append("## Proposed Sub-Tasks")
+        for i, task in enumerate(proposed, 1):
+            if isinstance(task, dict):
+                title = task.get("title", "")
+                deps = task.get("depends_on", [])
+                dep_str = f" [depends: {', '.join(str(d) for d in deps)}]" if deps else ""
+                parts.append(f"  Task {i}: {title}{dep_str}")
+            elif isinstance(task, str):
+                parts.append(f"  Task {i}: {task}")
+
+    if parts:
+        parts.append("--- End Structured Plan Data ---")
+
+    return "\n".join(parts)
+
+
 def _truncate_raw_response(text: str) -> str:
     """Truncate raw_response to MAX_RAW_RESPONSE_BYTES, appending marker if needed."""
     if len(text.encode("utf-8")) <= MAX_RAW_RESPONSE_BYTES:
@@ -658,6 +729,11 @@ class ReviewPipeline:
             f"Description: {task.description}\n\n"
             f"Plan:\n{plan_content}"
         )
+
+        # Inject structured plan data if available (steps, ACs, proposed tasks)
+        structured_plan = _format_plan_json_for_review(task.plan_json)
+        if structured_plan:
+            user_content += "\n\n" + structured_plan
 
         # Inject previous human feedback into the prompt
         if human_feedback:

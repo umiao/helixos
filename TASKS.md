@@ -29,18 +29,6 @@
 
 ### P1 -- Should Have (agentic intelligence)
 
-#### T-P1-123: Pass structured plan_json to reviewers instead of formatted text
-- **Priority**: P1
-- **Complexity**: S (< 1 session)
-- **Depends on**: None
-- **Description**: The review pipeline passes `plan_content=task.description` (formatted markdown text) to reviewers. Reviewers must parse markdown to understand plan structure, reducing review precision. The structured `plan_json` (with steps[], acceptance_criteria[], proposed_tasks[]) is available on the task but not forwarded. The execution agent already receives structured plan_json via `_format_plan_json_for_prompt()` in `code_executor.py:66-108`, but the reviewer -- who most needs structural verification -- does not.
-- **Acceptance Criteria**:
-  1. `_call_reviewer()` in `review_pipeline.py:628` receives `task.plan_json` and injects structured fields into user_content
-  2. The user content sent to the reviewer includes structured fields (steps, ACs, proposed tasks) in a parseable format
-  3. Reviewer can reference specific steps/ACs by index rather than parsing markdown
-  4. Backward compatible: if plan_json is None, fall back to description text only
-  5. Test: mock reviewer call, verify user content includes structured plan data
-
 #### T-P1-124: Extract shared prompt rules into includable fragment
 - **Priority**: P1
 - **Complexity**: S (< 1 session)
@@ -184,7 +172,7 @@ T-P1-115 depends on T-P1-113, T-P1-120 (both completed -- T-P1-115 now unblocked
 T-P1-116 depends on T-P1-114 (completed -- T-P1-116 unblocked)
 T-P1-125 depends on T-P1-124
 T-P1-126 depends on T-P1-124
-T-P1-127 depends on T-P1-123
+T-P1-127 depends on T-P1-123 (completed -- T-P1-127 now unblocked)
 T-P2-131 depends on T-P1-124
 
 
@@ -198,6 +186,7 @@ T-P2-131 depends on T-P1-124
 > 120 completed tasks archived to [archive/completed_tasks.md](archive/completed_tasks.md).
 
 - T-P0-121: Fix complexity parameter not passed to review pipeline
+- T-P1-123: Pass structured plan_json to reviewers instead of formatted text
 - T-P0-122: Fix replan review_attempt reset to 1 instead of incrementing
 - T-P1-116: Unified plan review before batch task decomposition
 - T-P1-115: Upgrade agent prompts to production-grade (Phase 3: quality)
