@@ -58,6 +58,20 @@ class PlanInvalidError(Exception):
         super().__init__(message)
 
 
+class DecompositionRequiredError(Exception):
+    """Raised when a task has undecomposed proposed tasks.
+
+    Carries enough context for the API layer to return HTTP 428
+    (Precondition Required) with a ``gate_action`` of
+    ``decomposition_required``.
+    """
+
+    def __init__(self, task_id: str, message: str) -> None:
+        """Initialize with *task_id* and a human-readable *message*."""
+        self.task_id = task_id
+        super().__init__(message)
+
+
 class OptimisticLockError(Exception):
     """Raised when ``expected_updated_at`` does not match the DB row.
 
@@ -307,6 +321,7 @@ class TaskManager:
         review_gate_enabled: bool = False,
         reason: str = "",
         expected_updated_at: str | None = None,
+        force_decompose_bypass: bool = False,
     ) -> Task:
         """Transition a task to *new_status*, enforcing the state machine.
 
@@ -322,11 +337,16 @@ class TaskManager:
         provided, the row's ``updated_at`` must match exactly; otherwise
         ``OptimisticLockError`` is raised (HTTP 409 with ``conflict=true``).
 
+        *force_decompose_bypass* when True skips the decomposition gate
+        (Layer 3) allowing execution with undecomposed proposed tasks.
+
         Raises ``ValueError`` on illegal transitions or missing tasks.
         Raises ``ReviewGateBlockedError`` when the review gate blocks
         the transition (callers should return HTTP 428).
         Raises ``PlanInvalidError`` when the plan fails validity checks
         (callers should return HTTP 428 with ``gate_action=plan_invalid``).
+        Raises ``DecompositionRequiredError`` when the task has undecomposed
+        proposed tasks (callers should return HTTP 428).
         Raises ``OptimisticLockError`` on concurrent-edit conflict.
         """
         async with get_session(self._sf) as session:
@@ -373,6 +393,26 @@ class TaskManager:
                     f"Write or generate a plan (at least {MIN_PLAN_LENGTH} "
                     f"characters) before sending to review.",
                 )
+
+            # Layer 3: decomposition gate blocks transition to RUNNING
+            # when the task has undecomposed proposed tasks (plan_status=ready)
+            if (
+                new_status == TaskStatus.RUNNING
+                and row.has_proposed_tasks
+                and row.plan_status == PlanStatus.READY
+            ):
+                if force_decompose_bypass:
+                    logger.warning(
+                        "Decomposition gate bypassed for task %s by user action",
+                        task_id,
+                    )
+                else:
+                    raise DecompositionRequiredError(
+                        task_id,
+                        f"Task {task_id} has undecomposed proposed tasks. "
+                        f"Review and confirm the plan before executing, "
+                        f"or bypass with force_decompose_bypass.",
+                    )
 
             now = datetime.now(UTC).isoformat()
             row.status = new_status.value

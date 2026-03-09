@@ -101,11 +101,12 @@ export async function updateTask(
 export async function updateTaskStatus(
   taskId: string,
   status: TaskStatus,
-  opts?: { reason?: string; expected_updated_at?: string },
+  opts?: { reason?: string; expected_updated_at?: string; force_decompose_bypass?: boolean },
 ): Promise<Task> {
   const payload: Record<string, unknown> = { status };
   if (opts?.reason) payload.reason = opts.reason;
   if (opts?.expected_updated_at) payload.expected_updated_at = opts.expected_updated_at;
+  if (opts?.force_decompose_bypass) payload.force_decompose_bypass = opts.force_decompose_bypass;
 
   const res = await fetch(
     `/api/tasks/${encodeURIComponent(taskId)}/status`,

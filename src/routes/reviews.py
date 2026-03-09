@@ -41,6 +41,7 @@ from src.schemas import (
     TaskResponse,
 )
 from src.task_manager import (
+    DecompositionRequiredError,
     OptimisticLockError,
     PlanInvalidError,
     ReviewGateBlockedError,
@@ -297,6 +298,16 @@ async def update_task_status(
             review_gate_enabled=gate_enabled,
             reason=body.reason,
             expected_updated_at=body.expected_updated_at,
+            force_decompose_bypass=body.force_decompose_bypass,
+        )
+    except DecompositionRequiredError as exc:
+        return JSONResponse(
+            status_code=428,
+            content={
+                "detail": str(exc),
+                "gate_action": "decomposition_required",
+                "task_id": task_id,
+            },
         )
     except ReviewGateBlockedError as exc:
         return JSONResponse(

@@ -590,15 +590,13 @@ class Scheduler:
     # ------------------------------------------------------------------
 
     async def _can_execute(self, task: Task) -> bool:
-        """Layer 2 review gate: verify the task has been reviewed.
+        """Gate checks before the scheduler dispatches a task.
 
-        When the review gate is enabled for the task's project, this
-        checks that at least one approved review record exists in
-        review_history.  This is the last line of defense -- even if
-        some code path bypasses the transition gate, the scheduler will
-        not execute an unreviewed task.
+        Layer 2 -- review gate: verify the task has been reviewed.
+        Layer 3 -- decomposition gate: skip tasks with undecomposed
+        proposed sub-tasks (has_proposed_tasks=True AND plan_status=ready).
 
-        When the review gate is disabled, always returns True.
+        When the review gate is disabled, Layer 2 always passes.
 
         Args:
             task: The QUEUED task about to be executed.
@@ -606,6 +604,16 @@ class Scheduler:
         Returns:
             True if the task may proceed to execution.
         """
+        # Layer 3: decomposition gate -- refuse to execute tasks with
+        # undecomposed proposed tasks
+        if task.has_proposed_tasks and task.plan_status == "ready":
+            logger.info(
+                "Decomposition gate: task %s has undecomposed proposed "
+                "tasks (plan_status=ready) -- skipping",
+                task.id,
+            )
+            return False
+
         if task.project_id in self._review_gate_disabled:
             return True
 

@@ -29,23 +29,6 @@
 
 ### P0 -- Must Have (core functionality)
 
-#### T-P0-137: Execution decomposition gate (backend + frontend)
-- **Priority**: P0
-- **Complexity**: M (1-2 sessions)
-- **Depends on**: T-P0-134
-- **Description**: Dragging a task to execution currently ignores undecomposed proposed tasks. Need a gate at both scheduler level (Layer 3 in `_can_execute()` using `has_proposed_tasks` boolean) and manual transition level (`update_status()` with `force_decompose_bypass` flag). Frontend needs a modal in KanbanBoard when dragging to RUNNING.
-- **Acceptance Criteria**:
-  1. Scheduler `_can_execute()` in `src/scheduler.py` returns False when `task.has_proposed_tasks and task.plan_status == "ready"`. Uses boolean field, no JSON parsing.
-  2. `update_status()` in `src/task_manager.py` raises `DecompositionRequiredError` when transitioning to RUNNING with `has_proposed_tasks=True and plan_status="ready"`, unless `force_decompose_bypass=True`.
-  3. When `force_decompose_bypass=True`, a warning is logged: "Decomposition gate bypassed for task {id} by user action".
-  4. Status PATCH endpoint accepts `force_decompose_bypass: bool` in request body, passes to `update_status()`.
-  5. New `DecomposeRequiredModal.tsx` following `BackwardDragModal.tsx` pattern: shows task title, number of proposed subtasks, with actions: "Go to Plan Review" (primary green), "Cancel" (secondary), "Execute Anyway" (small danger text link at bottom, deliberately de-emphasized).
-  6. `KanbanBoard.tsx` `handleDragEnd` intercepts forward drag to RUNNING when `task.plan_status === "ready" && task.proposed_tasks?.length > 0`, shows DecomposeRequiredModal.
-  7. "Go to Plan Review" navigates to plan tab for the task. "Execute Anyway" calls `updateTaskStatus` with `force_decompose_bypass: true`. "Cancel" closes modal.
-  8. `frontend/src/api.ts` `updateTaskStatus` accepts `force_decompose_bypass?: boolean`.
-  9. Manual verification: Drag undecomposed task to RUNNING -> modal appears -> each button works correctly.
-  10. Backend test: scheduler skips task with has_proposed_tasks=True in _can_execute(). update_status raises without force flag, succeeds with force flag.
-
 #### T-P0-138: Clean up T-P0-124 dirty state + plan integrity check
 - **Priority**: P0
 - **Complexity**: S (< 1 session)
@@ -101,12 +84,12 @@
 > Full historical dependency graph relocated to [docs/architecture/dependency-graph-history.md](docs/architecture/dependency-graph-history.md).
 
 ### Current
-T-P0-137 depends on T-P0-134
 T-P0-138 depends on T-P0-134, T-P0-136
 T-P0-124 depends on T-P0-138
 T-P2-140 depends on T-P0-134
 
 ### Historical (completed)
+T-P0-137 depends on T-P0-134 (completed)
 T-P1-115 depends on T-P1-113, T-P1-120 (both completed)
 T-P1-116 depends on T-P1-114 (completed)
 T-P1-125 depends on T-P1-124 (completed)
@@ -123,6 +106,9 @@ T-P1-127 depends on T-P1-123 (completed)
 
 
 > 21 completed tasks archived to [archive/completed_tasks.md](archive/completed_tasks.md).
+
+#### [x] T-P0-137: Execution decomposition gate (backend + frontend) -- 2026-03-09
+- Added `DecompositionRequiredError` and Layer 3 decomposition gate in `update_status()` blocking QUEUED->RUNNING when `has_proposed_tasks=True` and `plan_status="ready"`, with `force_decompose_bypass` flag. Scheduler `_can_execute()` also checks. PATCH endpoint accepts `force_decompose_bypass` in body. Frontend `DecomposeRequiredModal.tsx` with "Go to Plan Review" (green), "Cancel", "Execute Anyway" (danger link). KanbanBoard intercepts forward drag to RUNNING. `api.ts` updated. 8 new tests. 1560 pass, ruff clean, TS clean, Vite build clean.
 
 #### [x] T-P0-136: Plan deletion with confirmation dialog (all plan states) -- 2026-03-09
 - Added `DELETE /api/tasks/{task_id}/plan` endpoint using `set_plan_state("none")` from any non-none state. Frontend `deletePlan()` API function. PlanReviewPanel updated with inline confirmation delete buttons for all states (generating=Cancel, failed=Delete alongside Retry, decomposed=Delete with subtask warning, ready=Delete in header). 7 new backend tests. TypeScript clean, Vite build clean.

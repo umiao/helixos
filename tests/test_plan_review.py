@@ -584,3 +584,254 @@ class TestDeletePlanEndpoint:
 
         resp = await client.delete("/api/tasks/test-proj::T-P0-99/plan")
         assert resp.status_code == 409
+
+
+# ------------------------------------------------------------------
+# T-P0-137: Decomposition gate tests
+# ------------------------------------------------------------------
+
+
+class TestDecompositionGate:
+    """Layer 3 -- decomposition gate blocks execution of tasks with
+    undecomposed proposed sub-tasks (plan_status=ready, has_proposed_tasks=True).
+    """
+
+    @pytest.mark.asyncio
+    async def test_update_status_raises_without_force(
+        self, session_factory,
+    ) -> None:
+        """Transition to RUNNING with proposed tasks raises DecompositionRequiredError."""
+        from src.task_manager import DecompositionRequiredError
+
+        tm = TaskManager(session_factory)
+        plan_json = json.dumps({
+            "steps": [{"title": "s1"}],
+            "proposed_tasks": [
+                {"title": "Sub", "description": "d"},
+            ],
+        })
+        task = Task(
+            id="proj:t1", project_id="proj", local_task_id="t1",
+            title="Task with plan", status=TaskStatus.QUEUED,
+            executor_type=ExecutorType.CODE,
+            plan_status="ready", plan_json=plan_json,
+            has_proposed_tasks=True,
+        )
+        await tm.upsert_task(task)
+
+        with pytest.raises(DecompositionRequiredError):
+            await tm.update_status("proj:t1", TaskStatus.RUNNING)
+
+    @pytest.mark.asyncio
+    async def test_update_status_succeeds_with_force(
+        self, session_factory,
+    ) -> None:
+        """Transition to RUNNING succeeds with force_decompose_bypass=True."""
+        tm = TaskManager(session_factory)
+        plan_json = json.dumps({
+            "steps": [{"title": "s1"}],
+            "proposed_tasks": [
+                {"title": "Sub", "description": "d"},
+            ],
+        })
+        task = Task(
+            id="proj:t1", project_id="proj", local_task_id="t1",
+            title="Task with plan", status=TaskStatus.QUEUED,
+            executor_type=ExecutorType.CODE,
+            plan_status="ready", plan_json=plan_json,
+            has_proposed_tasks=True,
+        )
+        await tm.upsert_task(task)
+
+        updated = await tm.update_status(
+            "proj:t1", TaskStatus.RUNNING,
+            force_decompose_bypass=True,
+        )
+        assert updated.status == TaskStatus.RUNNING
+
+    @pytest.mark.asyncio
+    async def test_update_status_no_gate_without_proposed_tasks(
+        self, session_factory,
+    ) -> None:
+        """Transition to RUNNING succeeds when has_proposed_tasks=False."""
+        tm = TaskManager(session_factory)
+        task = Task(
+            id="proj:t1", project_id="proj", local_task_id="t1",
+            title="No plan", status=TaskStatus.QUEUED,
+            executor_type=ExecutorType.CODE,
+            plan_status="none", has_proposed_tasks=False,
+        )
+        await tm.upsert_task(task)
+
+        updated = await tm.update_status("proj:t1", TaskStatus.RUNNING)
+        assert updated.status == TaskStatus.RUNNING
+
+    @pytest.mark.asyncio
+    async def test_update_status_no_gate_decomposed(
+        self, session_factory,
+    ) -> None:
+        """Transition to RUNNING succeeds when plan_status=decomposed."""
+        tm = TaskManager(session_factory)
+        task = Task(
+            id="proj:t1", project_id="proj", local_task_id="t1",
+            title="Decomposed", status=TaskStatus.QUEUED,
+            executor_type=ExecutorType.CODE,
+            plan_status="decomposed", has_proposed_tasks=True,
+        )
+        await tm.upsert_task(task)
+
+        updated = await tm.update_status("proj:t1", TaskStatus.RUNNING)
+        assert updated.status == TaskStatus.RUNNING
+
+    @pytest.mark.asyncio
+    async def test_scheduler_skips_undecomposed_task(
+        self, session_factory,
+    ) -> None:
+        """Scheduler _can_execute returns False for undecomposed tasks."""
+        from pathlib import Path
+        from unittest.mock import MagicMock
+
+        from src.config import OrchestratorConfig, ProjectConfig, ProjectRegistry
+        from src.events import EventBus
+        from src.scheduler import Scheduler
+
+        config = OrchestratorConfig(
+            projects={
+                "proj": ProjectConfig(
+                    name="Test",
+                    repo_path=Path("/tmp/test"),
+                    executor_type=ExecutorType.CODE,
+                    max_concurrency=1,
+                ),
+            },
+        )
+        tm = TaskManager(session_factory)
+        registry = ProjectRegistry(config)
+        env_loader = MagicMock()
+        env_loader.get_project_env.return_value = {}
+        event_bus = EventBus()
+
+        scheduler = Scheduler(
+            config=config,
+            task_manager=tm,
+            registry=registry,
+            env_loader=env_loader,
+            event_bus=event_bus,
+        )
+
+        task = Task(
+            id="proj:t1", project_id="proj", local_task_id="t1",
+            title="Undecomposed", status=TaskStatus.QUEUED,
+            executor_type=ExecutorType.CODE,
+            plan_status="ready", has_proposed_tasks=True,
+        )
+
+        result = await scheduler._can_execute(task)
+        assert result is False
+
+    @pytest.mark.asyncio
+    async def test_scheduler_allows_no_proposed_tasks(
+        self, session_factory,
+    ) -> None:
+        """Scheduler _can_execute returns True for tasks without proposed tasks
+        (when review gate is also disabled)."""
+        from pathlib import Path
+        from unittest.mock import MagicMock
+
+        from src.config import OrchestratorConfig, ProjectConfig, ProjectRegistry
+        from src.events import EventBus
+        from src.scheduler import Scheduler
+
+        config = OrchestratorConfig(
+            projects={
+                "proj": ProjectConfig(
+                    name="Test",
+                    repo_path=Path("/tmp/test"),
+                    executor_type=ExecutorType.CODE,
+                    max_concurrency=1,
+                ),
+            },
+        )
+        tm = TaskManager(session_factory)
+        registry = ProjectRegistry(config)
+        env_loader = MagicMock()
+        env_loader.get_project_env.return_value = {}
+        event_bus = EventBus()
+
+        scheduler = Scheduler(
+            config=config,
+            task_manager=tm,
+            registry=registry,
+            env_loader=env_loader,
+            event_bus=event_bus,
+        )
+        # Disable review gate so it doesn't interfere
+        scheduler._review_gate_disabled.add("proj")
+
+        task = Task(
+            id="proj:t1", project_id="proj", local_task_id="t1",
+            title="No plan", status=TaskStatus.QUEUED,
+            executor_type=ExecutorType.CODE,
+            plan_status="none", has_proposed_tasks=False,
+        )
+
+        result = await scheduler._can_execute(task)
+        assert result is True
+
+    @pytest.mark.asyncio
+    async def test_api_returns_428_decomposition_required(
+        self, test_app, client: AsyncClient,
+    ) -> None:
+        """PATCH /status returns 428 with gate_action=decomposition_required."""
+        task_manager: TaskManager = test_app.state.task_manager
+        plan_json = json.dumps({
+            "steps": [{"title": "s1"}],
+            "proposed_tasks": [
+                {"title": "Sub", "description": "d"},
+            ],
+        })
+        task = Task(
+            id="test-proj::T-P0-99", project_id="test-proj",
+            local_task_id="T-P0-99", title="Test",
+            status=TaskStatus.QUEUED, executor_type=ExecutorType.CODE,
+            plan_status="ready", plan_json=plan_json,
+            has_proposed_tasks=True,
+        )
+        await task_manager.upsert_task(task)
+
+        resp = await client.patch(
+            "/api/tasks/test-proj::T-P0-99/status",
+            json={"status": "running"},
+        )
+        assert resp.status_code == 428
+        data = resp.json()
+        assert data["gate_action"] == "decomposition_required"
+
+    @pytest.mark.asyncio
+    async def test_api_force_bypass_succeeds(
+        self, test_app, client: AsyncClient,
+    ) -> None:
+        """PATCH /status with force_decompose_bypass=true succeeds."""
+        task_manager: TaskManager = test_app.state.task_manager
+        plan_json = json.dumps({
+            "steps": [{"title": "s1"}],
+            "proposed_tasks": [
+                {"title": "Sub", "description": "d"},
+            ],
+        })
+        task = Task(
+            id="test-proj::T-P0-99", project_id="test-proj",
+            local_task_id="T-P0-99", title="Test",
+            status=TaskStatus.QUEUED, executor_type=ExecutorType.CODE,
+            plan_status="ready", plan_json=plan_json,
+            has_proposed_tasks=True,
+        )
+        await task_manager.upsert_task(task)
+
+        resp = await client.patch(
+            "/api/tasks/test-proj::T-P0-99/status",
+            json={"status": "running", "force_decompose_bypass": True},
+        )
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["status"] == "running"

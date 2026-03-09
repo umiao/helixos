@@ -89,11 +89,12 @@ import TaskContextMenu from "./TaskContextMenu";
 import InlineTaskCreator from "./InlineTaskCreator";
 import SkeletonCard from "./SkeletonCard";
 import BackwardDragModal from "./BackwardDragModal";
+import DecomposeRequiredModal from "./DecomposeRequiredModal";
 
 interface KanbanBoardProps {
   tasks: Task[];
   loading: boolean;
-  onMoveTask: (taskId: string, newStatus: TaskStatus, opts?: { reason?: string }) => void;
+  onMoveTask: (taskId: string, newStatus: TaskStatus, opts?: { reason?: string; force_decompose_bypass?: boolean }) => void;
   onSelectTask?: (task: Task) => void;
   projectId?: string;
   onTaskCreated?: (synced: boolean) => void;
@@ -294,6 +295,12 @@ export default function KanbanBoard({
     newStatus: TaskStatus;
   } | null>(null);
 
+  // Decompose-required modal state (forward drag to RUNNING with undecomposed plan)
+  const [decompDrag, setDecompDrag] = useState<{
+    task: Task;
+    newStatus: TaskStatus;
+  } | null>(null);
+
   // DONE column sort + sub-status filter (persisted in localStorage)
   const [doneSortOrder, setDoneSortOrder] = useState<DoneSortOrder>(loadDoneSort);
   const [doneFilter, setDoneFilter] = useState<SubStatusFilter>(loadDoneFilter);
@@ -367,6 +374,14 @@ export default function KanbanBoard({
         targetColumn,
         newStatus,
       });
+    } else if (
+      targetColumn === "RUNNING" &&
+      task.plan_status === "ready" &&
+      task.proposed_tasks &&
+      task.proposed_tasks.length > 0
+    ) {
+      // Decomposition gate: show modal instead of moving directly
+      setDecompDrag({ task, newStatus });
     } else {
       onMoveTask(taskId, newStatus);
     }
@@ -519,6 +534,26 @@ export default function KanbanBoard({
             setBackwardDrag(null);
           }}
           onCancel={() => setBackwardDrag(null)}
+        />
+      )}
+
+      {/* Decomposition-required modal */}
+      {decompDrag && (
+        <DecomposeRequiredModal
+          taskTitle={decompDrag.task.title}
+          taskId={decompDrag.task.local_task_id}
+          proposedTaskCount={decompDrag.task.proposed_tasks?.length ?? 0}
+          onGoToPlanReview={() => {
+            if (onSelectTask) onSelectTask(decompDrag.task);
+            setDecompDrag(null);
+          }}
+          onExecuteAnyway={() => {
+            onMoveTask(decompDrag.task.id, decompDrag.newStatus, {
+              force_decompose_bypass: true,
+            });
+            setDecompDrag(null);
+          }}
+          onCancel={() => setDecompDrag(null)}
         />
       )}
     </DndContext>

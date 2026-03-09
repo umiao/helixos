@@ -121,6 +121,7 @@ class StatusTransitionRequest(BaseModel):
     status: TaskStatus
     reason: str = ""
     expected_updated_at: str | None = None
+    force_decompose_bypass: bool = False
 
 
 class UpdateTaskRequest(BaseModel):

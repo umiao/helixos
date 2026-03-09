@@ -108,7 +108,7 @@ export function useTaskState(addToast: (text: string, type: "success" | "error")
     async (
       taskId: string,
       newStatus: TaskStatus,
-      opts?: { reason?: string },
+      opts?: { reason?: string; force_decompose_bypass?: boolean },
     ) => {
       const task = tasksRef.current.find((t) => t.id === taskId);
       const expectedUpdatedAt = task?.updated_at;
@@ -122,6 +122,7 @@ export function useTaskState(addToast: (text: string, type: "success" | "error")
         const updated = await updateTaskStatus(taskId, newStatus, {
           reason: opts?.reason,
           expected_updated_at: expectedUpdatedAt,
+          force_decompose_bypass: opts?.force_decompose_bypass,
         });
         setTasks((prev) => prev.map((t) => (t.id === taskId ? updated : t)));
 
