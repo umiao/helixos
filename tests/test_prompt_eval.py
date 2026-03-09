@@ -36,7 +36,7 @@ class TestPlanPromptEval:
 
     def test_anti_patterns_present(self) -> None:
         """Plan prompt contains anti-pattern examples (via shared rules include)."""
-        content = render_prompt("plan_system")
+        content = render_prompt("plan_system", complexity_hint="S")
         assert "Anti-Patterns" in content
         assert "Too many tasks" in content
         assert "Vague acceptance criteria" in content
@@ -50,10 +50,38 @@ class TestPlanPromptEval:
 
     def test_schema_docs_preserved(self) -> None:
         """Plan prompt still contains existing schema documentation after render."""
-        content = render_prompt("plan_system")
+        content = render_prompt("plan_system", complexity_hint="S")
         assert "T-P{priority}-{number}" in content
         assert "Complexity" in content
         assert '"plan"' in content
+
+    def test_phased_thinking_present(self) -> None:
+        """Plan prompt contains 4-phase thinking guidance."""
+        content = load_prompt("plan_system")
+        assert "Phase 1: Analyze Scope" in content
+        assert "Phase 2: Design Implementation Steps" in content
+        assert "Phase 3: Define Acceptance Criteria" in content
+        assert "Phase 4: Sub-Task Decomposition" in content
+
+    def test_strict_json_output_contract(self) -> None:
+        """Plan prompt contains strict JSON-only output contract."""
+        content = load_prompt("plan_system")
+        assert "RESPOND WITH JSON ONLY" in content
+        assert "No markdown fences" in content
+
+    def test_complexity_hint_m_shows_decomposition(self) -> None:
+        """Rendering with complexity_hint=M includes M in Phase 4."""
+        content = render_prompt("plan_system", complexity_hint="M")
+        assert "Complexity hint: M" in content
+        # Phase 4 guidance about proposing sub-tasks for M/L
+        assert "If complexity is M or L, propose sub-tasks" in content
+
+    def test_complexity_hint_s_shows_skip(self) -> None:
+        """Rendering with complexity_hint=S includes S in Phase 4."""
+        content = render_prompt("plan_system", complexity_hint="S")
+        assert "Complexity hint: S" in content
+        # Phase 4 guidance about skipping for S
+        assert "If complexity is S, skip sub-task decomposition" in content
 
 
 # ------------------------------------------------------------------

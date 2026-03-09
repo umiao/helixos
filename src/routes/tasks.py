@@ -236,6 +236,7 @@ async def generate_plan(task_id: str, request: Request) -> JSONResponse:
                 stream_log_dir=plan_log_dir,
                 task_id=task_id,
                 plan_validation=config.orchestrator.plan_validation,
+                complexity_hint=task.complexity,
             )
 
             formatted = format_plan_as_text(plan_data)

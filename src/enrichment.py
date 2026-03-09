@@ -362,7 +362,16 @@ _PLAN_JSON_SCHEMA = json.dumps({
     "required": ["plan", "steps", "acceptance_criteria"],
 })
 
-_PLAN_SYSTEM_PROMPT = render_prompt("plan_system")
+def _render_plan_system_prompt(complexity_hint: str = "S") -> str:
+    """Render the plan system prompt with the given complexity hint.
+
+    Args:
+        complexity_hint: One of "S", "M", or "L" indicating task complexity.
+
+    Returns:
+        The fully rendered plan system prompt string.
+    """
+    return render_prompt("plan_system", complexity_hint=complexity_hint)
 
 
 async def _call_plan_sdk(
@@ -504,6 +513,7 @@ async def generate_task_plan(
     task_id: str | None = None,
     plan_validation: PlanValidationConfig | None = None,
     review_feedback: str | None = None,
+    complexity_hint: str = "S",
 ) -> dict:
     """Call Claude Agent SDK to generate a structured implementation plan.
 
@@ -536,6 +546,9 @@ async def generate_task_plan(
         review_feedback: Optional structured feedback from a previous review
             rejection.  When provided, appended to the user prompt as an
             "address these issues" block for replan generation.
+        complexity_hint: Task complexity ("S", "M", or "L") injected into the
+            plan prompt to guide sub-task decomposition.  "S" tasks skip
+            decomposition; "M"/"L" tasks propose sub-tasks.
 
     Returns:
         Dict with ``plan`` (str), ``steps`` (list of dicts), and
@@ -547,7 +560,7 @@ async def generate_task_plan(
     if plan_validation is None:
         plan_validation = PlanValidationConfig()
 
-    user_prompt = f"Task: {title}"
+    user_prompt = f"Task: {title}\nComplexity: {complexity_hint}"
     if description.strip():
         user_prompt += f"\n\nExisting description:\n{description}"
     if review_feedback:
@@ -561,7 +574,8 @@ async def generate_task_plan(
     # Inject session context into system prompt (replaces SessionStart hook
     # which is not available as an SDK hook type).
     session_ctx = get_session_context(repo_path)
-    plan_prompt_with_ctx = _PLAN_SYSTEM_PROMPT + "\n\n" + session_ctx
+    plan_system_prompt = _render_plan_system_prompt(complexity_hint)
+    plan_prompt_with_ctx = plan_system_prompt + "\n\n" + session_ctx
 
     # setting_sources=[]: disable CLI hooks for plan generation -- session
     # context is injected manually above; hooks like block_dangerous and
@@ -767,8 +781,39 @@ def _check_soft_limits(
         )
 
 
+def _strip_markdown_fences(text: str) -> str:
+    """Strip markdown code fences and preamble text from a JSON response.
+
+    Handles responses like:
+    - `````json\\n{...}\\n```````
+    - ``Some preamble text\\n{...}``
+    - ``Here is the plan:\\n```json\\n{...}\\n```````
+
+    Args:
+        text: Raw text that may contain markdown fences around JSON.
+
+    Returns:
+        The extracted JSON string, or the original text if no fences found.
+    """
+    import re
+
+    # Try to extract JSON from markdown code fences
+    fence_match = re.search(r"```(?:json)?\s*\n?(.*?)\n?\s*```", text, re.DOTALL)
+    if fence_match:
+        return fence_match.group(1).strip()
+
+    # Try to find a JSON object starting with { in preamble text
+    brace_idx = text.find("{")
+    if brace_idx > 0:
+        return text[brace_idx:].strip()
+
+    return text
+
+
 def _parse_plan(text: str | dict) -> dict:
     """Parse the Claude CLI plan generation result.
+
+    Handles raw JSON, markdown-fenced JSON, and preamble text before JSON.
 
     Args:
         text: The ``structured_output`` (dict) or ``result`` (str) field
@@ -786,6 +831,27 @@ def _parse_plan(text: str | dict) -> dict:
         acceptance_criteria = result.acceptance_criteria
         proposed_tasks = [t.model_dump() for t in result.proposed_tasks]
     except (json.JSONDecodeError, ValidationError, KeyError, TypeError) as exc:
+        # Fallback: try stripping markdown fences and preamble
+        if isinstance(text, str):
+            stripped = _strip_markdown_fences(text)
+            if stripped != text:
+                try:
+                    data = json.loads(stripped)
+                    result = PlanResult.model_validate(data)
+                    logger.info(
+                        "Parsed plan after stripping markdown fences/preamble"
+                    )
+                    return {
+                        "plan": result.plan,
+                        "steps": [s.model_dump() for s in result.steps],
+                        "acceptance_criteria": result.acceptance_criteria,
+                        "proposed_tasks": [
+                            t.model_dump() for t in result.proposed_tasks
+                        ],
+                    }
+                except (json.JSONDecodeError, ValidationError, KeyError, TypeError):
+                    pass  # Fall through to default handling
+
         raw_repr = str(text)
         logger.warning(
             "Failed to parse plan response: %s. Raw (%d chars): %.500s",

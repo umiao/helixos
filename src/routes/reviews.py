@@ -643,6 +643,7 @@ async def _handle_replan(
                 task_id=task_id,
                 plan_validation=config.orchestrator.plan_validation,
                 review_feedback=review_feedback,
+                complexity_hint=task.complexity,
             )
 
             formatted = format_plan_as_text(plan_data)

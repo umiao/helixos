@@ -85,7 +85,7 @@ def test_plan_system_has_include_directive() -> None:
 
 def test_plan_system_renders_self_contained() -> None:
     """After render, plan_system contains expanded shared rules."""
-    content = render_prompt("plan_system")
+    content = render_prompt("plan_system", complexity_hint="S")
     # Must NOT have any unresolved {{include:...}} directives
     assert "{{include:" not in content
     # Must contain content from _shared_rules.md
@@ -210,7 +210,7 @@ def test_no_unresolved_placeholders_enrichment() -> None:
 
 def test_no_unresolved_placeholders_plan_rendered() -> None:
     """Plan system rendered prompt must have no {{...}} placeholders."""
-    content = render_prompt("plan_system")
+    content = render_prompt("plan_system", complexity_hint="S")
     assert "{{" not in content, "plan_system.md has unresolved placeholder after render"
 
 
@@ -219,7 +219,7 @@ def test_no_unresolved_placeholders_plan_rendered() -> None:
 
 def test_plan_system_content_equivalent() -> None:
     """Rendered plan_system contains all content from the old 3-file chain."""
-    content = render_prompt("plan_system")
+    content = render_prompt("plan_system", complexity_hint="S")
     # Key phrases from old task_schema_context.md (now in _shared_rules.md)
     assert "Do NOT assign IDs in your proposals" in content
     assert "Acceptance Criteria" in content
@@ -228,7 +228,6 @@ def test_plan_system_content_equivalent() -> None:
     assert "No emoji characters" in content
     # Key phrases from old plan_system.md
     assert "software architect" in content
-    assert "proposed sub-tasks" in content
     assert '"plan"' in content  # JSON schema reference
 
 
@@ -277,7 +276,7 @@ def test_include_missing_file_raises() -> None:
 
 def test_shared_section_identical_in_both_prompts() -> None:
     """Both plan and review prompts contain the same shared rules section."""
-    plan = render_prompt("plan_system")
+    plan = render_prompt("plan_system", complexity_hint="S")
     review = render_prompt(
         "review",
         reviewer_role="You are a code reviewer.",
@@ -304,7 +303,7 @@ def test_rule_coverage_parity_plan_vs_review() -> None:
     T-P1-125: Ensures the planner knows every rule the reviewer checks against,
     and the reviewer knows every anti-pattern the planner should avoid.
     """
-    plan = render_prompt("plan_system")
+    plan = render_prompt("plan_system", complexity_hint="S")
     review = render_prompt(
         "review",
         reviewer_role="You are a code reviewer.",

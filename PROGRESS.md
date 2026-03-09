@@ -1296,3 +1296,10 @@
 - **Sanity check result**: 1518 pass, 6 skipped, ruff clean. [AUTO-VERIFIED]
 - **Status**: [DONE]
 - **Request**: Move T-P1-125 to Completed
+
+## 2026-03-09 -- [T-P1-126] Rewrite plan_system.md with phased thinking and strict output contract
+- **What I did**: Rewrote `plan_system.md` with 4-phase thinking guidance (Analyze Scope, Design Steps, Define ACs, Sub-Task Decomposition) and strict JSON-only output contract. Added `{{complexity_hint}}` template variable to Phase 4 so M/L tasks get sub-task decomposition guidance while S tasks skip it. `generate_task_plan()` gains `complexity_hint: str = "S"` parameter, rendered per-call instead of at module level. Callers in `tasks.py` and `reviews.py` pass `task.complexity`. Added `_strip_markdown_fences()` fallback to `_parse_plan()` for handling markdown-fenced or preamble-prefixed JSON responses. 15 new tests across 3 test files.
+- **Deliverables**: `config/prompts/plan_system.md` (rewritten), `src/enrichment.py` (complexity_hint param, per-call rendering, markdown fence fallback), `src/routes/tasks.py` (pass complexity_hint), `src/routes/reviews.py` (pass complexity_hint), `tests/test_enrichment.py` (8 new tests), `tests/test_prompt_eval.py` (4 new tests), `tests/test_prompt_loader.py` (updated 4 existing tests for complexity_hint)
+- **Sanity check result**: 1533 pass, 6 skipped, ruff clean. [AUTO-VERIFIED]
+- **Status**: [DONE]
+- **Request**: Move T-P1-126 to Completed

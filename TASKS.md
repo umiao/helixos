@@ -29,26 +29,6 @@
 
 ### P1 -- Should Have (agentic intelligence)
 
-#### T-P1-126: Rewrite plan_system.md with phased thinking and strict output contract
-- **Priority**: P1
-- **Complexity**: S (< 1 session)
-- **Depends on**: T-P1-124
-- **Description**: plan_system.md tries to do architecture design and task decomposition simultaneously, diffusing the LLM's attention. Add explicit phased thinking guidance and a strict JSON output contract. Critically, complexity is NOT self-determined by the LLM -- the pipeline injects `complexity_hint` externally to prevent the LLM from gaming complexity to avoid decomposition work.
-- **Acceptance Criteria**:
-  1. Plan prompt includes 4-phase thinking guidance:
-     - Phase 1: Analyze scope and identify approach
-     - Phase 2: Design implementation steps with specific files
-     - Phase 3: Define acceptance criteria that verify the approach
-     - Phase 4: If `{{complexity_hint}}` is M or L, propose sub-tasks; otherwise skip
-  2. `generate_task_plan()` in `src/enrichment.py` gains `complexity_hint: str = "S"` parameter
-  3. Caller in `src/routes/tasks.py` determines complexity from task metadata and passes it
-  4. `complexity_hint` is injected into the user prompt alongside title/description
-  5. Strict JSON-only output contract: `RESPOND WITH JSON ONLY. No markdown fences, no preamble.`
-  6. JSON parse fallback handles markdown fences and preamble text (verify existing `_parse_plan_result()` covers this, or add fallback)
-  7. Shared rules come from `{{include:_shared_rules.md}}`, not copy-paste
-  8. Test: render plan_system.md with complexity_hint="M", verify Phase 4 guidance present
-  9. Test: render with complexity_hint="S", verify Phase 4 says to skip sub-tasks
-  10. Test: plan with markdown-fenced JSON response is correctly parsed
 
 #### T-P1-127: Add specific structural check items to review prompt
 - **Priority**: P1
@@ -145,7 +125,7 @@
 T-P1-115 depends on T-P1-113, T-P1-120 (both completed -- T-P1-115 now unblocked)
 T-P1-116 depends on T-P1-114 (completed -- T-P1-116 unblocked)
 T-P1-125 depends on T-P1-124 (completed -- T-P1-125 now unblocked)
-T-P1-126 depends on T-P1-124 (completed -- T-P1-126 now unblocked)
+T-P1-126 depends on T-P1-124 (both completed)
 T-P1-127 depends on T-P1-123 (completed -- T-P1-127 now unblocked)
 T-P2-131 depends on T-P1-124 (completed -- T-P2-131 now unblocked)
 
@@ -159,6 +139,7 @@ T-P2-131 depends on T-P1-124 (completed -- T-P2-131 now unblocked)
 
 > 120 completed tasks archived to [archive/completed_tasks.md](archive/completed_tasks.md).
 
+- T-P1-126: Rewrite plan_system.md with phased thinking and strict output contract
 - T-P0-121: Fix complexity parameter not passed to review pipeline
 - T-P1-125: Align plan and review prompt rule coverage
 - T-P1-124: Extract shared prompt rules into includable fragment

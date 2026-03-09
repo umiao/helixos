@@ -2126,6 +2126,153 @@ class TestClassifyCliError:
         assert result == PlanGenerationErrorType.CLI_ERROR
 
 
+# ------------------------------------------------------------------
+# Unit tests: _strip_markdown_fences and _parse_plan fallback
+# ------------------------------------------------------------------
+
+
+class TestStripMarkdownFences:
+    """Tests for _strip_markdown_fences helper."""
+
+    def test_plain_json_unchanged(self) -> None:
+        """Plain JSON string is returned unchanged."""
+        from src.enrichment import _strip_markdown_fences
+
+        text = '{"plan": "hello"}'
+        assert _strip_markdown_fences(text) == text
+
+    def test_json_code_fence(self) -> None:
+        """JSON inside ```json ... ``` is extracted."""
+        from src.enrichment import _strip_markdown_fences
+
+        text = '```json\n{"plan": "hello"}\n```'
+        assert _strip_markdown_fences(text) == '{"plan": "hello"}'
+
+    def test_plain_code_fence(self) -> None:
+        """JSON inside ``` ... ``` (no language) is extracted."""
+        from src.enrichment import _strip_markdown_fences
+
+        text = '```\n{"plan": "hello"}\n```'
+        assert _strip_markdown_fences(text) == '{"plan": "hello"}'
+
+    def test_preamble_text(self) -> None:
+        """Preamble text before JSON object is stripped."""
+        from src.enrichment import _strip_markdown_fences
+
+        text = 'Here is the plan:\n{"plan": "hello"}'
+        result = _strip_markdown_fences(text)
+        assert result.startswith('{"plan"')
+
+    def test_preamble_with_fence(self) -> None:
+        """Preamble + fenced JSON is extracted."""
+        from src.enrichment import _strip_markdown_fences
+
+        text = 'Here is the plan:\n```json\n{"plan": "hello"}\n```'
+        assert _strip_markdown_fences(text) == '{"plan": "hello"}'
+
+
+class TestParsePlanMarkdownFallback:
+    """Tests for _parse_plan handling markdown-fenced JSON responses."""
+
+    def test_markdown_fenced_json_parsed(self) -> None:
+        """Plan with markdown fences is correctly parsed via fallback."""
+        from src.enrichment import _parse_plan
+
+        fenced = (
+            '```json\n'
+            '{"plan": "Do stuff", "steps": [{"step": "Step 1"}], '
+            '"acceptance_criteria": ["AC1"]}\n'
+            '```'
+        )
+        result = _parse_plan(fenced)
+        assert result["plan"] == "Do stuff"
+        assert len(result["steps"]) == 1
+        assert result["acceptance_criteria"] == ["AC1"]
+
+    def test_preamble_json_parsed(self) -> None:
+        """Plan with preamble text before JSON is correctly parsed."""
+        from src.enrichment import _parse_plan
+
+        text = (
+            'Here is the plan:\n'
+            '{"plan": "Do stuff", "steps": [{"step": "Step 1"}], '
+            '"acceptance_criteria": ["AC1"]}'
+        )
+        result = _parse_plan(text)
+        assert result["plan"] == "Do stuff"
+        assert len(result["steps"]) == 1
+
+    def test_dict_input_unchanged(self) -> None:
+        """Dict input bypasses fence stripping entirely."""
+        from src.enrichment import _parse_plan
+
+        data = {
+            "plan": "Do stuff",
+            "steps": [{"step": "Step 1"}],
+            "acceptance_criteria": ["AC1"],
+        }
+        result = _parse_plan(data)
+        assert result["plan"] == "Do stuff"
+
+
+# ------------------------------------------------------------------
+# Unit tests: complexity_hint in generate_task_plan
+# ------------------------------------------------------------------
+
+
+class TestComplexityHint:
+    """Tests for complexity_hint parameter in generate_task_plan."""
+
+    @pytest.mark.asyncio
+    async def test_complexity_hint_in_system_prompt(self) -> None:
+        """complexity_hint value appears in the rendered system prompt."""
+        events = _make_plan_events(
+            "A valid plan summary", _VALID_STEPS, _VALID_AC,
+        )
+
+        with patch(
+            "src.enrichment.run_claude_query",
+            return_value=_mock_sdk_events(*events),
+        ) as mock_query:
+            await generate_task_plan("Task", complexity_hint="M")
+            call_args = mock_query.call_args
+            options = call_args[1].get("options") or call_args[0][1]
+            # Phase 4 guidance should reference the complexity hint
+            assert "Complexity hint: M" in options.system_prompt
+
+    @pytest.mark.asyncio
+    async def test_complexity_hint_default_s(self) -> None:
+        """Default complexity_hint is S."""
+        events = _make_plan_events(
+            "A valid plan summary", _VALID_STEPS, _VALID_AC,
+        )
+
+        with patch(
+            "src.enrichment.run_claude_query",
+            return_value=_mock_sdk_events(*events),
+        ) as mock_query:
+            await generate_task_plan("Task")
+            call_args = mock_query.call_args
+            options = call_args[1].get("options") or call_args[0][1]
+            assert "Complexity hint: S" in options.system_prompt
+
+    @pytest.mark.asyncio
+    async def test_complexity_hint_in_user_prompt(self) -> None:
+        """complexity_hint value appears in the user prompt."""
+        events = _make_plan_events(
+            "A valid plan summary", _VALID_STEPS, _VALID_AC,
+        )
+
+        with patch(
+            "src.enrichment.run_claude_query",
+            return_value=_mock_sdk_events(*events),
+        ) as mock_query:
+            await generate_task_plan("Task", complexity_hint="L")
+            call_args = mock_query.call_args
+            user_prompt = call_args[1].get("prompt") or call_args[0][0]
+            assert "Complexity: L" in user_prompt
+
+
 class TestStructuredErrorInApi:
     """Tests for structured error responses in API endpoints."""
 
