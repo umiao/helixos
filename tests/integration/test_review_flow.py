@@ -26,11 +26,16 @@ def _make_review_events(
     summary: str,
     suggestions: list[str] | None = None,
 ) -> list[ClaudeEvent]:
-    """Create ClaudeEvent objects simulating a review response."""
+    """Create ClaudeEvent objects simulating a review response.
+
+    LLM returns {blocking_issues, suggestions, pass} schema.
+    """
+    pass_value = verdict == "approve"
+    blocking_issues = [{"issue": summary, "severity": "high"}] if verdict == "reject" else []
     inner = {
-        "verdict": verdict,
-        "summary": summary,
+        "blocking_issues": blocking_issues,
         "suggestions": suggestions or [],
+        "pass": pass_value,
     }
     return [
         ClaudeEvent(type=ClaudeEventType.INIT, session_id="sess-integ"),
@@ -321,11 +326,10 @@ async def test_multi_reviewer_synthesis(
     )
     await task_manager.create_task(task)
 
-    # First reviewer approves, second (adversarial) rejects, synthesis returns 0.6
+    # First reviewer approves, second (adversarial) rejects -> deterministic merge
     _setup_mock_query(mock_query, [
         _make_review_events("approve", "OK"),
         _make_review_events("reject", "Risky", ["Watch out"]),
-        _make_synthesis_events(0.6, ["Security concern"]),
     ])
 
     pipeline = ReviewPipeline(
@@ -340,6 +344,6 @@ async def test_multi_reviewer_synthesis(
         complexity="M",  # M triggers adversarial reviewer
     )
 
-    assert review_state.consensus_score == 0.6
+    assert review_state.consensus_score == 0.5  # 1 approve / 2 total
     assert review_state.human_decision_needed is True
-    assert "Security concern" in review_state.decision_points
+    assert "Risky" in review_state.decision_points

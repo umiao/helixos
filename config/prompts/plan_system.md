@@ -41,6 +41,57 @@ Each task spec must include:
 - Windows-compatible: no bash-only commands without PowerShell alternatives.
 - Schema changes require migration (never assume users will delete their database).
 
+## Task Scope Guidance
+
+Prefer fewer, well-scoped tasks over many small ones. Each task should represent a meaningful, independently testable unit of work. Avoid creating tasks that are too granular (single-line changes) or too broad (entire features without clear boundaries).
+
+## Few-Shot Example
+
+### Good decomposition (2-task example)
+
+Input: "Add user authentication to the API"
+
+```json
+{
+  "proposed_tasks": [
+    {
+      "title": "Add JWT auth middleware and login endpoint",
+      "description": "Create FastAPI middleware that validates JWT tokens on protected routes. Add POST /auth/login endpoint that accepts username/password and returns a signed JWT. Store user credentials in the existing SQLite DB with bcrypt hashing.",
+      "suggested_priority": "P0",
+      "suggested_complexity": "M",
+      "dependencies": [],
+      "acceptance_criteria": [
+        "POST /auth/login with valid credentials returns 200 with JWT token",
+        "POST /auth/login with invalid credentials returns 401",
+        "Protected endpoints return 401 without valid Authorization header",
+        "Protected endpoints return 200 with valid JWT in Authorization header",
+        "Manually verify: login via curl -> use token on protected route -> get 200"
+      ]
+    },
+    {
+      "title": "Add frontend login page and auth state management",
+      "description": "Create a login form component that calls POST /auth/login. Store the JWT in localStorage and include it in all API requests via an Axios interceptor. Redirect unauthenticated users to the login page.",
+      "suggested_priority": "P0",
+      "suggested_complexity": "M",
+      "dependencies": ["Add JWT auth middleware and login endpoint"],
+      "acceptance_criteria": [
+        "User enters credentials on login page -> form submits to API -> token stored -> redirected to dashboard",
+        "User without token visits dashboard -> redirected to login page",
+        "User with expired token makes API call -> 401 -> redirected to login page",
+        "Manually verify: open browser -> login -> see dashboard -> refresh -> still logged in"
+      ]
+    }
+  ]
+}
+```
+
+## Anti-Patterns (avoid these)
+
+- **Too many tasks**: Splitting a simple feature into 5+ micro-tasks (e.g., separate tasks for "create file", "add import", "write function", "write test", "update docs"). Combine related work into one task.
+- **Vague acceptance criteria**: "It should work" or "Tests pass" are not sufficient. ACs must describe specific, observable outcomes.
+- **Scope creep in sub-tasks**: A task titled "Add delete button" should not include ACs like "Refactor the entire component hierarchy" or "Add comprehensive logging framework".
+- **Missing inverse cases**: "When feature flag is ON, show the modal" without specifying what happens when the flag is OFF.
+
 Focus on practical, actionable steps. Reference specific files and patterns from the codebase when available. Keep the plan focused and avoid over-engineering.
 
 Respond in JSON with this structure:

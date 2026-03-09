@@ -12,6 +12,7 @@ from src.prompt_loader import clear_cache, load_prompt, render_prompt
 # All prompt files that must exist in config/prompts/ (consolidated set)
 EXPECTED_PROMPTS = [
     "enrichment_system",
+    "execution_system",
     "plan_system",
     "review",
     "execution",
@@ -234,6 +235,7 @@ def test_review_rendered_content_equivalent() -> None:
     # Key phrases from old review_feasibility.md
     assert "feasibility" in rendered
     assert "edge cases" in rendered
-    # Structural: JSON response format preserved
-    assert '"verdict"' in rendered
+    # Structural: JSON response format preserved (new schema)
+    assert '"blocking_issues"' in rendered
     assert '"suggestions"' in rendered
+    assert '"pass"' in rendered

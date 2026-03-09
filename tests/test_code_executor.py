@@ -457,7 +457,7 @@ class TestExecuteHooksLoading:
         call_args = mock_query.call_args
         options = call_args[1].get("options") or call_args[0][1]
         assert options.system_prompt is not None
-        assert "task execution agent" in options.system_prompt.lower()
+        assert "implementation agent" in options.system_prompt.lower()
 
 
 class TestExecuteSuccess:

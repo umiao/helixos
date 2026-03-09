@@ -43,16 +43,23 @@ def _make_review_events(
     usage: dict[str, int] | None = None,
     session_id: str | None = None,
     cost_usd: float | None = None,
+    blocking_issues: list[dict] | None = None,
 ) -> list[ClaudeEvent]:
     """Create a list of ClaudeEvent objects simulating a review response.
 
     Generates INIT + TEXT + RESULT events, matching what the SDK adapter
     would produce for a simple structured-output query.
+
+    The LLM now returns {blocking_issues, suggestions, pass} schema.
+    ``verdict`` param maps to ``pass``: "approve" -> true, "reject" -> false.
     """
+    pass_value = verdict == "approve"
+    if blocking_issues is None:
+        blocking_issues = [{"issue": summary, "severity": "high"}] if verdict == "reject" else []
     inner = {
-        "verdict": verdict,
-        "summary": summary,
+        "blocking_issues": blocking_issues,
         "suggestions": suggestions or [],
+        "pass": pass_value,
     }
     events = [
         ClaudeEvent(
@@ -208,7 +215,13 @@ async def test_single_reviewer_approve(mock_query: MagicMock) -> None:
 async def test_single_reviewer_reject(mock_query: MagicMock) -> None:
     """Single required reviewer rejects -> score 0.0, REJECTED_SINGLE lifecycle."""
     _setup_mock_query(mock_query, [
-        _make_review_events("reject", "Plan has issues", ["Fix error handling", "Add tests"]),
+        _make_review_events(
+            "reject", "Plan has issues", ["Fix error handling", "Add tests"],
+            blocking_issues=[
+                {"issue": "Fix error handling", "severity": "high"},
+                {"issue": "Add tests", "severity": "medium"},
+            ],
+        ),
     ])
 
     pipeline = ReviewPipeline(_default_config(), threshold=0.8)
@@ -233,11 +246,10 @@ async def test_single_reviewer_reject(mock_query: MagicMock) -> None:
 @pytest.mark.asyncio
 @patch("src.review_pipeline.run_claude_query")
 async def test_multi_reviewer_disagree(mock_query: MagicMock) -> None:
-    """Two reviewers disagree -> synthesis called, score from synthesis."""
+    """Two reviewers disagree -> deterministic score, no synthesis call."""
     _setup_mock_query(mock_query, [
         _make_review_events("approve", "Looks feasible"),
         _make_review_events("reject", "Security risk", ["Add auth check"]),
-        _make_synthesis_events(0.65, ["Security concerns"]),
     ])
 
     pipeline = ReviewPipeline(_default_config(), threshold=0.8)
@@ -246,23 +258,23 @@ async def test_multi_reviewer_disagree(mock_query: MagicMock) -> None:
         _sample_task(), "Build the thing", lambda c, t, p: None, complexity="M"
     )
 
-    assert result.consensus_score == 0.65
+    assert result.consensus_score == 0.5  # 1 approve / 2 total
     assert result.human_decision_needed is True
     assert len(result.reviews) == 2
-    assert result.decision_points == ["Security concerns"]
+    # Blocking issues from the rejecting reviewer
+    assert "Security risk" in result.decision_points
     assert result.lifecycle_state == ReviewLifecycleState.REJECTED_CONSENSUS
-    # 2 review calls + 1 synthesis call = 3 total
-    assert mock_query.call_count == 3
+    # 2 review calls only, no synthesis
+    assert mock_query.call_count == 2
 
 
 @pytest.mark.asyncio
 @patch("src.review_pipeline.run_claude_query")
 async def test_multi_reviewer_agree(mock_query: MagicMock) -> None:
-    """Two reviewers both approve -> synthesis called, high score."""
+    """Two reviewers both approve -> deterministic score 1.0."""
     _setup_mock_query(mock_query, [
         _make_review_events("approve", "Feasible"),
         _make_review_events("approve", "No risks found"),
-        _make_synthesis_events(0.95, []),
     ])
 
     pipeline = ReviewPipeline(_default_config(), threshold=0.8)
@@ -271,7 +283,7 @@ async def test_multi_reviewer_agree(mock_query: MagicMock) -> None:
         _sample_task(), "Build the thing", lambda c, t, p: None, complexity="L"
     )
 
-    assert result.consensus_score == 0.95
+    assert result.consensus_score == 1.0  # 2 approves / 2 total
     assert result.human_decision_needed is False
     assert len(result.reviews) == 2
     assert result.decision_points == []
@@ -290,7 +302,6 @@ async def test_progress_callback(mock_query: MagicMock) -> None:
     _setup_mock_query(mock_query, [
         _make_review_events("approve", "OK"),
         _make_review_events("approve", "OK"),
-        _make_synthesis_events(0.9, []),
     ])
 
     pipeline = ReviewPipeline(_default_config(), threshold=0.8)
@@ -308,7 +319,6 @@ async def test_progress_callback(mock_query: MagicMock) -> None:
         (1, 2, "Completed feasibility_and_edge_cases review"),
         (1, 2, "Starting adversarial_red_team review..."),
         (2, 2, "Completed adversarial_red_team review"),
-        (2, 2, "Synthesizing..."),
     ]
 
 
@@ -366,7 +376,6 @@ async def test_m_complexity_includes_optional(mock_query: MagicMock) -> None:
     _setup_mock_query(mock_query, [
         _make_review_events("approve", "OK"),
         _make_review_events("approve", "OK"),
-        _make_synthesis_events(0.9, []),
     ])
 
     pipeline = ReviewPipeline(_default_config())
@@ -376,8 +385,8 @@ async def test_m_complexity_includes_optional(mock_query: MagicMock) -> None:
     )
 
     assert len(result.reviews) == 2
-    # 2 reviews + 1 synthesis
-    assert mock_query.call_count == 3
+    # 2 reviews, no synthesis (deterministic merge)
+    assert mock_query.call_count == 2
 
 
 @pytest.mark.asyncio
@@ -387,7 +396,6 @@ async def test_l_complexity_includes_optional(mock_query: MagicMock) -> None:
     _setup_mock_query(mock_query, [
         _make_review_events("approve", "OK"),
         _make_review_events("approve", "OK"),
-        _make_synthesis_events(0.9, []),
     ])
 
     pipeline = ReviewPipeline(_default_config())
@@ -435,21 +443,11 @@ async def test_parse_failure_treated_as_reject(mock_query: MagicMock) -> None:
 
 @pytest.mark.asyncio
 @patch("src.review_pipeline.run_claude_query")
-async def test_synthesis_parse_failure(mock_query: MagicMock) -> None:
-    """Invalid JSON from synthesis -> default score 0.5, human decision needed."""
-    synthesis_events = [
-        ClaudeEvent(type=ClaudeEventType.INIT, session_id="sess-synth"),
-        ClaudeEvent(
-            type=ClaudeEventType.RESULT,
-            result_text="not json at all",
-            structured_output=None,
-            model="claude-sonnet-4-5",
-        ),
-    ]
+async def test_deterministic_merge_mixed_verdicts(mock_query: MagicMock) -> None:
+    """Mixed verdicts -> deterministic score 0.5, human decision needed."""
     _setup_mock_query(mock_query, [
         _make_review_events("approve", "OK"),
-        _make_review_events("reject", "Bad"),
-        synthesis_events,
+        _make_review_events("reject", "Bad", ["Fix this"]),
     ])
 
     pipeline = ReviewPipeline(_default_config(), threshold=0.8)
@@ -458,10 +456,11 @@ async def test_synthesis_parse_failure(mock_query: MagicMock) -> None:
         _sample_task(), "Plan", lambda c, t, p: None, complexity="M"
     )
 
-    assert result.consensus_score == 0.5
+    assert result.consensus_score == 0.5  # 1 approve / 2 total
     assert result.human_decision_needed is True
-    assert len(result.decision_points) == 1
-    assert "manual review" in result.decision_points[0].lower()
+    assert len(result.decision_points) >= 1
+    # No synthesis call -- only 2 review calls
+    assert mock_query.call_count == 2
 
 
 # ------------------------------------------------------------------
@@ -652,7 +651,6 @@ async def test_threshold_boundary(mock_query: MagicMock) -> None:
     _setup_mock_query(mock_query, [
         _make_review_events("approve", "OK"),
         _make_review_events("approve", "OK"),
-        _make_synthesis_events(0.8, []),
     ])
 
     pipeline = ReviewPipeline(_default_config(), threshold=0.8)
@@ -661,19 +659,18 @@ async def test_threshold_boundary(mock_query: MagicMock) -> None:
         _sample_task(), "Plan", lambda c, t, p: None, complexity="M"
     )
 
-    # Score 0.8 is NOT < 0.8, so no human decision needed
-    assert result.consensus_score == 0.8
+    # Deterministic: 2/2 = 1.0, which is >= 0.8
+    assert result.consensus_score == 1.0
     assert result.human_decision_needed is False
 
 
 @pytest.mark.asyncio
 @patch("src.review_pipeline.run_claude_query")
-async def test_synthesis_score_clamped(mock_query: MagicMock) -> None:
-    """Synthesis score > 1.0 is clamped to 1.0."""
+async def test_deterministic_score_all_reject(mock_query: MagicMock) -> None:
+    """All reviewers reject -> score 0.0."""
     _setup_mock_query(mock_query, [
-        _make_review_events("approve", "OK"),
-        _make_review_events("approve", "OK"),
-        _make_synthesis_events(1.5, []),
+        _make_review_events("reject", "Bad plan"),
+        _make_review_events("reject", "Risky"),
     ])
 
     pipeline = ReviewPipeline(_default_config(), threshold=0.8)
@@ -682,8 +679,8 @@ async def test_synthesis_score_clamped(mock_query: MagicMock) -> None:
         _sample_task(), "Plan", lambda c, t, p: None, complexity="M"
     )
 
-    assert result.consensus_score == 1.0
-    assert result.human_decision_needed is False
+    assert result.consensus_score == 0.0  # 0 approves / 2 total
+    assert result.human_decision_needed is True
 
 
 # ------------------------------------------------------------------
@@ -696,9 +693,9 @@ async def test_synthesis_score_clamped(mock_query: MagicMock) -> None:
 async def test_raw_response_captured(mock_query: MagicMock) -> None:
     """raw_response is structured JSON with model, usage, result, session_id."""
     inner_dict = {
-        "verdict": "approve",
-        "summary": "Plan looks good",
+        "blocking_issues": [],
         "suggestions": [],
+        "pass": True,
     }
     _setup_mock_query(mock_query, [
         _make_review_events("approve", "Plan looks good"),
@@ -822,7 +819,7 @@ async def test_raw_response_decoupled_from_parsed_fields(mock_query: MagicMock) 
 
     # -- Invariant 1: raw_response metadata keys are disjoint from parsed fields --
     raw_metadata_keys = set(raw.keys()) - {"result"}  # {model, usage, session_id}
-    parsed_field_names = {"verdict", "summary", "suggestions"}
+    parsed_field_names = {"verdict", "summary", "suggestions", "blocking_issues"}
     assert raw_metadata_keys.isdisjoint(parsed_field_names), (
         f"raw_response metadata keys {raw_metadata_keys} overlap with "
         f"parsed field names {parsed_field_names}"
@@ -835,13 +832,14 @@ async def test_raw_response_decoupled_from_parsed_fields(mock_query: MagicMock) 
 
     # -- Invariant 3: parsed fields come from structured result, not raw top-level --
     assert review.verdict == "approve"
-    assert review.summary == "Implementation is solid with minor nits"
+    # Summary is auto-generated from suggestions when pass=true
+    assert "Add error handling" in review.summary
     assert review.suggestions == review_suggestions
 
-    # -- Invariant 4: raw_response["result"] mirrors structured output (not parsed) --
-    assert raw["result"]["verdict"] == review.verdict
-    assert raw["result"]["summary"] == review.summary
+    # -- Invariant 4: raw_response["result"] has the LLM schema (not internal) --
+    assert raw["result"]["pass"] is True
     assert raw["result"]["suggestions"] == review.suggestions
+    assert raw["result"]["blocking_issues"] == []
 
     # -- Invariant 5: parsed fields are NOT among raw_response top-level keys --
     assert "verdict" not in raw
@@ -1149,24 +1147,12 @@ async def test_normal_completion_within_timeout(mock_query: MagicMock) -> None:
 
 @pytest.mark.asyncio
 @patch("src.review_pipeline.run_claude_query")
-async def test_synthesis_timeout_also_covered(mock_query: MagicMock) -> None:
-    """Timeout applies to synthesis step too, not just individual reviewers."""
-    call_count = 0
-
-    def _side_effect(prompt: str, options: Any = None):
-        nonlocal call_count
-        call_count += 1
-        if call_count <= 2:
-            return _mock_run_claude_query_from_events(
-                _make_review_events("approve", "OK")
-            )
-        # Synthesis call hangs
-        async def _hang(prompt=prompt, options=options):
-            yield ClaudeEvent(type=ClaudeEventType.INIT, session_id="sess-hang")
-            await asyncio.sleep(9999)
-        return _hang()
-
-    mock_query.side_effect = _side_effect
+async def test_deterministic_merge_no_synthesis_call(mock_query: MagicMock) -> None:
+    """Deterministic merge does not call synthesis -- only reviewer calls are made."""
+    _setup_mock_query(mock_query, [
+        _make_review_events("approve", "OK"),
+        _make_review_events("reject", "Bad"),
+    ])
 
     config = ReviewPipelineConfig(
         reviewers=[
@@ -1186,13 +1172,14 @@ async def test_synthesis_timeout_also_covered(mock_query: MagicMock) -> None:
         review_timeout_minutes=1,
     )
     pipeline = ReviewPipeline(config, threshold=0.8)
-    # Override to tiny value so test doesn't wait 60 seconds
-    pipeline._timeout_minutes = 0.001
 
-    with pytest.raises(RuntimeError, match="timed out"):
-        await pipeline.review_task(
-            _sample_task(), "Plan", lambda c, t, p: None, complexity="M"
-        )
+    result = await pipeline.review_task(
+        _sample_task(), "Plan", lambda c, t, p: None, complexity="M"
+    )
+
+    # Only 2 reviewer calls, no synthesis
+    assert mock_query.call_count == 2
+    assert result.consensus_score == 0.5
 
 
 # ------------------------------------------------------------------
@@ -1255,7 +1242,6 @@ async def test_review_attempt_on_multi_reviewer(mock_query: MagicMock) -> None:
     _setup_mock_query(mock_query, [
         _make_review_events("approve", "OK"),
         _make_review_events("approve", "OK"),
-        _make_synthesis_events(0.95, []),
     ])
 
     mock_writer = AsyncMock()
@@ -1335,7 +1321,6 @@ async def test_plan_snapshot_none_on_subsequent_rounds(mock_query: MagicMock) ->
     _setup_mock_query(mock_query, [
         _make_review_events("approve", "OK"),
         _make_review_events("approve", "OK"),
-        _make_synthesis_events(0.95, []),
     ])
 
     mock_writer = AsyncMock()
@@ -1455,12 +1440,11 @@ async def test_phase_string_completed(mock_query: MagicMock) -> None:
 
 @pytest.mark.asyncio
 @patch("src.review_pipeline.run_claude_query")
-async def test_phase_synthesizing_emitted(mock_query: MagicMock) -> None:
-    """'Synthesizing...' phase is emitted before multi-review synthesis."""
+async def test_no_synthesizing_for_multi_reviewer(mock_query: MagicMock) -> None:
+    """Deterministic merge: no 'Synthesizing...' phase emitted."""
     _setup_mock_query(mock_query, [
         _make_review_events("approve", "OK"),
         _make_review_events("reject", "Bad"),
-        _make_synthesis_events(0.7, []),
     ])
 
     pipeline = ReviewPipeline(_default_config(), threshold=0.8)
@@ -1472,7 +1456,7 @@ async def test_phase_synthesizing_emitted(mock_query: MagicMock) -> None:
         complexity="M",
     )
 
-    assert "Synthesizing..." in phases
+    assert "Synthesizing..." not in phases
 
 
 @pytest.mark.asyncio
@@ -1756,7 +1740,6 @@ async def test_lifecycle_state_on_review_state_rejected_consensus(
     _setup_mock_query(mock_query, [
         _make_review_events("approve", "OK"),
         _make_review_events("reject", "Bad"),
-        _make_synthesis_events(0.4, ["major issues"]),
     ])
     pipeline = ReviewPipeline(_default_config(), threshold=0.8)
     result = await pipeline.review_task(
@@ -1772,7 +1755,6 @@ async def test_lifecycle_state_passed_to_history_writer(mock_query: MagicMock) -
     _setup_mock_query(mock_query, [
         _make_review_events("approve", "OK"),
         _make_review_events("approve", "OK"),
-        _make_synthesis_events(0.95, []),
     ])
 
     mock_writer = AsyncMock()
@@ -1992,43 +1974,46 @@ async def test_raw_artifact_persisted_on_error(mock_query: MagicMock) -> None:
 
 
 class TestReviewResultModel:
-    """Tests for ReviewResult Pydantic validation."""
+    """Tests for ReviewResult Pydantic validation (new schema)."""
 
-    def test_valid_approve(self) -> None:
-        """Valid approve review passes validation."""
+    def test_valid_pass(self) -> None:
+        """Valid passing review passes validation."""
         result = ReviewResult.model_validate({
-            "verdict": "approve",
-            "summary": "Looks good",
+            "blocking_issues": [],
             "suggestions": ["Minor nit"],
+            "pass": True,
         })
-        assert result.verdict == "approve"
-        assert result.summary == "Looks good"
+        assert result.pass_ is True
+        assert result.blocking_issues == []
+        assert result.suggestions == ["Minor nit"]
 
-    def test_valid_reject(self) -> None:
-        """Valid reject review passes validation."""
+    def test_valid_fail(self) -> None:
+        """Valid failing review passes validation."""
         result = ReviewResult.model_validate({
-            "verdict": "reject",
-            "summary": "Needs work",
+            "blocking_issues": [{"issue": "Missing tests", "severity": "high"}],
             "suggestions": [],
+            "pass": False,
         })
-        assert result.verdict == "reject"
+        assert result.pass_ is False
+        assert len(result.blocking_issues) == 1
+        assert result.blocking_issues[0].issue == "Missing tests"
 
-    def test_invalid_verdict_rejected(self) -> None:
-        """Invalid verdict enum value is rejected."""
+    def test_invalid_severity_rejected(self) -> None:
+        """Invalid severity enum value is rejected."""
         from pydantic import ValidationError
-        with pytest.raises(ValidationError, match="verdict"):
+        with pytest.raises(ValidationError):
             ReviewResult.model_validate({
-                "verdict": "maybe",
-                "summary": "s",
+                "blocking_issues": [{"issue": "x", "severity": "low"}],
                 "suggestions": [],
+                "pass": False,
             })
 
-    def test_missing_summary_rejected(self) -> None:
-        """Missing required summary field is rejected."""
+    def test_missing_pass_rejected(self) -> None:
+        """Missing required pass field is rejected."""
         from pydantic import ValidationError
-        with pytest.raises(ValidationError, match="summary"):
+        with pytest.raises(ValidationError):
             ReviewResult.model_validate({
-                "verdict": "approve",
+                "blocking_issues": [],
                 "suggestions": [],
             })
 
@@ -2063,8 +2048,8 @@ class TestSynthesisResultModel:
 class TestParseReviewWithValidation:
     """Tests that _parse_review uses Pydantic and logs raw content."""
 
-    def test_invalid_verdict_logs_raw(self, caplog: pytest.LogCaptureFixture) -> None:
-        """Invalid verdict triggers Pydantic rejection and logs raw content."""
+    def test_invalid_schema_logs_raw(self, caplog: pytest.LogCaptureFixture) -> None:
+        """Old-format schema triggers Pydantic rejection and logs raw content."""
         text = json.dumps({
             "verdict": "maybe",
             "summary": "s",
@@ -2077,7 +2062,6 @@ class TestParseReviewWithValidation:
         assert review.verdict == "reject"  # fallback
         assert review.summary == text  # raw text as summary
         assert "Raw" in caplog.text
-        assert "maybe" in caplog.text
 
     def test_malformed_json_logs_raw(self, caplog: pytest.LogCaptureFixture) -> None:
         """Malformed JSON logs raw content."""
@@ -2139,7 +2123,7 @@ async def test_on_stream_event_receives_parsed_events(mock_query: MagicMock) -> 
     result_events = [e for e in stream_events if e.get("type") == "result"]
     assert len(result_events) >= 1
     assert result_events[0].get("structured_output") == {
-        "verdict": "approve", "summary": "Looks good", "suggestions": [],
+        "blocking_issues": [], "suggestions": [], "pass": True,
     }
 
 

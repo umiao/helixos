@@ -30,18 +30,6 @@
 
 ### P1 -- Should Have (agentic intelligence)
 
-#### T-P1-115: Upgrade agent prompts to production-grade (Phase 3: quality)
-- **Priority**: P1
-- **Complexity**: M (1-2 sessions)
-- **Depends on**: T-P1-113, T-P1-120
-- **Description**: After T-P1-119 (flow fixes) and T-P1-120 (structural consolidation), this task focuses on prompt quality: add few-shot examples to plan/review/execution prompts, tighten JSON schemas with stricter validation, add eval test cases that assert prompt output quality against reference inputs. Review prompts use structured output (blocking_issues/suggestions/pass) with deterministic merge (any blocking_issue = reject). Enrichment prompt explicitly forbids scope expansion.
-- **Acceptance Criteria**:
-  1. Plan prompt: few-shot example of good proposed_tasks[] output; anti-pattern examples; task scope guidance as configurable limits
-  2. Review prompts: output schema changed to `{blocking_issues: [], suggestions: [], pass: bool}`; `_REVIEW_JSON_SCHEMA` updated; deterministic merge in review_pipeline.py (any blocking_issue = reject)
-  3. Enrichment prompt: receives plan context; explicitly forbids scope expansion
-  4. Execution prompt: system_prompt with agent role; file constraint with escape hatch for test/config files; "Only implement the current task"
-  5. Eval test cases: at least 3 reference input/output pairs per prompt type asserting key phrases and structure
-  6. All existing tests updated for new schemas; new tests verify prompt content and review merge logic
 
 #### T-P1-116: Unified plan review before batch task decomposition
 - **Priority**: P1
@@ -77,6 +65,8 @@ T-P1-116 depends on T-P1-114 (completed -- T-P1-116 unblocked)
 ## Completed Tasks
 
 > 120 completed tasks archived to [archive/completed_tasks.md](archive/completed_tasks.md).
+
+- T-P1-115: Upgrade agent prompts to production-grade (Phase 3: quality)
 
 #### [x] T-P1-118: Harden task cancel with timeout enforcement and force-kill -- 2026-03-08
 - Added `timeout_seconds=30` param to `cancel_task()` with graceful/forced paths. Cancel endpoint returns `{"graceful": bool}`. Both paths guarantee FAILED status. 2 new tests (graceful, force-kill timeout). 1123 pass, ruff clean.

@@ -137,6 +137,7 @@ class LLMReview(BaseModel):
     verdict: str
     summary: str
     suggestions: list[str] = Field(default_factory=list)
+    blocking_issues: list[str] = Field(default_factory=list)
     raw_response: str = ""
     cost_usd: float | None = None
     timestamp: datetime

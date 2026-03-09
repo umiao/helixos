@@ -17,7 +17,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Literal
 
-from pydantic import BaseModel, ValidationError
+from pydantic import BaseModel, Field, ValidationError
 
 from src.config import ReviewerConfig, ReviewPipelineConfig
 from src.executors.code_executor import _LazyFileWriter
@@ -41,12 +41,23 @@ logger = logging.getLogger(__name__)
 # ------------------------------------------------------------------
 
 
-class ReviewResult(BaseModel):
-    """Validates review JSON matches --json-schema contract."""
+class BlockingIssue(BaseModel):
+    """A single blocking issue found by a reviewer."""
 
-    verdict: Literal["approve", "reject"]
-    summary: str
+    issue: str
+    severity: Literal["high", "medium"]
+
+
+class ReviewResult(BaseModel):
+    """Validates review JSON matches --json-schema contract.
+
+    The LLM returns {blocking_issues, suggestions, pass}. We map
+    pass -> verdict internally for DB storage compatibility.
+    """
+
+    blocking_issues: list[BlockingIssue]
     suggestions: list[str]
+    pass_: bool = Field(alias="pass")
 
 
 class SynthesisResult(BaseModel):
@@ -63,11 +74,21 @@ class SynthesisResult(BaseModel):
 _REVIEW_JSON_SCHEMA = json.dumps({
     "type": "object",
     "properties": {
-        "verdict": {"type": "string", "enum": ["approve", "reject"]},
-        "summary": {"type": "string"},
+        "blocking_issues": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "issue": {"type": "string"},
+                    "severity": {"type": "string", "enum": ["high", "medium"]},
+                },
+                "required": ["issue", "severity"],
+            },
+        },
         "suggestions": {"type": "array", "items": {"type": "string"}},
+        "pass": {"type": "boolean"},
     },
-    "required": ["verdict", "summary", "suggestions"],
+    "required": ["blocking_issues", "suggestions", "pass"],
 })
 
 _SYNTHESIS_JSON_SCHEMA = json.dumps({
@@ -312,20 +333,23 @@ class ReviewPipeline:
             on_progress(i + 1, len(active_reviewers), completed_msg)
             _emit_log(completed_msg)
 
-        # Synthesize (only if multiple reviews)
+        # Deterministic merge (no synthesis LLM call needed for pass/fail)
         if len(reviews) > 1:
-            on_progress(len(reviews), len(active_reviewers), "Synthesizing...")
-            synthesis = await self._synthesize(
-                reviews, plan_content, task_id=task.id,
-                on_stream_event=on_stream_event,
-            )
-            score = synthesis.score
-            disagreements = synthesis.disagreements
+            approves = sum(1 for r in reviews if r.verdict == "approve")
+            score = approves / len(reviews)
+            # Collect blocking issues + suggestions from rejecting reviewers
+            disagreements = []
+            for r in reviews:
+                if r.verdict == "reject":
+                    disagreements.extend(r.blocking_issues)
+                    if not r.blocking_issues:
+                        disagreements.extend(r.suggestions)
         else:
             # Single reviewer: approve=1.0, reject=0.0 (binary)
             score = 1.0 if reviews[0].verdict == "approve" else 0.0
             disagreements = (
-                reviews[0].suggestions if score < self.threshold else []
+                reviews[0].blocking_issues or reviews[0].suggestions
+                if score < self.threshold else []
             )
 
         # Determine lifecycle state from outcome
@@ -721,20 +745,32 @@ class ReviewPipeline:
     def _parse_review(self, text: str | dict, reviewer: ReviewerConfig) -> LLMReview:
         """Parse a Claude CLI result into an LLMReview.
 
+        Maps the LLM's ``{blocking_issues, suggestions, pass}`` schema to
+        the internal ``LLMReview`` model which keeps ``verdict`` as
+        ``"approve"``/``"reject"`` for DB compatibility.
+
         Args:
             text: The ``structured_output`` (dict) or ``result`` (str) field
                 from Claude CLI JSON output.
             reviewer: The reviewer config that generated this response.
 
         Returns:
-            LLMReview with extracted verdict, summary, suggestions.
+            LLMReview with extracted verdict, summary, suggestions,
+            and blocking_issues.
         """
         try:
             data = text if isinstance(text, dict) else json.loads(text)
             result = ReviewResult.model_validate(data)
-            verdict = result.verdict
-            summary = result.summary
+            verdict = "approve" if result.pass_ else "reject"
+            blocking_issues = [bi.issue for bi in result.blocking_issues]
             suggestions = result.suggestions
+            # Build summary from blocking issues or a default
+            if blocking_issues:
+                summary = "; ".join(blocking_issues)
+            elif suggestions:
+                summary = "Approved with suggestions: " + "; ".join(suggestions)
+            else:
+                summary = "Approved" if result.pass_ else "Rejected"
         except (json.JSONDecodeError, ValidationError, KeyError, IndexError) as exc:
             raw_repr = str(text)
             logger.warning(
@@ -744,6 +780,7 @@ class ReviewPipeline:
             verdict = "reject"
             summary = raw_repr if isinstance(text, str) else str(text)
             suggestions = []
+            blocking_issues = []
 
         return LLMReview(
             model=reviewer.model,
@@ -751,6 +788,7 @@ class ReviewPipeline:
             verdict=verdict,
             summary=summary,
             suggestions=suggestions,
+            blocking_issues=blocking_issues,
             timestamp=datetime.now(UTC),
         )
 
