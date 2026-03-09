@@ -55,12 +55,12 @@
 - **Priority**: P1
 - **Complexity**: S (< 1 session)
 - **Depends on**: None
-- **Description**: The review pipeline passes `plan_content=task.description` (formatted markdown text) to reviewers. Reviewers must parse markdown to understand plan structure, reducing review precision. The structured `plan_json` (with steps[], acceptance_criteria[], proposed_tasks[]) is available on the task but not forwarded. The execution agent already receives structured plan_json, but the reviewer -- who most needs structural verification -- does not.
+- **Description**: The review pipeline passes `plan_content=task.description` (formatted markdown text) to reviewers. Reviewers must parse markdown to understand plan structure, reducing review precision. The structured `plan_json` (with steps[], acceptance_criteria[], proposed_tasks[]) is available on the task but not forwarded. The execution agent already receives structured plan_json via `_format_plan_json_for_prompt()` in `code_executor.py:66-108`, but the reviewer -- who most needs structural verification -- does not.
 - **Acceptance Criteria**:
-  1. `_call_reviewer()` receives structured plan_json in addition to or instead of formatted text
+  1. `_call_reviewer()` in `review_pipeline.py:628` receives `task.plan_json` and injects structured fields into user_content
   2. The user content sent to the reviewer includes structured fields (steps, ACs, proposed tasks) in a parseable format
   3. Reviewer can reference specific steps/ACs by index rather than parsing markdown
-  4. Backward compatible: if plan_json is None, fall back to description text
+  4. Backward compatible: if plan_json is None, fall back to description text only
   5. Test: mock reviewer call, verify user content includes structured plan data
 
 #### T-P1-124: Extract shared prompt rules into includable fragment
@@ -70,11 +70,13 @@
 - **Description**: `plan_system.md` and `review.md` share ~30 lines of identical content (Task Schema + Project Rules). Currently copy-pasted, with drift already present (plan_system.md lacks State Machine Rules and Smoke Test Enforcement that review.md includes). Add a simple `{{include:filename}}` directive to `render_prompt()` and extract shared rules into a reusable fragment.
 - **Acceptance Criteria**:
   1. `render_prompt()` supports `{{include:filename}}` that inlines another file from `config/prompts/`
-  2. Shared rules (Task Schema, Project Rules) extracted to `config/prompts/_shared_rules.md`
-  3. Both `plan_system.md` and `review.md` use `{{include:_shared_rules.md}}` instead of copy-pasted content
-  4. Plan prompt now includes State Machine Rules and Smoke Test Enforcement (previously missing)
-  5. Test: render both templates, verify shared section is identical in both outputs
-  6. Test: modify _shared_rules.md, verify change appears in both rendered prompts
+  2. Include expansion happens BEFORE variable substitution -- `{{variable}}` placeholders inside included files are resolved by the caller's kwargs
+  3. Shared rules (Task Schema, Project Rules) extracted to `config/prompts/_shared_rules.md`
+  4. Both `plan_system.md` and `review.md` use `{{include:_shared_rules.md}}` instead of copy-pasted content
+  5. Plan prompt now includes State Machine Rules and Smoke Test Enforcement (previously missing)
+  6. Test: render both templates, verify shared section is identical in both outputs
+  7. Test: modify _shared_rules.md, verify change appears in both rendered prompts
+  8. Test: `{{variable}}` inside included file is resolved when caller passes that variable
 
 #### T-P1-125: Align plan and review prompt rule coverage
 - **Priority**: P1
@@ -87,7 +89,46 @@
   3. No rule exists in review prompt that is absent from plan prompt (planner must know what reviewer will check)
   4. Test: grep both rendered prompts for all rule section headers, verify coverage parity
 
-#### T-P1-126: Add pass/fail calibration example to review prompt
+#### T-P1-126: Rewrite plan_system.md with phased thinking and strict output contract
+- **Priority**: P1
+- **Complexity**: S (< 1 session)
+- **Depends on**: T-P1-124
+- **Description**: plan_system.md tries to do architecture design and task decomposition simultaneously, diffusing the LLM's attention. Add explicit phased thinking guidance and a strict JSON output contract. Critically, complexity is NOT self-determined by the LLM -- the pipeline injects `complexity_hint` externally to prevent the LLM from gaming complexity to avoid decomposition work.
+- **Acceptance Criteria**:
+  1. Plan prompt includes 4-phase thinking guidance:
+     - Phase 1: Analyze scope and identify approach
+     - Phase 2: Design implementation steps with specific files
+     - Phase 3: Define acceptance criteria that verify the approach
+     - Phase 4: If `{{complexity_hint}}` is M or L, propose sub-tasks; otherwise skip
+  2. `generate_task_plan()` in `src/enrichment.py` gains `complexity_hint: str = "S"` parameter
+  3. Caller in `src/routes/tasks.py` determines complexity from task metadata and passes it
+  4. `complexity_hint` is injected into the user prompt alongside title/description
+  5. Strict JSON-only output contract: `RESPOND WITH JSON ONLY. No markdown fences, no preamble.`
+  6. JSON parse fallback handles markdown fences and preamble text (verify existing `_parse_plan_result()` covers this, or add fallback)
+  7. Shared rules come from `{{include:_shared_rules.md}}`, not copy-paste
+  8. Test: render plan_system.md with complexity_hint="M", verify Phase 4 guidance present
+  9. Test: render with complexity_hint="S", verify Phase 4 says to skip sub-tasks
+  10. Test: plan with markdown-fenced JSON response is correctly parsed
+
+#### T-P1-127: Add specific structural check items to review prompt
+- **Priority**: P1
+- **Complexity**: S (< 1 session)
+- **Depends on**: T-P1-123
+- **Description**: Reviewer prompts use generic instructions like "check feasibility" instead of specific structural verification items. With structured plan_json now available (T-P1-123), reviewers can perform precise checks on steps, ACs, files, and dependency graphs. Adversarial reviewer should focus on plan-level logic gaps, not code-level security (reviewer has no code to inspect at plan stage).
+- **Acceptance Criteria**:
+  1. Feasibility reviewer (`_REVIEWER_PARAMS["feasibility_and_edge_cases"]`) includes:
+     - "For each step: is it actionable (specific files, specific changes)?"
+     - "Does at least one AC verify each step's outcome?"
+     - "Are listed files consistent with the codebase structure?"
+  2. Adversarial reviewer (`_REVIEWER_PARAMS["adversarial_red_team"]`) includes:
+     - "Do proposed_tasks dependencies form a DAG (no cycles)?"
+     - "Is each proposed task independently testable?"
+     - "Are there hidden assumptions or missing boundary conditions?"
+     - "Does the plan risk scope creep beyond the original task description?"
+  3. No OWASP/security checks in plan-only review context (no code available to inspect)
+  4. Test: mock reviewer call, verify user content includes structural check prompts
+
+#### T-P1-128: Add pass/fail calibration example to review prompt
 - **Priority**: P1
 - **Complexity**: S (< 1 session)
 - **Depends on**: None
@@ -98,7 +139,7 @@
   3. Examples clearly show the threshold: what severity/type of issue should block vs suggest
   4. Test: render review prompt, verify examples are present in output
 
-#### T-P1-127: Remove dead synthesis code from review pipeline
+#### T-P1-129: Remove dead synthesis code from review pipeline
 - **Priority**: P1
 - **Complexity**: S (< 1 session)
 - **Depends on**: None
@@ -111,7 +152,7 @@
   5. All existing tests still pass
   6. No remaining references to removed code
 
-#### T-P1-128: Parallelize review pipeline reviewer calls
+#### T-P1-130: Parallelize review pipeline reviewer calls
 - **Priority**: P1
 - **Complexity**: S (< 1 session)
 - **Depends on**: None
@@ -125,7 +166,7 @@
 
 ### P2 -- Nice to Have
 
-#### T-P2-129: Move reviewer personas from Python to config templates
+#### T-P2-131: Move reviewer personas from Python to config templates
 - **Priority**: P2
 - **Complexity**: S (< 1 session)
 - **Depends on**: T-P1-124
@@ -137,7 +178,7 @@
   4. Existing reviewer behavior unchanged
   5. Test: override reviewer config, verify new persona is used
 
-#### T-P2-130: Fix misleading enrichment prompt text about plan context
+#### T-P2-132: Fix misleading enrichment prompt text about plan context
 - **Priority**: P2
 - **Complexity**: S (< 1 session)
 - **Depends on**: None
@@ -146,7 +187,7 @@
   1. If plan context IS wired into enrichment calls, document where; if NOT, remove the misleading line
   2. Verify `enrich_task_title()` call sites to confirm whether plan context is ever passed
 
-#### T-P2-131: Remove unused generate-tasks-preview endpoint or wire it into frontend
+#### T-P2-133: Remove unused generate-tasks-preview endpoint or wire it into frontend
 - **Priority**: P2
 - **Complexity**: S (< 1 session)
 - **Depends on**: None
@@ -164,7 +205,9 @@
 T-P1-115 depends on T-P1-113, T-P1-120 (both completed -- T-P1-115 now unblocked)
 T-P1-116 depends on T-P1-114 (completed -- T-P1-116 unblocked)
 T-P1-125 depends on T-P1-124
-T-P2-129 depends on T-P1-124
+T-P1-126 depends on T-P1-124
+T-P1-127 depends on T-P1-123
+T-P2-131 depends on T-P1-124
 
 
 ---
