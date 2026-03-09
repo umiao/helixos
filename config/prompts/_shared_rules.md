@@ -41,3 +41,9 @@ Each task spec must include:
 ### Smoke Test Enforcement
 - UX tasks cannot be marked DONE without a manual smoke test description.
 - Cross-component regression: verify changes work in ALL rendering contexts.
+
+### Anti-Patterns (avoid these)
+- **Too many tasks**: Splitting a simple feature into 5+ micro-tasks (e.g., separate tasks for "create file", "add import", "write function", "write test", "update docs"). Combine related work into one task.
+- **Vague acceptance criteria**: "It should work" or "Tests pass" are not sufficient. ACs must describe specific, observable outcomes.
+- **Scope creep in sub-tasks**: A task titled "Add delete button" should not include ACs like "Refactor the entire component hierarchy" or "Add comprehensive logging framework".
+- **Missing inverse cases**: "When feature flag is ON, show the modal" without specifying what happens when the flag is OFF.

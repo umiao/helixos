@@ -35,8 +35,8 @@ class TestPlanPromptEval:
         assert "acceptance_criteria" in content
 
     def test_anti_patterns_present(self) -> None:
-        """Plan prompt contains anti-pattern examples to avoid."""
-        content = load_prompt("plan_system")
+        """Plan prompt contains anti-pattern examples (via shared rules include)."""
+        content = render_prompt("plan_system")
         assert "Anti-Patterns" in content
         assert "Too many tasks" in content
         assert "Vague acceptance criteria" in content

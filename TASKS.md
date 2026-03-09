@@ -29,17 +29,6 @@
 
 ### P1 -- Should Have (agentic intelligence)
 
-#### T-P1-125: Align plan and review prompt rule coverage
-- **Priority**: P1
-- **Complexity**: S (< 1 session)
-- **Depends on**: T-P1-124
-- **Description**: Plan prompt has Scope Guidance, Few-Shot Example, Anti-Patterns but no State Machine Rules or Smoke Test Enforcement. Review prompt has State Machine and Smoke Test but no Anti-Patterns. This inconsistency causes the planner to generate plans the reviewer will reject for rule violations the planner was never told about, wasting LLM round-trips.
-- **Acceptance Criteria**:
-  1. Plan prompt includes all rules that the reviewer checks against (State Machine, Smoke Test)
-  2. Review prompt includes Anti-Patterns section so reviewer can flag these patterns
-  3. No rule exists in review prompt that is absent from plan prompt (planner must know what reviewer will check)
-  4. Test: grep both rendered prompts for all rule section headers, verify coverage parity
-
 #### T-P1-126: Rewrite plan_system.md with phased thinking and strict output contract
 - **Priority**: P1
 - **Complexity**: S (< 1 session)
@@ -171,6 +160,7 @@ T-P2-131 depends on T-P1-124 (completed -- T-P2-131 now unblocked)
 > 120 completed tasks archived to [archive/completed_tasks.md](archive/completed_tasks.md).
 
 - T-P0-121: Fix complexity parameter not passed to review pipeline
+- T-P1-125: Align plan and review prompt rule coverage
 - T-P1-124: Extract shared prompt rules into includable fragment
 - T-P1-123: Pass structured plan_json to reviewers instead of formatted text
 - T-P0-122: Fix replan review_attempt reset to 1 instead of incrementing

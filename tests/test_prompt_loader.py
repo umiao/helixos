@@ -291,10 +291,36 @@ def test_shared_section_identical_in_both_prompts() -> None:
         "Key Constraints",
         "State Machine Rules",
         "Smoke Test Enforcement",
+        "Anti-Patterns (avoid these)",
     ]
     for header in shared_headers:
         assert header in plan, f"Plan missing: {header}"
         assert header in review, f"Review missing: {header}"
+
+
+def test_rule_coverage_parity_plan_vs_review() -> None:
+    """All rule sections in review must also appear in plan (and vice versa).
+
+    T-P1-125: Ensures the planner knows every rule the reviewer checks against,
+    and the reviewer knows every anti-pattern the planner should avoid.
+    """
+    plan = render_prompt("plan_system")
+    review = render_prompt(
+        "review",
+        reviewer_role="You are a code reviewer.",
+        review_questions="1. Is this plan sound?",
+    )
+    # Every rule section header that must appear in BOTH prompts
+    rule_headers = [
+        "Task Planning Rules",
+        "Key Constraints",
+        "State Machine Rules",
+        "Smoke Test Enforcement",
+        "Anti-Patterns (avoid these)",
+    ]
+    for header in rule_headers:
+        assert header in plan, f"Plan prompt missing rule section: {header}"
+        assert header in review, f"Review prompt missing rule section: {header}"
 
 
 def test_include_variable_resolution() -> None:

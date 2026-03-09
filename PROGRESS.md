@@ -1289,3 +1289,10 @@
 - **Sanity check result**: 1517 pass, 6 skipped, ruff clean. [AUTO-VERIFIED]
 - **Status**: [DONE]
 - **Request**: Move T-P1-124 to Completed
+
+## 2026-03-09 -- [T-P1-125] Align plan and review prompt rule coverage
+- **What I did**: Moved Anti-Patterns section from `plan_system.md` into `_shared_rules.md` so both plan and review prompts get it via `{{include:_shared_rules.md}}`. This ensures the reviewer can flag anti-patterns (too many tasks, vague ACs, scope creep, missing inverse cases) that the planner should avoid. Updated existing test in `test_prompt_eval.py` to use `render_prompt` since Anti-Patterns now comes via include. Added coverage parity test and updated shared headers list in existing test.
+- **Deliverables**: `config/prompts/_shared_rules.md` (added Anti-Patterns), `config/prompts/plan_system.md` (removed Anti-Patterns, now via include), `tests/test_prompt_loader.py` (1 new test + updated shared headers), `tests/test_prompt_eval.py` (fix)
+- **Sanity check result**: 1518 pass, 6 skipped, ruff clean. [AUTO-VERIFIED]
+- **Status**: [DONE]
+- **Request**: Move T-P1-125 to Completed

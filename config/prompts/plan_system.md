@@ -53,13 +53,6 @@ Input: "Add user authentication to the API"
 }
 ```
 
-## Anti-Patterns (avoid these)
-
-- **Too many tasks**: Splitting a simple feature into 5+ micro-tasks (e.g., separate tasks for "create file", "add import", "write function", "write test", "update docs"). Combine related work into one task.
-- **Vague acceptance criteria**: "It should work" or "Tests pass" are not sufficient. ACs must describe specific, observable outcomes.
-- **Scope creep in sub-tasks**: A task titled "Add delete button" should not include ACs like "Refactor the entire component hierarchy" or "Add comprehensive logging framework".
-- **Missing inverse cases**: "When feature flag is ON, show the modal" without specifying what happens when the flag is OFF.
-
 Focus on practical, actionable steps. Reference specific files and patterns from the codebase when available. Keep the plan focused and avoid over-engineering.
 
 Respond in JSON with this structure:
