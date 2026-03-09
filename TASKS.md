@@ -27,12 +27,134 @@
 
 ### P0 -- Must Have (core functionality)
 
+#### T-P0-121: Fix complexity parameter not passed to review pipeline
+- **Priority**: P0
+- **Complexity**: S (< 1 session)
+- **Depends on**: None
+- **Description**: `_run_review_bg()` in `src/routes/reviews.py:147` calls `review_pipeline.review_task()` without passing the `complexity` parameter, so it defaults to `"S"`. This means the adversarial red-team reviewer (configured as optional for M/L tasks) is never triggered. The entire adversarial review feature is dead.
+- **Acceptance Criteria**:
+  1. `review_task()` receives `complexity` from the task object (task.complexity or equivalent field)
+  2. For S-complexity tasks, only the required reviewer runs (1 reviewer)
+  3. For M/L-complexity tasks, both required + optional adversarial reviewer run (2 reviewers)
+  4. If task has no complexity field, default to "S" (backward compat)
+  5. Test: mock review pipeline, create M-complexity task, verify adversarial reviewer is invoked
+
+#### T-P0-122: Fix replan review_attempt reset to 1 instead of incrementing
+- **Priority**: P0
+- **Complexity**: S (< 1 session)
+- **Depends on**: None
+- **Description**: In `src/routes/reviews.py:694`, after a replan completes and auto-enqueues the review pipeline, `review_attempt=1` is hardcoded instead of using the correct next attempt number. This breaks review history continuity -- all post-replan reviews overwrite attempt 1 instead of creating new attempt entries.
+- **Acceptance Criteria**:
+  1. After replan, auto-enqueued review uses `review_attempt = max_existing_attempt + 1`
+  2. Review history correctly shows separate attempts for pre-replan and post-replan reviews
+  3. Test: replan a task, verify the new review's attempt number is greater than previous
 
 ### P1 -- Should Have (agentic intelligence)
 
+#### T-P1-123: Pass structured plan_json to reviewers instead of formatted text
+- **Priority**: P1
+- **Complexity**: S (< 1 session)
+- **Depends on**: None
+- **Description**: The review pipeline passes `plan_content=task.description` (formatted markdown text) to reviewers. Reviewers must parse markdown to understand plan structure, reducing review precision. The structured `plan_json` (with steps[], acceptance_criteria[], proposed_tasks[]) is available on the task but not forwarded. The execution agent already receives structured plan_json, but the reviewer -- who most needs structural verification -- does not.
+- **Acceptance Criteria**:
+  1. `_call_reviewer()` receives structured plan_json in addition to or instead of formatted text
+  2. The user content sent to the reviewer includes structured fields (steps, ACs, proposed tasks) in a parseable format
+  3. Reviewer can reference specific steps/ACs by index rather than parsing markdown
+  4. Backward compatible: if plan_json is None, fall back to description text
+  5. Test: mock reviewer call, verify user content includes structured plan data
 
+#### T-P1-124: Extract shared prompt rules into includable fragment
+- **Priority**: P1
+- **Complexity**: S (< 1 session)
+- **Depends on**: None
+- **Description**: `plan_system.md` and `review.md` share ~30 lines of identical content (Task Schema + Project Rules). Currently copy-pasted, with drift already present (plan_system.md lacks State Machine Rules and Smoke Test Enforcement that review.md includes). Add a simple `{{include:filename}}` directive to `render_prompt()` and extract shared rules into a reusable fragment.
+- **Acceptance Criteria**:
+  1. `render_prompt()` supports `{{include:filename}}` that inlines another file from `config/prompts/`
+  2. Shared rules (Task Schema, Project Rules) extracted to `config/prompts/_shared_rules.md`
+  3. Both `plan_system.md` and `review.md` use `{{include:_shared_rules.md}}` instead of copy-pasted content
+  4. Plan prompt now includes State Machine Rules and Smoke Test Enforcement (previously missing)
+  5. Test: render both templates, verify shared section is identical in both outputs
+  6. Test: modify _shared_rules.md, verify change appears in both rendered prompts
+
+#### T-P1-125: Align plan and review prompt rule coverage
+- **Priority**: P1
+- **Complexity**: S (< 1 session)
+- **Depends on**: T-P1-124
+- **Description**: Plan prompt has Scope Guidance, Few-Shot Example, Anti-Patterns but no State Machine Rules or Smoke Test Enforcement. Review prompt has State Machine and Smoke Test but no Anti-Patterns. This inconsistency causes the planner to generate plans the reviewer will reject for rule violations the planner was never told about, wasting LLM round-trips.
+- **Acceptance Criteria**:
+  1. Plan prompt includes all rules that the reviewer checks against (State Machine, Smoke Test)
+  2. Review prompt includes Anti-Patterns section so reviewer can flag these patterns
+  3. No rule exists in review prompt that is absent from plan prompt (planner must know what reviewer will check)
+  4. Test: grep both rendered prompts for all rule section headers, verify coverage parity
+
+#### T-P1-126: Add pass/fail calibration example to review prompt
+- **Priority**: P1
+- **Complexity**: S (< 1 session)
+- **Depends on**: None
+- **Description**: The review prompt tells the LLM to "set pass to true if acceptable" but gives no examples of what constitutes a pass vs fail. This leads to inconsistent severity thresholds across reviews. Add a few-shot example showing a passing review and a failing review with blocking issues.
+- **Acceptance Criteria**:
+  1. Review prompt includes at least one example of a passing review response (minor suggestions, pass=true)
+  2. Review prompt includes at least one example of a failing review response (blocking issues, pass=false)
+  3. Examples clearly show the threshold: what severity/type of issue should block vs suggest
+  4. Test: render review prompt, verify examples are present in output
+
+#### T-P1-127: Remove dead synthesis code from review pipeline
+- **Priority**: P1
+- **Complexity**: S (< 1 session)
+- **Depends on**: None
+- **Description**: `ReviewPipeline._synthesize()` (review_pipeline.py:795-870) and `_SYNTHESIS_JSON_SCHEMA` (review_pipeline.py:94-101) are fully implemented but never called -- `review_task()` uses deterministic merge instead. Dead code adds maintenance burden and confuses readers.
+- **Acceptance Criteria**:
+  1. `_synthesize()` method removed from ReviewPipeline class
+  2. `_SYNTHESIS_JSON_SCHEMA` constant removed
+  3. `_parse_synthesis()` method removed
+  4. `SynthesisResult` model removed (if no other consumers)
+  5. All existing tests still pass
+  6. No remaining references to removed code
+
+#### T-P1-128: Parallelize review pipeline reviewer calls
+- **Priority**: P1
+- **Complexity**: S (< 1 session)
+- **Depends on**: None
+- **Description**: `review_task()` in review_pipeline.py:320 runs reviewers sequentially in a `for` loop. For M/L complexity tasks with 2+ reviewers, this doubles the review wait time. Reviewers are independent and can be parallelized with `asyncio.gather()`.
+- **Acceptance Criteria**:
+  1. Multiple reviewers run concurrently via `asyncio.gather()` or equivalent
+  2. Progress callbacks still report per-reviewer completion (completed count increments)
+  3. If one reviewer fails, the other's result is still captured (partial result)
+  4. Single-reviewer case is unchanged (no regression)
+  5. Test: mock two reviewers, verify both are called concurrently (not sequentially)
 
 ### P2 -- Nice to Have
+
+#### T-P2-129: Move reviewer personas from Python to config templates
+- **Priority**: P2
+- **Complexity**: S (< 1 session)
+- **Depends on**: T-P1-124
+- **Description**: The 3 reviewer personas (`_REVIEWER_PARAMS` dict in review_pipeline.py:111-141) are hardcoded as Python strings. Moving them to config files would make them easier to iterate on without code changes.
+- **Acceptance Criteria**:
+  1. Reviewer role and questions defined in config files (YAML or prompt templates)
+  2. `_REVIEWER_PARAMS` dict populated from config instead of hardcoded
+  3. Adding a new reviewer persona requires only config changes, not code changes
+  4. Existing reviewer behavior unchanged
+  5. Test: override reviewer config, verify new persona is used
+
+#### T-P2-130: Fix misleading enrichment prompt text about plan context
+- **Priority**: P2
+- **Complexity**: S (< 1 session)
+- **Depends on**: None
+- **Description**: `enrichment_system.md` line 9 says "This prompt receives plan context when available" but enrichment is typically called on new tasks before plan generation, so plan context is rarely if ever available. The claim is misleading.
+- **Acceptance Criteria**:
+  1. If plan context IS wired into enrichment calls, document where; if NOT, remove the misleading line
+  2. Verify `enrich_task_title()` call sites to confirm whether plan context is ever passed
+
+#### T-P2-131: Remove unused generate-tasks-preview endpoint or wire it into frontend
+- **Priority**: P2
+- **Complexity**: S (< 1 session)
+- **Depends on**: None
+- **Description**: `POST /api/tasks/{task_id}/generate-tasks-preview` endpoint exists in tasks.py but the frontend `confirm-generated-tasks` flow doesn't call it -- going straight to confirm without preview. Either remove the dead endpoint or add a preview step in PlanReviewPanel before confirm.
+- **Acceptance Criteria**:
+  1. Either: endpoint removed and tests cleaned up
+  2. Or: PlanReviewPanel shows a diff preview before user confirms task creation
+  3. No dead API endpoints remain
 
 ## Dependency Graph
 
@@ -41,6 +163,8 @@
 ### Current
 T-P1-115 depends on T-P1-113, T-P1-120 (both completed -- T-P1-115 now unblocked)
 T-P1-116 depends on T-P1-114 (completed -- T-P1-116 unblocked)
+T-P1-125 depends on T-P1-124
+T-P2-129 depends on T-P1-124
 
 
 ---
