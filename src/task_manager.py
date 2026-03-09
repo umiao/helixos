@@ -17,7 +17,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from src.db import TaskRow, get_session, task_dict_to_row_kwargs, task_row_to_dict
 from src.dependency_graph import extract_priority  # noqa: F401 (re-export)
-from src.models import ExecutionState, ReviewLifecycleState, Task, TaskStatus
+from src.models import ExecutionState, PlanStatus, ReviewLifecycleState, Task, TaskStatus
 
 logger = logging.getLogger(__name__)
 
@@ -96,6 +96,18 @@ VALID_TRANSITIONS: dict[TaskStatus, set[TaskStatus]] = {
     TaskStatus.FAILED: {TaskStatus.QUEUED, TaskStatus.BLOCKED, TaskStatus.BACKLOG},
     TaskStatus.DONE: {TaskStatus.BACKLOG, TaskStatus.QUEUED},
     TaskStatus.BLOCKED: {TaskStatus.QUEUED, TaskStatus.BACKLOG},
+}
+
+# ---------------------------------------------------------------------------
+# Plan state machine transitions
+# ---------------------------------------------------------------------------
+
+VALID_PLAN_TRANSITIONS: dict[str, set[str]] = {
+    PlanStatus.NONE: {PlanStatus.GENERATING},
+    PlanStatus.GENERATING: {PlanStatus.READY, PlanStatus.FAILED, PlanStatus.NONE},
+    PlanStatus.READY: {PlanStatus.GENERATING, PlanStatus.DECOMPOSED, PlanStatus.NONE},
+    PlanStatus.FAILED: {PlanStatus.GENERATING, PlanStatus.NONE},
+    PlanStatus.DECOMPOSED: {PlanStatus.GENERATING, PlanStatus.NONE},
 }
 
 # ---------------------------------------------------------------------------
@@ -515,6 +527,102 @@ class TaskManager:
             row.review_lifecycle_state = state.value
             row.updated_at = datetime.now(UTC).isoformat()
 
+    async def set_plan_state(
+        self,
+        task_id: str,
+        new_status: str,
+        *,
+        plan_generation_id: str | None = None,
+        description: str | None = None,
+        plan_json: str | None = None,
+        complexity: str | None = None,
+        replan_attempt: int | None = None,
+    ) -> None:
+        """Single entry point for plan state transitions with invariant enforcement.
+
+        Validates the transition against ``VALID_PLAN_TRANSITIONS`` and enforces
+        field invariants per state:
+
+        - **NONE**: clears plan_json, description="", has_proposed_tasks=False,
+          plan_generation_id=NULL.
+        - **GENERATING**: clears plan_json + description, preserves caller's
+          generation_id.
+        - **READY**: requires plan_json + description, computes has_proposed_tasks.
+        - **FAILED**: clears plan_json, preserves description.
+        - **DECOMPOSED**: preserves all fields.
+
+        Args:
+            task_id: The task to update.
+            new_status: Target plan status.
+            plan_generation_id: Generation ID for async race protection.
+            description: Formatted plan text (required for READY).
+            plan_json: JSON string of plan data (required for READY).
+            complexity: Optional complexity override.
+            replan_attempt: Optional replan attempt counter override.
+
+        Raises:
+            ValueError: On invalid transition, missing task, or missing
+                required fields for the target state.
+        """
+        async with get_session(self._sf) as session:
+            row = await session.get(TaskRow, task_id)
+            if row is None or row.is_deleted:
+                raise ValueError(f"Task not found: {task_id}")
+
+            current = row.plan_status
+            valid_targets = VALID_PLAN_TRANSITIONS.get(current, set())
+            if new_status not in valid_targets:
+                raise ValueError(
+                    f"Invalid plan transition: {current} -> {new_status} "
+                    f"for task {task_id}. "
+                    f"Valid targets: {sorted(valid_targets)}"
+                )
+
+            # Enforce field invariants per target state
+            if new_status == PlanStatus.NONE:
+                row.plan_json = None
+                row.description = ""
+                row.has_proposed_tasks = False
+                row.plan_generation_id = None
+            elif new_status == PlanStatus.GENERATING:
+                row.plan_json = None
+                row.description = ""
+                row.has_proposed_tasks = False
+                row.plan_generation_id = plan_generation_id
+            elif new_status == PlanStatus.READY:
+                if plan_json is None or description is None:
+                    raise ValueError(
+                        f"READY state requires plan_json and description "
+                        f"for task {task_id}"
+                    )
+                row.plan_json = plan_json
+                row.description = description
+                row.plan_generation_id = plan_generation_id
+                # Compute has_proposed_tasks from plan_json
+                try:
+                    data = json.loads(plan_json)
+                    proposed = data.get("proposed_tasks", []) if isinstance(data, dict) else []
+                    row.has_proposed_tasks = len(proposed) > 0
+                except (json.JSONDecodeError, TypeError):
+                    row.has_proposed_tasks = False
+            elif new_status == PlanStatus.FAILED:
+                row.plan_json = None
+                # Preserve description if no new one provided
+                if description is not None:
+                    row.description = description
+            elif new_status == PlanStatus.DECOMPOSED:
+                # Preserve all fields
+                pass
+
+            row.plan_status = new_status
+
+            if complexity is not None:
+                row.complexity = complexity
+            if replan_attempt is not None:
+                row.replan_attempt = replan_attempt
+
+            row.updated_at = datetime.now(UTC).isoformat()
+
     async def update_plan(
         self,
         task_id: str,
@@ -524,6 +632,9 @@ class TaskManager:
         complexity: str | None = None,
     ) -> None:
         """Atomically update plan fields (description + status + json).
+
+        .. deprecated:: Use :meth:`set_plan_state` instead for transition
+           validation and invariant enforcement.
 
         All three fields are written in a single transaction so they are
         always consistent.  This avoids the get-then-update pattern that

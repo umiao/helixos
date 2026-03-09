@@ -13,6 +13,7 @@ import asyncio
 import contextlib
 import json
 import logging
+import uuid
 from pathlib import Path
 
 from fastapi import APIRouter, HTTPException, Request
@@ -184,10 +185,16 @@ async def generate_plan(task_id: str, request: Request) -> JSONResponse:
     event_bus: EventBus = request.app.state.event_bus
     history_writer: HistoryWriter = request.app.state.history_writer
 
-    # Mark plan as generating + emit SSE event
-    task.plan_status = "generating"
-    await task_manager.update_task(task)
-    event_bus.emit("plan_status_change", task_id, {"plan_status": "generating"}, origin="plan")
+    # Mark plan as generating with generation_id for race protection
+    generation_id = uuid.uuid4().hex
+    await task_manager.set_plan_state(
+        task_id, "generating", plan_generation_id=generation_id,
+    )
+    event_bus.emit(
+        "plan_status_change", task_id,
+        {"plan_status": "generating", "generation_id": generation_id},
+        origin="plan",
+    )
 
     # Launch background task (fire-and-forget, like review pipeline pattern)
     async def _run_plan_generation() -> None:
@@ -237,9 +244,20 @@ async def generate_plan(task_id: str, request: Request) -> JSONResponse:
             )
 
             formatted = format_plan_as_text(plan_data)
-
-            # Atomic update: description + plan_status + plan_json in one transaction
             plan_data_json = json.dumps(plan_data)
+
+            # Check generation_id match before writing -- mismatch means
+            # a newer generation was started, discard this result silently
+            current_task = await task_manager.get_task(task_id)
+            if (
+                current_task is None
+                or current_task.plan_generation_id != generation_id
+            ):
+                logger.info(
+                    "Plan generation_id mismatch for %s, discarding stale result",
+                    task_id,
+                )
+                return
 
             # Infer task complexity from plan structure
             inferred_complexity = "S"
@@ -251,10 +269,11 @@ async def generate_plan(task_id: str, request: Request) -> JSONResponse:
                 elif len(proposed) > 0 or num_steps > 4:
                     inferred_complexity = "M"
 
-            await task_manager.update_plan(
+            await task_manager.set_plan_state(
                 task_id=task_id,
+                new_status="ready",
+                plan_generation_id=generation_id,
                 description=formatted,
-                plan_status="ready",
                 plan_json=plan_data_json,
                 complexity=inferred_complexity,
             )
@@ -276,6 +295,7 @@ async def generate_plan(task_id: str, request: Request) -> JSONResponse:
             event_bus.emit(
                 "plan_status_change", task_id, {
                     "plan_status": "ready",
+                    "generation_id": generation_id,
                     "proposed_tasks": proposed_tasks_payload,
                 },
                 origin="plan",
@@ -325,13 +345,21 @@ async def generate_plan(task_id: str, request: Request) -> JSONResponse:
                 ),
             )
             # AC5: finally guarantees terminal state -- set failed
+            # Only transition if generation_id still matches (not superseded)
             current = await task_manager.get_task(task_id)
-            if current is not None and current.plan_status == "generating":
-                current.plan_status = "failed"
-                await task_manager.update_task(current)
+            if (
+                current is not None
+                and current.plan_status == "generating"
+                and current.plan_generation_id == generation_id
+            ):
+                await task_manager.set_plan_state(
+                    task_id, "failed",
+                    description=current.description or None,
+                )
             event_bus.emit(
                 "plan_status_change", task_id, {
                     "plan_status": "failed",
+                    "generation_id": generation_id,
                     "error_type": error_type,
                     "error_message": user_msg,
                     "retryable": retryable,
@@ -343,7 +371,11 @@ async def generate_plan(task_id: str, request: Request) -> JSONResponse:
 
     return JSONResponse(
         status_code=202,
-        content={"task_id": task_id, "plan_status": "generating"},
+        content={
+            "task_id": task_id,
+            "plan_status": "generating",
+            "generation_id": generation_id,
+        },
     )
 
 
@@ -379,13 +411,8 @@ async def reject_plan(task_id: str, request: Request) -> JSONResponse:
                    f"expected 'ready' to reject",
         )
 
-    # Reset plan state
-    await task_manager.update_plan(
-        task_id=task_id,
-        description=task.description,
-        plan_status="none",
-        plan_json=None,
-    )
+    # Reset plan state via state machine
+    await task_manager.set_plan_state(task_id, "none")
     event_bus.emit(
         "plan_status_change", task_id, {"plan_status": "none"},
         origin="plan",
@@ -479,8 +506,7 @@ async def confirm_generated_tasks(
         )
 
     # Update parent task plan_status to reflect decomposition complete
-    task.plan_status = "decomposed"
-    await task_manager.update_task(task)
+    await task_manager.set_plan_state(task_id, "decomposed")
 
     # Auto-pause pipeline (configurable via config, default: True)
     auto_paused = False

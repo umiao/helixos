@@ -14,6 +14,7 @@ import asyncio
 import contextlib
 import json
 import logging
+import uuid
 from pathlib import Path
 
 from fastapi import APIRouter, HTTPException, Request
@@ -583,14 +584,19 @@ async def _handle_replan(
 
     # Increment replan_attempt and set plan_status to generating
     new_attempt = task.replan_attempt + 1
-    task_update = task.model_copy(update={
-        "replan_attempt": new_attempt,
-        "plan_status": "generating",
-    })
-    await task_manager.update_task(task_update)
+    generation_id = uuid.uuid4().hex
+    await task_manager.set_plan_state(
+        task_id, "generating",
+        plan_generation_id=generation_id,
+        replan_attempt=new_attempt,
+    )
     event_bus.emit(
         "plan_status_change", task_id,
-        {"plan_status": "generating", "replan_attempt": new_attempt},
+        {
+            "plan_status": "generating",
+            "generation_id": generation_id,
+            "replan_attempt": new_attempt,
+        },
         origin="plan",
     )
 
@@ -648,15 +654,28 @@ async def _handle_replan(
 
             formatted = format_plan_as_text(plan_data)
 
-            # Atomic update: description + plan_status + plan_json
-            await task_manager.update_plan(
+            # Check generation_id match before writing
+            current_task = await task_manager.get_task(task_id)
+            if (
+                current_task is None
+                or current_task.plan_generation_id != generation_id
+            ):
+                logger.info(
+                    "Replan generation_id mismatch for %s, discarding stale result",
+                    task_id,
+                )
+                return
+
+            await task_manager.set_plan_state(
                 task_id=task_id,
+                new_status="ready",
+                plan_generation_id=generation_id,
                 description=formatted,
-                plan_status="ready",
                 plan_json=json.dumps(plan_data),
             )
             event_bus.emit(
-                "plan_status_change", task_id, {"plan_status": "ready"},
+                "plan_status_change", task_id,
+                {"plan_status": "ready", "generation_id": generation_id},
                 origin="plan",
             )
 
@@ -728,12 +747,19 @@ async def _handle_replan(
                 ),
             )
             current = await task_manager.get_task(task_id)
-            if current is not None and current.plan_status == "generating":
-                current.plan_status = "failed"
-                await task_manager.update_task(current)
+            if (
+                current is not None
+                and current.plan_status == "generating"
+                and current.plan_generation_id == generation_id
+            ):
+                await task_manager.set_plan_state(
+                    task_id, "failed",
+                    description=current.description or None,
+                )
             event_bus.emit(
                 "plan_status_change", task_id, {
                     "plan_status": "failed",
+                    "generation_id": generation_id,
                     "error_type": error_type,
                     "error_message": user_msg,
                     "retryable": retryable,

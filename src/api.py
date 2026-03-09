@@ -77,15 +77,14 @@ async def _reset_zombie_plan_status(task_manager: TaskManager) -> int:
     """Reset tasks stuck with plan_status='generating' to 'failed'.
 
     Called at startup to clean up zombies from a previous crash.
+    Uses set_plan_state for transition validation and invariant enforcement.
     Returns the number of tasks reset.
     """
     count = 0
-    # Check all projects -- list_tasks returns all when no project filter
     all_tasks = await task_manager.list_tasks()
     for t in all_tasks:
         if t.plan_status == "generating":
-            t.plan_status = "failed"
-            await task_manager.update_task(t)
+            await task_manager.set_plan_state(t.id, "failed")
             count += 1
     return count
 

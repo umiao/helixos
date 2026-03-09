@@ -69,6 +69,8 @@ class TaskRow(Base):
     complexity: Mapped[str] = mapped_column(String(8), nullable=False, default="S")
     replan_attempt: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     execution_epoch_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    plan_generation_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    has_proposed_tasks: Mapped[bool] = mapped_column(default=False)
 
     __table_args__ = (
         Index("ix_tasks_status", "status"),
@@ -180,6 +182,8 @@ def task_row_to_dict(row: TaskRow) -> dict:
         "complexity": getattr(row, "complexity", "S"),
         "replan_attempt": getattr(row, "replan_attempt", 0),
         "execution_epoch_id": getattr(row, "execution_epoch_id", None),
+        "plan_generation_id": getattr(row, "plan_generation_id", None),
+        "has_proposed_tasks": getattr(row, "has_proposed_tasks", False),
     }
 
 
@@ -214,6 +218,8 @@ def task_dict_to_row_kwargs(data: dict) -> dict:
         "complexity": data.get("complexity", "S"),
         "replan_attempt": data.get("replan_attempt", 0),
         "execution_epoch_id": data.get("execution_epoch_id"),
+        "plan_generation_id": data.get("plan_generation_id"),
+        "has_proposed_tasks": data.get("has_proposed_tasks", False),
     }
 
 

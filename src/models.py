@@ -218,6 +218,8 @@ class Task(BaseModel):
     complexity: str = "S"
     replan_attempt: int = 0
     execution_epoch_id: str | None = None
+    plan_generation_id: str | None = None
+    has_proposed_tasks: bool = False
 
 
 class Dependency(BaseModel):

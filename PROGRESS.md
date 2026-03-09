@@ -344,3 +344,10 @@
 - **Sanity check result**: 1517 passed, 2 skipped, 40 deselected in 33.7s. Ruff clean. settings.json valid JSON. Archive hook standalone runs successfully (no archival triggered -- 46 entries under 80 threshold, correct hysteresis behavior).
 - **Status**: [DONE]
 - **Request**: Move T-P0-123 to Completed
+
+## 2026-03-09 -- [T-P0-134] Backend plan state machine with transition rules and field invariants
+- **What I did**: Added `VALID_PLAN_TRANSITIONS` dict and `set_plan_state()` single entry point to `TaskManager` with invariant enforcement per state (NONE clears all, GENERATING clears data but preserves generation_id, READY requires plan_json+description and computes has_proposed_tasks, FAILED clears plan_json, DECOMPOSED preserves all). Added `plan_generation_id` (String(64)) and `has_proposed_tasks` (bool) columns to `TaskRow` with auto-migration. Updated `task_row_to_dict()`, `task_dict_to_row_kwargs()`, Task model, TaskResponse schema, and `_task_to_response()` for new fields. Migrated all call sites: generate-plan endpoint (with uuid generation_id + race check), reject-plan, confirm-generated-tasks, replan in reviews.py, and zombie reset in api.py. SSE `plan_status_change` events now include `generation_id`. Old `update_plan()` preserved as deprecated for backward compat.
+- **Deliverables**: `src/db.py` (mod -- 2 new columns + converters), `src/models.py` (mod -- 2 new fields), `src/task_manager.py` (mod -- VALID_PLAN_TRANSITIONS + set_plan_state()), `src/schemas.py` (mod -- 2 new response fields), `src/api_helpers.py` (mod -- new fields in response), `src/routes/tasks.py` (mod -- migrated 4 call sites + generation_id), `src/routes/reviews.py` (mod -- migrated replan call sites), `src/api.py` (mod -- zombie reset uses set_plan_state), `tests/test_plan_state_machine.py` (new -- 73 tests)
+- **Sanity check result**: 1590 passed, 2 skipped, 40 deselected in 38.3s. Ruff clean. All 73 new tests cover valid transitions, invalid transitions, field invariants, malformed JSON, task-not-found, and round-trip persistence.
+- **Status**: [DONE]
+- **Request**: Move T-P0-134 to Completed

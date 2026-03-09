@@ -29,23 +29,6 @@
 
 ### P0 -- Must Have (core functionality)
 
-#### T-P0-134: Backend plan state machine with transition rules and field invariants
-- **Priority**: P0
-- **Complexity**: M (1-2 sessions)
-- **Depends on**: None
-- **Description**: The plan lifecycle has no formalized state machine. `plan_status`, `plan_json`, `description`, and `proposed_tasks` can drift apart, causing stale data display after plan regeneration. Need to add `VALID_PLAN_TRANSITIONS` dict, `set_plan_state()` single entry point with invariant enforcement, `plan_generation_id` column for async race protection, and `has_proposed_tasks` denormalized boolean to avoid JSON parsing in scheduler hot path.
-- **Acceptance Criteria**:
-  1. `set_plan_state()` in `src/task_manager.py` enforces transition rules: `VALID_PLAN_TRANSITIONS = {none: {generating}, generating: {ready, failed, none}, ready: {generating, decomposed, none}, failed: {generating, none}, decomposed: {generating, none}}`. Invalid transitions raise `ValueError`.
-  2. Field invariants enforced per state: NONE clears all (plan_json=NULL, description="", has_proposed_tasks=False, plan_generation_id=NULL); GENERATING clears data but preserves caller's generation_id; READY requires plan_json+description, computes has_proposed_tasks; FAILED clears plan_json, preserves description; DECOMPOSED preserves all.
-  3. New columns `plan_generation_id` (String(64), nullable) and `has_proposed_tasks` (bool, default False) added to `TaskRow` in `src/db.py`. Migration handled by existing `_migrate_missing_columns()`.
-  4. `task_row_to_dict()` and `task_dict_to_row_kwargs()` updated for both new fields.
-  5. Generate-plan endpoint (`src/routes/tasks.py`) uses `set_plan_state("generating", plan_generation_id=uuid)` instead of raw field assignment. Plan completion checks `generation_id` match before writing -- mismatch discards result silently (like `execution_epoch_id`).
-  6. SSE `plan_status_change` events include `generation_id` field for frontend staleness filtering.
-  7. Reject-plan endpoint uses `set_plan_state("none")`.
-  8. All existing `update_plan()` call sites migrated to `set_plan_state()`.
-  9. Unit tests cover: every valid transition, every invalid transition (raises), field invariants for each state, generation_id mismatch discard.
-  10. All existing tests pass. Ruff clean.
-
 #### T-P0-135: Frontend plan staleness fix with shared utility and generation_id filtering
 - **Priority**: P0
 - **Complexity**: S (< 1 session)
@@ -174,6 +157,9 @@ T-P1-127 depends on T-P1-123 (completed)
 
 
 > 21 completed tasks archived to [archive/completed_tasks.md](archive/completed_tasks.md).
+
+#### [x] T-P0-134: Backend plan state machine with transition rules and field invariants -- 2026-03-09
+- Added `VALID_PLAN_TRANSITIONS` + `set_plan_state()` to TaskManager with per-state invariant enforcement. New `plan_generation_id` and `has_proposed_tasks` columns on TaskRow with auto-migration. Migrated all call sites (generate-plan, reject-plan, confirm-tasks, replan, zombie reset) to use `set_plan_state()`. SSE events include `generation_id`. 73 new tests. 1590 pass, ruff clean.
 
 #### [x] T-P1-114: Add plan output pydantic validation with retry and error feedback -- 2026-03-08
 - Added `PlanValidationConfig` to config.py with configurable hard/soft limits. `ProposedTask` gains `files` field. `generate_task_plan()` retries up to N times on validation failure with error feedback in prompt. `_validate_plan_structure()` detects dependency cycles via `detect_cycles()`. Soft limits emit warnings. Hard ceiling: max 10 proposed tasks. 25 new tests. 1407 pass, ruff clean.
