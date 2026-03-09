@@ -254,3 +254,10 @@
 - **Sanity check result**: 1560 passed, 6 skipped in 35.30s (scheduler excluded, pre-existing timeout). Ruff clean. All files under 1500 LOC. Slowest test: test_server_startup 1.05s. Top 20 durations captured.
 - **Status**: [DONE]
 - **Request**: Move T-P2-139 to Completed
+
+## 2026-03-09 -- [T-P2-140] Document dirty state lesson in LESSONS.md
+- **What I did**: Added LESSONS.md entry #26 documenting the plan regeneration dirty state bug. Covers context (stale plan display, 151 inconsistent DB rows), root cause (no state machine, scattered UI field clearing, no async generation IDs), architectural fix (set_plan_state + generation_id + planStatePatch), and 3 principles (backend owns state consistency, async pipelines need generation IDs, shared utilities over inline logic). References T-P0-134, T-P0-135, T-P0-138, T-P0-124.
+- **Deliverables**: `LESSONS.md` (new entry #26), `TASKS.md` (T-P2-140 moved to Completed)
+- **Sanity check result**: LESSONS.md and TASKS.md only edits, no code changes. Verified lesson covers all AC items: context, root cause, fix, principles, task references.
+- **Status**: [DONE]
+- **Request**: Move T-P2-140 to Completed

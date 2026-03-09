@@ -194,3 +194,17 @@
   - Fix: Reformatted all 15 entries with proper `#### [x]` heading, date, and one-line summary from PROGRESS.md.
   - Rule: Moving a task to Completed requires: (1) `#### [x] T-XX-N: Title -- YYYY-MM-DD` heading, (2) one-line summary of what was done. A bare bullet line is NOT a valid completed entry.
   - Tags: #tasks-md #formatting #exit-protocol #autonomous
+
+  26. Plan regeneration dirty state: backend must own state consistency
+  - Context: After generating a plan, if the user triggered regeneration (or the async pipeline completed out of order), the UI displayed stale plan data -- old proposed tasks, wrong status badges, or a "ready" plan from a previous generation overlaying a new "generating" state. The repair script (T-P0-138) found 151 rows with inconsistent plan state in production data.
+  - Root cause: No state machine governed plan_status transitions. Each call site (generate-plan, reject-plan, confirm-tasks, replan, zombie reset) independently set fields like plan_status, plan_json, and description with ad-hoc clearing logic. Field invariants (e.g., plan_status="none" implies plan_json=NULL) were not enforced. On the frontend, each component (TaskCard, TaskCardPopover, PlanReviewPanel) had its own inline field-clearing logic on plan status changes, leading to inconsistent partial updates. Async SSE events from a previous generation could overwrite the current state because there was no way to distinguish which generation an event belonged to.
+  - Fix (T-P0-134 backend + T-P0-135 frontend + T-P0-124 UI):
+    (a) Backend state machine: `VALID_PLAN_TRANSITIONS` dict + `set_plan_state()` single entry point in TaskManager. Each state (none, generating, ready, failed, decomposed) has enforced field invariants (e.g., NONE clears plan_json/description/has_proposed_tasks; READY requires plan_json+description and computes has_proposed_tasks). Invalid transitions raise ValueError.
+    (b) Generation ID: `plan_generation_id` (uuid4) assigned at generation start, included in all SSE events. Frontend SSE handler compares incoming generation_id against the task's current plan_generation_id and drops stale events.
+    (c) Shared frontend utility: `planStatePatch()` in `frontend/src/utils/planState.ts` returns the correct partial Task update for each plan status, replacing scattered inline clearing logic across 3+ components.
+  - Principles:
+    (1) Backend owns state consistency -- the frontend should never compute derived state or enforce invariants. A single `set_plan_state()` entry point with per-state field rules eliminates scattered ad-hoc updates.
+    (2) Async pipelines need generation IDs -- any long-running async operation (plan generation, review pipeline) that emits events must tag them with a generation/attempt ID so consumers can discard stale results.
+    (3) Shared utilities over inline logic -- when 3+ components need the same state-clearing logic, extract it to a shared utility and import it. Inline duplication guarantees drift.
+  - Related tasks: T-P0-134, T-P0-135, T-P0-138, T-P0-124
+  - Tags: #state-machine #dirty-state #plan-generation #async #generation-id #frontend-consistency

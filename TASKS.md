@@ -32,24 +32,15 @@
 
 ### P2 -- Nice to Have
 
-
-#### T-P2-140: Document dirty state lesson in LESSONS.md
-- **Priority**: P2
-- **Complexity**: S (< 1 session)
-- **Depends on**: T-P0-134
-- **Description**: Document the plan regeneration dirty state bug and the architectural fix (state machine with invariants + generation_id) as a lesson for future reference.
-- **Acceptance Criteria**:
-  1. LESSONS.md entry covers: context (stale plan display), root cause (no state machine, scattered UI patches), fix (set_plan_state + generation_id + planStatePatch), principle (backend owns state consistency, async pipelines need generation IDs).
-  2. References T-P0-134 and T-P0-124.
-
 ## Dependency Graph
 
 > Full historical dependency graph relocated to [docs/architecture/dependency-graph-history.md](docs/architecture/dependency-graph-history.md).
 
 ### Current
-T-P2-140 depends on T-P0-134
+(none)
 
 ### Historical (completed)
+T-P2-140 depends on T-P0-134 (completed)
 T-P0-138 depends on T-P0-134, T-P0-136 (completed)
 T-P0-124 depended on T-P0-138 (completed, dependency cleared)
 T-P0-137 depends on T-P0-134 (completed)
@@ -69,6 +60,9 @@ T-P1-127 depends on T-P1-123 (completed)
 
 
 > 21 completed tasks archived to [archive/completed_tasks.md](archive/completed_tasks.md).
+
+#### [x] T-P2-140: Document dirty state lesson in LESSONS.md -- 2026-03-09
+- Added LESSONS.md entry #26 covering plan regeneration dirty state bug: context (151 inconsistent rows, stale UI), root cause (no state machine, scattered field clearing, no generation IDs), fix (set_plan_state + generation_id + planStatePatch), and 3 architectural principles. References T-P0-134, T-P0-135, T-P0-138, T-P0-124.
 
 #### [x] T-P2-139: Test suite consolidation -- shared fixtures, file splitting, runtime baseline -- 2026-03-09
 - Created `tests/factories.py` with `make_task`, `make_config`, `make_review_pipeline_config`, SDK event builders. Migrated 21 test files to use shared factories. Split `test_enrichment.py` (2606->973 LOC) into `test_plan_generation.py` (1295) and `test_plan_models.py` (417). Split `test_review_pipeline.py` (2601->801 LOC) into `test_review_scoring.py` (1035) and `test_review_models.py` (875). All files under 1500 LOC. 1560 tests pass, 35s baseline, ruff clean.
