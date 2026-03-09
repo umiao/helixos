@@ -45,6 +45,7 @@ logger = logging.getLogger(__name__)
 class EnrichmentResult(BaseModel):
     """Validates enrichment JSON matches --json-schema contract."""
 
+    title: str = ""
     description: str
     priority: Literal["P0", "P1", "P2"]
 
@@ -165,10 +166,11 @@ class PlanGenerationError(Exception):
 _ENRICHMENT_JSON_SCHEMA = json.dumps({
     "type": "object",
     "properties": {
+        "title": {"type": "string", "maxLength": 80},
         "description": {"type": "string"},
         "priority": {"type": "string", "enum": ["P0", "P1", "P2"]},
     },
-    "required": ["description", "priority"],
+    "required": ["title", "description", "priority"],
 })
 
 _ENRICHMENT_SYSTEM_PROMPT = load_prompt("enrichment_system")
@@ -214,7 +216,7 @@ async def enrich_task_title(
     """
     if existing_description.strip():
         logger.info("Skipping enrichment: task already has description")
-        return {"description": existing_description, "priority": "P1"}
+        return {"title": "", "description": existing_description, "priority": "P1"}
     # setting_sources=[]: disable CLI hooks for enrichment -- this is a
     # lightweight, non-interactive call that should not trigger user/project
     # hooks (e.g., block_dangerous, secret_guard).
@@ -254,18 +256,23 @@ async def enrich_task_title(
 
 
 def _parse_enrichment(text: str | dict) -> dict[str, str]:
-    """Parse the Claude CLI enrichment result into description + priority.
+    """Parse the Claude CLI enrichment result into title + description + priority.
 
     Args:
         text: The ``structured_output`` (dict) or ``result`` (str) field
             from Claude CLI JSON output.
 
     Returns:
-        Dict with ``description`` and ``priority`` keys.
+        Dict with ``title``, ``description``, and ``priority`` keys.
+        ``title`` may be empty if the LLM failed to produce a valid one.
     """
+    import re
+
+    title = ""
     try:
         data = text if isinstance(text, dict) else json.loads(text)
         result = EnrichmentResult.model_validate(data)
+        title = result.title
         description = result.description
         priority = result.priority
     except (json.JSONDecodeError, ValidationError, KeyError, TypeError) as exc:
@@ -277,7 +284,17 @@ def _parse_enrichment(text: str | dict) -> dict[str, str]:
         description = ""
         priority = "P1"
 
-    return {"description": description, "priority": priority}
+    # Validate title is ASCII-safe (no CJK characters)
+    _cjk_re = re.compile(
+        r"[\u3000-\u303f\u3040-\u309f\u30a0-\u30ff\u4e00-\u9fff\uac00-\ud7af]",
+    )
+    if title and _cjk_re.search(title):
+        logger.warning(
+            "Enrichment returned non-ASCII title, discarding: %.200s", title,
+        )
+        title = ""
+
+    return {"title": title, "description": description, "priority": priority}
 
 
 def _classify_cli_error(returncode: int, stderr: str) -> PlanGenerationErrorType:

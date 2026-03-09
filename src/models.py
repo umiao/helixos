@@ -202,6 +202,7 @@ class Task(BaseModel):
     project_id: str
     local_task_id: str
     title: str
+    original_title: str | None = None
     description: str = ""
     status: TaskStatus = TaskStatus.BACKLOG
     executor_type: ExecutorType

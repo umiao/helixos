@@ -71,6 +71,7 @@ def _task_to_response(task: Task) -> TaskResponse:
         project_id=task.project_id,
         local_task_id=task.local_task_id,
         title=task.title,
+        original_title=task.original_title,
         description=task.description,
         status=task.status,
         executor_type=task.executor_type,

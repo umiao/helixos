@@ -275,3 +275,10 @@
 - **Sanity check result**: ruff clean on secret_guard.py. 1603 tests pass, 2 skipped, 40 deselected. settings.local.json still exists locally (untracked).
 - **Status**: [PARTIAL] Steps 1-6 done. Step 7 (git filter-repo) and Step 8 (force push) require user confirmation.
 - **Request**: No change (user must run filter-repo separately)
+
+## 2026-03-09 -- [T-P2-142] Enrichment title generation + commit message CJK guard
+- **What I did**: (A) Updated enrichment prompt to return `{title, description, priority}`. Added `title` field to `EnrichmentResult` pydantic model and `_ENRICHMENT_JSON_SCHEMA` (required, maxLength 80). `_parse_enrichment()` validates title is ASCII-safe (discards CJK titles with warning). Added `original_title` column to `TaskRow` (String(512), nullable) with auto-migration and backfill in `init_db()`. Updated `task_row_to_dict`, `task_dict_to_row_kwargs`, Task model, TaskResponse, api_helpers. Sync path sets `original_title = title` at creation. `EnrichTaskResponse` includes `title` field. (B) Created `commit_msg_guard.py` PreToolUse hook that blocks `git commit` commands with CJK characters in the message. Registered in `.claude/settings.json`.
+- **Deliverables**: `config/prompts/enrichment_system.md`, `src/enrichment.py`, `src/db.py`, `src/models.py`, `src/schemas.py`, `src/api_helpers.py`, `src/routes/tasks.py`, `src/sync/tasks_parser.py`, `.claude/hooks/commit_msg_guard.py`, `.claude/settings.json`, `TASKS.md`, `PROGRESS.md`
+- **Sanity check result**: 1405 tests pass (6 skipped, 234 deselected pre-existing timeout tests). Ruff clean on all modified files. Hook logic verified: CJK blocked, en-dash/ASCII allowed, heredoc extraction works. Enrichment parse fallback verified: CJK title discarded, empty title preserved.
+- **Status**: [DONE]
+- **Request**: Move T-P2-142 to Completed

@@ -114,6 +114,7 @@ async def enrich_task(body: EnrichTaskRequest, request: Request) -> EnrichTaskRe
         )
 
     return EnrichTaskResponse(
+        title=result.get("title", ""),
         description=result["description"],
         priority=result["priority"],
     )

@@ -326,6 +326,7 @@ async def sync_project_tasks(
             project_id=project_id,
             local_task_id=pt.local_task_id,
             title=pt.title,
+            original_title=pt.title,
             description=pt.description,
             status=pt.status,
             executor_type=project.executor_type,

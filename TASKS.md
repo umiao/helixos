@@ -32,6 +32,16 @@
 
 ### P2 -- Nice to Have
 
+#### T-P2-143: Rewrite historical non-English commit messages
+- **Priority**: P2
+- **Complexity**: S (< 1 session)
+- **Depends on**: None
+- **Description**: Two commits used raw Chinese input as commit messages. Rewrite via `git filter-repo`. Separated from T-P2-142 because this is a destructive git operation that shouldn't mix with feature development.
+- **Acceptance Criteria**:
+  1. `f31a013` rewritten to `[T-P0-139] Three QoL improvements: DB-persisted project selection, removed [PROGRESS] heartbeat logging, filtered log artifacts in Conversation view`
+  2. `5ea7b4c` rewritten to `[T-P0-125] Review MD rendering, executor feedback verification, title inline edit`
+  3. `[NEEDS-INPUT]` -- requires user confirmation before force push
+
 ## Dependency Graph
 
 > Full historical dependency graph relocated to [docs/architecture/dependency-graph-history.md](docs/architecture/dependency-graph-history.md).
@@ -60,6 +70,9 @@ T-P1-127 depends on T-P1-123 (completed)
 
 
 > 21 completed tasks archived to [archive/completed_tasks.md](archive/completed_tasks.md).
+
+#### [x] T-P2-142: Enrichment title generation + commit message CJK guard -- 2026-03-09
+- Enrichment prompt now returns `{title, description, priority}`. `EnrichmentResult` and JSON schema updated with `title` field (maxLength 80). `_parse_enrichment()` validates title is ASCII-safe (discards CJK). Added `original_title` column to TaskRow with auto-migration + backfill. Task model, response schema, and api_helpers updated. `commit_msg_guard.py` PreToolUse hook blocks CJK in git commit messages, registered in settings.json. 1405 tests pass, ruff clean.
 
 #### [x] T-P2-141: Security hardening -- cleanup personal paths, accidental files, hook enforcement -- 2026-03-09
 - Replaced hardcoded Windows user paths in orchestrator_config.yaml with ~/. git rm'd accidental =0.1.40 pip output and untracked .claude/settings.local.json. Expanded secret_guard.py with PEM/personal-path patterns and sensitive file blocking. Added .gitignore rules for =*, *.pem, *.key, settings.local.json. Removed stale heartbeat tests. Added LESSONS.md entry #27.

@@ -61,6 +61,7 @@ class TaskResponse(BaseModel):
     project_id: str
     local_task_id: str
     title: str
+    original_title: str | None = None
     description: str = ""
     status: TaskStatus
     executor_type: ExecutorType
@@ -304,6 +305,7 @@ class EnrichTaskRequest(BaseModel):
 class EnrichTaskResponse(BaseModel):
     """AI-generated enrichment suggestions."""
 
+    title: str = Field(default="", description="AI-suggested English title (may be empty on fallback)")
     description: str = Field(..., description="AI-suggested description")
     priority: str = Field(
         ...,

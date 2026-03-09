@@ -45,6 +45,7 @@ class TaskRow(Base):
     project_id: Mapped[str] = mapped_column(String(32), nullable=False, index=True)
     local_task_id: Mapped[str] = mapped_column(String(64), nullable=False)
     title: Mapped[str] = mapped_column(String(512), nullable=False)
+    original_title: Mapped[str | None] = mapped_column(String(512), nullable=True)
     description: Mapped[str] = mapped_column(Text, default="")
     status: Mapped[str] = mapped_column(String(32), nullable=False, default="backlog")
     executor_type: Mapped[str] = mapped_column(String(32), nullable=False, default="code")
@@ -176,6 +177,7 @@ def task_row_to_dict(row: TaskRow) -> dict:
         "project_id": row.project_id,
         "local_task_id": row.local_task_id,
         "title": row.title,
+        "original_title": getattr(row, "original_title", None),
         "description": row.description or "",
         "status": row.status,
         "executor_type": row.executor_type,
@@ -204,6 +206,7 @@ def task_dict_to_row_kwargs(data: dict) -> dict:
         "project_id": data["project_id"],
         "local_task_id": data["local_task_id"],
         "title": data["title"],
+        "original_title": data.get("original_title"),
         "description": data.get("description", ""),
         "status": data["status"] if isinstance(data["status"], str) else data["status"].value,
         "executor_type": (
@@ -259,6 +262,10 @@ async def init_db(engine) -> None:
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
         await conn.run_sync(_migrate_missing_columns)
+        # Backfill original_title for existing rows
+        await conn.execute(
+            text("UPDATE tasks SET original_title = title WHERE original_title IS NULL")
+        )
     logger.info("Database tables initialized")
 
 
