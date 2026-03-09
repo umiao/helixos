@@ -7,7 +7,7 @@
 import { createPortal } from "react-dom";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { Task, TaskStatus, StreamSummary } from "../types";
-import { generatePlan, ApiError } from "../api";
+import { generatePlan, updateTask, ApiError } from "../api";
 import type { PlanStatus } from "../types";
 
 interface TaskCardPopoverProps {
@@ -68,6 +68,11 @@ export default function TaskCardPopover({ task, anchorRect, onTaskUpdated, strea
   const [pos, setPos] = useState<{ top: number; left: number }>({ top: 0, left: 0 });
   const [generating, setGenerating] = useState(false);
   const [genError, setGenError] = useState<string | null>(null);
+  const [editingTitle, setEditingTitle] = useState(false);
+  const [titleDraft, setTitleDraft] = useState("");
+  const [titleError, setTitleError] = useState<string | null>(null);
+  const [savingTitle, setSavingTitle] = useState(false);
+  const titleInputRef = useRef<HTMLInputElement>(null);
 
   useLayoutEffect(() => {
     const el = popoverRef.current;
@@ -138,6 +143,61 @@ export default function TaskCardPopover({ task, anchorRect, onTaskUpdated, strea
     }
   };
 
+  const handleTitleClick = () => {
+    setEditingTitle(true);
+    setTitleDraft(task.title);
+    setTitleError(null);
+  };
+
+  const handleTitleSave = async () => {
+    if (savingTitle) return;
+    const trimmed = titleDraft.trim();
+    if (!trimmed) {
+      setTitleError("Title cannot be empty");
+      return;
+    }
+    if (trimmed === task.title) {
+      setEditingTitle(false);
+      return;
+    }
+    setSavingTitle(true);
+    setTitleError(null);
+    try {
+      const updated = await updateTask(task.id, { title: trimmed });
+      setEditingTitle(false);
+      onTaskUpdated?.(updated);
+    } catch (err) {
+      const msg = err instanceof ApiError ? err.detail : "Failed to update title";
+      setTitleError(msg);
+    } finally {
+      setSavingTitle(false);
+    }
+  };
+
+  const handleTitleCancel = () => {
+    setEditingTitle(false);
+    setTitleDraft("");
+    setTitleError(null);
+  };
+
+  const handleTitleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === "Enter") {
+      e.preventDefault();
+      handleTitleSave();
+    } else if (e.key === "Escape") {
+      e.preventDefault();
+      handleTitleCancel();
+    }
+  };
+
+  // Auto-focus input when editing starts
+  useEffect(() => {
+    if (editingTitle && titleInputRef.current) {
+      titleInputRef.current.focus();
+      titleInputRef.current.select();
+    }
+  }, [editingTitle]);
+
   const badgeClass = STATUS_COLORS[task.status];
   const label = STATUS_LABELS[task.status];
 
@@ -154,7 +214,47 @@ export default function TaskCardPopover({ task, anchorRect, onTaskUpdated, strea
           {task.local_task_id}
         </span>
       </div>
-      <p className="text-sm font-semibold text-gray-900 mb-2">{task.title}</p>
+
+      {/* Editable title */}
+      {editingTitle ? (
+        <div className="mb-2">
+          <input
+            ref={titleInputRef}
+            type="text"
+            value={titleDraft}
+            onChange={(e) => setTitleDraft(e.target.value)}
+            onKeyDown={handleTitleKeyDown}
+            onBlur={handleTitleSave}
+            disabled={savingTitle}
+            maxLength={200}
+            className="w-full text-sm font-semibold text-gray-900 border border-indigo-300 rounded px-1.5 py-0.5 focus:outline-none focus:ring-1 focus:ring-indigo-400 focus:border-indigo-400 disabled:opacity-50"
+          />
+          {titleError && (
+            <p className="mt-0.5 text-xs text-red-600">{titleError}</p>
+          )}
+        </div>
+      ) : (
+        <div
+          onClick={handleTitleClick}
+          className="mb-2 group cursor-text hover:bg-gray-50 rounded px-1 py-0.5 -mx-1 transition-colors relative"
+        >
+          <p className="text-sm font-semibold text-gray-900 pr-5">{task.title}</p>
+          {/* Pencil icon on hover */}
+          <svg
+            className="absolute right-1 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-400 opacity-0 group-hover:opacity-100 transition-opacity"
+            fill="none"
+            stroke="currentColor"
+            viewBox="0 0 24 24"
+          >
+            <path
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              strokeWidth={2}
+              d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z"
+            />
+          </svg>
+        </div>
+      )}
 
       {/* Status */}
       <div className="mb-3">

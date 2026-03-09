@@ -457,22 +457,21 @@ export default function ReviewPanel({
       </div>
 
       {/* Summary */}
-      <p className="text-xs text-gray-700 leading-relaxed">
-        {entry.summary}
-      </p>
+      {entry.summary && entry.summary.trim() && (
+        <MarkdownRenderer
+          content={entry.summary}
+          maxHeight="6rem"
+          showSizeToggle={false}
+        />
+      )}
 
       {/* Suggestions */}
       {entry.suggestions.length > 0 && (
-        <ul className="mt-1.5 space-y-0.5">
-          {entry.suggestions.map((s, i) => (
-            <li
-              key={i}
-              className="text-xs text-gray-600 pl-3 relative before:content-['-'] before:absolute before:left-0.5 before:text-gray-400"
-            >
-              {s}
-            </li>
-          ))}
-        </ul>
+        <MarkdownRenderer
+          content={entry.suggestions.map(s => `- ${s}`).join('\n')}
+          maxHeight="8rem"
+          showSizeToggle={false}
+        />
       )}
 
       {/* Consensus score -- only shown on terminal (final) entries, not intermediate */}

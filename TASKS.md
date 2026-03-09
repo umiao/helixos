@@ -19,6 +19,7 @@
 >
 > **Size invariant**: Active TASKS.md must stay under 300 lines. Completed tasks
 > are archived to [archive/completed_tasks.md](archive/completed_tasks.md).
+> PROGRESS.md follows the same pattern (archive to `archive/progress_log.md`).
 
 ## In Progress
 <!-- Only ONE task here at a time. Focus. -->
@@ -31,6 +32,12 @@
 ### P1 -- Should Have (agentic intelligence)
 
 ### P2 -- Nice to Have
+
+#### T-P0-123: 调研并且设计类似于清理 @TASKS.md 的机制来archive我们progress md中过量的内容到同一个folder
+- **Plan**: ready
+
+#### T-P0-124: 多个需要纠正的问题： 1. conversation 工作不正常 看不到任何对话。我们需要折叠除了AI的回复之外的所有对话（包括tool use的输入，输出则完全不显示） 2. Plan tab下生成的MD没有正确被渲染 3. Plain Log需要设计一套合理的高亮和字体颜色来准确舒适的区分AI output，tool use和result 4. 当一个task运行时 需要正确的给conversation 、 log 、 plan都加上跳动的红蓝绿点之一表示状态）
+- **Plan**: ready
 
 ## Dependency Graph
 
@@ -52,6 +59,9 @@ T-P1-127 depends on T-P1-123 (completed -- T-P1-127 now unblocked)
 ## Completed Tasks
 
 > 120 completed tasks archived to [archive/completed_tasks.md](archive/completed_tasks.md).
+
+#### [x] T-P0-125: Review MD rendering + executor feedback verification + title inline edit -- 2026-03-09
+- ReviewPanel.tsx: entry.summary and suggestions now render markdown via MarkdownRenderer with maxHeight="6rem" and "8rem" respectively. TaskCardPopover.tsx: title is now click-to-edit with hover pencil icon, Enter/blur saves, Escape cancels, max 200 chars. Verified scheduler.py correctly injects reviewer feedback (lines 694-714, log "Injecting previous review feedback into prompt"). Frontend builds successfully (no TS errors in changed files).
 
 - T-P2-133: Remove unused generate-tasks-preview endpoint
 - T-P2-132: Fix misleading enrichment prompt text about plan context

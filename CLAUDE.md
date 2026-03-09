@@ -235,10 +235,12 @@ Full protocol details: `docs/workflow/exit-protocol.md`
 
 ## File Conventions
 
-| File | Purpose | Update frequency |
-|------|---------|-----------------|
-| `TASKS.md` | Task backlog and status tracking | Every session |
-| `PROGRESS.md` | Chronological session log | Every session (append-only) |
-| `LESSONS.md` | Critical knowledge and mistakes | Only when a lesson is learned |
+| File | Purpose | Update frequency | Size invariant |
+|------|---------|-----------------|----------------|
+| `TASKS.md` | Task backlog and status tracking | Every session | Under ~300 lines. Archive completed tasks to `archive/completed_tasks.md` when exceeded. |
+| `PROGRESS.md` | Chronological session log | Every session (append-only) | Under ~300 lines. Archive older sessions to `archive/progress_log.md` when exceeded. Keep ~40-50 most recent sessions. |
+| `LESSONS.md` | Critical knowledge and mistakes | Only when a lesson is learned | N/A |
 
-TASKS.md is the **single source of truth** for what needs to be done.
+**TASKS.md** is the **single source of truth** for what needs to be done.
+
+**PROGRESS.md** archival convention: When the file exceeds ~300 lines, move older session entries (keeping the most recent ~40-50 sessions) to `archive/progress_log.md`. The archive file uses chronological order (oldest first) matching PROGRESS.md structure. New content is appended to the archive file on subsequent archivals.
