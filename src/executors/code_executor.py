@@ -333,14 +333,7 @@ class CodeExecutor(BaseExecutor):
                         inactivity_timeout > 0
                         and (check_now - last_event_time) >= inactivity_timeout
                     )
-                    if not session_expired and not inact_expired:
-                        elapsed_str = _format_elapsed(check_now - start)
-                        since_last = int(check_now - last_event_time)
-                        on_log(
-                            f"[PROGRESS] {elapsed_str} elapsed | "
-                            f"{event_count} events | "
-                            f"{since_last}s since last event"
-                        )
+                    # Heartbeat: timeout checks only, no log emission
                     continue
 
                 if item is _sentinel:

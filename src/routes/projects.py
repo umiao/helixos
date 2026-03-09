@@ -383,3 +383,47 @@ async def sync_all(request: Request) -> SyncAllResponse:
         ))
 
     return SyncAllResponse(results=results)
+
+
+# ------------------------------------------------------------------
+# UI Preferences endpoints
+# ------------------------------------------------------------------
+
+
+@router.get(
+    "/api/ui-preferences/{key}",
+    responses={404: {"model": ErrorResponse}},
+)
+async def get_ui_preference(key: str, request: Request) -> dict:
+    """Get a UI preference value by key."""
+    from src.db import get_preference, get_session
+
+    session_factory = request.app.state.session_factory
+    async with get_session(session_factory) as session:
+        value = await get_preference(session, key)
+        if value is None:
+            raise HTTPException(
+                status_code=404,
+                detail=f"Preference not found: {key}",
+            )
+        return {"key": key, "value": value}
+
+
+@router.put("/api/ui-preferences/{key}")
+async def set_ui_preference(key: str, request: Request) -> dict:
+    """Set a UI preference value."""
+    from src.db import get_session, set_preference
+
+    body = await request.json()
+    value = body.get("value")
+    if not isinstance(value, str):
+        raise HTTPException(
+            status_code=400,
+            detail="Request body must contain a 'value' string field",
+        )
+
+    session_factory = request.app.state.session_factory
+    async with get_session(session_factory) as session:
+        await set_preference(session, key, value)
+
+    return {"key": key, "value": value}

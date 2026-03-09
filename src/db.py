@@ -154,6 +154,16 @@ class ReviewHistoryRow(Base):
     )
 
 
+class UIPreferenceRow(Base):
+    """Key-value storage for UI preferences (e.g., selected projects)."""
+
+    __tablename__ = "ui_preferences"
+
+    key: Mapped[str] = mapped_column(String(128), primary_key=True)
+    value: Mapped[str] = mapped_column(Text, nullable=False)
+    updated_at: Mapped[str] = mapped_column(String(64), nullable=False)
+
+
 # ---------------------------------------------------------------------------
 # Conversion helpers
 # ---------------------------------------------------------------------------
@@ -309,3 +319,43 @@ async def get_session(
         except Exception:
             await session.rollback()
             raise
+
+
+# ---------------------------------------------------------------------------
+# UI Preferences helpers
+# ---------------------------------------------------------------------------
+
+
+async def get_preference(
+    session: AsyncSession,
+    key: str,
+) -> str | None:
+    """Retrieve a UI preference by key. Returns None if not found."""
+    from sqlalchemy import select
+    stmt = select(UIPreferenceRow).where(UIPreferenceRow.key == key)
+    result = await session.execute(stmt)
+    row = result.scalar_one_or_none()
+    return row.value if row else None
+
+
+async def set_preference(
+    session: AsyncSession,
+    key: str,
+    value: str,
+) -> None:
+    """Set a UI preference. Creates or updates the key."""
+    from datetime import datetime, timezone
+    from sqlalchemy import select
+
+    stmt = select(UIPreferenceRow).where(UIPreferenceRow.key == key)
+    result = await session.execute(stmt)
+    row = result.scalar_one_or_none()
+
+    timestamp = datetime.now(timezone.utc).isoformat()
+
+    if row:
+        row.value = value
+        row.updated_at = timestamp
+    else:
+        new_row = UIPreferenceRow(key=key, value=value, updated_at=timestamp)
+        session.add(new_row)

@@ -196,6 +196,33 @@ export async function syncProject(projectId: string): Promise<SyncResult> {
   return handleResponse<SyncResult>(res);
 }
 
+/** Fetch selected projects preference from the server. Returns null if not set. */
+export async function fetchSelectedProjects(): Promise<string[] | null> {
+  try {
+    const res = await fetch("/api/ui-preferences/selected-projects");
+    if (res.status === 404) {
+      return null;
+    }
+    const data = await handleResponse<{ key: string; value: string }>(res);
+    const parsed = JSON.parse(data.value);
+    if (Array.isArray(parsed)) {
+      return parsed as string[];
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+/** Save selected projects preference to the server. */
+export async function saveSelectedProjects(ids: string[]): Promise<void> {
+  await fetch("/api/ui-preferences/selected-projects", {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ value: JSON.stringify(ids) }),
+  });
+}
+
 /** Browse a directory on the server (sandboxed to $HOME). */
 export async function browseDirectory(
   path?: string,
