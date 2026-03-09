@@ -272,6 +272,22 @@ class TestEnrichTaskTitle:
             assert result["description"] == ""
             assert result["priority"] == "P1"
 
+    @pytest.mark.asyncio
+    async def test_enrichment_disables_cli_hooks(self) -> None:
+        """Enrichment agent uses setting_sources=[] to disable CLI hooks."""
+        events = _make_enrichment_events("desc", "P1")
+
+        with patch(
+            "src.enrichment.run_claude_query",
+            return_value=_mock_sdk_events(*events),
+        ) as mock_query:
+            await enrich_task_title("Some task")
+            call_args = mock_query.call_args
+            options = call_args[1].get("options") or call_args[0][1]
+            assert options.setting_sources == [], (
+                f"Expected setting_sources=[] but got {options.setting_sources}"
+            )
+
 
 # ------------------------------------------------------------------
 # API endpoint tests: POST /api/tasks/enrich

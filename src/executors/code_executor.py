@@ -32,7 +32,7 @@ from pathlib import Path
 from src.config import OrchestratorSettings
 from src.executors.base import BaseExecutor, ErrorType, ExecutorResult
 from src.models import Project, Task
-from src.prompt_loader import render_prompt
+from src.prompt_loader import load_prompt, render_prompt
 from src.sdk_adapter import ClaudeEventType, QueryOptions, run_claude_query
 
 logger = logging.getLogger(__name__)
@@ -45,6 +45,10 @@ PROGRESS_LOG_INTERVAL_SECONDS = 60
 
 # Heartbeat interval: emit [PROGRESS] if no SDK event for this many seconds.
 HEARTBEAT_SECONDS = 30
+
+# Execution system prompt loaded once from config/prompts/execution_system.md.
+# Provides agent role context for execution SDK calls.
+_EXECUTION_SYSTEM_PROMPT = load_prompt("execution_system")
 
 
 def _strip_ansi(text: str) -> str:
@@ -226,7 +230,12 @@ class CodeExecutor(BaseExecutor):
 
         prompt = self._build_prompt(task, review_feedback=review_feedback)
 
+        # setting_sources=None (default): execution agent inherits all CLI
+        # hooks (block_dangerous, secret_guard, etc.) because it runs real
+        # code in the user's repo and needs full safety guardrails.
         options = QueryOptions(
+            model=self._config.execution_model,
+            system_prompt=_EXECUTION_SYSTEM_PROMPT,
             allowed_tools=["Bash", "Read", "Write", "Edit", "MultiTool"],
             cwd=str(project.repo_path),
             env=env,

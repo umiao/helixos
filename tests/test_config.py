@@ -237,6 +237,16 @@ class TestOrchestratorSettings:
         with pytest.raises(ValidationError):
             OrchestratorSettings(max_total_subprocesses=0)
 
+    def test_execution_model_default(self) -> None:
+        """Default execution_model is claude-sonnet-4-5."""
+        s = OrchestratorSettings()
+        assert s.execution_model == "claude-sonnet-4-5"
+
+    def test_execution_model_custom(self) -> None:
+        """Custom execution_model is accepted."""
+        s = OrchestratorSettings(execution_model="claude-opus-4-6")
+        assert s.execution_model == "claude-opus-4-6"
+
 
 # ------------------------------------------------------------------
 # ProjectConfig tests

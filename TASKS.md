@@ -56,19 +56,6 @@
   5. Generating state: spinner. Failed state: error message with retry option
   6. Manually verify: Generate Plan -> unified review panel -> Confirm -> tasks appear on board [AUTO-VERIFIED]
 
-#### T-P1-117: Audit and fix SDK invocation settings
-- **Priority**: P1
-- **Complexity**: S (< 1 session)
-- **Depends on**: None
-- **Description**: Audit all `run_claude_query()` callsites for consistent configuration. Add `setting_sources=[]` to enrichment. Add explicit model from config and system_prompt to execution agent. Keep execution agent setting_sources as default (all hooks). Add `execution_model` config field.
-- **Acceptance Criteria**:
-  1. `enrich_task_title()` QueryOptions gains `setting_sources=[]`
-  2. `code_executor` QueryOptions gains `model` from `OrchestratorSettings.execution_model` (default `"claude-sonnet-4-5"`)
-  3. `code_executor` QueryOptions gains `system_prompt` from execution prompt template
-  4. `orchestrator_config.yaml` gains `execution_model` field; `OrchestratorSettings` parses it
-  5. Each SDK callsite has code comment explaining its setting_sources choice
-  6. All existing tests pass; new tests verify model and system_prompt in QueryOptions
-
 #### T-P1-118: Harden task cancel with timeout enforcement and force-kill
 - **Priority**: P1
 - **Complexity**: S (< 1 session)
@@ -93,7 +80,7 @@
 ### Current
 T-P1-115 depends on T-P1-113, T-P1-120 (both completed -- T-P1-115 now unblocked)
 T-P1-116 depends on T-P1-114 (completed -- T-P1-116 unblocked)
-T-P1-117, T-P1-118 independent
+T-P1-118 independent
 
 
 ---
@@ -104,6 +91,9 @@ T-P1-117, T-P1-118 independent
 ## Completed Tasks
 
 > 120 completed tasks archived to [archive/completed_tasks.md](archive/completed_tasks.md).
+
+#### [x] T-P1-117: Audit and fix SDK invocation settings -- 2026-03-08
+- Added `setting_sources=[]` to enrichment QueryOptions. Added `execution_model` config field (default `claude-sonnet-4-5`) to `OrchestratorSettings` and `orchestrator_config.yaml`. Execution agent gains `model` from config and `system_prompt` from new `config/prompts/execution_system.md`. All 4 SDK callsites have code comments explaining setting_sources choice. 6 new tests. 1453 pass, ruff clean.
 
 #### [x] T-P1-120: Consolidate prompt templates from 9 files to 4 -- 2026-03-08
 - Consolidated `config/prompts/` from 9 files to 4: inlined fragments into `plan_system.md`, merged review files into parameterized `review.md`, renamed `execution_prompt.md` to `execution.md`. `_REVIEWER_PARAMS` config dict replaces 3 separate module-level prompt vars. `enrich_task_title()` gains conditional skip for non-empty descriptions. 6 files deleted. 11 new tests. 1447 pass, ruff clean.

@@ -215,10 +215,14 @@ async def enrich_task_title(
     if existing_description.strip():
         logger.info("Skipping enrichment: task already has description")
         return {"description": existing_description, "priority": "P1"}
+    # setting_sources=[]: disable CLI hooks for enrichment -- this is a
+    # lightweight, non-interactive call that should not trigger user/project
+    # hooks (e.g., block_dangerous, secret_guard).
     options = QueryOptions(
         model="claude-haiku-4-5-20251001",
         system_prompt=_ENRICHMENT_SYSTEM_PROMPT,
         json_schema=_ENRICHMENT_JSON_SCHEMA,
+        setting_sources=[],
     )
 
     timeout_seconds = timeout_minutes * 60 if timeout_minutes > 0 else None
@@ -559,13 +563,14 @@ async def generate_task_plan(
     session_ctx = get_session_context(repo_path)
     plan_prompt_with_ctx = _PLAN_SYSTEM_PROMPT + "\n\n" + session_ctx
 
+    # setting_sources=[]: disable CLI hooks for plan generation -- session
+    # context is injected manually above; hooks like block_dangerous and
+    # secret_guard are unnecessary in plan-only mode.
     options = QueryOptions(
         model="claude-opus-4-6",
         system_prompt=plan_prompt_with_ctx,
         json_schema=_PLAN_JSON_SCHEMA,
         permission_mode="plan",
-        # Disable CLI hooks (block_dangerous, secret_guard, etc.) for plan
-        # sessions.  Session context is injected above instead.
         setting_sources=[],
     )
 

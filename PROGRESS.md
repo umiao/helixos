@@ -1233,3 +1233,10 @@
 - **Sanity check result**: 1447 tests pass + 6 skipped (11 new), ruff clean. [AUTO-VERIFIED]
 - **Status**: [DONE]
 - **Request**: Move T-P1-120 to Completed
+
+## 2026-03-08 -- [T-P1-117] Audit and fix SDK invocation settings
+- **What I did**: Audited all 4 `run_claude_query()` callsites for consistent configuration. (1) Added `setting_sources=[]` to `enrich_task_title()` QueryOptions (was missing, unlike plan/review which already had it). (2) Added `execution_model` field to `OrchestratorSettings` (default `"claude-sonnet-4-5"`) and `orchestrator_config.yaml`. (3) Execution agent QueryOptions gains `model` from config and `system_prompt` from new `config/prompts/execution_system.md` template. (4) Added code comments at all 4 SDK callsites explaining their `setting_sources` choice: enrichment/plan/review use `[]` (non-interactive, no hooks needed); execution uses `None` (inherits all CLI hooks for safety). (5) Added 6 new tests: 2 config tests (default + custom `execution_model`), 3 executor tests (model from config, custom model, system_prompt), 1 enrichment test (`setting_sources=[]`).
+- **Deliverables**: `src/config.py` (execution_model field), `orchestrator_config.yaml` (execution_model), `src/enrichment.py` (setting_sources=[] + comments), `src/executors/code_executor.py` (model, system_prompt, load_prompt import), `src/review_pipeline.py` (comment update), `config/prompts/execution_system.md` (new), `tests/test_config.py` (2 tests), `tests/test_code_executor.py` (3 tests), `tests/test_enrichment.py` (1 test)
+- **Sanity check result**: 1453 tests pass + 6 skipped (6 new), ruff clean. [AUTO-VERIFIED]
+- **Status**: [DONE]
+- **Request**: Move T-P1-117 to Completed

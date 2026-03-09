@@ -79,6 +79,7 @@ class OrchestratorSettings(BaseModel):
     inactivity_timeout_minutes: int = Field(default=0, ge=0)
     log_retention_days: int = Field(default=30, ge=1)
     stream_log_dir: Path = Path("data/logs")
+    execution_model: str = Field(default="claude-sonnet-4-5")
     plan_validation: PlanValidationConfig = Field(
         default_factory=PlanValidationConfig,
     )

@@ -398,6 +398,67 @@ class TestExecuteHooksLoading:
             "(inherits all hooks from CLI settings)"
         )
 
+    @pytest.mark.asyncio
+    @patch("src.executors.code_executor.run_claude_query")
+    async def test_execution_model_from_config(
+        self,
+        mock_query: MagicMock,
+        config: OrchestratorSettings,
+        project: Project,
+        task: Task,
+    ) -> None:
+        """QueryOptions.model is set from OrchestratorSettings.execution_model."""
+        mock_query.return_value = _mock_sdk_events([_result_event()])
+
+        executor = CodeExecutor(config)
+        await executor.execute(task, project, env={}, on_log=lambda x: None)
+
+        call_args = mock_query.call_args
+        options = call_args[1].get("options") or call_args[0][1]
+        assert options.model == config.execution_model
+
+    @pytest.mark.asyncio
+    @patch("src.executors.code_executor.run_claude_query")
+    async def test_execution_model_custom(
+        self,
+        mock_query: MagicMock,
+        project: Project,
+        task: Task,
+    ) -> None:
+        """Custom execution_model in config is used in QueryOptions."""
+        mock_query.return_value = _mock_sdk_events([_result_event()])
+        custom_config = OrchestratorSettings(
+            session_timeout_minutes=1,
+            execution_model="claude-opus-4-6",
+        )
+
+        executor = CodeExecutor(custom_config)
+        await executor.execute(task, project, env={}, on_log=lambda x: None)
+
+        call_args = mock_query.call_args
+        options = call_args[1].get("options") or call_args[0][1]
+        assert options.model == "claude-opus-4-6"
+
+    @pytest.mark.asyncio
+    @patch("src.executors.code_executor.run_claude_query")
+    async def test_execution_system_prompt(
+        self,
+        mock_query: MagicMock,
+        config: OrchestratorSettings,
+        project: Project,
+        task: Task,
+    ) -> None:
+        """QueryOptions.system_prompt is set from execution_system.md template."""
+        mock_query.return_value = _mock_sdk_events([_result_event()])
+
+        executor = CodeExecutor(config)
+        await executor.execute(task, project, env={}, on_log=lambda x: None)
+
+        call_args = mock_query.call_args
+        options = call_args[1].get("options") or call_args[0][1]
+        assert options.system_prompt is not None
+        assert "task execution agent" in options.system_prompt.lower()
+
 
 class TestExecuteSuccess:
     """Test successful execution flow."""

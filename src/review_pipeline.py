@@ -445,13 +445,15 @@ class ReviewPipeline:
         session_ctx = get_session_context()
         enriched_prompt = system_prompt + "\n\n" + session_ctx
 
+        # setting_sources=[]: disable CLI hooks for review sessions -- this
+        # is a non-interactive LLM call that produces structured JSON; hooks
+        # like block_dangerous and secret_guard are unnecessary.  Session
+        # context is injected manually above instead.
         options = QueryOptions(
             model=model,
             system_prompt=enriched_prompt,
             max_budget_usd=max_budget_usd,
             json_schema=json_schema,
-            # Disable CLI hooks (block_dangerous, secret_guard, etc.) for
-            # review sessions.  Session context is injected above instead.
             setting_sources=[],
         )
 
