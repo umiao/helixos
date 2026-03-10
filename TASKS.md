@@ -66,67 +66,8 @@ T-P1-127 depends on T-P1-123 (completed)
 
 
 
-> 37 completed tasks archived to [archive/completed_tasks.md](archive/completed_tasks.md).
 
-#### [x] T-P1-167: Verify task title hover-edit works for all Kanban card statuses -- 2026-03-09
-- Verified: popover renders unconditionally (no status filter), pencil icon visible via group-hover for all statuses, PATCH save via updateTask() works, mouse interaction delay (150ms) from T-P1-156 wired correctly. All WORKING.
-
-#### [x] T-P1-166: Verify subtask decomposition is functional end-to-end -- 2026-03-09
-- Verified: plan generation returns proposed_tasks in plan_json, validation enforces M>=2/L>=3 minimums, decomposition gate blocks RUNNING via DecompositionRequiredError (HTTP 428), frontend renders ProposedTaskCard with confirm button, confirm endpoint creates subtasks via task_generator. All WORKING.
-
-#### [x] T-P1-165: Auto-trigger review after plan generation -- 2026-03-09
-- Wired auto-review trigger at both plan completion points: initial plan (routes/tasks.py) and replan (routes/reviews.py). Idempotent dedup via review_lifecycle_state check -- skips if already RUNNING. Replan path already had auto-enqueue but lacked dedup guard. 1604 tests pass, ruff clean. [AUTO-VERIFIED]
-
-#### [x] T-P1-163: Redesign Plain Log visual hierarchy with role-based highlighting -- 2026-03-09
-- Added content role detection (AI/tool/result/progress) from message prefix patterns. Each role gets distinct color (AI=gray-100/indigo border, tool=cyan/cyan border, result=gray-400/gray border, progress=gray-500). Level badges (ERROR/WARN) overlay on any role. INFO badge hidden (redundant noise). TS clean, Vite build clean. [AUTO-VERIFIED]
-
-#### [x] T-P1-164: Add animated status dots to Review tab + unify dot colors -- 2026-03-09
-- Added review status dot to BottomPanelContainer: blue pulse for running/partial, green for approved, red for rejected/failed. Unified all tab dots to blue=in-progress (was green for Conversation/Log), green=success, red=failure. TS clean, Vite build clean. [AUTO-VERIFIED]
-
-#### [x] T-P0-162: Verify executor receives reviewer approval and replan feedback (RCA) -- 2026-03-09
-- RCA found 3 broken links: (1) blocking_issues missing from replan feedback, (2) blocking_issues not persisted to DB, (3) answered questions not included in execution feedback. Fixed all three: added blocking_issues to _build_replan_feedback(), added blocking_issues_json column to ReviewHistoryRow with migration, added blocking_issues and answered questions to build_review_feedback() in scheduler.py. 1604 tests pass, ruff clean.
-
-#### [x] T-P0-161: Fix markdown rendering in Plan and Review tabs -- 2026-03-09
-- Root cause: MarkdownRenderer was missing `rehype-prism-plus` plugin, so code blocks had no syntax highlighting. Content prop wiring was correct (7 usage sites verified). Added rehypePrism import and plugin to MarkdownRenderer. TS clean, Vite build clean. [AUTO-VERIFIED]
-
-#### [x] T-P0-160: Redesign Conversation tab -- collapse tool use, show only AI replies -- 2026-03-09
-- Merged consecutive assistant text events into single bubble (text_group in displayEntries). tool_use blocks already collapsed by default, tool_results already hidden unless expanded, thinking blocks already collapsed. TS clean, Vite build clean. [AUTO-VERIFIED]
-
-#### [x] T-P0-159: Fix session_factory not stored on app.state -- 2026-03-09
-- `GET/PUT /api/ui-preferences/{key}` crashed with `AttributeError` because `session_factory` was never assigned to `app.state` in lifespan. Added missing assignment in `api.py`, defensive guards in `projects.py`, wired `session_factory` into test fixture, added 3 preference endpoint tests. 67 test_api tests pass, ruff clean.
-
-#### [x] T-P2-158: Design and implement clarifying question workflow for review -- 2026-03-09
-- Added `ReviewQuestion` model (id, text, answer, source_reviewer, timestamps) to `models.py`. Updated `ReviewState` with `questions` field. Review pipeline extracts questions from explicit LLM `questions` field and falls back to `?`-ending sentences in suggestions/blocking_issues. New `POST /api/tasks/{task_id}/review/answer` endpoint persists answers. Answered questions injected into replan feedback via `_build_replan_feedback()`. Frontend: `ReviewPanel.tsx` shows unanswered questions prominently with inline answer textarea, answered questions in compact green cards. DB migration-safe via existing `_migrate_missing_columns()`. 16 new tests, 1568 pass, TS clean, Vite build clean. [AUTO-VERIFIED]
-
-#### [x] T-P1-157: Investigate T-P0-139 decomposition failure (RCA) -- 2026-03-09
-- Root cause: T-P0-139 was an ad-hoc task created and completed in a single session, bypassing the planning pipeline entirely. No task spec existed in TASKS.md before execution. Additionally, decomposition enforcement (T-P1-151) was committed ~2.75 hours later the same day. Task ID also collided with existing T-P2-139. No code fix needed -- enforcement exists via T-P1-151, issue was process bypass.
-
-#### [x] T-P1-156: Fix inline task edit across all statuses -- 2026-03-09
-- Fixed popover disappearing when mouse moves from card to portal-rendered popover. Added 150ms delayed close with onMouseEnter/onMouseLeave props on popover to cancel/trigger close. Edit functionality (pencil icon, inline editor, PATCH save) now accessible for all statuses. TS clean, Vite build clean, 1570 tests pass.
-
-#### [x] T-P1-155: Add Edit button to PlanReviewPanel -- 2026-03-09
-- Added "Edit Plan" button to PlanReviewPanel header (ready state). Clicking enters edit mode with textarea pre-filled with plan text, Edit/Preview tabs, Save/Cancel buttons. Save persists via PATCH `updateTask` and calls `onTaskUpdated` to refresh parent state (including proposed tasks via T-P0-153). Cancel discards changes. Header buttons disabled during edit mode. TS clean, Vite build clean, 302 tests pass.
-
-#### [x] T-P0-153: Fix plan edit persistence (description/plan_json desync) -- 2026-03-09
-- PATCH endpoint now routes description edits through `plan_json["plan"]` when plan exists, then re-derives `description` via `format_plan_as_text()`. Added `plan_json` to `TaskResponse`. All plan_json write paths audited (generate, replan, PATCH). 8 new regression tests. 302 tests pass, ruff clean.
-
-#### [x] T-P0-154: Set agent cwd for plan/review on imported projects -- 2026-03-09
-- Plan agent (`enrichment.py`) and review agent (`review_pipeline.py`) now use `cwd=repo_path` instead of `add_dirs`. Review pipeline threads `repo_path` through `review_task` -> `_call_reviewer` -> `_call_claude_sdk`. Added `_resolve_repo_path()` helper in `routes/reviews.py`. All 4 `_enqueue_review_pipeline` call sites pass `repo_path`. 276 related tests pass, ruff clean.
-
-#### [x] T-P0-152: Fix ConversationView event normalization (invisible content) -- 2026-03-09
-- Fixed `normalizeStreamEvents` to handle backend `sdk_adapter` event types (`text`, `init`, `error`) and field names (`tool_name`/`tool_input`/`tool_use_id`/`tool_result_content`/`tool_result_for_id`). Added red error bubble rendering. TS clean, Vite build clean, 1576 tests pass.
-
-#### [x] T-P2-143: Rewrite historical non-English commit messages -- 2026-03-09
-- Already completed as part of T-P2-142. Both commits (`f31a013`, `5ea7b4c`) already have correct English messages. No non-ASCII commit messages remain in history.
-
-#### [x] T-P1-151: Enforce subtask decomposition in planner prompt + review validation -- 2026-03-09
-- Updated planner prompt (plan_system.md) with explicit M: 2-4 and L: 3-8 subtask requirements. Added `min_proposed_tasks_m`/`min_proposed_tasks_l` to PlanValidationConfig. `_validate_plan_structure` now enforces minimum subtasks for M/L complexity (S exempt). Review prompt updated to flag missing decomposition. 11 new tests, all 1578 pass, ruff clean.
-
-#### [x] T-P1-150: Add inline description editing to TaskCardPopover -- 2026-03-09
-- Added editable description to TaskCardPopover with pencil icon, textarea (Ctrl+Enter save, Esc cancel), Save/Cancel buttons. Empty descriptions show "No description" placeholder. Persists via PATCH /api/tasks/{id}. TS clean, Vite build clean, 1643 Python tests pass.
-
-#### [x] T-P1-149: Collapse consecutive tool_use blocks in ConversationView -- 2026-03-09
-- Grouped 2+ consecutive tool_use blocks into collapsible container showing count and tool name summary (e.g. "3 tool calls: Read, Grep, Read"). Individual tools still expandable within the group. Single tool_use blocks render unchanged. Vite build clean, 188 tests pass.
+> 57 completed tasks archived to [archive/completed_tasks.md](archive/completed_tasks.md).
 
 #### [x] T-P1-114: Add plan output pydantic validation with retry and error feedback -- 2026-03-08
 - Added `PlanValidationConfig` to config.py with configurable hard/soft limits. `ProposedTask` gains `files` field. `generate_task_plan()` retries up to N times on validation failure with error feedback in prompt. `_validate_plan_structure()` detects dependency cycles via `detect_cycles()`. Soft limits emit warnings. Hard ceiling: max 10 proposed tasks. 25 new tests. 1407 pass, ruff clean.
