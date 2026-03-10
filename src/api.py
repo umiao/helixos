@@ -262,6 +262,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     app.state.process_monitor = process_monitor
     app.state.settings_store = settings_store
     app.state.engine = engine
+    app.state.session_factory = session_factory
 
     logger.info("HelixOS API started")
     yield

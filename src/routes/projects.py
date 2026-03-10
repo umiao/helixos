@@ -398,7 +398,9 @@ async def get_ui_preference(key: str, request: Request) -> dict:
     """Get a UI preference value by key."""
     from src.db import get_preference, get_session
 
-    session_factory = request.app.state.session_factory
+    session_factory = getattr(request.app.state, "session_factory", None)
+    if session_factory is None:
+        raise HTTPException(status_code=500, detail="Database session not available")
     async with get_session(session_factory) as session:
         value = await get_preference(session, key)
         if value is None:
@@ -422,7 +424,9 @@ async def set_ui_preference(key: str, request: Request) -> dict:
             detail="Request body must contain a 'value' string field",
         )
 
-    session_factory = request.app.state.session_factory
+    session_factory = getattr(request.app.state, "session_factory", None)
+    if session_factory is None:
+        raise HTTPException(status_code=500, detail="Database session not available")
     async with get_session(session_factory) as session:
         await set_preference(session, key, value)
 

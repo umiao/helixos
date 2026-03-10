@@ -115,6 +115,7 @@ async def test_app(tmp_path: Path, test_session_factory):
     app.state.review_pipeline = None  # No Claude CLI in tests
     app.state.history_writer = history_writer
     app.state.engine = None
+    app.state.session_factory = test_session_factory
 
     # Mock ProcessManager -- status returns not-running for any project
     mock_pm = MagicMock()
@@ -1338,3 +1339,42 @@ class TestBoardSync:
         board_syncs = [e for e in events if e.type == "board_sync"]
         assert len(board_syncs) == 1
         assert board_syncs[0].data["trigger"] == "task_deleted"
+
+
+# ---------------------------------------------------------------------------
+# UI Preference endpoint tests
+# ---------------------------------------------------------------------------
+
+
+class TestUIPreferences:
+    """Tests for GET/PUT /api/ui-preferences/{key}."""
+
+    async def test_get_nonexistent_preference_returns_404(
+        self, client: AsyncClient,
+    ):
+        """GET for a key that doesn't exist should return 404, not 500."""
+        resp = await client.get("/api/ui-preferences/nonexistent")
+        assert resp.status_code == 404
+
+    async def test_set_and_get_preference(self, client: AsyncClient):
+        """PUT then GET should round-trip the value."""
+        resp = await client.put(
+            "/api/ui-preferences/theme",
+            json={"value": "dark"},
+        )
+        assert resp.status_code == 200
+        assert resp.json() == {"key": "theme", "value": "dark"}
+
+        resp = await client.get("/api/ui-preferences/theme")
+        assert resp.status_code == 200
+        assert resp.json() == {"key": "theme", "value": "dark"}
+
+    async def test_set_preference_bad_value_returns_400(
+        self, client: AsyncClient,
+    ):
+        """PUT with non-string value should return 400."""
+        resp = await client.put(
+            "/api/ui-preferences/theme",
+            json={"value": 123},
+        )
+        assert resp.status_code == 400

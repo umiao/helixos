@@ -66,6 +66,9 @@ T-P1-127 depends on T-P1-123 (completed)
 
 > 37 completed tasks archived to [archive/completed_tasks.md](archive/completed_tasks.md).
 
+#### [x] T-P0-159: Fix session_factory not stored on app.state -- 2026-03-09
+- `GET/PUT /api/ui-preferences/{key}` crashed with `AttributeError` because `session_factory` was never assigned to `app.state` in lifespan. Added missing assignment in `api.py`, defensive guards in `projects.py`, wired `session_factory` into test fixture, added 3 preference endpoint tests. 67 test_api tests pass, ruff clean.
+
 #### [x] T-P2-158: Design and implement clarifying question workflow for review -- 2026-03-09
 - Added `ReviewQuestion` model (id, text, answer, source_reviewer, timestamps) to `models.py`. Updated `ReviewState` with `questions` field. Review pipeline extracts questions from explicit LLM `questions` field and falls back to `?`-ending sentences in suggestions/blocking_issues. New `POST /api/tasks/{task_id}/review/answer` endpoint persists answers. Answered questions injected into replan feedback via `_build_replan_feedback()`. Frontend: `ReviewPanel.tsx` shows unanswered questions prominently with inline answer textarea, answered questions in compact green cards. DB migration-safe via existing `_migrate_missing_columns()`. 16 new tests, 1568 pass, TS clean, Vite build clean. [AUTO-VERIFIED]
 

@@ -128,3 +128,10 @@
 - **Sanity check result**: 1568 Python tests pass (16 new), TypeScript clean, Vite build clean. Grep-based wiring: `answerReviewQuestion` API -> `ReviewPanel.tsx` import + call, `ReviewQuestion` type in `ReviewState` + `ReviewHistoryEntry`, `questions_json` column in DB. [AUTO-VERIFIED]
 - **Status**: [DONE]
 - **Request**: Move T-P2-158 to Completed
+
+## 2026-03-09 -- [T-P0-159] Fix session_factory not stored on app.state
+- **What I did**: Fixed `AttributeError` crash on `GET/PUT /api/ui-preferences/{key}` caused by `session_factory` never being assigned to `app.state` in lifespan handler. Added `app.state.session_factory = session_factory` in `api.py`. Added defensive `getattr` guards in both preference endpoints in `projects.py`. Wired `session_factory` into test fixture and added 3 new preference endpoint tests.
+- **Deliverables**: `src/api.py`, `src/routes/projects.py`, `tests/test_api.py`
+- **Sanity check result**: 67 test_api tests pass (3 new), ruff clean. [AUTO-VERIFIED]
+- **Status**: [DONE]
+- **Request**: Move T-P0-159 to Completed
