@@ -251,10 +251,22 @@ class TestTranslateMessage:
         assert events[0].type == ClaudeEventType.TEXT
         assert events[1].type == ClaudeEventType.TOOL_USE
 
-    def test_assistant_message_thinking_skipped(self) -> None:
-        """ThinkingBlock is silently skipped."""
+    def test_assistant_message_thinking_emitted(self) -> None:
+        """ThinkingBlock is emitted as THINKING event."""
         msg = AssistantMessage(
             content=[ThinkingBlock(), TextBlock(text="result")],
+        )
+        events = _translate_message(msg)
+
+        assert len(events) == 2
+        assert events[0].type == ClaudeEventType.THINKING
+        assert events[0].thinking == "Let me think..."
+        assert events[1].type == ClaudeEventType.TEXT
+
+    def test_assistant_message_empty_thinking_skipped(self) -> None:
+        """ThinkingBlock with empty text is skipped."""
+        msg = AssistantMessage(
+            content=[ThinkingBlock(thinking=""), TextBlock(text="result")],
         )
         events = _translate_message(msg)
 

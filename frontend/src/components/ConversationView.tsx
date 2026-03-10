@@ -139,7 +139,14 @@ export function normalizeStreamEvents(
         for (const block of content) {
           if (typeof block === "object" && block !== null) {
             const b = block as Record<string, unknown>;
-            if (b.type === "text" && typeof b.text === "string" && b.text.trim()) {
+            if (b.type === "thinking" && typeof b.thinking === "string" && b.thinking.trim()) {
+              items.push({
+                key: `${key}-thinking`,
+                type: "thinking",
+                timestamp: ts,
+                thinking: b.thinking,
+              });
+            } else if (b.type === "text" && typeof b.text === "string" && b.text.trim()) {
               items.push({
                 key: `${key}-text`,
                 type: "text",
@@ -151,6 +158,12 @@ export function normalizeStreamEvents(
         }
       } else if (typeof content === "string" && content.trim()) {
         items.push({ key, type: "text", timestamp: ts, text: content });
+      }
+    } else if (eventType === "thinking") {
+      // Top-level thinking event from sdk_adapter
+      const thinking = event.thinking;
+      if (typeof thinking === "string" && thinking.trim()) {
+        items.push({ key, type: "thinking", timestamp: ts, thinking });
       }
     } else if (eventType === "content_block_delta") {
       const delta = event.delta as Record<string, unknown> | undefined;
@@ -440,6 +453,34 @@ export default function ConversationView({
                       </ReactMarkdown>
                     </div>
                   </div>
+                </div>
+              );
+            }
+
+            if (item.type === "thinking") {
+              const isExpanded = expandedTools.has(item.key);
+              const thinkingText = item.thinking ?? "";
+              // Show a short preview when collapsed
+              const preview = thinkingText.length > 80
+                ? thinkingText.slice(0, 77) + "..."
+                : thinkingText;
+              return (
+                <div key={item.key} className="ml-2">
+                  <button
+                    onClick={() => toggleExpand(item.key)}
+                    className="flex items-center gap-1.5 w-full px-2 py-1.5 text-xs font-mono cursor-pointer bg-gray-800/40 text-gray-500 hover:text-gray-400 hover:bg-gray-800/60 transition-colors rounded border border-gray-700/50 text-left italic"
+                  >
+                    <span className="flex-shrink-0 text-[10px] opacity-70">{isExpanded ? "\u25BC" : "\u25B6"}</span>
+                    <span className="flex-shrink-0 text-gray-500">Thinking</span>
+                    {!isExpanded && (
+                      <span className="truncate text-gray-600 ml-1">{preview}</span>
+                    )}
+                  </button>
+                  {isExpanded && (
+                    <div className="mt-0.5 px-3 py-2 bg-gray-800/30 rounded-b border border-t-0 border-gray-700/50 text-xs text-gray-500 italic leading-relaxed whitespace-pre-wrap max-h-64 overflow-y-auto font-mono">
+                      {thinkingText}
+                    </div>
+                  )}
                 </div>
               );
             }

@@ -300,7 +300,7 @@ export interface ReviewHistoryResponse {
 
 /** A single content block inside an assistant message. */
 export interface StreamContentBlock {
-  type: "text" | "tool_use" | "tool_result";
+  type: "text" | "thinking" | "tool_use" | "tool_result";
   text?: string;
   id?: string;           // tool_use_id for tool_use blocks
   name?: string;         // tool name for tool_use blocks
@@ -319,10 +319,12 @@ export interface StreamEvent {
 /** Normalized display item for ConversationView. */
 export interface StreamDisplayItem {
   key: string;
-  type: "text" | "tool_use" | "tool_result" | "result";
+  type: "text" | "thinking" | "tool_use" | "tool_result" | "result";
   timestamp: string;
   /** For text blocks: the markdown content. */
   text?: string;
+  /** For thinking blocks: the reasoning content. */
+  thinking?: string;
   /** For tool_use blocks: tool name. */
   toolName?: string;
   /** For tool_use blocks: tool input. */

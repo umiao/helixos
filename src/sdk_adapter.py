@@ -36,6 +36,7 @@ class ClaudeEventType(StrEnum):
 
     INIT = "init"
     TEXT = "text"
+    THINKING = "thinking"
     TOOL_USE = "tool_use"
     TOOL_RESULT = "tool_result"
     RESULT = "result"
@@ -55,6 +56,9 @@ class ClaudeEvent(BaseModel):
 
     # TEXT -- assistant text fragment
     text: str | None = None
+
+    # THINKING -- agent reasoning block
+    thinking: str | None = None
 
     # TOOL_USE
     tool_name: str | None = None
@@ -283,7 +287,16 @@ def _translate_message(message: Any) -> list[ClaudeEvent]:
                     )
                 )
 
-            # ThinkingBlock -- skip (internal reasoning, not actionable)
+            elif block_cls == "ThinkingBlock":
+                thinking_text = getattr(block, "thinking", None)
+                if thinking_text:
+                    events.append(
+                        ClaudeEvent(
+                            type=ClaudeEventType.THINKING,
+                            thinking=thinking_text,
+                            model=model,
+                        )
+                    )
 
     elif cls_name == "UserMessage":
         # User messages contain tool results injected by the SDK.

@@ -32,17 +32,6 @@
 
 ### P1 -- Should Have (agentic intelligence)
 
-#### T-P1-148: Add thinking block rendering in ConversationView
-- **Priority**: P1
-- **Complexity**: S (< 1 session)
-- **Depends on**: None
-- **Description**: Agent thinking/reasoning blocks are not displayed in ConversationView. Add a distinct visual treatment (e.g. italic, muted color, collapsible) for thinking content.
-- **Acceptance Criteria**:
-  1. Thinking blocks rendered with distinct visual style (muted/italic, different background)
-  2. Thinking blocks collapsible (collapsed by default)
-  3. Thinking content distinguished from regular text messages
-  4. Journey: User views conversation -> sees collapsed "Thinking..." blocks -> clicks to expand -> reads reasoning
-
 #### T-P1-149: Collapse consecutive tool_use blocks in ConversationView
 - **Priority**: P1
 - **Complexity**: S (< 1 session)
@@ -120,6 +109,9 @@ T-P1-127 depends on T-P1-123 (completed)
 
 
 > 21 completed tasks archived to [archive/completed_tasks.md](archive/completed_tasks.md).
+
+#### [x] T-P1-148: Add thinking block rendering in ConversationView -- 2026-03-09
+- Added THINKING event type to backend sdk_adapter.py (previously skipped). Frontend types updated with "thinking" type on StreamDisplayItem. normalizeStreamEvents handles both top-level thinking events and thinking content blocks inside assistant messages. ConversationView renders thinking blocks as collapsible sections (collapsed by default) with muted italic style, text preview when collapsed. Updated test to verify thinking emission instead of skipping; added empty-thinking skip test.
 
 #### [x] T-P1-147: Remove redundant result banner from ConversationView -- 2026-03-09
 - Removed green "Completed successfully" result banner from ConversationView. The `type === "result"` render block now returns null. All other message types (text, tool_use, tool_result) unaffected. Vite build clean.
