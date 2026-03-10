@@ -35,39 +35,13 @@
 
 ### P2 -- Nice to Have
 
-#### T-P2-158: Design and implement clarifying question workflow for review
-- **Priority**: P2
-- **Complexity**: L
-- **Depends on**: T-P0-153, T-P1-155
-- **Description**: Users need both (a) inline Q&A fields for reviewer-raised questions
-  and (b) direct plan editing during review. Design a `ReviewQuestion` data model
-  (id, text, answer, timestamp) stored in `review_json.questions`. Surface unanswered
-  questions prominently in ReviewPanel UI. User answers get injected into replan prompt
-  alongside edited plan text. Large feature spanning data model, backend API, frontend UI,
-  and prompt engineering.
-- **Sub-tasks** (to be decomposed during planning):
-  1. Data model + storage (ReviewQuestion schema, migration)
-  2. Backend API (extract questions from review, store answers, inject into replan)
-  3. Frontend UI (question list, answer fields, integration with existing ReviewPanel)
-- **Acceptance Criteria**:
-  1. Reviewer suggestions containing questions are extracted and surfaced as distinct Q&A items
-  2. User can type answers inline in ReviewPanel
-  3. Answers are included in replan prompt when user triggers replan
-  4. Plan text remains directly editable alongside Q&A
-  5. Answered questions persist across page reloads
-  6. Manually verify: review with questions -> answer inline -> replan -> new plan addresses answers
-- **Regression areas**: review pipeline, replan flow, ReviewPanel UI, plan generation prompts
-- **Files**: `frontend/src/components/ReviewPanel.tsx`, `src/review_pipeline.py`,
-  `src/routes/reviews.py`, `src/enrichment.py`, `src/models.py`, `src/db.py`
-
 
 ## Dependency Graph
 
 > Full historical dependency graph relocated to [docs/architecture/dependency-graph-history.md](docs/architecture/dependency-graph-history.md).
 
 ### Current
-T-P2-158: depends on T-P0-153, T-P1-155 (both completed)
-Suggested execution order: 158
+No active tasks.
 
 ### Historical (completed)
 T-P2-140 depends on T-P0-134 (completed)
@@ -91,6 +65,9 @@ T-P1-127 depends on T-P1-123 (completed)
 
 
 > 37 completed tasks archived to [archive/completed_tasks.md](archive/completed_tasks.md).
+
+#### [x] T-P2-158: Design and implement clarifying question workflow for review -- 2026-03-09
+- Added `ReviewQuestion` model (id, text, answer, source_reviewer, timestamps) to `models.py`. Updated `ReviewState` with `questions` field. Review pipeline extracts questions from explicit LLM `questions` field and falls back to `?`-ending sentences in suggestions/blocking_issues. New `POST /api/tasks/{task_id}/review/answer` endpoint persists answers. Answered questions injected into replan feedback via `_build_replan_feedback()`. Frontend: `ReviewPanel.tsx` shows unanswered questions prominently with inline answer textarea, answered questions in compact green cards. DB migration-safe via existing `_migrate_missing_columns()`. 16 new tests, 1568 pass, TS clean, Vite build clean. [AUTO-VERIFIED]
 
 #### [x] T-P1-157: Investigate T-P0-139 decomposition failure (RCA) -- 2026-03-09
 - Root cause: T-P0-139 was an ad-hoc task created and completed in a single session, bypassing the planning pipeline entirely. No task spec existed in TASKS.md before execution. Additionally, decomposition enforcement (T-P1-151) was committed ~2.75 hours later the same day. Task ID also collided with existing T-P2-139. No code fix needed -- enforcement exists via T-P1-151, issue was process bypass.

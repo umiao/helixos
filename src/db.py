@@ -149,6 +149,7 @@ class ReviewHistoryRow(Base):
     timestamp: Mapped[str] = mapped_column(String(64), nullable=False)
     conversation_turns_json: Mapped[str | None] = mapped_column(Text, nullable=True)
     conversation_summary_json: Mapped[str | None] = mapped_column(Text, nullable=True)
+    questions_json: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     __table_args__ = (
         Index("ix_review_hist_task_ts", "task_id", "timestamp"),

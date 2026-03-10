@@ -221,6 +221,7 @@ class HistoryWriter:
         review_attempt: int = 1,
         plan_snapshot: str | None = None,
         lifecycle_state: ReviewLifecycleState = ReviewLifecycleState.NOT_STARTED,
+        questions: list | None = None,
     ) -> None:
         """Persist a single review history entry.
 
@@ -234,7 +235,14 @@ class HistoryWriter:
             review_attempt: Attempt number (1-based). Retries increment this.
             plan_snapshot: Immutable copy of task.description at pipeline start.
             lifecycle_state: Canonical review lifecycle state for this entry.
+            questions: Optional list of ReviewQuestion objects to persist.
         """
+        questions_json_str: str | None = None
+        if questions:
+            questions_json_str = json.dumps(
+                [q.model_dump(mode="json") for q in questions],
+            )
+
         async with get_session(self._sf) as session:
             row = ReviewHistoryRow(
                 task_id=task_id,
@@ -258,6 +266,7 @@ class HistoryWriter:
                 conversation_summary_json=json.dumps(
                     getattr(review, "conversation_summary", {}) or {},
                 ),
+                questions_json=questions_json_str,
             )
             session.add(row)
 
@@ -340,6 +349,9 @@ class HistoryWriter:
                     ),
                     "conversation_summary": json.loads(
                         getattr(r, "conversation_summary_json", None) or "{}",
+                    ),
+                    "questions": json.loads(
+                        getattr(r, "questions_json", None) or "[]",
                     ),
                 }
                 for r in rows

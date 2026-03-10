@@ -127,6 +127,24 @@ class Project(BaseModel):
     is_primary: bool = False
 
 
+class ReviewQuestion(BaseModel):
+    """A clarifying question raised during review.
+
+    Extracted from reviewer suggestions/blocking issues that are phrased
+    as questions. Users answer inline in the ReviewPanel; answers feed
+    into the replan prompt.
+    """
+
+    model_config = {"from_attributes": True}
+
+    id: str
+    text: str
+    answer: str = ""
+    source_reviewer: str = ""
+    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+    answered_at: datetime | None = None
+
+
 class LLMReview(BaseModel):
     """A single reviewer's verdict."""
 
@@ -158,6 +176,7 @@ class ReviewState(BaseModel):
     decision_points: list[str] = Field(default_factory=list)
     human_choice: str | None = None
     lifecycle_state: str = ReviewLifecycleState.NOT_STARTED
+    questions: list[ReviewQuestion] = Field(default_factory=list)
 
 
 class ExecutionState(BaseModel):

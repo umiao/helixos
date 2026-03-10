@@ -469,7 +469,7 @@ class TestParseReviewWithValidation:
         pipeline = ReviewPipeline(_default_config())
         reviewer = ReviewerConfig(model="claude-sonnet-4-5", focus="test")
         with caplog.at_level("WARNING"):
-            review = pipeline._parse_review(text, reviewer)
+            review, questions = pipeline._parse_review(text, reviewer)
         assert review.verdict == "reject"  # fallback
         assert review.summary == text  # raw text as summary
         assert "Raw" in caplog.text
@@ -479,7 +479,7 @@ class TestParseReviewWithValidation:
         pipeline = ReviewPipeline(_default_config())
         reviewer = ReviewerConfig(model="claude-sonnet-4-5", focus="test")
         with caplog.at_level("WARNING"):
-            review = pipeline._parse_review("not json!", reviewer)
+            review, questions = pipeline._parse_review("not json!", reviewer)
         assert review.verdict == "reject"
         assert "Raw" in caplog.text
         assert "not json!" in caplog.text

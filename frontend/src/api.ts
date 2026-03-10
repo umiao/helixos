@@ -179,6 +179,23 @@ export async function submitReviewDecision(
   return handleResponse<Task>(res);
 }
 
+/** Answer a clarifying question raised during review. */
+export async function answerReviewQuestion(
+  taskId: string,
+  questionId: string,
+  answer: string,
+): Promise<Task> {
+  const res = await fetch(
+    `/api/tasks/${encodeURIComponent(taskId)}/review/answer`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ question_id: questionId, answer }),
+    },
+  );
+  return handleResponse<Task>(res);
+}
+
 /** Trigger sync for all projects. Returns sync results. */
 export async function syncAll(): Promise<{
   results: SyncResult[];

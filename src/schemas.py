@@ -80,6 +80,17 @@ class TaskResponse(BaseModel):
     replan_attempt: int = 0
 
 
+class ReviewQuestionResponse(BaseModel):
+    """Response schema for a review clarifying question."""
+
+    id: str
+    text: str
+    answer: str = ""
+    source_reviewer: str = ""
+    created_at: str = ""
+    answered_at: str | None = None
+
+
 class ReviewStateResponse(BaseModel):
     """Response schema for review state."""
 
@@ -89,6 +100,7 @@ class ReviewStateResponse(BaseModel):
     human_decision_needed: bool = False
     decision_points: list[str] = Field(default_factory=list)
     human_choice: str | None = None
+    questions: list[ReviewQuestionResponse] = Field(default_factory=list)
 
 
 class ExecutionStateResponse(BaseModel):
@@ -143,6 +155,13 @@ class ReviewDecisionRequest(BaseModel):
         description="Human decision: 'approve', 'reject', 'request_changes', or 'replan'",
     )
     reason: str = ""
+
+
+class AnswerQuestionRequest(BaseModel):
+    """Request to answer a review clarifying question."""
+
+    question_id: str = Field(..., description="ID of the question to answer")
+    answer: str = Field(..., min_length=1, description="The answer text")
 
 
 # ------------------------------------------------------------------
@@ -443,6 +462,7 @@ class ReviewHistoryEntry(BaseModel):
     timestamp: str
     conversation_turns: list[dict] = Field(default_factory=list)
     conversation_summary: dict = Field(default_factory=dict)
+    questions: list[ReviewQuestionResponse] = Field(default_factory=list)
 
 
 class ReviewHistoryResponse(BaseModel):

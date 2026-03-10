@@ -30,6 +30,16 @@ export interface Project {
   is_primary: boolean;
 }
 
+/** A clarifying question raised during review. */
+export interface ReviewQuestion {
+  id: string;
+  text: string;
+  answer: string;
+  source_reviewer: string;
+  created_at: string;
+  answered_at: string | null;
+}
+
 export interface ReviewState {
   rounds_total: number;
   rounds_completed: number;
@@ -37,6 +47,7 @@ export interface ReviewState {
   human_decision_needed: boolean;
   decision_points: string[];
   human_choice: string | null;
+  questions: ReviewQuestion[];
 }
 
 export interface ExecutionState {
@@ -283,6 +294,7 @@ export interface ReviewHistoryEntry {
   timestamp: string;
   conversation_turns: Record<string, unknown>[];
   conversation_summary: Record<string, unknown>;
+  questions: ReviewQuestion[];
 }
 
 /** Paginated review history response. */

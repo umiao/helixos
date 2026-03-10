@@ -12,6 +12,7 @@ from src.models import Project, Task
 from src.schemas import (
     ExecutionStateResponse,
     ProjectResponse,
+    ReviewQuestionResponse,
     ReviewStateResponse,
     TaskResponse,
 )
@@ -44,6 +45,17 @@ def _task_to_response(task: Task) -> TaskResponse:
     """Convert a domain Task to an API response."""
     review_resp = None
     if task.review is not None:
+        question_responses = [
+            ReviewQuestionResponse(
+                id=q.id,
+                text=q.text,
+                answer=q.answer,
+                source_reviewer=q.source_reviewer,
+                created_at=q.created_at.isoformat() if q.created_at else "",
+                answered_at=q.answered_at.isoformat() if q.answered_at else None,
+            )
+            for q in (task.review.questions or [])
+        ]
         review_resp = ReviewStateResponse(
             rounds_total=task.review.rounds_total,
             rounds_completed=task.review.rounds_completed,
@@ -51,6 +63,7 @@ def _task_to_response(task: Task) -> TaskResponse:
             human_decision_needed=task.review.human_decision_needed,
             decision_points=task.review.decision_points,
             human_choice=task.review.human_choice,
+            questions=question_responses,
         )
 
     execution_resp = None

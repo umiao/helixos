@@ -11,7 +11,9 @@ import asyncio
 import contextlib
 import json
 import logging
+import re
 import time
+import uuid
 from collections.abc import AsyncIterator, Awaitable, Callable
 from datetime import UTC, datetime
 from pathlib import Path
@@ -23,7 +25,7 @@ from pydantic import BaseModel, Field, ValidationError
 from src.config import ReviewerConfig, ReviewPipelineConfig
 from src.executors.code_executor import _LazyFileWriter
 from src.history_writer import HistoryWriter
-from src.models import LLMReview, ReviewLifecycleState, ReviewState, Task
+from src.models import LLMReview, ReviewLifecycleState, ReviewQuestion, ReviewState, Task
 from src.prompt_loader import render_prompt
 from src.sdk_adapter import (
     ClaudeEvent,
@@ -49,16 +51,25 @@ class BlockingIssue(BaseModel):
     severity: Literal["high", "medium"]
 
 
+class ReviewResultQuestion(BaseModel):
+    """A clarifying question extracted from reviewer output."""
+
+    question: str
+    context: str = ""
+
+
 class ReviewResult(BaseModel):
     """Validates review JSON matches --json-schema contract.
 
-    The LLM returns {blocking_issues, suggestions, pass}. We map
-    pass -> verdict internally for DB storage compatibility.
+    The LLM returns {blocking_issues, suggestions, pass, questions}. We map
+    pass -> verdict internally for DB storage compatibility. Questions are
+    optional -- older reviewers may not include them.
     """
 
     blocking_issues: list[BlockingIssue]
     suggestions: list[str]
     pass_: bool = Field(alias="pass")
+    questions: list[ReviewResultQuestion] = Field(default_factory=list)
 
 
 
@@ -82,6 +93,21 @@ _REVIEW_JSON_SCHEMA = json.dumps({
         },
         "suggestions": {"type": "array", "items": {"type": "string"}},
         "pass": {"type": "boolean"},
+        "questions": {
+            "type": "array",
+            "description": "Clarifying questions for the plan author that need answers before the plan can be fully evaluated.",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "question": {"type": "string"},
+                    "context": {
+                        "type": "string",
+                        "description": "Why this question matters for the review.",
+                    },
+                },
+                "required": ["question"],
+            },
+        },
     },
     "required": ["blocking_issues", "suggestions", "pass"],
 })
@@ -310,6 +336,62 @@ def _extract_cost_usd(cli_output: dict, model: str) -> float | None:
 
 
 # ------------------------------------------------------------------
+# Question extraction
+# ------------------------------------------------------------------
+
+# Pattern to detect sentences ending with '?' (question marks).
+_QUESTION_RE = re.compile(r"[^.!?]*\?")
+
+
+def extract_questions_from_review(
+    result: ReviewResult,
+    reviewer_focus: str,
+) -> list[ReviewQuestion]:
+    """Extract clarifying questions from a parsed review result.
+
+    Sources (in priority order):
+    1. Explicit ``result.questions`` from the LLM structured output.
+    2. Fallback: sentences ending with '?' in suggestions/blocking_issues.
+
+    Args:
+        result: Parsed review result.
+        reviewer_focus: Focus area of the reviewer (for ``source_reviewer``).
+
+    Returns:
+        List of ``ReviewQuestion`` objects with unique IDs.
+    """
+    questions: list[ReviewQuestion] = []
+    seen_texts: set[str] = set()
+
+    def _add(text: str) -> None:
+        normalized = text.strip()
+        if not normalized or normalized in seen_texts:
+            return
+        seen_texts.add(normalized)
+        questions.append(ReviewQuestion(
+            id=uuid.uuid4().hex[:12],
+            text=normalized,
+            source_reviewer=reviewer_focus,
+        ))
+
+    # Priority 1: explicit questions from LLM
+    for q in result.questions:
+        _add(q.question)
+
+    # Priority 2: fallback -- extract question-like sentences from suggestions
+    for suggestion in result.suggestions:
+        for match in _QUESTION_RE.finditer(suggestion):
+            _add(match.group(0).strip())
+
+    # Priority 3: fallback -- extract from blocking issues
+    for bi in result.blocking_issues:
+        for match in _QUESTION_RE.finditer(bi.issue):
+            _add(match.group(0).strip())
+
+    return questions
+
+
+# ------------------------------------------------------------------
 # ReviewPipeline
 # ------------------------------------------------------------------
 
@@ -406,6 +488,7 @@ class ReviewPipeline:
             )
 
         reviews: list[LLMReview] = []
+        all_questions: list[ReviewQuestion] = []
 
         def _emit_log(msg: str) -> None:
             if on_log is not None:
@@ -421,7 +504,7 @@ class ReviewPipeline:
             phase = f"Starting {reviewer.focus} review..."
             on_progress(0, total, phase)
             _emit_log(phase)
-            review = await self._call_reviewer(
+            review, questions = await self._call_reviewer(
                 reviewer, task, plan_content,
                 human_feedback=human_feedback,
                 on_log=on_log,
@@ -430,6 +513,7 @@ class ReviewPipeline:
                 repo_path=repo_path,
             )
             reviews.append(review)
+            all_questions.extend(questions)
             completed_msg = f"Completed {reviewer.focus} review"
             on_progress(1, total, completed_msg)
             _emit_log(completed_msg)
@@ -475,7 +559,9 @@ class ReviewPipeline:
                         timestamp=datetime.now(UTC),
                     ))
                 else:
-                    reviews.append(result)
+                    review, questions = result
+                    reviews.append(review)
+                    all_questions.extend(questions)
                 completed_msg = f"Completed {reviewer.focus} review"
                 on_progress(i + 1, total, completed_msg)
                 _emit_log(completed_msg)
@@ -526,7 +612,11 @@ class ReviewPipeline:
                     review_attempt=review_attempt,
                     plan_snapshot=snapshot if i == 0 else None,
                     lifecycle_state=entry_state,
+                    questions=all_questions if i == len(reviews) - 1 else None,
                 )
+
+        if all_questions:
+            _emit_log(f"Extracted {len(all_questions)} clarifying question(s)")
 
         return ReviewState(
             rounds_total=len(active_reviewers),
@@ -536,6 +626,7 @@ class ReviewPipeline:
             human_decision_needed=(score < self.threshold),
             decision_points=disagreements,
             lifecycle_state=lifecycle_state,
+            questions=all_questions,
         )
 
     @staticmethod
@@ -789,7 +880,7 @@ class ReviewPipeline:
         on_raw_artifact: Callable[[str], Awaitable[None]] | None = None,
         on_stream_event: Callable[[dict], None] | None = None,
         repo_path: Path | None = None,
-    ) -> LLMReview:
+    ) -> tuple[LLMReview, list[ReviewQuestion]]:
         """Call a reviewer via the Claude Agent SDK.
 
         Args:
@@ -803,8 +894,7 @@ class ReviewPipeline:
             repo_path: Optional project repository path for ``cwd`` setting.
 
         Returns:
-            LLMReview with parsed verdict, summary, suggestions, cost_usd,
-            and conversation_turns.
+            Tuple of (LLMReview, list[ReviewQuestion]).
         """
         system_prompt = self._build_review_prompt(reviewer.focus)
 
@@ -853,7 +943,7 @@ class ReviewPipeline:
 
         # structured_output is a dict when --json-schema was used; fall back to result
         result_data = cli_output.get("structured_output") or cli_output.get("result", "")
-        review = self._parse_review(result_data, reviewer)
+        review, questions = self._parse_review(result_data, reviewer)
 
         # Reconstruct conversation turns from raw events
         turns, sdk_result = await collect_turns(_events_to_aiter(all_events))
@@ -881,7 +971,7 @@ class ReviewPipeline:
         review.cost_usd = sdk_result.cost_usd or _extract_cost_usd(
             cli_output, reviewer.model,
         )
-        return review
+        return review, questions
 
     def _build_review_prompt(self, focus: str) -> str:
         """Generate a focus-area system prompt for a reviewer.
@@ -905,11 +995,13 @@ class ReviewPipeline:
             review_questions=questions,
         )
 
-    def _parse_review(self, text: str | dict, reviewer: ReviewerConfig) -> LLMReview:
-        """Parse a Claude CLI result into an LLMReview.
+    def _parse_review(
+        self, text: str | dict, reviewer: ReviewerConfig,
+    ) -> tuple[LLMReview, list[ReviewQuestion]]:
+        """Parse a Claude CLI result into an LLMReview and extracted questions.
 
-        Maps the LLM's ``{blocking_issues, suggestions, pass}`` schema to
-        the internal ``LLMReview`` model which keeps ``verdict`` as
+        Maps the LLM's ``{blocking_issues, suggestions, pass, questions}``
+        schema to the internal ``LLMReview`` model which keeps ``verdict`` as
         ``"approve"``/``"reject"`` for DB compatibility.
 
         Args:
@@ -918,9 +1010,9 @@ class ReviewPipeline:
             reviewer: The reviewer config that generated this response.
 
         Returns:
-            LLMReview with extracted verdict, summary, suggestions,
-            and blocking_issues.
+            Tuple of (LLMReview, list[ReviewQuestion]).
         """
+        questions: list[ReviewQuestion] = []
         try:
             data = text if isinstance(text, dict) else json.loads(text)
             result = ReviewResult.model_validate(data)
@@ -934,6 +1026,8 @@ class ReviewPipeline:
                 summary = "Approved with suggestions: " + "; ".join(suggestions)
             else:
                 summary = "Approved" if result.pass_ else "Rejected"
+            # Extract questions
+            questions = extract_questions_from_review(result, reviewer.focus)
         except (json.JSONDecodeError, ValidationError, KeyError, IndexError) as exc:
             raw_repr = str(text)
             logger.warning(
@@ -953,7 +1047,7 @@ class ReviewPipeline:
             suggestions=suggestions,
             blocking_issues=blocking_issues,
             timestamp=datetime.now(UTC),
-        )
+        ), questions
 
 
 # ------------------------------------------------------------------

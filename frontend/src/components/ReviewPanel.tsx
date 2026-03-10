@@ -27,6 +27,7 @@ import {
   retryReview,
   updateTask,
   generatePlan,
+  answerReviewQuestion,
   ApiError,
 } from "../api";
 import PlanDiffView from "./PlanDiffView";
@@ -75,6 +76,10 @@ export default function ReviewPanel({
   const [expandedRaw, setExpandedRaw] = useState<Record<number, boolean>>({});
   const [expandedConvo, setExpandedConvo] = useState<Record<number, boolean>>({});
   const [planExpanded, setPlanExpanded] = useState(true);
+
+  // Question answering state
+  const [answerDrafts, setAnswerDrafts] = useState<Record<string, string>>({});
+  const [answeringSaving, setAnsweringSaving] = useState<Record<string, boolean>>({});
 
   // Inline plan editor state
   const [editing, setEditing] = useState(false);
@@ -303,6 +308,32 @@ export default function ReviewPanel({
       setGenerating(false);
     }
   };
+
+  const handleAnswerQuestion = async (questionId: string) => {
+    const answer = answerDrafts[questionId]?.trim();
+    if (!answer || !task) return;
+    setAnsweringSaving((prev) => ({ ...prev, [questionId]: true }));
+    try {
+      const updated = await answerReviewQuestion(task.id, questionId, answer);
+      onTaskUpdated?.(updated);
+      setAnswerDrafts((prev) => {
+        const next = { ...prev };
+        delete next[questionId];
+        return next;
+      });
+    } catch (err) {
+      const msg =
+        err instanceof ApiError ? err.detail : "Failed to save answer";
+      onError(msg);
+    } finally {
+      setAnsweringSaving((prev) => ({ ...prev, [questionId]: false }));
+    }
+  };
+
+  // Collect questions from task.review and review history entries
+  const reviewQuestions = task?.review?.questions ?? [];
+  const unansweredQuestions = reviewQuestions.filter((q) => !q.answer?.trim());
+  const answeredQuestions = reviewQuestions.filter((q) => q.answer?.trim());
 
   // Can submit: for request_changes, reason is required
   const canSubmitDecision =
@@ -920,6 +951,89 @@ export default function ReviewPanel({
             No review rounds recorded yet
           </p>
         ) : null}
+
+        {/* Clarifying questions section */}
+        {reviewQuestions.length > 0 && (
+          <div className="rounded-lg border border-violet-200 bg-violet-50 p-2.5 space-y-2">
+            <h4 className="text-xs font-bold uppercase tracking-wide text-violet-700 flex items-center gap-1.5">
+              Clarifying Questions
+              {unansweredQuestions.length > 0 && (
+                <span className="px-1.5 py-0.5 rounded-full text-[10px] font-semibold bg-violet-200 text-violet-800">
+                  {unansweredQuestions.length} unanswered
+                </span>
+              )}
+            </h4>
+
+            {/* Unanswered questions -- prominent */}
+            {unansweredQuestions.map((q) => (
+              <div
+                key={q.id}
+                className="rounded-md border border-violet-300 bg-white p-2 space-y-1.5"
+              >
+                <div className="flex items-start gap-1.5">
+                  <span className="text-violet-600 font-bold text-xs mt-0.5">Q:</span>
+                  <p className="text-xs text-gray-800 leading-relaxed flex-1">
+                    {q.text}
+                  </p>
+                </div>
+                {q.source_reviewer && (
+                  <span className="text-[10px] text-violet-500 italic">
+                    from {q.source_reviewer} reviewer
+                  </span>
+                )}
+                <textarea
+                  value={answerDrafts[q.id] ?? ""}
+                  onChange={(e) =>
+                    setAnswerDrafts((prev) => ({
+                      ...prev,
+                      [q.id]: e.target.value,
+                    }))
+                  }
+                  placeholder="Type your answer..."
+                  rows={2}
+                  disabled={answeringSaving[q.id]}
+                  className="w-full rounded-md border border-violet-200 bg-white px-2 py-1.5 text-xs text-gray-700 placeholder-gray-400 focus:outline-none focus:ring-1 focus:ring-violet-400 focus:border-violet-400 disabled:opacity-50 resize-none"
+                />
+                <button
+                  onClick={() => handleAnswerQuestion(q.id)}
+                  disabled={
+                    answeringSaving[q.id] ||
+                    !answerDrafts[q.id]?.trim()
+                  }
+                  className="rounded-md bg-violet-600 px-3 py-1 text-[10px] font-medium text-white hover:bg-violet-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                >
+                  {answeringSaving[q.id] ? "Saving..." : "Submit Answer"}
+                </button>
+              </div>
+            ))}
+
+            {/* Answered questions -- compact */}
+            {answeredQuestions.map((q) => (
+              <div
+                key={q.id}
+                className="rounded-md border border-green-200 bg-green-50 p-2 space-y-1"
+              >
+                <div className="flex items-start gap-1.5">
+                  <span className="text-green-700 font-bold text-xs mt-0.5">Q:</span>
+                  <p className="text-xs text-gray-700 leading-relaxed flex-1">
+                    {q.text}
+                  </p>
+                </div>
+                <div className="flex items-start gap-1.5">
+                  <span className="text-green-700 font-bold text-xs mt-0.5">A:</span>
+                  <p className="text-xs text-gray-700 leading-relaxed flex-1">
+                    {q.answer}
+                  </p>
+                </div>
+                {q.source_reviewer && (
+                  <span className="text-[10px] text-green-500 italic">
+                    from {q.source_reviewer} reviewer
+                  </span>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
 
         {/* Decision area: 3-button selection + reason + submit */}
         {hasReview && review.human_decision_needed && !review.human_choice && (

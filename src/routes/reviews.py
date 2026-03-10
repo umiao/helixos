@@ -35,6 +35,7 @@ from src.models import ReviewLifecycleState, ReviewState, Task, TaskStatus
 from src.review_pipeline import ReviewPipeline
 from src.scheduler import Scheduler
 from src.schemas import (
+    AnswerQuestionRequest,
     ErrorResponse,
     ReviewDecisionRequest,
     StatusTransitionRequest,
@@ -817,11 +818,75 @@ async def _handle_replan(
     return _task_to_response(updated)
 
 
+# ------------------------------------------------------------------
+# Answer clarifying question endpoint
+# ------------------------------------------------------------------
+
+
+@router.post(
+    "/api/tasks/{task_id}/review/answer",
+    responses={
+        404: {"model": ErrorResponse},
+        409: {"model": ErrorResponse},
+    },
+)
+async def answer_review_question(
+    task_id: str,
+    body: AnswerQuestionRequest,
+    request: Request,
+) -> TaskResponse:
+    """Answer a clarifying question raised during review.
+
+    Updates the question's ``answer`` and ``answered_at`` fields in the
+    task's ``review_json.questions`` list. Persists across page reloads.
+    """
+    task_manager: TaskManager = request.app.state.task_manager
+    event_bus: EventBus = request.app.state.event_bus
+
+    task = await task_manager.get_task(task_id)
+    if task is None:
+        raise HTTPException(status_code=404, detail=f"Task not found: {task_id}")
+
+    if task.review is None or not task.review.questions:
+        raise HTTPException(
+            status_code=409,
+            detail="No review questions found for this task.",
+        )
+
+    # Find the question by ID
+    question_found = False
+    from datetime import UTC, datetime
+
+    for q in task.review.questions:
+        if q.id == body.question_id:
+            q.answer = body.answer
+            q.answered_at = datetime.now(UTC)
+            question_found = True
+            break
+
+    if not question_found:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Question not found: {body.question_id}",
+        )
+
+    # Persist the updated review state
+    await task_manager.update_task(task)
+
+    event_bus.emit(
+        "review_question_answered", task_id,
+        {"question_id": body.question_id},
+        origin="api",
+    )
+
+    return _task_to_response(task)
+
+
 def _build_replan_feedback(task: Task, user_reason: str) -> str:
     """Build structured review feedback for replan from the task's review state.
 
-    Combines the latest review suggestions (from task.review.reviews[]) with
-    any user-supplied reason text.
+    Combines the latest review suggestions (from task.review.reviews[]),
+    answered clarifying questions, and any user-supplied reason text.
     """
     parts: list[str] = []
     if task.review is not None and task.review.reviews:
@@ -832,6 +897,17 @@ def _build_replan_feedback(task: Task, user_reason: str) -> str:
                     parts.append(f"- {s}")
             if review.summary:
                 parts.append(f"Reviewer ({review.focus}) summary: {review.summary}")
+
+    # Include answered clarifying questions
+    if task.review is not None and task.review.questions:
+        answered = [q for q in task.review.questions if q.answer.strip()]
+        if answered:
+            parts.append("\n--- Answered clarifying questions ---")
+            for q in answered:
+                parts.append(f"Q ({q.source_reviewer}): {q.text}")
+                parts.append(f"A: {q.answer}")
+            parts.append("--- End of answers ---")
+
     if user_reason.strip():
         parts.append(f"\nHuman reviewer comment: {user_reason}")
     return "\n".join(parts) if parts else "The previous plan was rejected."

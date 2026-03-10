@@ -121,3 +121,10 @@
 - **Sanity check result**: TypeScript clean, Vite build clean, 1570 Python tests pass (scheduler excluded due to Windows timeout). Grep-based wiring verification: props threaded from TaskCard -> TaskCardPopover, handlers attached to popover div. [AUTO-VERIFIED]
 - **Status**: [DONE]
 - **Request**: Move T-P1-156 to Completed
+
+## 2026-03-09 -- [T-P2-158] Clarifying question workflow for review
+- **What I did**: Implemented full clarifying question workflow spanning data model, backend API, and frontend UI. Added `ReviewQuestion` Pydantic model with id/text/answer/source_reviewer/timestamps. Extended `ReviewState` with `questions` list (stored in `review_json`). Updated review pipeline to extract questions from LLM structured output (`questions` field) with fallback extraction of `?`-ending sentences from suggestions/blocking_issues. Added `questions_json` column to `ReviewHistoryRow` (migration-safe). Created `POST /api/tasks/{task_id}/review/answer` endpoint. Injected answered questions into replan feedback. Built frontend Q&A UI in ReviewPanel: unanswered questions with answer textarea + submit button (violet theme), answered questions as compact green cards.
+- **Deliverables**: `src/models.py`, `src/review_pipeline.py`, `src/routes/reviews.py`, `src/schemas.py`, `src/api_helpers.py`, `src/history_writer.py`, `src/db.py`, `frontend/src/types.ts`, `frontend/src/api.ts`, `frontend/src/components/ReviewPanel.tsx`, `tests/test_review_questions.py`, `tests/test_review_models.py`
+- **Sanity check result**: 1568 Python tests pass (16 new), TypeScript clean, Vite build clean. Grep-based wiring: `answerReviewQuestion` API -> `ReviewPanel.tsx` import + call, `ReviewQuestion` type in `ReviewState` + `ReviewHistoryEntry`, `questions_json` column in DB. [AUTO-VERIFIED]
+- **Status**: [DONE]
+- **Request**: Move T-P2-158 to Completed
