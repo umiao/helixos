@@ -171,6 +171,39 @@ class TestStateMachine:
         updated = await tm.update_status("P0:T-P0-1", TaskStatus.QUEUED)
         assert updated.status == TaskStatus.QUEUED
 
+    # --- expected_status conditional transitions ---
+
+    async def test_expected_status_match_transitions(self, session_factory) -> None:
+        """update_status with matching expected_status transitions normally."""
+        tm = TaskManager(session_factory)
+        await tm.create_task(make_task())
+        updated = await tm.update_status(
+            "P0:T-P0-1", TaskStatus.REVIEW,
+            expected_status=TaskStatus.BACKLOG,
+        )
+        assert updated.status == TaskStatus.REVIEW
+
+    async def test_expected_status_mismatch_noop(self, session_factory) -> None:
+        """update_status with mismatched expected_status returns current task (no-op)."""
+        tm = TaskManager(session_factory)
+        await tm.create_task(make_task())  # starts as BACKLOG
+        updated = await tm.update_status(
+            "P0:T-P0-1", TaskStatus.REVIEW,
+            expected_status=TaskStatus.QUEUED,  # mismatch: task is BACKLOG
+        )
+        # Should be a no-op -- task stays BACKLOG
+        assert updated.status == TaskStatus.BACKLOG
+
+    async def test_expected_status_none_ignored(self, session_factory) -> None:
+        """update_status with expected_status=None behaves normally (backward compat)."""
+        tm = TaskManager(session_factory)
+        await tm.create_task(make_task())
+        updated = await tm.update_status(
+            "P0:T-P0-1", TaskStatus.REVIEW,
+            expected_status=None,
+        )
+        assert updated.status == TaskStatus.REVIEW
+
     # --- Invalid transitions ---
 
     async def test_backlog_to_running_invalid(self, session_factory) -> None:

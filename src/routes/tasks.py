@@ -305,8 +305,22 @@ async def generate_plan(task_id: str, request: Request) -> JSONResponse:
             )
 
             # Auto-trigger review after plan generation (T-P1-165)
-            # Idempotent: skip if review is already running
+            # First transition BACKLOG -> REVIEW (race-safe, bypass gate)
+            # Then enqueue the review pipeline.
             try:
+                refreshed = await task_manager.update_status(
+                    task_id,
+                    TaskStatus.REVIEW,
+                    expected_status=TaskStatus.BACKLOG,
+                    review_gate_enabled=False,
+                )
+                if refreshed.status == TaskStatus.REVIEW:
+                    event_bus.emit(
+                        "status_change", task_id, {"status": "review"},
+                        origin="plan",
+                    )
+
+                # Enqueue review if not already running
                 refreshed = await task_manager.get_task(task_id)
                 if refreshed is not None:
                     from src.routes.reviews import (
@@ -810,6 +824,18 @@ async def update_task_fields(
 
     if changed:
         task = await task_manager.update_task(task)
+        # Write-back title to TASKS.md so sync doesn't overwrite (non-fatal)
+        if body.title is not None:
+            try:
+                registry: ProjectRegistry = request.app.state.registry
+                project = registry.get_project(task.project_id)
+                if project.repo_path is not None:
+                    tasks_md = project.repo_path / project.tasks_file
+                    writer = TasksWriter(tasks_md)
+                    if not writer.update_task_title(task.local_task_id, body.title):
+                        logger.warning("Failed to write-back title for %s", task_id)
+            except Exception as exc:
+                logger.warning("Title write-back failed for %s: %s", task_id, exc)
 
     return _task_to_response(task)
 

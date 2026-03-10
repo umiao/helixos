@@ -288,6 +288,80 @@ class TestTasksWriter:
         for i in range(5):
             assert f"Concurrent task {i}" in content
 
+    def test_update_task_title(self, tmp_path: Path) -> None:
+        """update_task_title replaces the title in the heading line."""
+        tasks_md = tmp_path / "TASKS.md"
+        tasks_md.write_text(
+            "# Task Backlog\n\n"
+            "## Active Tasks\n\n"
+            "#### T-P0-0: Original title\n"
+            "- Some description\n\n"
+            "## Completed Tasks\n",
+            encoding="utf-8",
+        )
+        writer = TasksWriter(tasks_md)
+        result = writer.update_task_title("T-P0-0", "Updated title")
+
+        assert result is True
+        content = tasks_md.read_text(encoding="utf-8")
+        assert "#### T-P0-0: Updated title" in content
+        assert "Original title" not in content
+        # Description preserved
+        assert "Some description" in content
+
+    def test_update_task_title_special_chars(self, tmp_path: Path) -> None:
+        """update_task_title handles special characters in new title."""
+        tasks_md = tmp_path / "TASKS.md"
+        tasks_md.write_text(
+            "# Task Backlog\n\n"
+            "## Active Tasks\n\n"
+            "#### T-P1-5: Old title\n\n"
+            "## Completed Tasks\n",
+            encoding="utf-8",
+        )
+        writer = TasksWriter(tasks_md)
+        result = writer.update_task_title("T-P1-5", "Title with (parens) & [brackets]")
+
+        assert result is True
+        content = tasks_md.read_text(encoding="utf-8")
+        assert "#### T-P1-5: Title with (parens) & [brackets]" in content
+
+    def test_update_task_title_not_found(self, tmp_path: Path) -> None:
+        """update_task_title returns False when task is not found."""
+        tasks_md = tmp_path / "TASKS.md"
+        tasks_md.write_text(
+            "# Task Backlog\n\n## Active Tasks\n\n## Completed Tasks\n",
+            encoding="utf-8",
+        )
+        writer = TasksWriter(tasks_md)
+        result = writer.update_task_title("T-P0-99", "New title")
+
+        assert result is False
+
+    def test_update_task_title_creates_backup(self, tmp_path: Path) -> None:
+        """update_task_title creates a .bak backup before writing."""
+        tasks_md = tmp_path / "TASKS.md"
+        original = (
+            "# Task Backlog\n\n"
+            "## Active Tasks\n\n"
+            "#### T-P0-0: Original\n\n"
+            "## Completed Tasks\n"
+        )
+        tasks_md.write_text(original, encoding="utf-8")
+        writer = TasksWriter(tasks_md)
+        writer.update_task_title("T-P0-0", "New title")
+
+        bak_path = tasks_md.with_suffix(".md.bak")
+        assert bak_path.is_file()
+        assert bak_path.read_text(encoding="utf-8") == original
+
+    def test_update_task_title_file_missing(self, tmp_path: Path) -> None:
+        """update_task_title returns False when TASKS.md does not exist."""
+        tasks_md = tmp_path / "TASKS.md"
+        writer = TasksWriter(tasks_md)
+        result = writer.update_task_title("T-P0-0", "New title")
+        assert result is False
+
     def test_id_format_variations(self, tmp_path: Path) -> None:
         """Correctly handles existing IDs with various formats."""
         tasks_md = tmp_path / "TASKS.md"

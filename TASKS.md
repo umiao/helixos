@@ -69,6 +69,12 @@ T-P1-127 depends on T-P1-123 (completed)
 
 > 57 completed tasks archived to [archive/completed_tasks.md](archive/completed_tasks.md).
 
+#### [x] T-P1-168: Write-back UI title edits to TASKS.md -- 2026-03-10
+- Added `update_task_title()` to TasksWriter + wired into PATCH handler. Prevents sync from overwriting UI title edits.
+
+#### [x] T-P1-169: Auto-review transitions task to REVIEW status (race-safe) -- 2026-03-10
+- Added `expected_status` param to `update_status()` for atomic conditional transitions. Auto-review trigger now does BACKLOG->REVIEW before enqueuing pipeline.
+
 #### [x] T-P0-163: test sample task -- 2026-03-10
 - Completed comprehensive UI journey audit covering 9 user flows (Project Import, Task Creation, Kanban Drag-Drop, Review Gate, Plan Generation, Execution Monitoring, Review Pipeline, Filtering & Search, LLM Prompts). Identified 5 MEDIUM risks (P3 priority gap, review submission race condition, missing cancel-execution button, needs-human notification gap, review sub-state differentiation) and 11 LOW risks. Created 66KB audit report in docs/audits/ui-journey-audit-T-P0-163.md with full user journey traces, conditional behavior documentation, risk summary table, and actionable recommendations.
 

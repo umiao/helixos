@@ -286,6 +286,79 @@ class TasksWriter:
             backup_path=backup_path,
         )
 
+    def update_task_title(self, task_id: str, new_title: str) -> bool:
+        """Update the title in the heading line for *task_id* in TASKS.md.
+
+        Finds ``#### T-PX-NN: <old title>`` and replaces with
+        ``#### T-PX-NN: <new title>``.  Creates a ``.bak`` backup before
+        writing and validates the result.
+
+        Returns *True* on success, *False* on failure (file restored from
+        backup on validation error).
+        """
+        with self._thread_lock, self._file_lock:
+            return self._update_title_locked(task_id, new_title)
+
+    def _update_title_locked(self, task_id: str, new_title: str) -> bool:
+        """Internal: update task title while holding the lock."""
+        if not self._path.is_file():
+            logger.warning("TASKS.md not found at %s, cannot update title", self._path)
+            return False
+
+        content = self._path.read_text(encoding="utf-8")
+        lines = content.split("\n")
+
+        # Find the task heading line
+        task_heading_idx: int | None = None
+        for i, line in enumerate(lines):
+            stripped = line.strip()
+            heading_match = re.match(r"^#{4,6}\s+", stripped)
+            if heading_match and task_id in stripped:
+                task_heading_idx = i
+                break
+
+        if task_heading_idx is None:
+            logger.warning("Task %s not found in %s", task_id, self._path)
+            return False
+
+        # Replace the heading line: #### T-PX-NN: <old> -> #### T-PX-NN: <new>
+        old_line = lines[task_heading_idx]
+        # Match the heading prefix + task_id + colon + old title
+        pattern = re.compile(
+            r"^(#{4,6}\s+" + re.escape(task_id) + r":\s*)(.*)$",
+        )
+        m = pattern.match(old_line.strip())
+        if m is None:
+            logger.warning(
+                "Task %s heading line does not match expected format: %r",
+                task_id, old_line,
+            )
+            return False
+
+        # Preserve leading whitespace from the original line
+        leading = old_line[: len(old_line) - len(old_line.lstrip())]
+        lines[task_heading_idx] = f"{leading}{m.group(1)}{new_title}"
+
+        new_content = "\n".join(lines)
+
+        # Create .bak backup before writing
+        bak_path = self._path.with_suffix(".md.bak")
+        shutil.copy2(str(self._path), str(bak_path))
+        logger.info("Created backup: %s", bak_path)
+
+        self._path.write_text(new_content, encoding="utf-8")
+
+        # Post-write validation
+        error = _validate_written_file(self._path, task_id)
+        if error is not None:
+            logger.error("Post-write validation failed: %s", error)
+            shutil.copy2(str(bak_path), str(self._path))
+            logger.info("Restored from backup after validation failure")
+            return False
+
+        logger.info("Updated title for %s to %r", task_id, new_title)
+        return True
+
     def update_task_plan_status(self, task_id: str, status: str) -> bool:
         """Insert or update ``- **Plan**: <status>`` for *task_id* in TASKS.md.
 

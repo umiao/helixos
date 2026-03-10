@@ -318,6 +318,7 @@ class TaskManager:
         task_id: str,
         new_status: TaskStatus,
         *,
+        expected_status: TaskStatus | None = None,
         review_gate_enabled: bool = False,
         reason: str = "",
         expected_updated_at: str | None = None,
@@ -355,6 +356,12 @@ class TaskManager:
                 raise ValueError(f"Task not found: {task_id}")
 
             current = TaskStatus(row.status)
+
+            # Atomic conditional: if expected_status is set and doesn't match,
+            # return current state as a no-op (not an error).
+            if expected_status is not None and current != expected_status:
+                return Task.model_validate(task_row_to_dict(row))
+
             if new_status not in VALID_TRANSITIONS.get(current, set()):
                 raise ValueError(
                     _build_transition_error(current, new_status, task_id)
