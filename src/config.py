@@ -50,6 +50,10 @@ class PlanValidationConfig(BaseModel):
     # Hard ceilings (reject plan if exceeded)
     max_proposed_tasks: int = Field(default=10, ge=1)
 
+    # Minimum subtask requirements by complexity (0 = no minimum)
+    min_proposed_tasks_m: int = Field(default=2, ge=0)
+    min_proposed_tasks_l: int = Field(default=3, ge=0)
+
     # Soft limits (log warning, do not reject)
     soft_max_proposed_tasks: int = Field(default=8, ge=1)
     soft_max_steps_per_task: int = Field(default=12, ge=1)

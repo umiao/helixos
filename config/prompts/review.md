@@ -51,4 +51,4 @@ Rationale: The plan has structural defects -- a missing migration path risks dat
 ### Threshold guidance
 
 - **PASS**: Plan is implementable as-is. Steps are specific, ACs are verifiable, dependencies are acyclic. Minor style or efficiency suggestions are fine.
-- **FAIL**: Plan has at least one of: missing/untestable ACs, dependency cycles, unaddressed schema migrations, missing inverse cases for conditionals, steps that reference nonexistent files, or scope that clearly exceeds the task description.
+- **FAIL**: Plan has at least one of: missing/untestable ACs, dependency cycles, unaddressed schema migrations, missing inverse cases for conditionals, steps that reference nonexistent files, scope that clearly exceeds the task description, or M/L-complexity tasks with no proposed sub-tasks (decomposition is required for M and L complexity tasks).

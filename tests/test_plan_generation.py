@@ -255,6 +255,76 @@ class TestValidatePlanStructure:
         assert is_valid is True
         assert reason == "ok"
 
+    def test_s_complexity_no_decomposition_ok(self) -> None:
+        """S-complexity plan with no proposed_tasks passes validation."""
+        plan_data = {
+            "plan": "Small fix",
+            "steps": [{"step": "x"}],
+            "acceptance_criteria": ["y"],
+            "proposed_tasks": [],
+        }
+        is_valid, reason = _validate_plan_structure(plan_data, complexity_hint="S")
+        assert is_valid is True
+        assert reason == "ok"
+
+    def test_m_complexity_requires_decomposition(self) -> None:
+        """M-complexity plan with 0 proposed_tasks fails validation."""
+        plan_data = {
+            "plan": "Medium feature",
+            "steps": [{"step": "x"}],
+            "acceptance_criteria": ["y"],
+            "proposed_tasks": [],
+        }
+        is_valid, reason = _validate_plan_structure(plan_data, complexity_hint="M")
+        assert is_valid is False
+        assert "insufficient_decomposition_m" in reason
+
+    def test_m_complexity_with_enough_tasks_passes(self) -> None:
+        """M-complexity plan with >= 2 proposed_tasks passes validation."""
+        plan_data = {
+            "plan": "Medium feature",
+            "steps": [{"step": "x"}],
+            "acceptance_criteria": ["y"],
+            "proposed_tasks": [
+                {"title": "Sub A", "description": "a"},
+                {"title": "Sub B", "description": "b"},
+            ],
+        }
+        is_valid, reason = _validate_plan_structure(plan_data, complexity_hint="M")
+        assert is_valid is True
+        assert reason == "ok"
+
+    def test_l_complexity_requires_decomposition(self) -> None:
+        """L-complexity plan with < 3 proposed_tasks fails validation."""
+        plan_data = {
+            "plan": "Large feature",
+            "steps": [{"step": "x"}],
+            "acceptance_criteria": ["y"],
+            "proposed_tasks": [
+                {"title": "Sub A", "description": "a"},
+                {"title": "Sub B", "description": "b"},
+            ],
+        }
+        is_valid, reason = _validate_plan_structure(plan_data, complexity_hint="L")
+        assert is_valid is False
+        assert "insufficient_decomposition_l" in reason
+
+    def test_l_complexity_with_enough_tasks_passes(self) -> None:
+        """L-complexity plan with >= 3 proposed_tasks passes validation."""
+        plan_data = {
+            "plan": "Large feature",
+            "steps": [{"step": "x"}],
+            "acceptance_criteria": ["y"],
+            "proposed_tasks": [
+                {"title": "Sub A", "description": "a"},
+                {"title": "Sub B", "description": "b"},
+                {"title": "Sub C", "description": "c"},
+            ],
+        }
+        is_valid, reason = _validate_plan_structure(plan_data, complexity_hint="L")
+        assert is_valid is True
+        assert reason == "ok"
+
 
 # ------------------------------------------------------------------
 # Unit tests: format_plan_as_text
@@ -875,6 +945,66 @@ class TestValidatePlanStructureWithConfig:
         assert config.soft_max_proposed_tasks == 8
         assert config.max_validation_retries == 2
 
+    def test_default_config_min_decomposition(self) -> None:
+        """Default PlanValidationConfig has min subtask defaults."""
+        config = PlanValidationConfig()
+        assert config.min_proposed_tasks_m == 2
+        assert config.min_proposed_tasks_l == 3
+
+    def test_custom_min_m_enforced(self) -> None:
+        """Custom min_proposed_tasks_m is enforced for M complexity."""
+        config = PlanValidationConfig(min_proposed_tasks_m=3)
+        plan_data = {
+            "plan": "Plan",
+            "steps": [{"step": "x"}],
+            "acceptance_criteria": ["y"],
+            "proposed_tasks": [
+                {"title": "A", "description": "a"},
+                {"title": "B", "description": "b"},
+            ],
+        }
+        is_valid, reason = _validate_plan_structure(
+            plan_data, config, complexity_hint="M",
+        )
+        assert is_valid is False
+        assert "insufficient_decomposition_m" in reason
+
+    def test_custom_min_l_enforced(self) -> None:
+        """Custom min_proposed_tasks_l is enforced for L complexity."""
+        config = PlanValidationConfig(min_proposed_tasks_l=5)
+        plan_data = {
+            "plan": "Plan",
+            "steps": [{"step": "x"}],
+            "acceptance_criteria": ["y"],
+            "proposed_tasks": [
+                {"title": f"Task {i}", "description": f"Desc {i}"}
+                for i in range(4)
+            ],
+        }
+        is_valid, reason = _validate_plan_structure(
+            plan_data, config, complexity_hint="L",
+        )
+        assert is_valid is False
+        assert "insufficient_decomposition_l" in reason
+
+    def test_min_zero_disables_decomposition_check(self) -> None:
+        """Setting min to 0 disables decomposition enforcement."""
+        config = PlanValidationConfig(min_proposed_tasks_m=0, min_proposed_tasks_l=0)
+        plan_data = {
+            "plan": "Plan",
+            "steps": [{"step": "x"}],
+            "acceptance_criteria": ["y"],
+            "proposed_tasks": [],
+        }
+        is_valid, _ = _validate_plan_structure(
+            plan_data, config, complexity_hint="M",
+        )
+        assert is_valid is True
+        is_valid, _ = _validate_plan_structure(
+            plan_data, config, complexity_hint="L",
+        )
+        assert is_valid is True
+
 
 # ------------------------------------------------------------------
 # Unit tests: _check_soft_limits
@@ -1282,6 +1412,91 @@ class TestParsePlanMarkdownFallback:
         assert result["plan"] == "Do stuff"
         assert len(result["steps"]) == 1
 
+
+# ------------------------------------------------------------------
+# Integration tests: decomposition enforcement in generate_task_plan
+# ------------------------------------------------------------------
+
+
+class TestDecompositionEnforcement:
+    """Tests that generate_task_plan enforces decomposition for M/L tasks."""
+
+    @pytest.mark.asyncio
+    async def test_m_plan_without_subtasks_rejected(self) -> None:
+        """M-complexity plan with no proposed_tasks raises PlanGenerationError."""
+        # Return a plan with no proposed_tasks -- should fail decomposition check
+        events = make_plan_events(
+            "A valid plan", _VALID_STEPS, _VALID_AC, proposed_tasks=[],
+        )
+
+        config = PlanValidationConfig(max_validation_retries=0)
+        with (
+            patch(
+                "src.enrichment.run_claude_query",
+                return_value=mock_sdk_events(*events),
+            ),
+            pytest.raises(PlanGenerationError, match="insufficient_decomposition_m"),
+        ):
+            await generate_task_plan(
+                "Task", complexity_hint="M", plan_validation=config,
+            )
+
+    @pytest.mark.asyncio
+    async def test_l_plan_with_insufficient_subtasks_rejected(self) -> None:
+        """L-complexity plan with < 3 proposed_tasks raises PlanGenerationError."""
+        events = make_plan_events(
+            "A valid plan", _VALID_STEPS, _VALID_AC,
+            proposed_tasks=[
+                {"title": "A", "description": "a"},
+                {"title": "B", "description": "b"},
+            ],
+        )
+
+        config = PlanValidationConfig(max_validation_retries=0)
+        with (
+            patch(
+                "src.enrichment.run_claude_query",
+                return_value=mock_sdk_events(*events),
+            ),
+            pytest.raises(PlanGenerationError, match="insufficient_decomposition_l"),
+        ):
+            await generate_task_plan(
+                "Task", complexity_hint="L", plan_validation=config,
+            )
+
+    @pytest.mark.asyncio
+    async def test_s_plan_without_subtasks_passes(self) -> None:
+        """S-complexity plan with no proposed_tasks passes validation."""
+        events = make_plan_events(
+            "A valid plan", _VALID_STEPS, _VALID_AC, proposed_tasks=[],
+        )
+
+        with patch(
+            "src.enrichment.run_claude_query",
+            return_value=mock_sdk_events(*events),
+        ):
+            result = await generate_task_plan("Task", complexity_hint="S")
+            assert result["plan"] == "A valid plan"
+
+    @pytest.mark.asyncio
+    async def test_m_plan_with_subtasks_passes(self) -> None:
+        """M-complexity plan with sufficient proposed_tasks passes."""
+        proposed = [
+            {"title": "Sub A", "description": "a"},
+            {"title": "Sub B", "description": "b"},
+        ]
+        events = make_plan_events(
+            "A valid plan", _VALID_STEPS, _VALID_AC, proposed_tasks=proposed,
+        )
+
+        with patch(
+            "src.enrichment.run_claude_query",
+            return_value=mock_sdk_events(*events),
+        ):
+            result = await generate_task_plan("Task", complexity_hint="M")
+            assert result["plan"] == "A valid plan"
+            assert len(result.get("proposed_tasks", [])) == 2
+
     def test_dict_input_unchanged(self) -> None:
         """Dict input bypasses fence stripping entirely."""
         from src.enrichment import _parse_plan
@@ -1306,8 +1521,14 @@ class TestComplexityHint:
     @pytest.mark.asyncio
     async def test_complexity_hint_in_system_prompt(self) -> None:
         """complexity_hint value appears in the rendered system prompt."""
+        # M-complexity needs proposed_tasks to pass decomposition validation
+        proposed = [
+            {"title": "Sub A", "description": "a"},
+            {"title": "Sub B", "description": "b"},
+        ]
         events = make_plan_events(
             "A valid plan summary", _VALID_STEPS, _VALID_AC,
+            proposed_tasks=proposed,
         )
 
         with patch(
@@ -1339,8 +1560,15 @@ class TestComplexityHint:
     @pytest.mark.asyncio
     async def test_complexity_hint_in_user_prompt(self) -> None:
         """complexity_hint value appears in the user prompt."""
+        # L-complexity needs >= 3 proposed_tasks to pass decomposition validation
+        proposed = [
+            {"title": "Sub A", "description": "a"},
+            {"title": "Sub B", "description": "b"},
+            {"title": "Sub C", "description": "c"},
+        ]
         events = make_plan_events(
             "A valid plan summary", _VALID_STEPS, _VALID_AC,
+            proposed_tasks=proposed,
         )
 
         with patch(

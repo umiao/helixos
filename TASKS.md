@@ -32,17 +32,7 @@
 
 ### P1 -- Should Have (agentic intelligence)
 
-#### T-P1-151: Enforce subtask decomposition in planner prompt + review validation
-- **Priority**: P1
-- **Complexity**: M (1-2 sessions)
-- **Depends on**: None
-- **Description**: T-P0-139 ran as monolithic task because planner didn't enforce decomposition. Fix the root cause: update planner prompt to require subtask generation for M/L complexity tasks, and add review validation that rejects plans without proper decomposition.
-- **Acceptance Criteria**:
-  1. Planner system prompt updated: M-complexity tasks MUST propose 2-4 subtasks, L-complexity 3-8 subtasks
-  2. Review validation rejects plans for M/L tasks that contain 0 proposed_tasks
-  3. S-complexity tasks exempt from decomposition requirement
-  4. Existing plan generation tests updated to verify decomposition enforcement
-  5. Journey: User creates M-complexity task -> generates plan -> plan contains proposed subtasks -> review validates decomposition
+(No active P1 tasks)
 
 ### P2 -- Nice to Have
 
@@ -86,6 +76,9 @@ T-P1-127 depends on T-P1-123 (completed)
 
 
 > 37 completed tasks archived to [archive/completed_tasks.md](archive/completed_tasks.md).
+
+#### [x] T-P1-151: Enforce subtask decomposition in planner prompt + review validation -- 2026-03-09
+- Updated planner prompt (plan_system.md) with explicit M: 2-4 and L: 3-8 subtask requirements. Added `min_proposed_tasks_m`/`min_proposed_tasks_l` to PlanValidationConfig. `_validate_plan_structure` now enforces minimum subtasks for M/L complexity (S exempt). Review prompt updated to flag missing decomposition. 11 new tests, all 1578 pass, ruff clean.
 
 #### [x] T-P1-150: Add inline description editing to TaskCardPopover -- 2026-03-09
 - Added editable description to TaskCardPopover with pencil icon, textarea (Ctrl+Enter save, Esc cancel), Save/Cancel buttons. Empty descriptions show "No description" placeholder. Persists via PATCH /api/tasks/{id}. TS clean, Vite build clean, 1643 Python tests pass.

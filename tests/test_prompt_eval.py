@@ -73,15 +73,15 @@ class TestPlanPromptEval:
         """Rendering with complexity_hint=M includes M in Phase 4."""
         content = render_prompt("plan_system", complexity_hint="M")
         assert "Complexity hint: M" in content
-        # Phase 4 guidance about proposing sub-tasks for M/L
-        assert "If complexity is M or L, propose sub-tasks" in content
+        # Phase 4 guidance about proposing sub-tasks for M
+        assert "**M (Medium)**: You MUST propose 2-4 sub-tasks" in content
 
     def test_complexity_hint_s_shows_skip(self) -> None:
         """Rendering with complexity_hint=S includes S in Phase 4."""
         content = render_prompt("plan_system", complexity_hint="S")
         assert "Complexity hint: S" in content
         # Phase 4 guidance about skipping for S
-        assert "If complexity is S, skip sub-task decomposition" in content
+        assert "**S (Small)**: Skip sub-task decomposition entirely" in content
 
 
 # ------------------------------------------------------------------

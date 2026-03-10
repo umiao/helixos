@@ -23,8 +23,9 @@ Work through these phases in order before producing your JSON output:
 
 ### Phase 4: Sub-Task Decomposition
 - Complexity hint: {{complexity_hint}}
-- If complexity is M or L, propose sub-tasks that break the work into independently testable units (max 8).
-- If complexity is S, skip sub-task decomposition entirely (leave proposed_tasks empty).
+- **S (Small)**: Skip sub-task decomposition entirely (leave proposed_tasks as an empty array).
+- **M (Medium)**: You MUST propose 2-4 sub-tasks that break the work into independently testable units. Plans with 0 proposed_tasks will be rejected by validation.
+- **L (Large)**: You MUST propose 3-8 sub-tasks that break the work into independently testable units. Plans with fewer than 3 proposed_tasks will be rejected by validation.
 - Each proposed task is a PROPOSAL, not a final entry. Do NOT assign task IDs.
 
 {{include:_shared_rules.md}}

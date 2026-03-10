@@ -139,16 +139,20 @@ def make_plan_events(
     plan: str,
     steps: list[dict],
     acceptance_criteria: list[str],
+    proposed_tasks: list[dict] | None = None,
 ) -> list[ClaudeEvent]:
     """Create ClaudeEvent list simulating plan generation result."""
+    output: dict = {
+        "plan": plan,
+        "steps": steps,
+        "acceptance_criteria": acceptance_criteria,
+    }
+    if proposed_tasks is not None:
+        output["proposed_tasks"] = proposed_tasks
     return [
         ClaudeEvent(
             type=ClaudeEventType.RESULT,
-            structured_output={
-                "plan": plan,
-                "steps": steps,
-                "acceptance_criteria": acceptance_criteria,
-            },
+            structured_output=output,
         ),
     ]
 

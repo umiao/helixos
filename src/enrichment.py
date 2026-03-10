@@ -687,7 +687,9 @@ async def generate_task_plan(
         plan_data = _parse_plan(result_data)
 
         # Structural validation: reject empty/incomplete plans
-        is_valid, reason = _validate_plan_structure(plan_data, plan_validation)
+        is_valid, reason = _validate_plan_structure(
+            plan_data, plan_validation, complexity_hint=complexity_hint,
+        )
         if not is_valid:
             last_validation_error = reason
             if attempt < max_retries:
@@ -714,14 +716,18 @@ async def generate_task_plan(
 def _validate_plan_structure(
     plan_data: dict,
     config: PlanValidationConfig | None = None,
+    complexity_hint: str = "S",
 ) -> tuple[bool, str]:
     """Validate that parsed plan has meaningful content.
 
-    Checks hard ceilings (reject on violation) and DAG validity.
+    Checks hard ceilings (reject on violation), DAG validity, and
+    minimum subtask decomposition requirements for M/L complexity tasks.
 
     Args:
         plan_data: Parsed plan dict.
         config: Validation config with limits. Uses defaults if None.
+        complexity_hint: Task complexity (``"S"``, ``"M"``, ``"L"``).
+            M and L tasks must meet minimum subtask counts.
 
     Returns:
         (is_valid, reason) tuple.
@@ -741,6 +747,18 @@ def _validate_plan_structure(
         return False, (
             f"too_many_proposed_tasks "
             f"({len(proposed)} > {config.max_proposed_tasks})"
+        )
+
+    # Enforce minimum subtask decomposition for M/L complexity tasks
+    if complexity_hint == "M" and len(proposed) < config.min_proposed_tasks_m:
+        return False, (
+            f"insufficient_decomposition_m "
+            f"(got {len(proposed)}, need >= {config.min_proposed_tasks_m})"
+        )
+    if complexity_hint == "L" and len(proposed) < config.min_proposed_tasks_l:
+        return False, (
+            f"insufficient_decomposition_l "
+            f"(got {len(proposed)}, need >= {config.min_proposed_tasks_l})"
         )
 
     # Validate dependencies form a DAG (no cycles)

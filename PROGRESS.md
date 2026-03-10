@@ -65,3 +65,10 @@
 - **Sanity check result**: TypeScript clean, Vite build clean, 1643 Python tests pass. [AUTO-VERIFIED]
 - **Status**: [DONE]
 - **Request**: Move T-P1-150 to Completed
+
+## 2026-03-09 -- [T-P1-151] Enforce subtask decomposition in planner prompt + review validation
+- **What I did**: Updated planner system prompt (plan_system.md) with explicit per-complexity decomposition requirements: M must propose 2-4 subtasks, L must propose 3-8 subtasks, S is exempt. Added `min_proposed_tasks_m` (default 2) and `min_proposed_tasks_l` (default 3) to PlanValidationConfig. Extended `_validate_plan_structure` to accept `complexity_hint` and reject plans with insufficient decomposition. Updated review.md to flag missing decomposition as a FAIL condition. Added 11 new tests covering unit validation, configurable limits, and integration with `generate_task_plan`. Fixed 3 existing tests that needed proposed_tasks for M/L complexity hints.
+- **Deliverables**: `config/prompts/plan_system.md`, `config/prompts/review.md`, `src/config.py`, `src/enrichment.py`, `tests/test_plan_generation.py`, `tests/test_prompt_eval.py`, `tests/factories.py`
+- **Sanity check result**: 1578 tests pass (6 skipped), ruff clean. Scheduler tests hang on Windows asyncio (pre-existing). [AUTO-VERIFIED]
+- **Status**: [DONE]
+- **Request**: Move T-P1-151 to Completed
