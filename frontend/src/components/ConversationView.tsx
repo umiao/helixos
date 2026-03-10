@@ -357,14 +357,17 @@ export default function ConversationView({
   }
 
   // Group consecutive tool_use items into runs for collapsible display.
+  // Merge consecutive text items into a single bubble.
   // Items that are tool_results rendered inline are excluded from grouping.
   type DisplayEntry =
     | { kind: "single"; item: StreamDisplayItem }
-    | { kind: "tool_group"; items: StreamDisplayItem[]; groupKey: string };
+    | { kind: "tool_group"; items: StreamDisplayItem[]; groupKey: string }
+    | { kind: "text_group"; items: StreamDisplayItem[]; groupKey: string };
 
   const displayEntries: DisplayEntry[] = (() => {
     const entries: DisplayEntry[] = [];
     let currentToolRun: StreamDisplayItem[] = [];
+    let currentTextRun: StreamDisplayItem[] = [];
 
     const flushToolRun = () => {
       if (currentToolRun.length === 0) return;
@@ -377,18 +380,35 @@ export default function ConversationView({
       currentToolRun = [];
     };
 
+    const flushTextRun = () => {
+      if (currentTextRun.length === 0) return;
+      if (currentTextRun.length === 1) {
+        entries.push({ kind: "single", item: currentTextRun[0] });
+      } else {
+        const groupKey = `text-group-${currentTextRun[0].key}`;
+        entries.push({ kind: "text_group", items: [...currentTextRun], groupKey });
+      }
+      currentTextRun = [];
+    };
+
     for (const item of mergedItems) {
       // Skip inline tool_results
       if (item.type === "tool_result" && inlineResultKeys.has(item.key)) continue;
 
       if (item.type === "tool_use") {
+        flushTextRun();
         currentToolRun.push(item);
+      } else if (item.type === "text") {
+        flushToolRun();
+        currentTextRun.push(item);
       } else {
         flushToolRun();
+        flushTextRun();
         entries.push({ kind: "single", item });
       }
     }
     flushToolRun();
+    flushTextRun();
     return entries;
   })();
 
@@ -517,6 +537,70 @@ export default function ConversationView({
                       {groupItems.map((tool) => renderToolUse(tool))}
                     </div>
                   )}
+                </div>
+              );
+            }
+
+            if (entry.kind === "text_group") {
+              // Merge consecutive text events into a single bubble
+              const { items: textItems, groupKey } = entry;
+              const mergedText = textItems
+                .map((i) => i.text ?? "")
+                .filter((t) => !/^\[(RESULT|TOOL|INIT|DONE|PROGRESS)\]/.test(t))
+                .join("\n\n");
+              if (!mergedText.trim()) return null;
+              return (
+                <div key={groupKey} className="flex justify-start">
+                  <div className="max-w-[85%] bg-gray-800 rounded-lg px-3 py-2 text-sm text-gray-200 leading-relaxed border border-gray-700 border-l-4 border-l-indigo-500">
+                    <div className="prose-conversation">
+                      <ReactMarkdown
+                        remarkPlugins={REMARK_PLUGINS}
+                        rehypePlugins={REHYPE_PLUGINS}
+                        components={{
+                          p: ({ children }: { children?: React.ReactNode }) => <p className="text-gray-200 mb-1.5 last:mb-0">{children}</p>,
+                          h1: ({ children }: { children?: React.ReactNode }) => <h1 className="font-bold text-gray-100 mb-1 mt-1.5 text-base">{children}</h1>,
+                          h2: ({ children }: { children?: React.ReactNode }) => <h2 className="font-bold text-gray-100 mb-1 mt-1.5 text-sm">{children}</h2>,
+                          h3: ({ children }: { children?: React.ReactNode }) => <h3 className="font-semibold text-gray-200 mb-1 mt-1 text-sm">{children}</h3>,
+                          ul: ({ children }: { children?: React.ReactNode }) => <ul className="list-disc list-inside text-gray-300 mb-1.5 space-y-0.5 pl-1">{children}</ul>,
+                          ol: ({ children }: { children?: React.ReactNode }) => <ol className="list-decimal list-inside text-gray-300 mb-1.5 space-y-0.5 pl-1">{children}</ol>,
+                          li: ({ children }: { children?: React.ReactNode }) => <li className="text-gray-300">{children}</li>,
+                          code: ({ className: codeClassName, children, ...props }: { className?: string; children?: React.ReactNode }) => {
+                            const isBlock = codeClassName?.startsWith("language-");
+                            if (isBlock) {
+                              return (
+                                <code
+                                  className={`${codeClassName} block bg-gray-950 rounded p-2 my-1.5 overflow-x-auto font-mono text-[0.9em] whitespace-pre`}
+                                  {...props}
+                                >
+                                  {children}
+                                </code>
+                              );
+                            }
+                            return (
+                              <code className="bg-gray-700 text-gray-200 rounded px-1 py-0.5 font-mono text-[0.9em]" {...props}>
+                                {children}
+                              </code>
+                            );
+                          },
+                          pre: ({ children }: { children?: React.ReactNode }) => <pre className="my-1.5">{children}</pre>,
+                          strong: ({ children }: { children?: React.ReactNode }) => <strong className="font-semibold text-gray-100">{children}</strong>,
+                          em: ({ children }: { children?: React.ReactNode }) => <em className="italic text-gray-300">{children}</em>,
+                          a: ({ href, children }: { href?: string; children?: React.ReactNode }) => (
+                            <a href={href} className="text-indigo-400 hover:text-indigo-300 underline" target="_blank" rel="noopener noreferrer">
+                              {children}
+                            </a>
+                          ),
+                          blockquote: ({ children }: { children?: React.ReactNode }) => (
+                            <blockquote className="border-l-2 border-gray-600 pl-2 my-1.5 text-gray-400 italic">
+                              {children}
+                            </blockquote>
+                          ),
+                        }}
+                      >
+                        {stripLargeCodeBlockLanguages(mergedText)}
+                      </ReactMarkdown>
+                    </div>
+                  </div>
                 </div>
               );
             }

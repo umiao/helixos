@@ -135,3 +135,10 @@
 - **Sanity check result**: 67 test_api tests pass (3 new), ruff clean. [AUTO-VERIFIED]
 - **Status**: [DONE]
 - **Request**: Move T-P0-159 to Completed
+
+## 2026-03-09 -- [T-P0-160] Redesign Conversation tab -- collapse tool use, show only AI replies
+- **What I did**: Added consecutive text event merging in ConversationView. Extended `displayEntries` grouping to detect runs of consecutive `text` items and render them as a single merged bubble (`text_group` kind) joined with `\n\n`. tool_use blocks were already collapsed by default (via empty `expandedTools` Set), tool_results already hidden unless parent expanded, thinking blocks already collapsed. Also added 8 new tasks to TASKS.md (T-P0-160 through T-P1-167).
+- **Deliverables**: `frontend/src/components/ConversationView.tsx`, `TASKS.md`
+- **Sanity check result**: TypeScript clean, Vite build clean. Grep confirms expandedTools/toggleExpand wiring intact. [AUTO-VERIFIED]
+- **Status**: [DONE]
+- **Request**: Move T-P0-160 to Completed

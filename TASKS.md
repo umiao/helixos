@@ -28,8 +28,104 @@
 
 ### P0 -- Must Have (core functionality)
 
+#### T-P0-161: Fix markdown rendering in Plan and Review tabs
+- **Priority**: P0 | **Complexity**: S
+- **Depends on**: None
+- **Description**: Both Plan tab and Review tab markdown is not rendering correctly.
+  Both use MarkdownRenderer component -- root cause is almost certainly shared.
+  Investigate MarkdownRenderer, PlanReviewPanel, and ReviewPanel integration.
+  Likely content not passed correctly or CSS conflicts.
+- **Files**: `frontend/src/components/MarkdownRenderer.tsx`, `frontend/src/components/PlanReviewPanel.tsx`, `frontend/src/components/ReviewPanel.tsx`
+- **Acceptance Criteria**:
+  1. Plan markdown renders headings, lists, code blocks, tables correctly
+  2. Reviewer output renders as proper markdown (headings, lists, bold/italic)
+  3. Blocking issues and suggestions render with proper formatting
+  4. Links clickable, code blocks have syntax highlighting
+  5. [AUTO-VERIFIED] Build clean, grep confirms MarkdownRenderer receives content prop
+
+#### T-P0-162: Verify executor receives reviewer approval and replan feedback (RCA)
+- **Priority**: P0 | **Complexity**: S
+- **Depends on**: None
+- **Description**: Core pipeline verification. If reviewer feedback doesn't flow into
+  executor, the plan-review-execute loop is broken. Trace the data path: reviewer
+  verdict -> consensus -> _build_replan_feedback() -> executor prompt injection.
+  Fix if broken, document if working.
+- **Files**: `src/review_pipeline.py`, `src/routes/reviews.py`, `src/executors/code_executor.py`
+- **Acceptance Criteria**:
+  1. Trace data flow: reviewer verdict -> consensus score -> replan feedback -> executor prompt
+  2. Confirm reviewer suggestions/blocking_issues are included in executor context
+  3. Confirm answered clarifying questions are forwarded
+  4. Fix any broken links in the chain; document findings in PROGRESS.md
 
 ### P1 -- Should Have (agentic intelligence)
+
+#### T-P1-163: Redesign Plain Log visual hierarchy with role-based highlighting
+- **Priority**: P1 | **Complexity**: M
+- **Depends on**: None
+- **Description**: Plain Log needs a designed color/font scheme to clearly distinguish
+  content roles: AI output, tool invocations, and tool results. Current level-based
+  coloring (ERROR/WARN/INFO) is insufficient for comfortable readability. The visual
+  design should make the content type immediately apparent at a glance.
+- **Files**: `frontend/src/components/ExecutionLog.tsx`
+- **Acceptance Criteria**:
+  1. Each content role (AI output, tool use, tool result) has visually distinct treatment
+  2. Level badges (ERROR/WARN) remain visible as overlay on any content type
+  3. Visual hierarchy is comfortable for extended reading
+  4. [AUTO-VERIFIED] Build clean, role-based styling applied
+
+#### T-P1-164: Add animated status dots to Review tab + unify dot colors
+- **Priority**: P1 | **Complexity**: S
+- **Depends on**: None
+- **Description**: Conversation/Log tabs show green pulse dot when running. Plan tab
+  shows blue/green/red dot. Review tab has NO status dot. Add review status dot
+  and unify color semantics across all tabs.
+- **Files**: `frontend/src/components/BottomPanelContainer.tsx`
+- **Acceptance Criteria**:
+  1. Review tab shows animated dot when review_lifecycle_state === "running"
+  2. Review tab shows solid green dot when approved, red when rejected
+  3. All tabs use consistent color semantics (blue=in-progress, green=success, red=failure)
+  4. [AUTO-VERIFIED] Build clean, dots visible in tab bar
+
+#### T-P1-165: Auto-trigger review after plan generation
+- **Priority**: P1 | **Complexity**: M
+- **Depends on**: None
+- **Description**: Review should auto-start immediately when plan_status transitions
+  to "ready". Currently review only triggers on explicit status change to REVIEW.
+  Wire plan completion to auto-enqueue review pipeline. Must be idempotent --
+  concurrent manual + auto trigger must not create duplicate reviews.
+- **Files**: `src/routes/reviews.py`, `src/enrichment.py`, `src/routes/tasks.py`
+- **Acceptance Criteria**:
+  1. When plan_status changes to "ready", review pipeline auto-starts immediately
+  2. Idempotent dedup: use plan_version or review lock to prevent duplicate reviews
+     if manual trigger and auto-trigger race
+  3. Review lifecycle_state updates correctly in auto-triggered flow
+  4. SSE events emitted for auto-triggered review
+  5. [AUTO-VERIFIED] Trace logs confirm auto-trigger, dedup tested
+
+#### T-P1-166: Verify subtask decomposition is functional end-to-end
+- **Priority**: P1 | **Complexity**: S
+- **Depends on**: None
+- **Description**: Verify the full decomposition flow: plan generates proposed tasks ->
+  validation enforces M/L minimums -> decomposition gate blocks execution -> user
+  confirms -> subtasks created.
+- **Acceptance Criteria**:
+  1. Trace plan generation for M/L task confirms proposed_tasks in plan_json
+  2. Validation rejects plans with too few subtasks for M/L
+  3. Decomposition gate blocks RUNNING transition when has_proposed_tasks
+  4. Frontend shows proposed task cards with confirm action
+  5. Document findings in PROGRESS.md
+
+#### T-P1-167: Verify task title hover-edit works for all Kanban card statuses
+- **Priority**: P1 | **Complexity**: S
+- **Depends on**: None
+- **Description**: T-P1-156 fixed popover disappearing. Verify the title edit
+  (pencil icon -> inline input -> Enter to save) works for cards in ALL statuses
+  (pending, planned, running, review, done, blocked).
+- **Acceptance Criteria**:
+  1. Hover popover appears for cards in every status column
+  2. Pencil icon visible and clickable for title edit
+  3. Edit saves via PATCH and updates card
+  4. [AUTO-VERIFIED] grep confirms no status-based filtering of edit UI
 
 
 
@@ -41,7 +137,8 @@
 > Full historical dependency graph relocated to [docs/architecture/dependency-graph-history.md](docs/architecture/dependency-graph-history.md).
 
 ### Current
-No active tasks.
+T-P0-160, T-P0-161, T-P0-162 -- parallel, no dependencies
+T-P1-163 through T-P1-167 -- no dependencies
 
 ### Historical (completed)
 T-P2-140 depends on T-P0-134 (completed)
@@ -65,6 +162,9 @@ T-P1-127 depends on T-P1-123 (completed)
 
 
 > 37 completed tasks archived to [archive/completed_tasks.md](archive/completed_tasks.md).
+
+#### [x] T-P0-160: Redesign Conversation tab -- collapse tool use, show only AI replies -- 2026-03-09
+- Merged consecutive assistant text events into single bubble (text_group in displayEntries). tool_use blocks already collapsed by default, tool_results already hidden unless expanded, thinking blocks already collapsed. TS clean, Vite build clean. [AUTO-VERIFIED]
 
 #### [x] T-P0-159: Fix session_factory not stored on app.state -- 2026-03-09
 - `GET/PUT /api/ui-preferences/{key}` crashed with `AttributeError` because `session_factory` was never assigned to `app.state` in lifespan. Added missing assignment in `api.py`, defensive guards in `projects.py`, wired `session_factory` into test fixture, added 3 preference endpoint tests. 67 test_api tests pass, ruff clean.
