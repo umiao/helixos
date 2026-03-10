@@ -298,6 +298,7 @@ async def generate_plan(task_id: str, request: Request) -> JSONResponse:
                     "plan_status": "ready",
                     "generation_id": generation_id,
                     "proposed_tasks": proposed_tasks_payload,
+                    "description": formatted,
                 },
                 origin="plan",
             )

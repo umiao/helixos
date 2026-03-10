@@ -296,3 +296,10 @@
 - **Sanity check result**: Design doc only -- no code changes to verify. Document reviewed for completeness against all 5 ACs: data model (AC1), ASK_QUESTION action via questions field in ReviewResult (AC2), inline answer UI in ReviewPanel (AC3), resume with Q&A context (AC4), awaiting user approval (AC5).
 - **Status**: [DONE]
 - **Request**: Move T-P0-145 to Completed
+
+## 2026-03-09 -- [T-P1-146] Fix PlanReviewPanel markdown rendering
+- **What I did**: Fixed three issues causing blank/invisible plan summary in PlanReviewPanel: (1) SSE race condition -- `plan_status_change` SSE event for "ready" did not include `description`, so the optimistic patch set `plan_status="ready"` but left `description` stale/empty from GENERATING state. Added `description` field to SSE event payload in both `routes/tasks.py` and `routes/reviews.py`. Updated `planStatePatch` utility and `useSSEHandler` to propagate description in the optimistic update. (2) Missing `remark-gfm` -- MarkdownRenderer did not use `remark-gfm` plugin (ConversationView did), causing GFM tables/features to not render. Added `remarkGfm` import and `remarkPlugins` prop. (3) Whitespace edge case -- PlanReviewPanel checked `task.description` truthiness but whitespace-only strings passed; changed to `task.description?.trim()`. Added 6 regression tests for `format_plan_as_text` edge cases (whitespace-only, nested markdown, code blocks, very long content, missing keys, non-dict steps).
+- **Deliverables**: `src/routes/tasks.py`, `src/routes/reviews.py`, `frontend/src/components/MarkdownRenderer.tsx`, `frontend/src/components/PlanReviewPanel.tsx`, `frontend/src/utils/planState.ts`, `frontend/src/hooks/useSSEHandler.ts`, `tests/test_plan_generation.py`
+- **Sanity check result**: Vite build clean. 225 core tests pass (plan, enrichment, db, task_manager). 10/10 format_plan_as_text tests pass including 6 new edge cases. TypeScript pre-existing errors only (no new errors). [AUTO-VERIFIED] -- no browser available; wiring confirmed via code trace.
+- **Status**: [DONE]
+- **Request**: Move T-P1-146 to Completed

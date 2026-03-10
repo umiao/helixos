@@ -32,17 +32,6 @@
 
 ### P1 -- Should Have (agentic intelligence)
 
-#### T-P1-146: Fix PlanReviewPanel markdown rendering
-- **Priority**: P1
-- **Complexity**: S (< 1 session)
-- **Depends on**: None
-- **Description**: Plan summary text in the side panel renders blank/invisible for some tasks. Investigate rendering pipeline: PlanReviewPanel -> MarkdownRenderer -> sanitized HTML -> DOM.
-- **Acceptance Criteria**:
-  1. Root cause identified (CSS, sanitization, AST error, key mismatch, or type mismatch)
-  2. Plan summary renders correctly for all existing tasks with non-empty description
-  3. Regression test: verify MarkdownRenderer handles edge cases (empty string, very long content, nested markdown, code blocks)
-  4. Journey: User clicks task with plan -> side panel opens -> plan summary visible and properly formatted
-
 #### T-P1-147: Remove redundant result banner from ConversationView
 - **Priority**: P1
 - **Complexity**: S (< 1 session)
@@ -141,6 +130,9 @@ T-P1-127 depends on T-P1-123 (completed)
 
 
 > 21 completed tasks archived to [archive/completed_tasks.md](archive/completed_tasks.md).
+
+#### [x] T-P1-146: Fix PlanReviewPanel markdown rendering -- 2026-03-09
+- Fixed three root causes: (1) SSE race condition -- plan_status_change "ready" event did not include description, causing stale/empty description in optimistic update. Added description to SSE payload in tasks.py and reviews.py, threaded through planStatePatch and useSSEHandler. (2) Missing remark-gfm in MarkdownRenderer -- GFM features (tables, strikethrough) did not render. Added remarkGfm plugin. (3) Whitespace edge case -- changed truthiness check to .trim(). Added 6 regression tests for format_plan_as_text edge cases.
 
 #### [x] T-P0-145: Design agent clarifying question protocol -- 2026-03-09
 - Design doc created at `docs/architecture/clarifying-questions.md`. Covers: data model (ReviewQuestionRow table, ReviewQuestion Pydantic model), new AWAITING_ANSWERS lifecycle state with transition rules, 4 API endpoints (GET questions, POST answer, POST answer-all, POST skip), review prompt changes (questions field in ReviewResult JSON, resume prompt template), backend pause/resume flow in review pipeline, frontend UX (question cards with answer textareas in ReviewPanel, Q&A history display, amber banner), 4 new SSE event types, migration plan, edge case matrix (11 scenarios), and 6 implementation subtasks. Awaiting user review before implementation.

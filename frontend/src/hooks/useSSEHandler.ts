@@ -149,6 +149,10 @@ export function useSSEHandler(deps: UseSSEHandlerDeps) {
             newPlanStatus === "ready" && Array.isArray(event.data.proposed_tasks)
               ? (event.data.proposed_tasks as ProposedTask[])
               : undefined;
+          const planDescription =
+            newPlanStatus === "ready" && typeof event.data.description === "string"
+              ? (event.data.description as string)
+              : undefined;
           const patch = planStatePatch(
             newPlanStatus as Task["plan_status"],
             {
@@ -156,6 +160,7 @@ export function useSSEHandler(deps: UseSSEHandlerDeps) {
               errorType: (event.data.error_type as string) || undefined,
               errorMessage: (event.data.error_message as string) || undefined,
               proposedTasks: proposedTasks,
+              description: planDescription,
             },
           );
 

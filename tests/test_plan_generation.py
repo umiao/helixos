@@ -313,6 +313,64 @@ class TestFormatPlanAsText:
         assert "Create auth middleware" in text
         assert "2. Add login endpoint" in text
 
+    # ---- Edge-case regression tests (T-P1-146) ----
+
+    def test_whitespace_only_plan(self) -> None:
+        """Whitespace-only plan text produces empty output."""
+        text = format_plan_as_text({"plan": "   \n\t  ", "steps": [], "acceptance_criteria": []})
+        # strip() in format_plan_as_text should produce empty string
+        assert text.strip() == ""
+
+    def test_nested_markdown_content(self) -> None:
+        """Plan summary with nested markdown (bold, italic, inline code)."""
+        text = format_plan_as_text({
+            "plan": "Add **bold** and *italic* and `code` features.",
+            "steps": [{"step": "Update `parser.py` with **new** rules"}],
+            "acceptance_criteria": ["*Italic* text renders"],
+        })
+        assert "**bold**" in text
+        assert "*italic*" in text
+        assert "`code`" in text
+        assert "`parser.py`" in text
+
+    def test_code_block_in_steps(self) -> None:
+        """Steps containing code fences are preserved."""
+        text = format_plan_as_text({
+            "plan": "Refactor config loader.",
+            "steps": [
+                {"step": "Add ```python\nimport os\n``` to config.py", "files": ["config.py"]},
+            ],
+            "acceptance_criteria": [],
+        })
+        assert "config.py" in text
+        assert "import os" in text
+
+    def test_very_long_content(self) -> None:
+        """Very long plan text is preserved without truncation."""
+        long_summary = "A" * 5000
+        text = format_plan_as_text({
+            "plan": long_summary,
+            "steps": [],
+            "acceptance_criteria": [],
+        })
+        assert len(text) >= 5000
+        assert text == long_summary
+
+    def test_missing_keys(self) -> None:
+        """Missing optional keys produce valid output."""
+        text = format_plan_as_text({})
+        assert text == ""
+
+    def test_non_dict_steps(self) -> None:
+        """Steps that are plain strings (not dicts) still render."""
+        text = format_plan_as_text({
+            "plan": "Summary.",
+            "steps": ["First step", "Second step"],
+            "acceptance_criteria": [],
+        })
+        assert "1. First step" in text
+        assert "2. Second step" in text
+
 
 # ------------------------------------------------------------------
 # Unit tests: generate_task_plan (async)

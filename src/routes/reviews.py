@@ -686,7 +686,11 @@ async def _handle_replan(
             )
             event_bus.emit(
                 "plan_status_change", task_id,
-                {"plan_status": "ready", "generation_id": generation_id},
+                {
+                    "plan_status": "ready",
+                    "generation_id": generation_id,
+                    "description": formatted,
+                },
                 origin="plan",
             )
 

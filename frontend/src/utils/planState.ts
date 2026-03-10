@@ -24,6 +24,8 @@ export function planStatePatch(
     errorMessage?: string;
     /** Proposed tasks for "ready" status. */
     proposedTasks?: Task["proposed_tasks"];
+    /** Formatted plan text for "ready" status (from SSE event). */
+    description?: string;
   },
 ): Partial<Task> {
   const base: Partial<Task> = { plan_status: status as Task["plan_status"] };
@@ -68,6 +70,9 @@ export function planStatePatch(
           : {}),
         ...(opts?.generationId != null
           ? { plan_generation_id: opts.generationId }
+          : {}),
+        ...(opts?.description != null
+          ? { description: opts.description }
           : {}),
       };
 
