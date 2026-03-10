@@ -36,15 +36,6 @@
 
 ### P2 -- Nice to Have
 
-#### T-P2-143: Rewrite historical non-English commit messages
-- **Priority**: P2
-- **Complexity**: S (< 1 session)
-- **Depends on**: None
-- **Description**: Two commits used raw Chinese input as commit messages. Rewrite via `git filter-repo`. Separated from T-P2-142 because this is a destructive git operation that shouldn't mix with feature development.
-- **Acceptance Criteria**:
-  1. `f31a013` rewritten to `[T-P0-139] Three QoL improvements: DB-persisted project selection, removed [PROGRESS] heartbeat logging, filtered log artifacts in Conversation view`
-  2. `5ea7b4c` rewritten to `[T-P0-125] Review MD rendering, executor feedback verification, title inline edit`
-  3. `[NEEDS-INPUT]` -- requires user confirmation before force push
 
 ## Dependency Graph
 
@@ -76,6 +67,9 @@ T-P1-127 depends on T-P1-123 (completed)
 
 
 > 37 completed tasks archived to [archive/completed_tasks.md](archive/completed_tasks.md).
+
+#### [x] T-P2-143: Rewrite historical non-English commit messages -- 2026-03-09
+- Already completed as part of T-P2-142. Both commits (`f31a013`, `5ea7b4c`) already have correct English messages. No non-ASCII commit messages remain in history.
 
 #### [x] T-P1-151: Enforce subtask decomposition in planner prompt + review validation -- 2026-03-09
 - Updated planner prompt (plan_system.md) with explicit M: 2-4 and L: 3-8 subtask requirements. Added `min_proposed_tasks_m`/`min_proposed_tasks_l` to PlanValidationConfig. `_validate_plan_structure` now enforces minimum subtasks for M/L complexity (S exempt). Review prompt updated to flag missing decomposition. 11 new tests, all 1578 pass, ruff clean.

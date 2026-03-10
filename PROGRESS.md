@@ -72,3 +72,10 @@
 - **Sanity check result**: 1578 tests pass (6 skipped), ruff clean. Scheduler tests hang on Windows asyncio (pre-existing). [AUTO-VERIFIED]
 - **Status**: [DONE]
 - **Request**: Move T-P1-151 to Completed
+
+## 2026-03-09 -- [T-P2-143] Rewrite historical non-English commit messages
+- **What I did**: Verified that both target commits (`f31a013` -> `d4a02ef`, `5ea7b4c` -> `4c0b50f`) already have the correct English messages in the current git history. No non-ASCII commit messages remain. The rewriting was already done as part of T-P2-142. No code changes needed.
+- **Deliverables**: `TASKS.md` (updated status)
+- **Sanity check result**: `git log --oneline --all` shows all commits have ASCII-only messages. Both target messages confirmed present. [AUTO-VERIFIED]
+- **Status**: [DONE]
+- **Request**: Move T-P2-143 to Completed
