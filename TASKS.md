@@ -28,17 +28,7 @@
 
 ### P0 -- Must Have (core functionality)
 
-#### T-P0-145: Design agent clarifying question protocol
-- **Priority**: P0 (design)
-- **Complexity**: M (1-2 sessions)
-- **Depends on**: None
-- **Description**: The review agent can only approve/reject. No mechanism for Q&A between agent and human. Design the UX flow, data model, and API for a PlanReviewThread with question/answer/resolution/resume semantics.
-- **Acceptance Criteria**:
-  1. Design doc in `docs/architecture/clarifying-questions.md` covering: data model (PlanReviewThread, messages[]), API endpoints, frontend UX flow
-  2. Review agent can emit ASK_QUESTION action (alongside APPROVE/REVISE/SPLIT_TASK)
-  3. User can answer questions inline in ReviewPanel
-  4. After answers provided, plan generation resumes with Q&A context
-  5. Design reviewed and approved by user before implementation begins
+(No active P0 tasks -- T-P0-145 in progress above)
 
 ### P1 -- Should Have (agentic intelligence)
 
@@ -151,6 +141,9 @@ T-P1-127 depends on T-P1-123 (completed)
 
 
 > 21 completed tasks archived to [archive/completed_tasks.md](archive/completed_tasks.md).
+
+#### [x] T-P0-145: Design agent clarifying question protocol -- 2026-03-09
+- Design doc created at `docs/architecture/clarifying-questions.md`. Covers: data model (ReviewQuestionRow table, ReviewQuestion Pydantic model), new AWAITING_ANSWERS lifecycle state with transition rules, 4 API endpoints (GET questions, POST answer, POST answer-all, POST skip), review prompt changes (questions field in ReviewResult JSON, resume prompt template), backend pause/resume flow in review pipeline, frontend UX (question cards with answer textareas in ReviewPanel, Q&A history display, amber banner), 4 new SSE event types, migration plan, edge case matrix (11 scenarios), and 6 implementation subtasks. Awaiting user review before implementation.
 
 #### [x] T-P0-144: Fix ReviewPanel edit persistence bug + always-available Edit button -- 2026-03-09
 - Fixed broken link in edit persistence chain: `onTaskUpdated` callbacks in App.tsx updated `tasks` array but not `selectedTask`, causing ReviewPanel to show stale description after save. Added `setSelectedTask` update to both BottomPanelContainer and SwimLane `onTaskUpdated` callbacks. Changed Edit button gating from `review_lifecycle_state` check to `task.status` check (visible unless done/running). TypeScript clean, Vite build clean, 1478 tests pass.

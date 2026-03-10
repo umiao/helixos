@@ -289,3 +289,10 @@
 - **Sanity check result**: TypeScript clean (tsc --noEmit), Vite build clean. 1478 Python tests pass (6 skipped, 161 deselected timeout tests). [AUTO-VERIFIED] -- no browser available; wiring confirmed via code trace.
 - **Status**: [DONE]
 - **Request**: Move T-P0-144 to Completed
+
+## 2026-03-09 -- [T-P0-145] Design agent clarifying question protocol
+- **What I did**: Created comprehensive design doc for the clarifying questions protocol at `docs/architecture/clarifying-questions.md`. The design covers: (1) Data model -- new `review_questions` table with ReviewQuestionRow ORM model and ReviewQuestion Pydantic model for Q&A persistence. (2) New `AWAITING_ANSWERS` ReviewLifecycleState with transition rules (RUNNING -> AWAITING_ANSWERS -> RUNNING). (3) Extended ReviewResult JSON schema with optional `questions` field (pass=null triggers Q&A). (4) Four API endpoints: GET questions, POST answer single, POST answer-all (batch), POST skip. (5) Review prompt changes -- guidelines for when/how to ask questions, max 3 per reviewer, plus a `review_resume.md` template for continuation after answers. (6) Backend pause/resume flow -- PausedReviewer dataclass stores partial state, resume injects Q&A context. (7) Frontend UX -- amber banner, question cards with answer textareas in ReviewPanel, Q&A history in review attempt groups. (8) Four new SSE event types. (9) Edge case matrix covering 11 scenarios. (10) Six implementation subtasks for post-approval decomposition. (11) Five open questions for user review.
+- **Deliverables**: `docs/architecture/clarifying-questions.md`
+- **Sanity check result**: Design doc only -- no code changes to verify. Document reviewed for completeness against all 5 ACs: data model (AC1), ASK_QUESTION action via questions field in ReviewResult (AC2), inline answer UI in ReviewPanel (AC3), resume with Q&A context (AC4), awaiting user approval (AC5).
+- **Status**: [DONE]
+- **Request**: Move T-P0-145 to Completed
