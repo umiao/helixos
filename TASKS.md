@@ -28,13 +28,150 @@
 
 ### P0 -- Must Have (core functionality)
 
-(No active P0 tasks -- T-P0-145 in progress above)
+#### T-P0-152: Fix ConversationView event normalization (invisible content)
+- **Priority**: P0
+- **Complexity**: M
+- **Depends on**: None
+- **Description**: `normalizeStreamEvents()` in `ConversationView.tsx:121` expects
+  `eventType === "assistant"` but backend `sdk_adapter.py` emits `type: "text"`.
+  All assistant text from plan/execution conversations is silently dropped, producing
+  empty bubbles. Additionally, `type: "init"` and `type: "error"` events are unhandled.
+  Tool_use collapsed view shows only tool name with no actionable detail.
+  Fix: add canonical event type mapping (`text` -> assistant text, `init` -> ignored,
+  `error` -> visible error bubble) and improve tool_use collapsed summaries.
+- **Acceptance Criteria**:
+  1. `type:"text"` events render as assistant message bubbles with markdown
+  2. `type:"init"` events are silently ignored (no empty bubbles)
+  3. `type:"error"` events render as visible red error bubbles
+  4. Tool_use collapsed view shows tool name + short summary (e.g. `Grep src/*.py "pattern"`)
+  5. No empty/invisible message bubbles appear for any event type
+  6. Manually verify: open a task with plan generation history -> conversation tab shows
+     readable text content, thinking blocks, and meaningful tool summaries
+- **Regression areas**: streaming UI, tool output rendering, ConversationView in all contexts
+- **Files**: `frontend/src/components/ConversationView.tsx`
+
+#### T-P0-153: Fix plan edit persistence (description/plan_json desync)
+- **Priority**: P0
+- **Complexity**: M
+- **Depends on**: None
+- **Description**: When user edits plan text via ReviewPanel "Edit Plan", `handleSavePlan()`
+  calls `updateTask(task.id, { description: editDraft })`. The PATCH endpoint updates
+  `task.description` but leaves `plan_json` stale. Architecture fix: `plan_json` is the
+  single source of truth. Edits write to `plan_json.plan`, then `description` is derived
+  via `format_plan_as_text(plan_json)`. The PATCH endpoint should accept plan text, update
+  `plan_json.plan`, and regenerate `description`. Also audit all `plan_json` write paths.
+- **Acceptance Criteria**:
+  1. Plan text edits write to `plan_json.plan` (canonical source)
+  2. `task.description` is re-derived from `plan_json` via `format_plan_as_text()` after edit
+  3. `plan_json` structural fields (steps, acceptance_criteria, proposed_tasks) preserved
+  4. PlanReviewPanel proposed tasks section reflects current `plan_json` after save
+  5. All `plan_json` write paths audited: plan generation, replan, PATCH -- no orphan writers
+  6. Reloading page shows edited plan text everywhere (ReviewPanel, PlanReviewPanel)
+  7. Manually verify: edit plan text -> save -> switch to Plan tab -> plan summary updated
+- **Regression areas**: plan generation pipeline, plan persistence, replan flow,
+  ReviewPanel, PlanReviewPanel
+- **Files**: `src/routes/tasks.py`, `src/task_manager.py`, `src/enrichment.py`,
+  `frontend/src/components/ReviewPanel.tsx`
+
+#### T-P0-154: Set agent cwd for plan/review on imported projects
+- **Priority**: P0
+- **Complexity**: S
+- **Depends on**: None
+- **Description**: `enrichment.py:600-606` creates `QueryOptions` without `cwd`. Plan
+  agent runs from HelixOS directory, not the target project's repo. `code_executor.py:240`
+  correctly sets `cwd=str(project.repo_path)` for execution -- plan and review should
+  match. When setting `cwd=repo_path`, also remove `add_dirs=[repo_path]` to avoid
+  duplicate context injection (SDK auto-indexes cwd). Review pipeline needs same fix.
+- **Acceptance Criteria**:
+  1. Plan agent runs with `cwd=project.repo_path` (not HelixOS root)
+  2. Review agent runs with `cwd=project.repo_path`
+  3. `add_dirs` does not duplicate the `cwd` path (no double context)
+  4. File references like `src/main.py` in agent output resolve correctly for imported projects
+  5. Manually verify: import external project -> generate plan -> agent reads files from
+     correct project directory
+- **Regression areas**: plan generation, review pipeline, agent file access
+- **Files**: `src/enrichment.py`, `src/review_pipeline.py`
 
 ### P1 -- Should Have (agentic intelligence)
 
-(No active P1 tasks)
+#### T-P1-155: Add Edit button to PlanReviewPanel
+- **Priority**: P1
+- **Complexity**: S
+- **Depends on**: Benefits from T-P0-153
+- **Description**: PlanReviewPanel in "ready" state shows plan summary and proposed tasks
+  as read-only. No edit button exists (unlike ReviewPanel which has "Edit Plan"). Users
+  need to edit plan content before confirming decomposition. Add edit mode with textarea
+  + Save/Cancel, reusing the pattern from ReviewPanel's `handleEditPlan`.
+- **Acceptance Criteria**:
+  1. "Edit Plan" button visible in PlanReviewPanel when plan_status is "ready"
+  2. Clicking enters edit mode with textarea pre-filled with current plan text
+  3. Save persists via PATCH and calls `onTaskUpdated` to refresh parent state
+  4. Cancel discards changes and returns to read-only view
+  5. Proposed tasks section refreshes after save (if T-P0-153 is done)
+  6. Manually verify: click Edit Plan -> modify text -> Save -> plan summary updates
+- **Regression areas**: PlanReviewPanel state transitions, plan persistence
+- **Files**: `frontend/src/components/PlanReviewPanel.tsx`
+
+#### T-P1-156: Verify and fix inline task edit across all statuses
+- **Priority**: P1
+- **Complexity**: S
+- **Depends on**: None
+- **Description**: User reports cannot edit title/description when hovering over cards
+  in backlog/plan/review status. TaskCardPopover has edit functionality (lines 151-258)
+  but may be blocked by status-dependent rendering or missing prop threading. Investigate
+  which statuses are affected and fix.
+- **Acceptance Criteria**:
+  1. Hovering any task card (backlog, review, queued, running, done) shows popover
+  2. Pencil icon appears on hover for title and description in all statuses
+  3. Clicking pencil opens inline editor, Enter/Ctrl+Enter saves, Esc cancels
+  4. Edits persist via PATCH for all statuses
+  5. Manually verify: hover backlog card -> click pencil on title -> edit -> save -> title updated
+- **Regression areas**: TaskCard rendering, popover portal positioning, drag-and-drop
+- **Files**: `frontend/src/components/TaskCard.tsx`, `frontend/src/components/TaskCardPopover.tsx`
+
+#### T-P1-157: Investigate T-P0-139 decomposition failure (RCA)
+- **Priority**: P1
+- **Complexity**: S
+- **Type**: Investigation
+- **Depends on**: None
+- **Description**: T-P0-139 was executed as a single large task instead of being decomposed
+  into subtasks. Need root cause analysis. Hypotheses: (1) task complexity was "S" so planner
+  skipped decomposition, (2) plan was generated before T-P1-151 enforcement, (3) task was
+  manually moved bypassing decomposition gate. Deliverable is RCA document + fix plan.
+- **Acceptance Criteria**:
+  1. RCA document contains: root cause, reproduction steps, impact scope, fix recommendation
+  2. Root cause is verified (not hypothetical) -- backed by log evidence or code trace
+  3. If systemic issue found, follow-up fix task created in TASKS.md
+  4. If no code fix needed (e.g. user error or pre-T-P1-151 legacy), document why and close
+- **Regression areas**: N/A (investigation only)
+- **Files**: `src/enrichment.py`, `src/routes/tasks.py`, `src/scheduler.py`
 
 ### P2 -- Nice to Have
+
+#### T-P2-158: Design and implement clarifying question workflow for review
+- **Priority**: P2
+- **Complexity**: L
+- **Depends on**: T-P0-153, T-P1-155
+- **Description**: Users need both (a) inline Q&A fields for reviewer-raised questions
+  and (b) direct plan editing during review. Design a `ReviewQuestion` data model
+  (id, text, answer, timestamp) stored in `review_json.questions`. Surface unanswered
+  questions prominently in ReviewPanel UI. User answers get injected into replan prompt
+  alongside edited plan text. Large feature spanning data model, backend API, frontend UI,
+  and prompt engineering.
+- **Sub-tasks** (to be decomposed during planning):
+  1. Data model + storage (ReviewQuestion schema, migration)
+  2. Backend API (extract questions from review, store answers, inject into replan)
+  3. Frontend UI (question list, answer fields, integration with existing ReviewPanel)
+- **Acceptance Criteria**:
+  1. Reviewer suggestions containing questions are extracted and surfaced as distinct Q&A items
+  2. User can type answers inline in ReviewPanel
+  3. Answers are included in replan prompt when user triggers replan
+  4. Plan text remains directly editable alongside Q&A
+  5. Answered questions persist across page reloads
+  6. Manually verify: review with questions -> answer inline -> replan -> new plan addresses answers
+- **Regression areas**: review pipeline, replan flow, ReviewPanel UI, plan generation prompts
+- **Files**: `frontend/src/components/ReviewPanel.tsx`, `src/review_pipeline.py`,
+  `src/routes/reviews.py`, `src/enrichment.py`, `src/models.py`, `src/db.py`
 
 
 ## Dependency Graph
@@ -42,8 +179,10 @@
 > Full historical dependency graph relocated to [docs/architecture/dependency-graph-history.md](docs/architecture/dependency-graph-history.md).
 
 ### Current
-All 8 new tasks (T-P0-144 through T-P1-151) have no dependencies -- can be worked in any order.
-Suggested execution order: 144 -> 145 -> 146 -> 147/148/149 (parallel) -> 150 -> 151
+T-P0-152, T-P0-153, T-P0-154, T-P1-156, T-P1-157: no dependencies
+T-P1-155: benefits from T-P0-153 (plan_json sync)
+T-P2-158: depends on T-P0-153, T-P1-155
+Suggested execution order: 152 -> 154 -> 153 -> 155 -> 156 -> 157 -> 158
 
 ### Historical (completed)
 T-P2-140 depends on T-P0-134 (completed)
