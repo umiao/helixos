@@ -100,3 +100,10 @@
 - **Sanity check result**: 302 related tests pass (review_gate_ux, api, task_manager, plan_generation, plan_review, plan_validity, enrichment). 8 new regression tests for plan_json sync. Ruff clean. [AUTO-VERIFIED]
 - **Status**: [DONE]
 - **Request**: Move T-P0-153 to Completed
+
+## 2026-03-09 -- [T-P1-155] Add Edit button to PlanReviewPanel
+- **What I did**: Added "Edit Plan" button to PlanReviewPanel's ready-state header. Clicking enters edit mode with textarea pre-filled with current plan text, Edit/Preview tabs (with MarkdownRenderer preview), and Save/Cancel buttons. Save persists via PATCH `updateTask()` and calls `onTaskUpdated` to refresh parent state (proposed tasks refresh via T-P0-153's plan_json support). All header action buttons disabled during edit mode to prevent conflicting actions.
+- **Deliverables**: `frontend/src/components/PlanReviewPanel.tsx`
+- **Sanity check result**: TypeScript clean, Vite build clean, 302 Python tests pass (api, task_manager, review_gate_ux, plan_generation, plan_review, plan_validity, enrichment). [AUTO-VERIFIED]
+- **Status**: [DONE]
+- **Request**: Move T-P1-155 to Completed

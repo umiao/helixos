@@ -10,7 +10,7 @@
  */
 
 import { useState } from "react";
-import { confirmGeneratedTasks, deletePlan, generatePlan, rejectPlan } from "../api";
+import { confirmGeneratedTasks, deletePlan, generatePlan, rejectPlan, updateTask } from "../api";
 import type { Task, ProposedTask } from "../types";
 import { planStatePatch } from "../utils/planState";
 import MarkdownRenderer from "./MarkdownRenderer";
@@ -161,7 +161,39 @@ export default function PlanReviewPanel({
   const [deleting, setDeleting] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
 
+  // Inline plan editor state
+  const [editing, setEditing] = useState(false);
+  const [editDraft, setEditDraft] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [editPreview, setEditPreview] = useState(false);
+
   const proposedTasks = task.proposed_tasks ?? [];
+
+  const handleEditPlan = () => {
+    setEditDraft(task.description || "");
+    setEditing(true);
+    setEditPreview(false);
+  };
+
+  const handleCancelEdit = () => {
+    setEditing(false);
+    setEditDraft("");
+    setEditPreview(false);
+  };
+
+  const handleSavePlan = async () => {
+    setSaving(true);
+    try {
+      const updated = await updateTask(task.id, { description: editDraft });
+      setEditing(false);
+      setEditDraft("");
+      onTaskUpdated(updated);
+    } catch (err) {
+      onError(`Save failed: ${err instanceof Error ? err.message : String(err)}`);
+    } finally {
+      setSaving(false);
+    }
+  };
 
   const handleDelete = async () => {
     setDeleting(true);
@@ -337,22 +369,30 @@ export default function PlanReviewPanel({
           ) : (
             <>
               <button
+                onClick={handleEditPlan}
+                disabled={editing || rejecting || confirming || deleting}
+                className="px-3 py-1 text-xs font-medium text-gray-600 border border-gray-300 rounded hover:bg-gray-50 disabled:opacity-50"
+                title="Edit the plan text before confirming"
+              >
+                Edit Plan
+              </button>
+              <button
                 onClick={() => setShowDeleteConfirm(true)}
-                disabled={rejecting || confirming || deleting}
+                disabled={editing || rejecting || confirming || deleting}
                 className="px-3 py-1 text-xs font-medium text-red-600 border border-red-300 rounded hover:bg-red-50 disabled:opacity-50"
               >
                 Delete Plan
               </button>
               <button
                 onClick={handleReject}
-                disabled={rejecting || confirming || deleting}
+                disabled={editing || rejecting || confirming || deleting}
                 className="px-3 py-1 text-xs font-medium text-gray-600 border border-gray-300 rounded hover:bg-gray-50 disabled:opacity-50"
               >
                 {rejecting ? "Rejecting..." : "Reject Plan"}
               </button>
               <button
                 onClick={handleConfirm}
-                disabled={confirming || rejecting || deleting}
+                disabled={editing || confirming || rejecting || deleting}
                 className="px-3 py-1 text-xs font-medium bg-green-600 text-white rounded hover:bg-green-700 disabled:opacity-50"
               >
                 {confirming ? "Creating Tasks..." : `Confirm and Create All Tasks (${proposedTasks.length})`}
@@ -364,10 +404,59 @@ export default function PlanReviewPanel({
 
       {/* Scrollable content */}
       <div className="flex-1 overflow-y-auto px-4 py-3 space-y-4">
-        {/* Plan summary -- rendered as markdown (AC2) */}
+        {/* Plan summary -- rendered as markdown, or editable textarea */}
         <div>
           <h3 className="text-xs font-semibold text-gray-500 uppercase mb-2">Plan Summary</h3>
-          {task.description?.trim() ? (
+          {editing ? (
+            <div className="space-y-2">
+              {/* Edit / Preview tabs */}
+              <div className="flex gap-1 border-b border-gray-200 pb-1">
+                <button
+                  onClick={() => setEditPreview(false)}
+                  className={`px-2 py-0.5 text-[10px] font-medium rounded-t ${!editPreview ? "bg-indigo-100 text-indigo-700" : "text-gray-500 hover:text-gray-700"}`}
+                >
+                  Edit
+                </button>
+                <button
+                  onClick={() => setEditPreview(true)}
+                  className={`px-2 py-0.5 text-[10px] font-medium rounded-t ${editPreview ? "bg-indigo-100 text-indigo-700" : "text-gray-500 hover:text-gray-700"}`}
+                >
+                  Preview
+                </button>
+              </div>
+              {editPreview ? (
+                <MarkdownRenderer
+                  content={editDraft}
+                  maxHeight="none"
+                  showSizeToggle={false}
+                />
+              ) : (
+                <textarea
+                  value={editDraft}
+                  onChange={(e) => setEditDraft(e.target.value)}
+                  rows={12}
+                  disabled={saving}
+                  className="w-full rounded-md border border-indigo-300 bg-white px-2 py-1.5 text-xs text-gray-700 font-mono focus:outline-none focus:ring-1 focus:ring-indigo-400 focus:border-indigo-400 disabled:opacity-50 resize-y"
+                />
+              )}
+              <div className="flex gap-2">
+                <button
+                  onClick={handleSavePlan}
+                  disabled={saving}
+                  className="rounded-md bg-indigo-600 px-3 py-1 text-xs font-medium text-white hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                >
+                  {saving ? "Saving..." : "Save"}
+                </button>
+                <button
+                  onClick={handleCancelEdit}
+                  disabled={saving}
+                  className="rounded-md bg-gray-200 px-3 py-1 text-xs font-medium text-gray-700 hover:bg-gray-300 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                >
+                  Cancel
+                </button>
+              </div>
+            </div>
+          ) : task.description?.trim() ? (
             <MarkdownRenderer
               content={task.description}
               maxHeight="none"

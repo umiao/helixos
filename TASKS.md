@@ -31,23 +31,6 @@
 
 ### P1 -- Should Have (agentic intelligence)
 
-#### T-P1-155: Add Edit button to PlanReviewPanel
-- **Priority**: P1
-- **Complexity**: S
-- **Depends on**: Benefits from T-P0-153
-- **Description**: PlanReviewPanel in "ready" state shows plan summary and proposed tasks
-  as read-only. No edit button exists (unlike ReviewPanel which has "Edit Plan"). Users
-  need to edit plan content before confirming decomposition. Add edit mode with textarea
-  + Save/Cancel, reusing the pattern from ReviewPanel's `handleEditPlan`.
-- **Acceptance Criteria**:
-  1. "Edit Plan" button visible in PlanReviewPanel when plan_status is "ready"
-  2. Clicking enters edit mode with textarea pre-filled with current plan text
-  3. Save persists via PATCH and calls `onTaskUpdated` to refresh parent state
-  4. Cancel discards changes and returns to read-only view
-  5. Proposed tasks section refreshes after save (if T-P0-153 is done)
-  6. Manually verify: click Edit Plan -> modify text -> Save -> plan summary updates
-- **Regression areas**: PlanReviewPanel state transitions, plan persistence
-- **Files**: `frontend/src/components/PlanReviewPanel.tsx`
 
 #### T-P1-156: Verify and fix inline task edit across all statuses
 - **Priority**: P1
@@ -116,9 +99,9 @@
 > Full historical dependency graph relocated to [docs/architecture/dependency-graph-history.md](docs/architecture/dependency-graph-history.md).
 
 ### Current
-T-P1-155, T-P1-156, T-P1-157: no dependencies
-T-P2-158: depends on T-P1-155
-Suggested execution order: 155 -> 156 -> 157 -> 158
+T-P1-156, T-P1-157: no dependencies
+T-P2-158: depends on T-P1-155 (completed)
+Suggested execution order: 156 -> 157 -> 158
 
 ### Historical (completed)
 T-P2-140 depends on T-P0-134 (completed)
@@ -142,6 +125,9 @@ T-P1-127 depends on T-P1-123 (completed)
 
 
 > 37 completed tasks archived to [archive/completed_tasks.md](archive/completed_tasks.md).
+
+#### [x] T-P1-155: Add Edit button to PlanReviewPanel -- 2026-03-09
+- Added "Edit Plan" button to PlanReviewPanel header (ready state). Clicking enters edit mode with textarea pre-filled with plan text, Edit/Preview tabs, Save/Cancel buttons. Save persists via PATCH `updateTask` and calls `onTaskUpdated` to refresh parent state (including proposed tasks via T-P0-153). Cancel discards changes. Header buttons disabled during edit mode. TS clean, Vite build clean, 302 tests pass.
 
 #### [x] T-P0-153: Fix plan edit persistence (description/plan_json desync) -- 2026-03-09
 - PATCH endpoint now routes description edits through `plan_json["plan"]` when plan exists, then re-derives `description` via `format_plan_as_text()`. Added `plan_json` to `TaskResponse`. All plan_json write paths audited (generate, replan, PATCH). 8 new regression tests. 302 tests pass, ruff clean.
