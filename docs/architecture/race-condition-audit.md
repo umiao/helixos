@@ -61,6 +61,12 @@ task status before FAILED transition. If no longer RUNNING, skips update.
 **Recommended Fix**: Use `expected_updated_at` optimistic lock in
 scheduler's `update_status()` call (T-P1-77 epoch ID).
 
+**Update 2026-03-10**: T-P1-169 implemented `expected_status` parameter
+(task_manager.py:321,362). The scheduler and auto-review pipeline can now
+use atomic conditional transitions via `update_status(..., expected_status=TaskStatus.RUNNING)`.
+This significantly reduces the TOCTOU window. Residual risk: epoch ID
+verification (T-P1-77) provides additional protection against stale finalization.
+
 **Test Coverage**: `test_race_scheduler_vs_drag` (added in this task)
 
 ---
@@ -127,19 +133,23 @@ transitions to REVIEW_AUTO_APPROVED). Meanwhile, user drags task from
 REVIEW back to BACKLOG.
 
 **Current Mitigation**: `_cleanup_on_backward()` resets `review_status`
-to "idle" on backward to BACKLOG. However:
-1. `review_lifecycle_state` is NOT reset (stale APPROVED/REJECTED visible)
+to "idle" on backward to BACKLOG. ~~However:~~
+~~1. `review_lifecycle_state` is NOT reset (stale APPROVED/REJECTED visible)~~
+**Update 2026-03-10**: Fixed. `_cleanup_on_backward()` now resets
+`review_lifecycle_state = "not_started"` on `-> BACKLOG` transitions
+(task_manager.py:480).
+
 2. Background pipeline still runs; its `update_status()` call after
    completion will try REVIEW -> REVIEW_AUTO_APPROVED on a task that is
    now BACKLOG, raising ValueError (silently caught by exception handler,
    setting review to FAILED).
 
-**Residual Risk**: Stale `review_lifecycle_state` after backward drag.
+**Residual Risk**: ~~Stale `review_lifecycle_state` after backward drag.~~
 Background pipeline wastes resources running to completion.
 
 **Recommended Fix**:
-1. Reset `review_lifecycle_state = NOT_STARTED` in `_cleanup_on_backward()`
-   for `-> BACKLOG` transitions (implemented in this task).
+~~1. Reset `review_lifecycle_state = NOT_STARTED` in `_cleanup_on_backward()`
+   for `-> BACKLOG` transitions (implemented in this task).~~ ✅ Complete.
 2. Future: cancel background review task on backward drag.
 
 **Test Coverage**: `test_race_review_completion_vs_backward_drag` (added),

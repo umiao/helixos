@@ -103,6 +103,8 @@ export interface Task {
   plan_generation_id?: string;
   /** Whether the current plan contains proposed sub-tasks (backend-computed). */
   has_proposed_tasks?: boolean;
+  /** Raw JSON string of the structured plan (steps, ACs, proposed tasks). */
+  plan_json?: string;
 }
 
 export interface Dependency {

@@ -358,6 +358,7 @@ User clicks "Plan" button on task card T-P0-88 (complexity=M)
 
 **MEDIUM-003: No explicit cancel-execution affordance (workaround: backward drag)**
 - **Location**: `ExecutionLog.tsx` (no cancel/stop button visible)
+- **Backend Endpoint Status**: ✅ Backend endpoint POST /api/tasks/{id}/cancel EXISTS (src/routes/execution.py:12,426). Gap is frontend-only.
 - **Issue**: User watching a RUNNING task in ExecutionLog has no direct "Cancel Execution" button. Current workaround is dragging task backward to BACKLOG/QUEUED (which cancels execution as side-effect).
 - **Failure Scenario**:
   - Task T-P0-100 stuck in infinite loop during execution
@@ -365,7 +366,7 @@ User clicks "Plan" button on task card T-P0-88 (complexity=M)
   - User looks for "Cancel" / "Stop" button → not found
   - User discovers workaround via trial-and-error (drag to BACKLOG) or asks support
 - **Impact**: Poor UX, especially for new users. Execution cancellation is non-discoverable.
-- **Recommendation**: Add "Cancel Execution" button in ExecutionLog header when selectedTaskStatus="running", calling backend `POST /api/tasks/{id}/cancel` endpoint
+- **Recommendation**: Add "Cancel Execution" button in ExecutionLog header when selectedTaskStatus="running", calling backend `POST /api/tasks/{id}/cancel` endpoint (frontend-only change)
 
 **LOW-015: Auto-scroll pause on manual scroll-up may confuse users**
 - **Location**: `ExecutionLog.tsx:199-209`
@@ -516,11 +517,12 @@ All filters combine via AND logic in `useTaskState.ts` → `globallyFiltered` co
 - **Impact**: User must re-apply filters on every session
 - **Recommendation**: Persist `filterStatus`, `filterPriorities`, `filterComplexities`, `searchQuery` to localStorage (similar to DONE column sort order in KanbanBoard)
 
-**LOW-019: Clear filters behavior unclear (button not visible in code snippet)**
-- **Location**: `App.tsx:68` (clearFilters in taskState)
-- **Issue**: Code snippet cut off at line 300, couldn't verify if "Clear Filters" button exists in UI
-- **Impact**: If no clear button, user must manually reset each filter (tedious if 5+ filters active)
-- **Recommendation**: Add "Clear All Filters (5)" button in filter bar when any filter is active
+**~~LOW-019: Clear filters behavior unclear (button not visible in code snippet)~~** [CORRECTED 2026-03-10]
+- **Location**: `App.tsx:311-318`
+- **Issue**: ~~Code snippet cut off at line 300, couldn't verify if "Clear Filters" button exists in UI~~
+- **Verification**: ✅ Clear Filters button EXISTS (App.tsx:311-318). Conditional rendering: shown when `filterPriorities.size > 0 || filterComplexities.size > 0`. Button text: "Clear". Calls `clearFilters()` function.
+- **Impact**: None. Feature is implemented correctly.
+- **Status**: Finding was incorrect due to incomplete code read. No action needed.
 
 **LOW-020: Search scope unclear (no indication of what fields are searched)**
 - **Location**: `App.tsx:248-252` (search input)
@@ -745,6 +747,28 @@ Each audited flow was manually walked through via code review:
 - Duplicate project detection (LOW-002)
 - Stale generation_id filtering (LOW-012)
 - Template variable validation (LOW-021)
+
+---
+
+## Known Omissions
+
+The following areas were not covered by this audit but are relevant to system completeness. Future audits may address these:
+
+1. **Error Boundary Component**: No audit of React error boundary implementation, fallback UI for unhandled exceptions, or error reporting mechanism. Unhandled exceptions in component tree may cause blank screen with no user-facing recovery option.
+
+2. **Dev Server Lifecycle**: No verification of Vite dev server startup/shutdown, hot module replacement behavior, or build error handling. Dev experience issues (e.g., stale HMR state, port conflicts) not audited.
+
+3. **Cost Dashboard UX**: Backend endpoint exists (T-P1-109 added GET /api/dashboard/costs), but no audit of cost panel interactions, filtering by date range, export functionality, or currency formatting edge cases.
+
+4. **Multi-Project Import Race Conditions**: No audit of concurrent project imports (two users importing same path simultaneously), validation race conditions, or project registry consistency during parallel imports.
+
+5. **SSE Reconnection Logic**: EventSource automatic reconnection behavior not audited. No verification of stale event handling after reconnect, duplicate event filtering, or user notification when connection lost >30s.
+
+6. **Filter Persistence Edge Cases**: While LOW-018 notes lack of localStorage persistence, no audit of what happens when persisted filter references deleted project/task, or when URL query params conflict with localStorage state.
+
+7. **Keyboard Shortcuts & Accessibility**: No audit of keyboard navigation (tab order, focus management), screen reader compatibility (ARIA labels, live regions for SSE updates), or WCAG 2.1 AA compliance.
+
+These omissions are noted for transparency and future work planning. They do not invalidate the findings in this audit.
 
 ---
 

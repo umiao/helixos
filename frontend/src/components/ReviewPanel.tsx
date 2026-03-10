@@ -32,6 +32,8 @@ import {
 } from "../api";
 import PlanDiffView from "./PlanDiffView";
 import MarkdownRenderer from "./MarkdownRenderer";
+import { StructuredPlanView } from "./PlanComponents";
+import type { ParsedPlan } from "./PlanComponents";
 import { getToolColor } from "../utils/streamUtils";
 
 type DecisionType = "approve" | "reject" | "request_changes";
@@ -87,6 +89,22 @@ export default function ReviewPanel({
   const [saving, setSaving] = useState(false);
   const [generating, setGenerating] = useState(false);
   const [editPreview, setEditPreview] = useState(false);
+
+  // Parse plan_json for structured display (fallback to null on parse error)
+  const parsedPlan = useMemo<ParsedPlan | null>(() => {
+    if (!task?.plan_json) return null;
+    try {
+      const obj = JSON.parse(task.plan_json);
+      return {
+        plan: typeof obj.plan === "string" ? obj.plan : "",
+        steps: Array.isArray(obj.steps) ? obj.steps : [],
+        acceptance_criteria: Array.isArray(obj.acceptance_criteria) ? obj.acceptance_criteria : [],
+        proposed_tasks: Array.isArray(obj.proposed_tasks) ? obj.proposed_tasks : [],
+      };
+    } catch {
+      return null;
+    }
+  }, [task?.plan_json]);
 
   // Plan generation elapsed timer
   const [planElapsedSeconds, setPlanElapsedSeconds] = useState(0);
@@ -842,7 +860,9 @@ export default function ReviewPanel({
                 </div>
               ) : (
                 <>
-                  {task.description && task.description.trim() ? (
+                  {parsedPlan ? (
+                    <StructuredPlanView plan={parsedPlan} />
+                  ) : task.description && task.description.trim() ? (
                     <MarkdownRenderer
                       content={task.description}
                       maxHeight="20rem"

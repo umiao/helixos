@@ -11,35 +11,16 @@
 
 import { useState } from "react";
 import { confirmGeneratedTasks, deletePlan, generatePlan, rejectPlan, updateTask } from "../api";
-import type { Task, ProposedTask } from "../types";
+import type { Task } from "../types";
 import { planStatePatch } from "../utils/planState";
 import MarkdownRenderer from "./MarkdownRenderer";
+import { ProposedTaskCard } from "./PlanComponents";
 
 interface PlanReviewPanelProps {
   task: Task;
   onTaskUpdated: (updated: Task) => void;
   onError: (msg: string) => void;
   onConfirmed: (taskId: string, writtenIds: string[]) => void;
-}
-
-/** Priority badge color mapping. */
-function priorityColor(p: string): string {
-  switch (p) {
-    case "P0": return "bg-red-100 text-red-700";
-    case "P1": return "bg-orange-100 text-orange-700";
-    case "P2": return "bg-yellow-100 text-yellow-700";
-    default: return "bg-gray-100 text-gray-600";
-  }
-}
-
-/** Complexity badge color mapping. */
-function complexityColor(c: string): string {
-  switch (c) {
-    case "S": return "bg-green-100 text-green-700";
-    case "M": return "bg-blue-100 text-blue-700";
-    case "L": return "bg-purple-100 text-purple-700";
-    default: return "bg-gray-100 text-gray-600";
-  }
 }
 
 /** Inline confirmation for dangerous delete operations. */
@@ -71,80 +52,6 @@ function DeleteConfirmation({
       >
         Cancel
       </button>
-    </div>
-  );
-}
-
-function ProposedTaskCard({ task, index }: { task: ProposedTask; index: number }) {
-  const [expanded, setExpanded] = useState(false);
-
-  return (
-    <div className="border border-gray-200 rounded-lg p-3 bg-white">
-      <div className="flex items-start gap-2">
-        <span className="text-xs font-mono text-gray-400 mt-0.5">#{index + 1}</span>
-        <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-2 flex-wrap">
-            <span className="font-medium text-sm text-gray-900">{task.title}</span>
-            <span className={`px-1.5 py-0.5 text-[10px] font-medium rounded ${priorityColor(task.suggested_priority)}`}>
-              {task.suggested_priority}
-            </span>
-            <span className={`px-1.5 py-0.5 text-[10px] font-medium rounded ${complexityColor(task.suggested_complexity)}`}>
-              {task.suggested_complexity}
-            </span>
-          </div>
-          <p className="text-xs text-gray-600 mt-1 line-clamp-2">{task.description}</p>
-
-          {/* Expandable details */}
-          <button
-            onClick={() => setExpanded(!expanded)}
-            className="text-[10px] text-indigo-600 hover:text-indigo-800 mt-1"
-          >
-            {expanded ? "Hide details" : "Show details"}
-          </button>
-
-          {expanded && (
-            <div className="mt-2 space-y-2">
-              {task.acceptance_criteria.length > 0 && (
-                <div>
-                  <span className="text-[10px] font-semibold text-gray-500 uppercase">Acceptance Criteria</span>
-                  <ul className="mt-0.5 space-y-0.5">
-                    {task.acceptance_criteria.map((ac, i) => (
-                      <li key={i} className="text-xs text-gray-700 flex gap-1">
-                        <span className="text-gray-400">{i + 1}.</span>
-                        <span>{ac}</span>
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-              )}
-              {task.files.length > 0 && (
-                <div>
-                  <span className="text-[10px] font-semibold text-gray-500 uppercase">Files</span>
-                  <div className="flex flex-wrap gap-1 mt-0.5">
-                    {task.files.map((f, i) => (
-                      <span key={i} className="text-[10px] font-mono bg-gray-100 text-gray-600 px-1.5 py-0.5 rounded">
-                        {f}
-                      </span>
-                    ))}
-                  </div>
-                </div>
-              )}
-              {task.dependencies.length > 0 && (
-                <div>
-                  <span className="text-[10px] font-semibold text-gray-500 uppercase">Dependencies</span>
-                  <div className="flex flex-wrap gap-1 mt-0.5">
-                    {task.dependencies.map((d, i) => (
-                      <span key={i} className="text-[10px] font-mono bg-gray-100 text-gray-600 px-1.5 py-0.5 rounded">
-                        {d}
-                      </span>
-                    ))}
-                  </div>
-                </div>
-              )}
-            </div>
-          )}
-        </div>
-      </div>
     </div>
   );
 }
