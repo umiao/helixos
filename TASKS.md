@@ -29,6 +29,7 @@
 ### P0 -- Must Have (core functionality)
 
 #### T-P0-153: Fix plan edit persistence (description/plan_json desync)
+
 - **Priority**: P0
 - **Complexity**: M
 - **Depends on**: None
@@ -50,25 +51,6 @@
   ReviewPanel, PlanReviewPanel
 - **Files**: `src/routes/tasks.py`, `src/task_manager.py`, `src/enrichment.py`,
   `frontend/src/components/ReviewPanel.tsx`
-
-#### T-P0-154: Set agent cwd for plan/review on imported projects
-- **Priority**: P0
-- **Complexity**: S
-- **Depends on**: None
-- **Description**: `enrichment.py:600-606` creates `QueryOptions` without `cwd`. Plan
-  agent runs from HelixOS directory, not the target project's repo. `code_executor.py:240`
-  correctly sets `cwd=str(project.repo_path)` for execution -- plan and review should
-  match. When setting `cwd=repo_path`, also remove `add_dirs=[repo_path]` to avoid
-  duplicate context injection (SDK auto-indexes cwd). Review pipeline needs same fix.
-- **Acceptance Criteria**:
-  1. Plan agent runs with `cwd=project.repo_path` (not HelixOS root)
-  2. Review agent runs with `cwd=project.repo_path`
-  3. `add_dirs` does not duplicate the `cwd` path (no double context)
-  4. File references like `src/main.py` in agent output resolve correctly for imported projects
-  5. Manually verify: import external project -> generate plan -> agent reads files from
-     correct project directory
-- **Regression areas**: plan generation, review pipeline, agent file access
-- **Files**: `src/enrichment.py`, `src/review_pipeline.py`
 
 ### P1 -- Should Have (agentic intelligence)
 
@@ -157,10 +139,10 @@
 > Full historical dependency graph relocated to [docs/architecture/dependency-graph-history.md](docs/architecture/dependency-graph-history.md).
 
 ### Current
-T-P0-153, T-P0-154, T-P1-156, T-P1-157: no dependencies
+T-P0-153, T-P1-156, T-P1-157: no dependencies
 T-P1-155: benefits from T-P0-153 (plan_json sync)
 T-P2-158: depends on T-P0-153, T-P1-155
-Suggested execution order: 154 -> 153 -> 155 -> 156 -> 157 -> 158
+Suggested execution order: 153 -> 155 -> 156 -> 157 -> 158
 
 ### Historical (completed)
 T-P2-140 depends on T-P0-134 (completed)
@@ -184,6 +166,9 @@ T-P1-127 depends on T-P1-123 (completed)
 
 
 > 37 completed tasks archived to [archive/completed_tasks.md](archive/completed_tasks.md).
+
+#### [x] T-P0-154: Set agent cwd for plan/review on imported projects -- 2026-03-09
+- Plan agent (`enrichment.py`) and review agent (`review_pipeline.py`) now use `cwd=repo_path` instead of `add_dirs`. Review pipeline threads `repo_path` through `review_task` -> `_call_reviewer` -> `_call_claude_sdk`. Added `_resolve_repo_path()` helper in `routes/reviews.py`. All 4 `_enqueue_review_pipeline` call sites pass `repo_path`. 276 related tests pass, ruff clean.
 
 #### [x] T-P0-152: Fix ConversationView event normalization (invisible content) -- 2026-03-09
 - Fixed `normalizeStreamEvents` to handle backend `sdk_adapter` event types (`text`, `init`, `error`) and field names (`tool_name`/`tool_input`/`tool_use_id`/`tool_result_content`/`tool_result_for_id`). Added red error bubble rendering. TS clean, Vite build clean, 1576 tests pass.

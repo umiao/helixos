@@ -470,7 +470,7 @@ class TestGenerateTaskPlan:
 
     @pytest.mark.asyncio
     async def test_with_repo_path(self, tmp_path: Path) -> None:
-        """repo_path is passed as add_dirs in QueryOptions."""
+        """repo_path sets cwd in QueryOptions."""
         repo = tmp_path / "repo"
         repo.mkdir()
         events = make_plan_events(
@@ -484,11 +484,12 @@ class TestGenerateTaskPlan:
             await generate_task_plan("Task", repo_path=repo)
             call_args = mock_query.call_args
             options = call_args[1].get("options") or call_args[0][1]
-            assert str(repo) in options.add_dirs
+            assert options.cwd == str(repo)
+            assert options.add_dirs == []
 
     @pytest.mark.asyncio
     async def test_without_repo_path(self) -> None:
-        """No add_dirs when repo_path is None."""
+        """No cwd when repo_path is None."""
         events = make_plan_events(
             "A valid plan summary", _VALID_STEPS, _VALID_AC,
         )
@@ -500,6 +501,7 @@ class TestGenerateTaskPlan:
             await generate_task_plan("Task")
             call_args = mock_query.call_args
             options = call_args[1].get("options") or call_args[0][1]
+            assert options.cwd is None
             assert options.add_dirs == []
 
     @pytest.mark.asyncio

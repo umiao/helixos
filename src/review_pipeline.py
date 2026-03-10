@@ -357,6 +357,7 @@ class ReviewPipeline:
         on_log: Callable[[str], None] | None = None,
         on_raw_artifact: Callable[[str], Awaitable[None]] | None = None,
         on_stream_event: Callable[[dict], None] | None = None,
+        repo_path: Path | None = None,
     ) -> ReviewState:
         """Run the review pipeline for a task plan.
 
@@ -379,6 +380,9 @@ class ReviewPipeline:
             on_stream_event: Optional callback for parsed stream-json events.
                 Each parsed JSON dict is passed to this callback for SSE
                 emission and ConversationView updates.
+            repo_path: Optional path to the project repository. When set,
+                the review agent runs with ``cwd=repo_path`` so file
+                references resolve correctly for imported projects.
 
         Returns:
             ReviewState with all reviews, consensus score, and human decision flag.
@@ -423,6 +427,7 @@ class ReviewPipeline:
                 on_log=on_log,
                 on_raw_artifact=on_raw_artifact,
                 on_stream_event=on_stream_event,
+                repo_path=repo_path,
             )
             reviews.append(review)
             completed_msg = f"Completed {reviewer.focus} review"
@@ -445,6 +450,7 @@ class ReviewPipeline:
                         on_log=on_log,
                         on_raw_artifact=on_raw_artifact,
                         on_stream_event=on_stream_event,
+                        repo_path=repo_path,
                     )
                     for reviewer in active_reviewers
                 ),
@@ -577,6 +583,7 @@ class ReviewPipeline:
         on_raw_artifact: Callable[[str], Awaitable[None]] | None = None,
         on_stream_event: Callable[[dict], None] | None = None,
         task_id: str | None = None,
+        repo_path: Path | None = None,
     ) -> tuple[dict, list[ClaudeEvent]]:
         """Call Claude via the Agent SDK and return parsed output + raw events.
 
@@ -596,6 +603,9 @@ class ReviewPipeline:
             on_raw_artifact: Optional async callback to persist raw event output.
             on_stream_event: Optional callback for parsed stream-json events.
             task_id: Optional task ID for JSONL log file naming.
+            repo_path: Optional project repository path. When set, the SDK
+                runs with ``cwd=repo_path`` so file references resolve
+                correctly for imported projects.
 
         Returns:
             Tuple of (result_dict, all_events) where result_dict contains
@@ -607,7 +617,7 @@ class ReviewPipeline:
         """
         # Inject session context into system prompt (replaces SessionStart
         # hook which is not available as an SDK hook type).
-        session_ctx = get_session_context()
+        session_ctx = get_session_context(repo_path)
         enriched_prompt = system_prompt + "\n\n" + session_ctx
 
         # setting_sources=[]: disable CLI hooks for review sessions -- this
@@ -621,6 +631,9 @@ class ReviewPipeline:
             json_schema=json_schema,
             setting_sources=[],
         )
+
+        if repo_path is not None and repo_path.is_dir():
+            options.cwd = str(repo_path)
 
         # -- JSONL log persistence (lazy: files created on first write) --
         jsonl_file: _LazyFileWriter | None = None
@@ -775,6 +788,7 @@ class ReviewPipeline:
         on_log: Callable[[str], None] | None = None,
         on_raw_artifact: Callable[[str], Awaitable[None]] | None = None,
         on_stream_event: Callable[[dict], None] | None = None,
+        repo_path: Path | None = None,
     ) -> LLMReview:
         """Call a reviewer via the Claude Agent SDK.
 
@@ -786,6 +800,7 @@ class ReviewPipeline:
             on_log: Optional per-line callback for real-time streaming.
             on_raw_artifact: Optional callback to persist full raw output.
             on_stream_event: Optional callback for parsed stream-json events.
+            repo_path: Optional project repository path for ``cwd`` setting.
 
         Returns:
             LLMReview with parsed verdict, summary, suggestions, cost_usd,
@@ -833,6 +848,7 @@ class ReviewPipeline:
             on_raw_artifact=on_raw_artifact,
             on_stream_event=on_stream_event,
             task_id=task.id,
+            repo_path=repo_path,
         )
 
         # structured_output is a dict when --json-schema was used; fall back to result

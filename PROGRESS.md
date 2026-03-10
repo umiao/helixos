@@ -86,3 +86,10 @@
 - **Sanity check result**: `git log --oneline --all` shows all commits have ASCII-only messages. Both target messages confirmed present. [AUTO-VERIFIED]
 - **Status**: [DONE]
 - **Request**: Move T-P2-143 to Completed
+
+## 2026-03-09 -- [T-P0-154] Set agent cwd for plan/review on imported projects
+- **What I did**: Changed plan agent (`enrichment.py`) from `add_dirs=[repo_path]` to `cwd=str(repo_path)` so SDK auto-indexes the project directory. Threaded `repo_path` through the review pipeline (`review_task` -> `_call_reviewer` -> `_call_claude_sdk`) with `cwd` setting. Added `_resolve_repo_path()` helper in `routes/reviews.py` to look up project repo path from task's `project_id`. Updated all 4 `_enqueue_review_pipeline` call sites (reviews.py x3, execution.py x1) to pass `repo_path`. Also fixed `get_session_context()` call in review pipeline to pass `repo_path`.
+- **Deliverables**: `src/enrichment.py`, `src/review_pipeline.py`, `src/routes/reviews.py`, `src/routes/execution.py`, `tests/test_plan_generation.py`
+- **Sanity check result**: 276 related tests pass (plan_generation, review_pipeline, enrichment, plan_review, replan, review_gate, drag_to_review, start_all_planned). Ruff clean. [AUTO-VERIFIED]
+- **Status**: [DONE]
+- **Request**: Move T-P0-154 to Completed

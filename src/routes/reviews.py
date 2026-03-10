@@ -59,6 +59,26 @@ router = APIRouter()
 # ------------------------------------------------------------------
 
 
+def _resolve_repo_path(task: Task, request: Request) -> Path | None:
+    """Resolve the project repository path for a task.
+
+    Args:
+        task: The task whose project_id is used for lookup.
+        request: The FastAPI request for app state access.
+
+    Returns:
+        The project's ``repo_path``, or ``None`` if unavailable.
+    """
+    try:
+        registry: ProjectRegistry = request.app.state.registry
+        project = registry.get_project(task.project_id)
+        if project.repo_path:
+            return project.repo_path
+    except (KeyError, AttributeError):
+        pass
+    return None
+
+
 def _enqueue_review_pipeline(
     task_manager: TaskManager,
     review_pipeline: ReviewPipeline | None,
@@ -68,6 +88,7 @@ def _enqueue_review_pipeline(
     review_attempt: int = 1,
     human_feedback: list[dict] | None = None,
     history_writer: HistoryWriter | None = None,
+    repo_path: Path | None = None,
 ) -> None:
     """Enqueue the review pipeline as a background asyncio task.
 
@@ -83,6 +104,7 @@ def _enqueue_review_pipeline(
         review_attempt: Attempt number (1-based). Retries increment this.
         human_feedback: Optional list of previous human feedback for injection.
         history_writer: Optional HistoryWriter for DB persistence of review logs.
+        repo_path: Optional project repository path for agent ``cwd`` setting.
     """
     if review_pipeline is None:
         # Pipeline unavailable -- fail immediately
@@ -156,6 +178,7 @@ def _enqueue_review_pipeline(
                 on_log=on_review_log,
                 on_raw_artifact=on_review_raw_artifact,
                 on_stream_event=on_review_stream_event,
+                repo_path=repo_path,
             )
 
             updated_task = task.model_copy(update={"review": review_state})
@@ -363,6 +386,7 @@ async def update_task_status(
         _enqueue_review_pipeline(
             task_manager, review_pipeline, event_bus, updated, task_id,
             history_writer=hw,
+            repo_path=_resolve_repo_path(updated, request),
         )
 
     return _task_to_response(updated)
@@ -435,6 +459,7 @@ async def retry_review(task_id: str, request: Request) -> dict:
         review_attempt=next_attempt,
         human_feedback=feedback if feedback else None,
         history_writer=history_writer,
+        repo_path=_resolve_repo_path(task, request),
     )
 
     return {"detail": "Review retry started", "task_id": task_id}
@@ -732,6 +757,7 @@ async def _handle_replan(
                     task_id=task_id,
                     review_attempt=max_attempt + 1,
                     history_writer=history_writer,
+                    repo_path=_resolve_repo_path(refreshed, request),
                 )
 
         except Exception as exc:

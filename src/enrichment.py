@@ -534,7 +534,7 @@ async def generate_task_plan(
 ) -> dict:
     """Call Claude Agent SDK to generate a structured implementation plan.
 
-    Uses ``run_claude_query()`` with ``add_dirs`` for codebase context when
+    Uses ``run_claude_query()`` with ``cwd`` for codebase context when
     *repo_path* is provided.  Streams typed ``ClaudeEvent`` objects for
     real-time callbacks and JSONL persistence.
 
@@ -544,8 +544,9 @@ async def generate_task_plan(
     Args:
         title: The task title.
         description: Existing task description (may be empty).
-        repo_path: Optional path to the project repository for codebase
-            context via ``add_dirs``.
+        repo_path: Optional path to the project repository. When set,
+            the plan agent runs with ``cwd=repo_path`` so file references
+            resolve correctly for imported projects.
         timeout_minutes: Maximum time in minutes before the operation is
             cancelled. 0 disables the timeout.
         on_log: Optional callback invoked per simplified log line for
@@ -606,7 +607,7 @@ async def generate_task_plan(
     )
 
     if repo_path is not None and repo_path.is_dir():
-        options.add_dirs = [str(repo_path)]
+        options.cwd = str(repo_path)
 
     max_retries = plan_validation.max_validation_retries
     last_validation_error: str = ""

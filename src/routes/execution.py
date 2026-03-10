@@ -27,7 +27,7 @@ from src.models import PlanStatus, TaskStatus
 from src.process_manager import ProcessManager
 from src.process_monitor import ProcessMonitor
 from src.review_pipeline import ReviewPipeline
-from src.routes.reviews import _enqueue_review_pipeline
+from src.routes.reviews import _enqueue_review_pipeline, _resolve_repo_path
 from src.scheduler import Scheduler
 from src.schemas import (
     ActiveProcessesResponse,
@@ -291,6 +291,7 @@ async def start_all_planned(
                 _enqueue_review_pipeline(
                     task_manager, review_pipeline, event_bus, updated, task.id,
                     history_writer=history_writer,
+                    repo_path=_resolve_repo_path(updated, request),
                 )
 
         except OptimisticLockError:
