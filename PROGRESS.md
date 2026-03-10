@@ -297,6 +297,13 @@
 - **Status**: [DONE]
 - **Request**: Move T-P0-145 to Completed
 
+## 2026-03-09 -- [T-P1-147] Remove redundant result banner from ConversationView
+- **What I did**: Removed the green "Completed successfully" result banner from ConversationView. Changed the `item.type === "result"` render block (lines 506-514) to return null instead of rendering the banner div. All other message types (text, tool_use, tool_result) remain unaffected.
+- **Deliverables**: `frontend/src/components/ConversationView.tsx`
+- **Sanity check result**: Vite build clean. 313 core Python tests pass (db, enrichment, plan, task_manager, review). No TypeScript regressions. [AUTO-VERIFIED] -- no browser available; render path confirmed via code trace.
+- **Status**: [DONE]
+- **Request**: Move T-P1-147 to Completed
+
 ## 2026-03-09 -- [T-P1-146] Fix PlanReviewPanel markdown rendering
 - **What I did**: Fixed three issues causing blank/invisible plan summary in PlanReviewPanel: (1) SSE race condition -- `plan_status_change` SSE event for "ready" did not include `description`, so the optimistic patch set `plan_status="ready"` but left `description` stale/empty from GENERATING state. Added `description` field to SSE event payload in both `routes/tasks.py` and `routes/reviews.py`. Updated `planStatePatch` utility and `useSSEHandler` to propagate description in the optimistic update. (2) Missing `remark-gfm` -- MarkdownRenderer did not use `remark-gfm` plugin (ConversationView did), causing GFM tables/features to not render. Added `remarkGfm` import and `remarkPlugins` prop. (3) Whitespace edge case -- PlanReviewPanel checked `task.description` truthiness but whitespace-only strings passed; changed to `task.description?.trim()`. Added 6 regression tests for `format_plan_as_text` edge cases (whitespace-only, nested markdown, code blocks, very long content, missing keys, non-dict steps).
 - **Deliverables**: `src/routes/tasks.py`, `src/routes/reviews.py`, `frontend/src/components/MarkdownRenderer.tsx`, `frontend/src/components/PlanReviewPanel.tsx`, `frontend/src/utils/planState.ts`, `frontend/src/hooks/useSSEHandler.ts`, `tests/test_plan_generation.py`

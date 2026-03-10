@@ -32,16 +32,6 @@
 
 ### P1 -- Should Have (agentic intelligence)
 
-#### T-P1-147: Remove redundant result banner from ConversationView
-- **Priority**: P1
-- **Complexity**: S (< 1 session)
-- **Depends on**: None
-- **Description**: The green "Completed successfully" result banner at bottom of ConversationView adds noise. Remove it. Keep tool_use/tool_result rendering intact.
-- **Acceptance Criteria**:
-  1. Result banner (type: "result") no longer rendered in ConversationView
-  2. All other message types (text, tool_use, tool_result) unaffected
-  3. No TypeScript errors, Vite build clean
-
 #### T-P1-148: Add thinking block rendering in ConversationView
 - **Priority**: P1
 - **Complexity**: S (< 1 session)
@@ -130,6 +120,9 @@ T-P1-127 depends on T-P1-123 (completed)
 
 
 > 21 completed tasks archived to [archive/completed_tasks.md](archive/completed_tasks.md).
+
+#### [x] T-P1-147: Remove redundant result banner from ConversationView -- 2026-03-09
+- Removed green "Completed successfully" result banner from ConversationView. The `type === "result"` render block now returns null. All other message types (text, tool_use, tool_result) unaffected. Vite build clean.
 
 #### [x] T-P1-146: Fix PlanReviewPanel markdown rendering -- 2026-03-09
 - Fixed three root causes: (1) SSE race condition -- plan_status_change "ready" event did not include description, causing stale/empty description in optimistic update. Added description to SSE payload in tasks.py and reviews.py, threaded through planStatePatch and useSSEHandler. (2) Missing remark-gfm in MarkdownRenderer -- GFM features (tables, strikethrough) did not render. Added remarkGfm plugin. (3) Whitespace edge case -- changed truthiness check to .trim(). Added 6 regression tests for format_plan_as_text edge cases.

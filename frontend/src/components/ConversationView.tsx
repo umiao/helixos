@@ -503,14 +503,9 @@ export default function ConversationView({
               return null;
             }
 
+            // Result banner removed (T-P1-147) -- adds noise, not useful
             if (item.type === "result") {
-              return (
-                <div key={item.key} className="flex justify-center py-2">
-                  <div className="bg-green-900/50 border border-green-700 rounded-lg px-4 py-2 text-xs text-green-300 font-medium">
-                    {item.resultText ?? "Execution complete"}
-                  </div>
-                </div>
-              );
+              return null;
             }
 
             return null;
