@@ -28,21 +28,6 @@
 
 ### P0 -- Must Have (core functionality)
 
-#### T-P0-161: Fix markdown rendering in Plan and Review tabs
-- **Priority**: P0 | **Complexity**: S
-- **Depends on**: None
-- **Description**: Both Plan tab and Review tab markdown is not rendering correctly.
-  Both use MarkdownRenderer component -- root cause is almost certainly shared.
-  Investigate MarkdownRenderer, PlanReviewPanel, and ReviewPanel integration.
-  Likely content not passed correctly or CSS conflicts.
-- **Files**: `frontend/src/components/MarkdownRenderer.tsx`, `frontend/src/components/PlanReviewPanel.tsx`, `frontend/src/components/ReviewPanel.tsx`
-- **Acceptance Criteria**:
-  1. Plan markdown renders headings, lists, code blocks, tables correctly
-  2. Reviewer output renders as proper markdown (headings, lists, bold/italic)
-  3. Blocking issues and suggestions render with proper formatting
-  4. Links clickable, code blocks have syntax highlighting
-  5. [AUTO-VERIFIED] Build clean, grep confirms MarkdownRenderer receives content prop
-
 #### T-P0-162: Verify executor receives reviewer approval and replan feedback (RCA)
 - **Priority**: P0 | **Complexity**: S
 - **Depends on**: None
@@ -162,6 +147,9 @@ T-P1-127 depends on T-P1-123 (completed)
 
 
 > 37 completed tasks archived to [archive/completed_tasks.md](archive/completed_tasks.md).
+
+#### [x] T-P0-161: Fix markdown rendering in Plan and Review tabs -- 2026-03-09
+- Root cause: MarkdownRenderer was missing `rehype-prism-plus` plugin, so code blocks had no syntax highlighting. Content prop wiring was correct (7 usage sites verified). Added rehypePrism import and plugin to MarkdownRenderer. TS clean, Vite build clean. [AUTO-VERIFIED]
 
 #### [x] T-P0-160: Redesign Conversation tab -- collapse tool use, show only AI replies -- 2026-03-09
 - Merged consecutive assistant text events into single bubble (text_group in displayEntries). tool_use blocks already collapsed by default, tool_results already hidden unless expanded, thinking blocks already collapsed. TS clean, Vite build clean. [AUTO-VERIFIED]

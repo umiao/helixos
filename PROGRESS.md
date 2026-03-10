@@ -142,3 +142,10 @@
 - **Sanity check result**: TypeScript clean, Vite build clean. Grep confirms expandedTools/toggleExpand wiring intact. [AUTO-VERIFIED]
 - **Status**: [DONE]
 - **Request**: Move T-P0-160 to Completed
+
+## 2026-03-09 -- [T-P0-161] Fix markdown rendering in Plan and Review tabs
+- **What I did**: MarkdownRenderer was missing `rehype-prism-plus` plugin -- code blocks rendered without syntax highlighting. Added `import rehypePrism from "rehype-prism-plus"` and added it to `rehypePlugins` prop with `ignoreMissing: true`. Content prop wiring verified correct across all 7 usage sites (PlanReviewPanel x2, ReviewPanel x5). Prism CSS theme already loaded globally in main.tsx.
+- **Deliverables**: `frontend/src/components/MarkdownRenderer.tsx`
+- **Sanity check result**: TypeScript clean, Vite build clean. Grep confirms all MarkdownRenderer usages pass content prop correctly. [AUTO-VERIFIED]
+- **Status**: [DONE]
+- **Request**: Move T-P0-161 to Completed

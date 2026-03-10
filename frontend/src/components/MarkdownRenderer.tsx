@@ -12,6 +12,7 @@
 import { useState } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
+import rehypePrism from "rehype-prism-plus";
 
 type FontSize = "S" | "M" | "L";
 
@@ -96,6 +97,7 @@ export default function MarkdownRenderer({
         <div className="prose-compact">
           <ReactMarkdown
             remarkPlugins={[remarkGfm]}
+            rehypePlugins={[[rehypePrism, { ignoreMissing: true }]]}
             components={{
               h1: ({ children }) => (
                 <h1 className="font-bold text-gray-900 mb-1.5 mt-2 border-b border-gray-200 pb-1" style={{ fontSize: "1.25em" }}>
