@@ -69,6 +69,9 @@ T-P1-127 depends on T-P1-123 (completed)
 
 > 57 completed tasks archived to [archive/completed_tasks.md](archive/completed_tasks.md).
 
+#### [x] T-P0-163: test sample task -- 2026-03-10
+- Completed comprehensive UI journey audit covering 9 user flows (Project Import, Task Creation, Kanban Drag-Drop, Review Gate, Plan Generation, Execution Monitoring, Review Pipeline, Filtering & Search, LLM Prompts). Identified 5 MEDIUM risks (P3 priority gap, review submission race condition, missing cancel-execution button, needs-human notification gap, review sub-state differentiation) and 11 LOW risks. Created 66KB audit report in docs/audits/ui-journey-audit-T-P0-163.md with full user journey traces, conditional behavior documentation, risk summary table, and actionable recommendations.
+
 #### [x] T-P1-114: Add plan output pydantic validation with retry and error feedback -- 2026-03-08
 - Added `PlanValidationConfig` to config.py with configurable hard/soft limits. `ProposedTask` gains `files` field. `generate_task_plan()` retries up to N times on validation failure with error feedback in prompt. `_validate_plan_structure()` detects dependency cycles via `detect_cycles()`. Soft limits emit warnings. Hard ceiling: max 10 proposed tasks. 25 new tests. 1407 pass, ruff clean.
 
