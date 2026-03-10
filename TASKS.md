@@ -32,18 +32,6 @@
 
 ### P1 -- Should Have (agentic intelligence)
 
-#### T-P1-150: Add inline description editing to TaskCardPopover
-- **Priority**: P1
-- **Complexity**: S (< 1 session)
-- **Depends on**: None
-- **Description**: TaskCardPopover supports title editing but NOT description. Add a textarea with save/cancel for inline description editing on hover.
-- **Acceptance Criteria**:
-  1. Description editable via pencil icon in TaskCardPopover (same pattern as title)
-  2. Textarea with save (Enter or button) and cancel (Escape)
-  3. Edits persist via PATCH /api/tasks/{id} with { description }
-  4. Works for all task states (backlog, plan, review, etc.)
-  5. Journey: User hovers card -> popover appears -> clicks pencil on description -> edits -> saves -> text persists on refresh
-
 #### T-P1-151: Enforce subtask decomposition in planner prompt + review validation
 - **Priority**: P1
 - **Complexity**: M (1-2 sessions)
@@ -98,6 +86,9 @@ T-P1-127 depends on T-P1-123 (completed)
 
 
 > 37 completed tasks archived to [archive/completed_tasks.md](archive/completed_tasks.md).
+
+#### [x] T-P1-150: Add inline description editing to TaskCardPopover -- 2026-03-09
+- Added editable description to TaskCardPopover with pencil icon, textarea (Ctrl+Enter save, Esc cancel), Save/Cancel buttons. Empty descriptions show "No description" placeholder. Persists via PATCH /api/tasks/{id}. TS clean, Vite build clean, 1643 Python tests pass.
 
 #### [x] T-P1-149: Collapse consecutive tool_use blocks in ConversationView -- 2026-03-09
 - Grouped 2+ consecutive tool_use blocks into collapsible container showing count and tool name summary (e.g. "3 tool calls: Read, Grep, Read"). Individual tools still expandable within the group. Single tool_use blocks render unchanged. Vite build clean, 188 tests pass.

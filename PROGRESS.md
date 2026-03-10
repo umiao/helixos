@@ -58,3 +58,10 @@
 - **Sanity check result**: Vite build clean, TypeScript clean, 188 unit tests pass. [AUTO-VERIFIED]
 - **Status**: [DONE]
 - **Request**: Move T-P1-149 to Completed
+
+## 2026-03-09 -- [T-P1-150] Add inline description editing to TaskCardPopover
+- **What I did**: Added inline description editing to TaskCardPopover following the existing title editing pattern. Description section now always visible (shows "No description" placeholder when empty). Clicking the pencil icon opens a textarea with Save/Cancel buttons. Ctrl+Enter saves, Escape cancels, blur saves. Edits persist via PATCH /api/tasks/{id} with { description }. No backend changes needed -- API already supported description updates.
+- **Deliverables**: `frontend/src/components/TaskCardPopover.tsx`
+- **Sanity check result**: TypeScript clean, Vite build clean, 1643 Python tests pass. [AUTO-VERIFIED]
+- **Status**: [DONE]
+- **Request**: Move T-P1-150 to Completed

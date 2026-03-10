@@ -73,6 +73,11 @@ export default function TaskCardPopover({ task, anchorRect, onTaskUpdated, strea
   const [titleError, setTitleError] = useState<string | null>(null);
   const [savingTitle, setSavingTitle] = useState(false);
   const titleInputRef = useRef<HTMLInputElement>(null);
+  const [editingDescription, setEditingDescription] = useState(false);
+  const [descriptionDraft, setDescriptionDraft] = useState("");
+  const [descriptionError, setDescriptionError] = useState<string | null>(null);
+  const [savingDescription, setSavingDescription] = useState(false);
+  const descriptionTextareaRef = useRef<HTMLTextAreaElement>(null);
 
   useLayoutEffect(() => {
     const el = popoverRef.current;
@@ -198,6 +203,60 @@ export default function TaskCardPopover({ task, anchorRect, onTaskUpdated, strea
     }
   }, [editingTitle]);
 
+  const handleDescriptionClick = () => {
+    setEditingDescription(true);
+    setDescriptionDraft(task.description || "");
+    setDescriptionError(null);
+  };
+
+  const handleDescriptionSave = async () => {
+    if (savingDescription) return;
+    const trimmed = descriptionDraft.trim();
+    if (trimmed === (task.description || "")) {
+      setEditingDescription(false);
+      return;
+    }
+    setSavingDescription(true);
+    setDescriptionError(null);
+    try {
+      const updated = await updateTask(task.id, { description: trimmed });
+      setEditingDescription(false);
+      onTaskUpdated?.(updated);
+    } catch (err) {
+      const msg = err instanceof ApiError ? err.detail : "Failed to update description";
+      setDescriptionError(msg);
+    } finally {
+      setSavingDescription(false);
+    }
+  };
+
+  const handleDescriptionCancel = () => {
+    setEditingDescription(false);
+    setDescriptionDraft("");
+    setDescriptionError(null);
+  };
+
+  const handleDescriptionKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) {
+      e.preventDefault();
+      handleDescriptionSave();
+    } else if (e.key === "Escape") {
+      e.preventDefault();
+      handleDescriptionCancel();
+    }
+  };
+
+  // Auto-focus textarea when description editing starts
+  useEffect(() => {
+    if (editingDescription && descriptionTextareaRef.current) {
+      descriptionTextareaRef.current.focus();
+      descriptionTextareaRef.current.setSelectionRange(
+        descriptionTextareaRef.current.value.length,
+        descriptionTextareaRef.current.value.length
+      );
+    }
+  }, [editingDescription]);
+
   const badgeClass = STATUS_COLORS[task.status];
   const label = STATUS_LABELS[task.status];
 
@@ -312,14 +371,68 @@ export default function TaskCardPopover({ task, anchorRect, onTaskUpdated, strea
         </div>
       )}
 
-      {/* Description */}
-      {task.description && (
-        <Section label="Description">
-          <p className="whitespace-pre-wrap text-gray-700 text-xs leading-relaxed">
-            {task.description}
-          </p>
-        </Section>
-      )}
+      {/* Description (editable) */}
+      <Section label="Description">
+        {editingDescription ? (
+          <div>
+            <textarea
+              ref={descriptionTextareaRef}
+              value={descriptionDraft}
+              onChange={(e) => setDescriptionDraft(e.target.value)}
+              onKeyDown={handleDescriptionKeyDown}
+              onBlur={handleDescriptionSave}
+              disabled={savingDescription}
+              rows={4}
+              className="w-full text-xs text-gray-800 border border-indigo-300 rounded px-1.5 py-1 focus:outline-none focus:ring-1 focus:ring-indigo-400 focus:border-indigo-400 disabled:opacity-50 resize-y"
+              placeholder="Add a description..."
+            />
+            <div className="flex items-center justify-between mt-0.5">
+              <span className="text-xs text-gray-400">Ctrl+Enter to save, Esc to cancel</span>
+              <div className="flex gap-1">
+                <button
+                  onClick={(e) => { e.preventDefault(); handleDescriptionCancel(); }}
+                  className="text-xs text-gray-500 hover:text-gray-700 px-1.5 py-0.5"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={(e) => { e.preventDefault(); handleDescriptionSave(); }}
+                  disabled={savingDescription}
+                  className="text-xs text-white bg-indigo-600 hover:bg-indigo-700 rounded px-2 py-0.5 disabled:opacity-50"
+                >
+                  Save
+                </button>
+              </div>
+            </div>
+            {descriptionError && (
+              <p className="mt-0.5 text-xs text-red-600">{descriptionError}</p>
+            )}
+          </div>
+        ) : (
+          <div
+            onClick={handleDescriptionClick}
+            className="group cursor-text hover:bg-gray-50 rounded px-1 py-0.5 -mx-1 transition-colors relative min-h-[1.5rem]"
+          >
+            <p className="whitespace-pre-wrap text-gray-700 text-xs leading-relaxed pr-5">
+              {task.description || <span className="text-gray-400 italic">No description</span>}
+            </p>
+            {/* Pencil icon on hover */}
+            <svg
+              className="absolute right-1 top-1 w-3.5 h-3.5 text-gray-400 opacity-0 group-hover:opacity-100 transition-opacity"
+              fill="none"
+              stroke="currentColor"
+              viewBox="0 0 24 24"
+            >
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth={2}
+                d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z"
+              />
+            </svg>
+          </div>
+        )}
+      </Section>
 
       {/* Dependencies */}
       {task.depends_on.length > 0 && (
