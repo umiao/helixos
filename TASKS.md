@@ -28,7 +28,98 @@
 
 ### P0 -- Must Have (core functionality)
 
+#### T-P0-144: Fix ReviewPanel edit persistence bug + always-available Edit button
+- **Priority**: P0
+- **Complexity**: S (< 1 session)
+- **Depends on**: None
+- **Description**: Edits made in ReviewPanel's Edit Plan mode don't propagate correctly to canonical task store. Also, Edit button gated by `!isRunning && !isDone` -- should be available in BACKLOG/PLAN/REVIEW states.
+- **Acceptance Criteria**:
+  1. Edit plan text in ReviewPanel -> Save -> refresh page -> edited text persists
+  2. Edit button visible for tasks in BACKLOG, PLAN, REVIEW states
+  3. Edit in ReviewPanel propagates through: local state -> callback -> store -> DB -> UI refresh (trace and fix the broken link)
+  4. Journey: User hovers task -> opens bottom panel -> clicks Edit Plan -> modifies text -> clicks Save -> navigates away -> returns -> sees saved text
+
+#### T-P0-145: Design agent clarifying question protocol
+- **Priority**: P0 (design)
+- **Complexity**: M (1-2 sessions)
+- **Depends on**: None
+- **Description**: The review agent can only approve/reject. No mechanism for Q&A between agent and human. Design the UX flow, data model, and API for a PlanReviewThread with question/answer/resolution/resume semantics.
+- **Acceptance Criteria**:
+  1. Design doc in `docs/architecture/clarifying-questions.md` covering: data model (PlanReviewThread, messages[]), API endpoints, frontend UX flow
+  2. Review agent can emit ASK_QUESTION action (alongside APPROVE/REVISE/SPLIT_TASK)
+  3. User can answer questions inline in ReviewPanel
+  4. After answers provided, plan generation resumes with Q&A context
+  5. Design reviewed and approved by user before implementation begins
+
 ### P1 -- Should Have (agentic intelligence)
+
+#### T-P1-146: Fix PlanReviewPanel markdown rendering
+- **Priority**: P1
+- **Complexity**: S (< 1 session)
+- **Depends on**: None
+- **Description**: Plan summary text in the side panel renders blank/invisible for some tasks. Investigate rendering pipeline: PlanReviewPanel -> MarkdownRenderer -> sanitized HTML -> DOM.
+- **Acceptance Criteria**:
+  1. Root cause identified (CSS, sanitization, AST error, key mismatch, or type mismatch)
+  2. Plan summary renders correctly for all existing tasks with non-empty description
+  3. Regression test: verify MarkdownRenderer handles edge cases (empty string, very long content, nested markdown, code blocks)
+  4. Journey: User clicks task with plan -> side panel opens -> plan summary visible and properly formatted
+
+#### T-P1-147: Remove redundant result banner from ConversationView
+- **Priority**: P1
+- **Complexity**: S (< 1 session)
+- **Depends on**: None
+- **Description**: The green "Completed successfully" result banner at bottom of ConversationView adds noise. Remove it. Keep tool_use/tool_result rendering intact.
+- **Acceptance Criteria**:
+  1. Result banner (type: "result") no longer rendered in ConversationView
+  2. All other message types (text, tool_use, tool_result) unaffected
+  3. No TypeScript errors, Vite build clean
+
+#### T-P1-148: Add thinking block rendering in ConversationView
+- **Priority**: P1
+- **Complexity**: S (< 1 session)
+- **Depends on**: None
+- **Description**: Agent thinking/reasoning blocks are not displayed in ConversationView. Add a distinct visual treatment (e.g. italic, muted color, collapsible) for thinking content.
+- **Acceptance Criteria**:
+  1. Thinking blocks rendered with distinct visual style (muted/italic, different background)
+  2. Thinking blocks collapsible (collapsed by default)
+  3. Thinking content distinguished from regular text messages
+  4. Journey: User views conversation -> sees collapsed "Thinking..." blocks -> clicks to expand -> reads reasoning
+
+#### T-P1-149: Collapse consecutive tool_use blocks in ConversationView
+- **Priority**: P1
+- **Complexity**: S (< 1 session)
+- **Depends on**: None
+- **Description**: Multiple consecutive tool_use blocks clutter the conversation. Group them into a single expandable section showing count (e.g. "3 tool calls") with individual tools inside.
+- **Acceptance Criteria**:
+  1. 2+ consecutive tool_use blocks grouped into single collapsible container
+  2. Container shows tool count and summary (e.g. "3 tool calls: Read, Grep, Read")
+  3. Individual tools still expandable within the group
+  4. Single tool_use blocks render as before (no grouping)
+  5. Journey: User scrolls conversation -> sees "5 tool calls" collapsed -> clicks -> expands to see individual tools -> clicks one to see details
+
+#### T-P1-150: Add inline description editing to TaskCardPopover
+- **Priority**: P1
+- **Complexity**: S (< 1 session)
+- **Depends on**: None
+- **Description**: TaskCardPopover supports title editing but NOT description. Add a textarea with save/cancel for inline description editing on hover.
+- **Acceptance Criteria**:
+  1. Description editable via pencil icon in TaskCardPopover (same pattern as title)
+  2. Textarea with save (Enter or button) and cancel (Escape)
+  3. Edits persist via PATCH /api/tasks/{id} with { description }
+  4. Works for all task states (backlog, plan, review, etc.)
+  5. Journey: User hovers card -> popover appears -> clicks pencil on description -> edits -> saves -> text persists on refresh
+
+#### T-P1-151: Enforce subtask decomposition in planner prompt + review validation
+- **Priority**: P1
+- **Complexity**: M (1-2 sessions)
+- **Depends on**: None
+- **Description**: T-P0-139 ran as monolithic task because planner didn't enforce decomposition. Fix the root cause: update planner prompt to require subtask generation for M/L complexity tasks, and add review validation that rejects plans without proper decomposition.
+- **Acceptance Criteria**:
+  1. Planner system prompt updated: M-complexity tasks MUST propose 2-4 subtasks, L-complexity 3-8 subtasks
+  2. Review validation rejects plans for M/L tasks that contain 0 proposed_tasks
+  3. S-complexity tasks exempt from decomposition requirement
+  4. Existing plan generation tests updated to verify decomposition enforcement
+  5. Journey: User creates M-complexity task -> generates plan -> plan contains proposed subtasks -> review validates decomposition
 
 ### P2 -- Nice to Have
 
@@ -47,7 +138,8 @@
 > Full historical dependency graph relocated to [docs/architecture/dependency-graph-history.md](docs/architecture/dependency-graph-history.md).
 
 ### Current
-(none)
+All 8 new tasks (T-P0-144 through T-P1-151) have no dependencies -- can be worked in any order.
+Suggested execution order: 144 -> 145 -> 146 -> 147/148/149 (parallel) -> 150 -> 151
 
 ### Historical (completed)
 T-P2-140 depends on T-P0-134 (completed)
