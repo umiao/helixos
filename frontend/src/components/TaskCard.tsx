@@ -133,12 +133,30 @@ export default function TaskCard({ task, onClick, onContextMenu, onTaskUpdated, 
     }, 300);
   }, []);
 
+  const closeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
   const handleMouseLeave = useCallback(() => {
     if (hoverTimer.current) {
       clearTimeout(hoverTimer.current);
       hoverTimer.current = null;
     }
-    setShowPopover(false);
+    // Delay close so mouse can travel from card to portal-rendered popover
+    closeTimer.current = setTimeout(() => {
+      setShowPopover(false);
+    }, 150);
+  }, []);
+
+  const handlePopoverMouseEnter = useCallback(() => {
+    if (closeTimer.current) {
+      clearTimeout(closeTimer.current);
+      closeTimer.current = null;
+    }
+  }, []);
+
+  const handlePopoverMouseLeave = useCallback(() => {
+    closeTimer.current = setTimeout(() => {
+      setShowPopover(false);
+    }, 150);
   }, []);
 
   // Hide popover when dragging starts
@@ -149,13 +167,18 @@ export default function TaskCard({ task, onClick, onContextMenu, onTaskUpdated, 
         clearTimeout(hoverTimer.current);
         hoverTimer.current = null;
       }
+      if (closeTimer.current) {
+        clearTimeout(closeTimer.current);
+        closeTimer.current = null;
+      }
     }
   }, [isDragging]);
 
-  // Cleanup timer on unmount
+  // Cleanup timers on unmount
   useEffect(() => {
     return () => {
       if (hoverTimer.current) clearTimeout(hoverTimer.current);
+      if (closeTimer.current) clearTimeout(closeTimer.current);
     };
   }, []);
 
@@ -169,6 +192,10 @@ export default function TaskCard({ task, onClick, onContextMenu, onTaskUpdated, 
         if (hoverTimer.current) {
           clearTimeout(hoverTimer.current);
           hoverTimer.current = null;
+        }
+        if (closeTimer.current) {
+          clearTimeout(closeTimer.current);
+          closeTimer.current = null;
         }
         onContextMenu(task, { x: e.clientX, y: e.clientY });
       }
@@ -281,7 +308,7 @@ export default function TaskCard({ task, onClick, onContextMenu, onTaskUpdated, 
 
       {/* Hover popover via portal */}
       {showPopover && anchorRect && !isDragging && (
-        <TaskCardPopover task={task} anchorRect={anchorRect} onTaskUpdated={onTaskUpdated} streamSummary={streamSummary} />
+        <TaskCardPopover task={task} anchorRect={anchorRect} onTaskUpdated={onTaskUpdated} streamSummary={streamSummary} onMouseEnter={handlePopoverMouseEnter} onMouseLeave={handlePopoverMouseLeave} />
       )}
     </div>
   );

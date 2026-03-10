@@ -32,22 +32,6 @@
 ### P1 -- Should Have (agentic intelligence)
 
 
-#### T-P1-156: Verify and fix inline task edit across all statuses
-- **Priority**: P1
-- **Complexity**: S
-- **Depends on**: None
-- **Description**: User reports cannot edit title/description when hovering over cards
-  in backlog/plan/review status. TaskCardPopover has edit functionality (lines 151-258)
-  but may be blocked by status-dependent rendering or missing prop threading. Investigate
-  which statuses are affected and fix.
-- **Acceptance Criteria**:
-  1. Hovering any task card (backlog, review, queued, running, done) shows popover
-  2. Pencil icon appears on hover for title and description in all statuses
-  3. Clicking pencil opens inline editor, Enter/Ctrl+Enter saves, Esc cancels
-  4. Edits persist via PATCH for all statuses
-  5. Manually verify: hover backlog card -> click pencil on title -> edit -> save -> title updated
-- **Regression areas**: TaskCard rendering, popover portal positioning, drag-and-drop
-- **Files**: `frontend/src/components/TaskCard.tsx`, `frontend/src/components/TaskCardPopover.tsx`
 
 #### T-P1-157: Investigate T-P0-139 decomposition failure (RCA)
 - **Priority**: P1
@@ -99,9 +83,9 @@
 > Full historical dependency graph relocated to [docs/architecture/dependency-graph-history.md](docs/architecture/dependency-graph-history.md).
 
 ### Current
-T-P1-156, T-P1-157: no dependencies
+T-P1-157: no dependencies
 T-P2-158: depends on T-P1-155 (completed)
-Suggested execution order: 156 -> 157 -> 158
+Suggested execution order: 157 -> 158
 
 ### Historical (completed)
 T-P2-140 depends on T-P0-134 (completed)
@@ -125,6 +109,9 @@ T-P1-127 depends on T-P1-123 (completed)
 
 
 > 37 completed tasks archived to [archive/completed_tasks.md](archive/completed_tasks.md).
+
+#### [x] T-P1-156: Fix inline task edit across all statuses -- 2026-03-09
+- Fixed popover disappearing when mouse moves from card to portal-rendered popover. Added 150ms delayed close with onMouseEnter/onMouseLeave props on popover to cancel/trigger close. Edit functionality (pencil icon, inline editor, PATCH save) now accessible for all statuses. TS clean, Vite build clean, 1570 tests pass.
 
 #### [x] T-P1-155: Add Edit button to PlanReviewPanel -- 2026-03-09
 - Added "Edit Plan" button to PlanReviewPanel header (ready state). Clicking enters edit mode with textarea pre-filled with plan text, Edit/Preview tabs, Save/Cancel buttons. Save persists via PATCH `updateTask` and calls `onTaskUpdated` to refresh parent state (including proposed tasks via T-P0-153). Cancel discards changes. Header buttons disabled during edit mode. TS clean, Vite build clean, 302 tests pass.

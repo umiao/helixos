@@ -17,6 +17,10 @@ interface TaskCardPopoverProps {
   onTaskUpdated?: (task: Task) => void;
   /** Stream summary for live activity display. */
   streamSummary?: StreamSummary;
+  /** Mouse enter handler -- lets parent cancel delayed close. */
+  onMouseEnter?: () => void;
+  /** Mouse leave handler -- lets parent trigger delayed close. */
+  onMouseLeave?: () => void;
 }
 
 const STATUS_COLORS: Record<TaskStatus, string> = {
@@ -63,7 +67,7 @@ function Section({ label, children }: { label: string; children: React.ReactNode
   );
 }
 
-export default function TaskCardPopover({ task, anchorRect, onTaskUpdated, streamSummary }: TaskCardPopoverProps) {
+export default function TaskCardPopover({ task, anchorRect, onTaskUpdated, streamSummary, onMouseEnter, onMouseLeave }: TaskCardPopoverProps) {
   const popoverRef = useRef<HTMLDivElement>(null);
   const [pos, setPos] = useState<{ top: number; left: number }>({ top: 0, left: 0 });
   const [generating, setGenerating] = useState(false);
@@ -264,6 +268,8 @@ export default function TaskCardPopover({ task, anchorRect, onTaskUpdated, strea
     <div
       ref={popoverRef}
       style={{ top: pos.top, left: pos.left }}
+      onMouseEnter={onMouseEnter}
+      onMouseLeave={onMouseLeave}
       className="fixed z-[9999] w-80 max-h-[70vh] overflow-y-auto rounded-lg border border-gray-200 bg-white p-4 shadow-lg"
     >
       {/* Header */}

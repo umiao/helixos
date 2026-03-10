@@ -107,3 +107,10 @@
 - **Sanity check result**: TypeScript clean, Vite build clean, 302 Python tests pass (api, task_manager, review_gate_ux, plan_generation, plan_review, plan_validity, enrichment). [AUTO-VERIFIED]
 - **Status**: [DONE]
 - **Request**: Move T-P1-155 to Completed
+
+## 2026-03-09 -- [T-P1-156] Fix inline task edit across all statuses
+- **What I did**: Fixed popover disappearing before user can interact with it. Root cause: popover renders via `createPortal` to `document.body`, so moving mouse from card to popover triggers card's `onMouseLeave`, closing popover instantly. Fix: added 150ms delayed close on card's `onMouseLeave`, with `onMouseEnter`/`onMouseLeave` props on popover to cancel/trigger the delayed close. This allows the mouse to travel from card to popover without losing it. Works for all statuses (backlog, review, queued, running, done, etc.) since the bug was status-independent.
+- **Deliverables**: `frontend/src/components/TaskCard.tsx`, `frontend/src/components/TaskCardPopover.tsx`
+- **Sanity check result**: TypeScript clean, Vite build clean, 1570 Python tests pass (scheduler excluded due to Windows timeout). Grep-based wiring verification: props threaded from TaskCard -> TaskCardPopover, handlers attached to popover div. [AUTO-VERIFIED]
+- **Status**: [DONE]
+- **Request**: Move T-P1-156 to Completed
