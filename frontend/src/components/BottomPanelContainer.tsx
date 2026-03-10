@@ -58,8 +58,28 @@ export default function BottomPanelContainer({
     selectedTask.plan_status === "generating" ||
     selectedTask.plan_status === "failed"
   );
-  // Show animated dot on Conversation/Log tabs when task is running (AC4)
+  // Show animated dot on Conversation/Log tabs when task is running
   const isRunning = selectedTask?.status === "running";
+
+  // Review tab status dot
+  const reviewState = selectedTask?.review_lifecycle_state;
+  const reviewDot = (() => {
+    if (!reviewState || reviewState === "not_started") return null;
+    if (reviewState === "running" || reviewState === "partial") {
+      return <span className="ml-1 inline-block w-1.5 h-1.5 rounded-full bg-blue-500 animate-pulse" />;
+    }
+    if (reviewState === "approved") {
+      return <span className="ml-1 inline-block w-1.5 h-1.5 rounded-full bg-green-500" />;
+    }
+    if (reviewState === "rejected_single" || reviewState === "rejected_consensus") {
+      return <span className="ml-1 inline-block w-1.5 h-1.5 rounded-full bg-red-500" />;
+    }
+    if (reviewState === "failed") {
+      return <span className="ml-1 inline-block w-1.5 h-1.5 rounded-full bg-red-500" />;
+    }
+    return null;
+  })();
+
   return (
     <>
       {/* Panel tabs */}
@@ -74,7 +94,7 @@ export default function BottomPanelContainer({
           title="View structured conversation from task execution"
         >
           Conversation{isRunning ? (
-            <span className="ml-1 inline-block w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse" />
+            <span className="ml-1 inline-block w-1.5 h-1.5 rounded-full bg-blue-500 animate-pulse" />
           ) : null}
         </button>
         <button
@@ -87,7 +107,7 @@ export default function BottomPanelContainer({
           title="View plain execution log entries"
         >
           Plain Log{isRunning ? (
-            <span className="ml-1 inline-block w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse" />
+            <span className="ml-1 inline-block w-1.5 h-1.5 rounded-full bg-blue-500 animate-pulse" />
           ) : null}
         </button>
         <button
@@ -99,7 +119,7 @@ export default function BottomPanelContainer({
           }`}
           title="View review progress and make approval decisions"
         >
-          Review
+          Review{reviewDot}
         </button>
         <button
           onClick={() => setBottomPanel("plan")}

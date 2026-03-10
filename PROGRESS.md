@@ -156,3 +156,10 @@
 - **Sanity check result**: 1604 tests pass (6 skipped), ruff clean on changed files. [AUTO-VERIFIED]
 - **Status**: [DONE]
 - **Request**: Move T-P0-162 to Completed
+
+## 2026-03-09 -- [T-P1-164] Add animated status dots to Review tab + unify dot colors
+- **What I did**: Added review status dot based on `review_lifecycle_state`: blue pulse for running/partial, solid green for approved, solid red for rejected_single/rejected_consensus/failed. Unified Conversation/Log tab dots from green to blue (matching "in-progress" semantic). All tabs now use consistent color scheme: blue=in-progress, green=success, red=failure.
+- **Deliverables**: `frontend/src/components/BottomPanelContainer.tsx`
+- **Sanity check result**: TypeScript clean, Vite build clean. [AUTO-VERIFIED]
+- **Status**: [DONE]
+- **Request**: Move T-P1-164 to Completed

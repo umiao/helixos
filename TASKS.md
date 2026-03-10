@@ -45,18 +45,6 @@
   3. Visual hierarchy is comfortable for extended reading
   4. [AUTO-VERIFIED] Build clean, role-based styling applied
 
-#### T-P1-164: Add animated status dots to Review tab + unify dot colors
-- **Priority**: P1 | **Complexity**: S
-- **Depends on**: None
-- **Description**: Conversation/Log tabs show green pulse dot when running. Plan tab
-  shows blue/green/red dot. Review tab has NO status dot. Add review status dot
-  and unify color semantics across all tabs.
-- **Files**: `frontend/src/components/BottomPanelContainer.tsx`
-- **Acceptance Criteria**:
-  1. Review tab shows animated dot when review_lifecycle_state === "running"
-  2. Review tab shows solid green dot when approved, red when rejected
-  3. All tabs use consistent color semantics (blue=in-progress, green=success, red=failure)
-  4. [AUTO-VERIFIED] Build clean, dots visible in tab bar
 
 #### T-P1-165: Auto-trigger review after plan generation
 - **Priority**: P1 | **Complexity**: M
@@ -134,6 +122,9 @@ T-P1-127 depends on T-P1-123 (completed)
 
 
 > 37 completed tasks archived to [archive/completed_tasks.md](archive/completed_tasks.md).
+
+#### [x] T-P1-164: Add animated status dots to Review tab + unify dot colors -- 2026-03-09
+- Added review status dot to BottomPanelContainer: blue pulse for running/partial, green for approved, red for rejected/failed. Unified all tab dots to blue=in-progress (was green for Conversation/Log), green=success, red=failure. TS clean, Vite build clean. [AUTO-VERIFIED]
 
 #### [x] T-P0-162: Verify executor receives reviewer approval and replan feedback (RCA) -- 2026-03-09
 - RCA found 3 broken links: (1) blocking_issues missing from replan feedback, (2) blocking_issues not persisted to DB, (3) answered questions not included in execution feedback. Fixed all three: added blocking_issues to _build_replan_feedback(), added blocking_issues_json column to ReviewHistoryRow with migration, added blocking_issues and answered questions to build_review_feedback() in scheduler.py. 1604 tests pass, ruff clean.
