@@ -177,3 +177,17 @@
 - **Sanity check result**: 1604 tests pass (6 skipped), ruff clean. [AUTO-VERIFIED]
 - **Status**: [DONE]
 - **Request**: Move T-P1-165 to Completed
+
+## 2026-03-09 -- [T-P1-166] Verify subtask decomposition is functional end-to-end
+- **What I did**: Traced full decomposition flow. All 4 components verified WORKING: (1) enrichment.py:520-534 returns proposed_tasks in plan_json. (2) enrichment.py:754-763 enforces M>=2, L>=3 subtask minimums via PlanValidationConfig. (3) task_manager.py:397-415 decomposition gate blocks RUNNING when has_proposed_tasks=True AND plan_status=READY (raises DecompositionRequiredError HTTP 428). (4) PlanReviewPanel.tsx renders ProposedTaskCard components with "Confirm and Create All Tasks" button, confirm_generated_tasks endpoint creates subtasks via task_generator.
+- **Deliverables**: Investigation only, no code changes
+- **Sanity check result**: All components verified via code trace. [AUTO-VERIFIED]
+- **Status**: [DONE]
+- **Request**: Move T-P1-166 to Completed
+
+## 2026-03-09 -- [T-P1-167] Verify task title hover-edit works for all Kanban card statuses
+- **What I did**: Verified hover-edit across all statuses. Popover renders unconditionally (TaskCard.tsx:310 -- no status filter on showPopover). Pencil icon visible via group-hover opacity (TaskCardPopover.tsx:308-320 -- no status guard). Title save calls updateTask PATCH (TaskCardPopover.tsx:175). Mouse delay (150ms) from T-P1-156 wired correctly (TaskCard.tsx:138-160). Description edit also unconditional (TaskCardPopover.tsx:425-438).
+- **Deliverables**: Investigation only, no code changes
+- **Sanity check result**: Grep confirms no status-based filtering of edit UI. [AUTO-VERIFIED]
+- **Status**: [DONE]
+- **Request**: Move T-P1-167 to Completed

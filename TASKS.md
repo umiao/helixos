@@ -34,33 +34,6 @@
 
 
 
-#### T-P1-166: Verify subtask decomposition is functional end-to-end
-- **Priority**: P1 | **Complexity**: S
-- **Depends on**: None
-- **Description**: Verify the full decomposition flow: plan generates proposed tasks ->
-  validation enforces M/L minimums -> decomposition gate blocks execution -> user
-  confirms -> subtasks created.
-- **Acceptance Criteria**:
-  1. Trace plan generation for M/L task confirms proposed_tasks in plan_json
-  2. Validation rejects plans with too few subtasks for M/L
-  3. Decomposition gate blocks RUNNING transition when has_proposed_tasks
-  4. Frontend shows proposed task cards with confirm action
-  5. Document findings in PROGRESS.md
-
-#### T-P1-167: Verify task title hover-edit works for all Kanban card statuses
-- **Priority**: P1 | **Complexity**: S
-- **Depends on**: None
-- **Description**: T-P1-156 fixed popover disappearing. Verify the title edit
-  (pencil icon -> inline input -> Enter to save) works for cards in ALL statuses
-  (pending, planned, running, review, done, blocked).
-- **Acceptance Criteria**:
-  1. Hover popover appears for cards in every status column
-  2. Pencil icon visible and clickable for title edit
-  3. Edit saves via PATCH and updates card
-  4. [AUTO-VERIFIED] grep confirms no status-based filtering of edit UI
-
-
-
 ### P2 -- Nice to Have
 
 
@@ -94,6 +67,12 @@ T-P1-127 depends on T-P1-123 (completed)
 
 
 > 37 completed tasks archived to [archive/completed_tasks.md](archive/completed_tasks.md).
+
+#### [x] T-P1-167: Verify task title hover-edit works for all Kanban card statuses -- 2026-03-09
+- Verified: popover renders unconditionally (no status filter), pencil icon visible via group-hover for all statuses, PATCH save via updateTask() works, mouse interaction delay (150ms) from T-P1-156 wired correctly. All WORKING.
+
+#### [x] T-P1-166: Verify subtask decomposition is functional end-to-end -- 2026-03-09
+- Verified: plan generation returns proposed_tasks in plan_json, validation enforces M>=2/L>=3 minimums, decomposition gate blocks RUNNING via DecompositionRequiredError (HTTP 428), frontend renders ProposedTaskCard with confirm button, confirm endpoint creates subtasks via task_generator. All WORKING.
 
 #### [x] T-P1-165: Auto-trigger review after plan generation -- 2026-03-09
 - Wired auto-review trigger at both plan completion points: initial plan (routes/tasks.py) and replan (routes/reviews.py). Idempotent dedup via review_lifecycle_state check -- skips if already RUNNING. Replan path already had auto-enqueue but lacked dedup guard. 1604 tests pass, ruff clean. [AUTO-VERIFIED]
