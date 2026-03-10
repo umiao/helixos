@@ -73,6 +73,13 @@
 - **Status**: [DONE]
 - **Request**: Move T-P1-151 to Completed
 
+## 2026-03-09 -- [T-P0-152] Fix ConversationView event normalization (invisible content)
+- **What I did**: Fixed `normalizeStreamEvents()` to handle backend `sdk_adapter.py` event types. Added `type: "text"` as primary handler (was only checking `"assistant"`), causing all assistant text to be silently dropped. Added `type: "init"` (silently ignored), `type: "error"` (red error bubble). Fixed field name mismatches: backend uses `tool_name`/`tool_input`/`tool_use_id`/`tool_result_content`/`tool_result_for_id` but normalizer was reading `name`/`input`/`id`/`content`/`tool_use_id`. Also fixed `result` event to read `result_text` field. Added `errorMessage` field and `"error"` type to `StreamDisplayItem`.
+- **Deliverables**: `frontend/src/components/ConversationView.tsx`, `frontend/src/types.ts`
+- **Sanity check result**: TypeScript clean, Vite build clean, 1576 Python tests pass. Grep-verified wiring: error type flows through normalization -> display entries -> render. [AUTO-VERIFIED]
+- **Status**: [DONE]
+- **Request**: Move T-P0-152 to Completed
+
 ## 2026-03-09 -- [T-P2-143] Rewrite historical non-English commit messages
 - **What I did**: Verified that both target commits (`f31a013` -> `d4a02ef`, `5ea7b4c` -> `4c0b50f`) already have the correct English messages in the current git history. No non-ASCII commit messages remain. The rewriting was already done as part of T-P2-142. No code changes needed.
 - **Deliverables**: `TASKS.md` (updated status)

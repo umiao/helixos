@@ -132,8 +132,14 @@ export function normalizeStreamEvents(
     counter++;
     const key = `${keyPrefix}-${counter}`;
 
-    if (eventType === "assistant") {
-      // Extract text from content blocks
+    if (eventType === "text") {
+      // Backend sdk_adapter: {type: "text", text: "..."}
+      const text = event.text;
+      if (typeof text === "string" && text.trim()) {
+        items.push({ key, type: "text", timestamp: ts, text });
+      }
+    } else if (eventType === "assistant") {
+      // Legacy format: {type: "assistant", content: [...blocks]}
       const content = event.content;
       if (Array.isArray(content)) {
         for (const block of content) {
@@ -160,19 +166,21 @@ export function normalizeStreamEvents(
         items.push({ key, type: "text", timestamp: ts, text: content });
       }
     } else if (eventType === "thinking") {
-      // Top-level thinking event from sdk_adapter
+      // Backend sdk_adapter: {type: "thinking", thinking: "..."}
       const thinking = event.thinking;
       if (typeof thinking === "string" && thinking.trim()) {
         items.push({ key, type: "thinking", timestamp: ts, thinking });
       }
     } else if (eventType === "content_block_delta") {
+      // Legacy streaming format
       const delta = event.delta as Record<string, unknown> | undefined;
       const text = delta?.text;
       if (typeof text === "string" && text.trim()) {
         items.push({ key, type: "text", timestamp: ts, text });
       }
     } else if (eventType === "tool_use") {
-      const toolInput = event.input;
+      // Backend: tool_name/tool_input/tool_use_id; Legacy: name/input/id
+      const toolInput = event.tool_input ?? event.input;
       let inputStr = "";
       if (toolInput && typeof toolInput === "object") {
         try {
@@ -185,12 +193,13 @@ export function normalizeStreamEvents(
         key,
         type: "tool_use",
         timestamp: ts,
-        toolName: (event.name as string) ?? "unknown",
+        toolName: (event.tool_name as string) ?? (event.name as string) ?? "unknown",
         toolInput: inputStr,
-        toolUseId: (event.id as string) ?? undefined,
+        toolUseId: (event.tool_use_id as string) ?? (event.id as string) ?? undefined,
       });
     } else if (eventType === "tool_result") {
-      const content = event.content;
+      // Backend: tool_result_content/tool_result_for_id; Legacy: content/tool_use_id
+      const content = event.tool_result_content ?? event.content;
       let resultStr = "";
       if (typeof content === "string") {
         resultStr = content;
@@ -206,13 +215,23 @@ export function normalizeStreamEvents(
         type: "tool_result",
         timestamp: ts,
         resultContent: resultStr,
-        matchToolUseId: (event.tool_use_id as string) ?? undefined,
+        matchToolUseId: (event.tool_result_for_id as string) ?? (event.tool_use_id as string) ?? undefined,
       });
     } else if (eventType === "result") {
-      const resultText = typeof event.result === "string"
-        ? event.result
-        : (event.subtype === "success" ? "Completed successfully" : "Execution finished");
+      // Backend: {type: "result", result_text: "..."}; Legacy: {result: "..."}
+      const resultText = typeof event.result_text === "string"
+        ? event.result_text
+        : typeof event.result === "string"
+          ? event.result
+          : "Execution finished";
       items.push({ key, type: "result", timestamp: ts, resultText });
+    } else if (eventType === "error") {
+      // Backend sdk_adapter: {type: "error", error_message: "..."}
+      const errorMessage = (event.error_message as string) ?? "Unknown error";
+      items.push({ key, type: "error", timestamp: ts, errorMessage });
+    } else if (eventType === "init") {
+      // Backend sdk_adapter: {type: "init", session_id: "..."} -- silently ignored
+      continue;
     }
   }
 
@@ -601,6 +620,17 @@ export default function ConversationView({
 
             if (item.type === "tool_use") {
               return <div key={item.key} className="ml-2">{renderToolUse(item)}</div>;
+            }
+
+            if (item.type === "error") {
+              return (
+                <div key={item.key} className="flex justify-start">
+                  <div className="max-w-[85%] bg-red-900/40 rounded-lg px-3 py-2 text-sm text-red-200 leading-relaxed border border-red-700 border-l-4 border-l-red-500">
+                    <span className="font-semibold text-red-300 mr-1">[ERROR]</span>
+                    {item.errorMessage ?? "Unknown error"}
+                  </div>
+                </div>
+              );
             }
 
             // Orphaned tool_result (no matching tool_use) -- hidden entirely per AC1

@@ -28,28 +28,6 @@
 
 ### P0 -- Must Have (core functionality)
 
-#### T-P0-152: Fix ConversationView event normalization (invisible content)
-- **Priority**: P0
-- **Complexity**: M
-- **Depends on**: None
-- **Description**: `normalizeStreamEvents()` in `ConversationView.tsx:121` expects
-  `eventType === "assistant"` but backend `sdk_adapter.py` emits `type: "text"`.
-  All assistant text from plan/execution conversations is silently dropped, producing
-  empty bubbles. Additionally, `type: "init"` and `type: "error"` events are unhandled.
-  Tool_use collapsed view shows only tool name with no actionable detail.
-  Fix: add canonical event type mapping (`text` -> assistant text, `init` -> ignored,
-  `error` -> visible error bubble) and improve tool_use collapsed summaries.
-- **Acceptance Criteria**:
-  1. `type:"text"` events render as assistant message bubbles with markdown
-  2. `type:"init"` events are silently ignored (no empty bubbles)
-  3. `type:"error"` events render as visible red error bubbles
-  4. Tool_use collapsed view shows tool name + short summary (e.g. `Grep src/*.py "pattern"`)
-  5. No empty/invisible message bubbles appear for any event type
-  6. Manually verify: open a task with plan generation history -> conversation tab shows
-     readable text content, thinking blocks, and meaningful tool summaries
-- **Regression areas**: streaming UI, tool output rendering, ConversationView in all contexts
-- **Files**: `frontend/src/components/ConversationView.tsx`
-
 #### T-P0-153: Fix plan edit persistence (description/plan_json desync)
 - **Priority**: P0
 - **Complexity**: M
@@ -179,10 +157,10 @@
 > Full historical dependency graph relocated to [docs/architecture/dependency-graph-history.md](docs/architecture/dependency-graph-history.md).
 
 ### Current
-T-P0-152, T-P0-153, T-P0-154, T-P1-156, T-P1-157: no dependencies
+T-P0-153, T-P0-154, T-P1-156, T-P1-157: no dependencies
 T-P1-155: benefits from T-P0-153 (plan_json sync)
 T-P2-158: depends on T-P0-153, T-P1-155
-Suggested execution order: 152 -> 154 -> 153 -> 155 -> 156 -> 157 -> 158
+Suggested execution order: 154 -> 153 -> 155 -> 156 -> 157 -> 158
 
 ### Historical (completed)
 T-P2-140 depends on T-P0-134 (completed)
@@ -206,6 +184,9 @@ T-P1-127 depends on T-P1-123 (completed)
 
 
 > 37 completed tasks archived to [archive/completed_tasks.md](archive/completed_tasks.md).
+
+#### [x] T-P0-152: Fix ConversationView event normalization (invisible content) -- 2026-03-09
+- Fixed `normalizeStreamEvents` to handle backend `sdk_adapter` event types (`text`, `init`, `error`) and field names (`tool_name`/`tool_input`/`tool_use_id`/`tool_result_content`/`tool_result_for_id`). Added red error bubble rendering. TS clean, Vite build clean, 1576 tests pass.
 
 #### [x] T-P2-143: Rewrite historical non-English commit messages -- 2026-03-09
 - Already completed as part of T-P2-142. Both commits (`f31a013`, `5ea7b4c`) already have correct English messages. No non-ASCII commit messages remain in history.

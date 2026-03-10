@@ -319,7 +319,7 @@ export interface StreamEvent {
 /** Normalized display item for ConversationView. */
 export interface StreamDisplayItem {
   key: string;
-  type: "text" | "thinking" | "tool_use" | "tool_result" | "result";
+  type: "text" | "thinking" | "tool_use" | "tool_result" | "result" | "error";
   timestamp: string;
   /** For text blocks: the markdown content. */
   text?: string;
@@ -337,6 +337,8 @@ export interface StreamDisplayItem {
   matchToolUseId?: string;
   /** For result blocks: final result text. */
   resultText?: string;
+  /** For error blocks: error message. */
+  errorMessage?: string;
 }
 
 /** Lightweight summary of stream events for a task (popover display). */
