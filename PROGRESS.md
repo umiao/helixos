@@ -205,3 +205,10 @@
 - **Sanity check result**: All 9 journeys traced via code review across ~20 frontend/backend files. All 3 LLM prompts analyzed for template variables, output formats, and scope constraints. Risk categorization follows MEDIUM (data integrity, workflow blocking, discoverability) vs LOW (polish, edge cases) severity model. Report format verified against acceptance criteria: flow descriptions, assessments, risk categorization, user journey traces, conditional behaviors documented, summary table present. [MANUAL-VERIFIED]
 - **Status**: [DONE]
 - **Request**: Move T-P0-163 to Completed
+
+## 2026-03-10 -- [T-P0-164] Fix review pipeline TOCTOU bugs
+- **What I did**: Fixed 5 interacting TOCTOU bugs in the review pipeline that caused "Cannot move task from backlog to review_auto_approved" ValueError. (1) Moved pipeline enqueue inside `if refreshed.status == TaskStatus.REVIEW` guard in tasks.py. (2) Added `set_review_result()` to TaskManager for targeted review_json writes with `expected_status` guard, replacing full-object `update_task()` overwrite. (3) Added `expected_status=TaskStatus.REVIEW` on completion `update_status()` call. (4) Added status check in `_handle_replan` before re-enqueuing pipeline. (5) Added pre-flight status check before expensive LLM work. Also added REVIEW_NEEDS_HUMAN->REVIEW transition in replan flow.
+- **Deliverables**: `src/task_manager.py` (new `set_review_result` method), `src/routes/reviews.py` (Fix 2-5), `src/routes/tasks.py` (Fix 1), `tests/test_review_pipeline_guards.py` (9 new tests), `LESSONS.md` (TOCTOU lesson #28)
+- **Sanity check result**: 1621 tests pass (9 new + 1612 existing), ruff clean on all modified files. Pre-existing scheduler test timeout unrelated. [AUTO-VERIFIED]
+- **Status**: [DONE]
+- **Request**: No TASKS.md change (T-P0-164 is an audit task, not the fix task itself)

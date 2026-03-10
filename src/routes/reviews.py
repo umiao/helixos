@@ -125,6 +125,21 @@ def _enqueue_review_pipeline(
                 task_id, ReviewLifecycleState.RUNNING,
             )
 
+            # Pre-flight: verify task is still in a review state before expensive LLM work
+            _review_preflight_statuses = {
+                TaskStatus.REVIEW, TaskStatus.REVIEW_NEEDS_HUMAN,
+            }
+            preflight = await task_manager.get_task(task_id)
+            if preflight is None or preflight.status not in _review_preflight_statuses:
+                logger.warning(
+                    "Review pre-flight failed for %s: status=%s, expected review. Aborting.",
+                    task_id, preflight.status.value if preflight else "deleted",
+                )
+                await task_manager.set_review_lifecycle_state(
+                    task_id, ReviewLifecycleState.NOT_STARTED,
+                )
+                return
+
             def on_progress(completed: int, total: int, phase: str) -> None:
                 event_bus.emit(
                     "review_progress",
@@ -182,8 +197,19 @@ def _enqueue_review_pipeline(
                 repo_path=repo_path,
             )
 
-            updated_task = task.model_copy(update={"review": review_state})
-            await task_manager.update_task(updated_task)
+            # Targeted update: only write review_json, not the full task object.
+            # The expected_status guard prevents stale results from overwriting
+            # a task that has moved away from REVIEW during the async pipeline.
+            wrote = await task_manager.set_review_result(
+                task_id, review_state.model_dump_json(),
+                expected_status=TaskStatus.REVIEW,
+            )
+            if not wrote:
+                logger.warning(
+                    "Review result for %s discarded: task no longer in REVIEW",
+                    task_id,
+                )
+                return  # bail -- no point setting review_status/lifecycle/transition
 
             # Mark review_status as "done"
             await task_manager.set_review_status(task_id, "done")
@@ -199,11 +225,22 @@ def _enqueue_review_pipeline(
             else:
                 new_status = TaskStatus.REVIEW_AUTO_APPROVED
 
-            await task_manager.update_status(task_id, new_status)
-            event_bus.emit(
-                "status_change", task_id, {"status": new_status.value},
-                origin="review",
+            # Defense-in-depth: expected_status guard on the status transition
+            # catches the narrow TOCTOU window between set_review_result and here.
+            result = await task_manager.update_status(
+                task_id, new_status, expected_status=TaskStatus.REVIEW,
             )
+            if result.status == new_status:
+                event_bus.emit(
+                    "status_change", task_id, {"status": new_status.value},
+                    origin="review",
+                )
+            else:
+                logger.warning(
+                    "Review completed for %s but task no longer in REVIEW "
+                    "(current: %s), skipping transition to %s",
+                    task_id, result.status.value, new_status.value,
+                )
         except Exception as exc:
             logger.exception("Review failed for task %s", task_id)
             error_msg = f"Review pipeline failed: {exc}"
@@ -742,9 +779,21 @@ async def _handle_replan(
                 )
 
             # Auto-enqueue review pipeline for the new plan (T-P1-165)
-            # Idempotent: skip if review is already running
+            # Transition back to REVIEW if needed (e.g., from REVIEW_NEEDS_HUMAN)
             refreshed = await task_manager.get_task(task_id)
-            if refreshed is not None:
+            if refreshed is not None and refreshed.status == TaskStatus.REVIEW_NEEDS_HUMAN:
+                refreshed = await task_manager.update_status(
+                    task_id, TaskStatus.REVIEW,
+                    expected_status=TaskStatus.REVIEW_NEEDS_HUMAN,
+                    review_gate_enabled=False,
+                )
+                event_bus.emit(
+                    "status_change", task_id, {"status": "review"},
+                    origin="review",
+                )
+
+            # Idempotent: skip if review is already running or task left review
+            if refreshed is not None and refreshed.status == TaskStatus.REVIEW:
                 rlc = refreshed.review_lifecycle_state
                 if rlc != ReviewLifecycleState.RUNNING.value:
                     review_pipeline: ReviewPipeline | None = getattr(
@@ -772,6 +821,12 @@ async def _handle_replan(
                         "Skipped auto-review for %s: already running",
                         task_id,
                     )
+            else:
+                logger.info(
+                    "Replan auto-review skipped for %s: task status is %s, not review",
+                    task_id,
+                    refreshed.status.value if refreshed else "deleted",
+                )
 
         except Exception as exc:
             logger.warning("Replan failed for %s: %s", task_id, exc)

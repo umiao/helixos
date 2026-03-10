@@ -320,34 +320,41 @@ async def generate_plan(task_id: str, request: Request) -> JSONResponse:
                         origin="plan",
                     )
 
-                # Enqueue review if not already running
-                refreshed = await task_manager.get_task(task_id)
-                if refreshed is not None:
-                    from src.routes.reviews import (
-                        _enqueue_review_pipeline,
-                        _resolve_repo_path,
+                    # Enqueue review if not already running
+                    # (inside status guard: only when BACKLOG->REVIEW succeeded)
+                    refreshed = await task_manager.get_task(task_id)
+                    if refreshed is not None:
+                        from src.routes.reviews import (
+                            _enqueue_review_pipeline,
+                            _resolve_repo_path,
+                        )
+                        rlc = refreshed.review_lifecycle_state
+                        if rlc != ReviewLifecycleState.RUNNING.value:
+                            rp: ReviewPipeline | None = getattr(
+                                request.app.state, "review_pipeline", None,
+                            )
+                            _enqueue_review_pipeline(
+                                task_manager, rp, event_bus, refreshed, task_id,
+                                history_writer=history_writer,
+                                repo_path=_resolve_repo_path(
+                                    refreshed, request,
+                                ),
+                            )
+                            logger.info(
+                                "Auto-triggered review for %s after plan ready",
+                                task_id,
+                            )
+                        else:
+                            logger.info(
+                                "Skipped auto-review for %s: already running",
+                                task_id,
+                            )
+                else:
+                    logger.info(
+                        "Skipped auto-review for %s: transition to REVIEW "
+                        "was no-op (current status: %s)",
+                        task_id, refreshed.status.value,
                     )
-                    rlc = refreshed.review_lifecycle_state
-                    if rlc != ReviewLifecycleState.RUNNING.value:
-                        rp: ReviewPipeline | None = getattr(
-                            request.app.state, "review_pipeline", None,
-                        )
-                        _enqueue_review_pipeline(
-                            task_manager, rp, event_bus, refreshed, task_id,
-                            history_writer=history_writer,
-                            repo_path=_resolve_repo_path(
-                                refreshed, request,
-                            ),
-                        )
-                        logger.info(
-                            "Auto-triggered review for %s after plan ready",
-                            task_id,
-                        )
-                    else:
-                        logger.info(
-                            "Skipped auto-review for %s: already running",
-                            task_id,
-                        )
             except Exception as auto_rev_exc:
                 logger.warning(
                     "Auto-review trigger failed for %s: %s",

@@ -170,6 +170,19 @@
   - Fix: Add `--verbose` to the CLI args in code_executor.py (and review_pipeline/enrichment when they switch to stream-json).
   - Tags: #claude-cli #stream-json #verbose #missing-flag
 
+  28. Async background tasks must verify preconditions (TOCTOU)
+  - Context: Review pipeline runs asynchronously (LLM call takes seconds-minutes). Pipeline completes and tries `update_status(BACKLOG -> REVIEW_AUTO_APPROVED)` -- ValueError because the task was moved away from REVIEW during the async gap. Five interacting bugs: pipeline enqueued outside status guard, full DB overwrite from stale closure, no expected_status on completion transition, no replan status check, no pre-flight check.
+  - Root cause: Time-Of-Check-To-Time-Of-Use -- the task status is checked at enqueue time but changes before the pipeline completes. Full-object overwrites (`task.model_copy(update=...)` + `update_task()`) silently revert concurrent status changes.
+  - Fix: (1) Move pipeline enqueue inside status guard. (2) Replace full `update_task()` with targeted `set_review_result()` that only writes `review_json` + `expected_status` guard. (3) Add `expected_status=REVIEW` on completion `update_status()`. (4) Check status before replan enqueue. (5) Pre-flight status check before expensive LLM work.
+  - Rules:
+    (a) Any background task that modifies state on completion MUST verify the precondition still holds.
+    (b) Use `expected_status` for atomic conditional transitions.
+    (c) Never do full-object overwrites (`update_task`) from async closures -- use targeted field updates.
+    (d) Targeted writes should also include status guards to prevent writing stale results to moved tasks.
+    (e) Pre-flight checks reduce wasted LLM compute but don't eliminate races -- completion guards are the real safety net.
+  - Related task: T-P0-164
+  - Tags: #toctou #async #state-machine #review-pipeline #race-condition
+
   23. Investigation tasks: diff the working example against our code FIRST
   - Context: T-P0-91 had a user-provided working example with `--verbose` in the command. Our code_executor.py was missing `--verbose`. This was the most obvious finding but was missed on the first pass because the investigation focused on output format analysis (field names, event types) without first doing a mechanical flag-by-flag diff.
   - Root cause: "answer is in the problem statement" blindness. The investigation went straight to external docs and output format analysis, skipping the simplest check: compare working example flags vs our code flags.

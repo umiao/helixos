@@ -541,6 +541,29 @@ class TaskManager:
                 return False
             return row.execution_epoch_id == epoch_id
 
+    async def set_review_result(
+        self,
+        task_id: str,
+        review_json: str,
+        *,
+        expected_status: TaskStatus | None = None,
+    ) -> bool:
+        """Update ONLY the review_json column. Does NOT overwrite status or other fields.
+
+        When *expected_status* is set, the write is skipped (returns False) if the
+        task's current status doesn't match -- preventing stale review results from
+        being persisted to a task that has moved on.
+        """
+        async with get_session(self._sf) as session:
+            row = await session.get(TaskRow, task_id)
+            if row is None or row.is_deleted:
+                raise ValueError(f"Task not found: {task_id}")
+            if expected_status is not None and TaskStatus(row.status) != expected_status:
+                return False
+            row.review_json = review_json
+            row.updated_at = datetime.now(UTC).isoformat()
+            return True
+
     async def set_review_status(self, task_id: str, review_status: str) -> None:
         """Update only the review_status column for a task.
 

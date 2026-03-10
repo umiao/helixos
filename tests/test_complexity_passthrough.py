@@ -170,7 +170,9 @@ async def test_enqueue_passes_task_complexity() -> None:
     mock_tm.set_review_lifecycle_state = AsyncMock()
     mock_tm.update_task = AsyncMock()
     mock_tm.set_review_status = AsyncMock()
-    mock_tm.update_status = AsyncMock()
+    mock_tm.set_review_result = AsyncMock(return_value=True)
+    mock_tm.update_status = AsyncMock(return_value=task)
+    mock_tm.get_task = AsyncMock(return_value=task)
 
     _enqueue_review_pipeline(
         task_manager=mock_tm,
