@@ -28,19 +28,6 @@
 
 ### P0 -- Must Have (core functionality)
 
-#### T-P0-162: Verify executor receives reviewer approval and replan feedback (RCA)
-- **Priority**: P0 | **Complexity**: S
-- **Depends on**: None
-- **Description**: Core pipeline verification. If reviewer feedback doesn't flow into
-  executor, the plan-review-execute loop is broken. Trace the data path: reviewer
-  verdict -> consensus -> _build_replan_feedback() -> executor prompt injection.
-  Fix if broken, document if working.
-- **Files**: `src/review_pipeline.py`, `src/routes/reviews.py`, `src/executors/code_executor.py`
-- **Acceptance Criteria**:
-  1. Trace data flow: reviewer verdict -> consensus score -> replan feedback -> executor prompt
-  2. Confirm reviewer suggestions/blocking_issues are included in executor context
-  3. Confirm answered clarifying questions are forwarded
-  4. Fix any broken links in the chain; document findings in PROGRESS.md
 
 ### P1 -- Should Have (agentic intelligence)
 
@@ -147,6 +134,9 @@ T-P1-127 depends on T-P1-123 (completed)
 
 
 > 37 completed tasks archived to [archive/completed_tasks.md](archive/completed_tasks.md).
+
+#### [x] T-P0-162: Verify executor receives reviewer approval and replan feedback (RCA) -- 2026-03-09
+- RCA found 3 broken links: (1) blocking_issues missing from replan feedback, (2) blocking_issues not persisted to DB, (3) answered questions not included in execution feedback. Fixed all three: added blocking_issues to _build_replan_feedback(), added blocking_issues_json column to ReviewHistoryRow with migration, added blocking_issues and answered questions to build_review_feedback() in scheduler.py. 1604 tests pass, ruff clean.
 
 #### [x] T-P0-161: Fix markdown rendering in Plan and Review tabs -- 2026-03-09
 - Root cause: MarkdownRenderer was missing `rehype-prism-plus` plugin, so code blocks had no syntax highlighting. Content prop wiring was correct (7 usage sites verified). Added rehypePrism import and plugin to MarkdownRenderer. TS clean, Vite build clean. [AUTO-VERIFIED]

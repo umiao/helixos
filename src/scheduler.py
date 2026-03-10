@@ -54,16 +54,27 @@ def build_review_feedback(reviews: list[dict]) -> str | None:
     recent = reviews[-MAX_REVIEW_FEEDBACK_ROUNDS:]
     feedback_items: list[str] = []
     for rev in recent:
+        blocking_issues = rev.get("blocking_issues") or []
         suggestions = rev.get("suggestions") or []
         summary = rev.get("summary") or ""
         human_reason = rev.get("human_reason") or ""
+        questions = rev.get("questions") or []
         parts: list[str] = []
         if summary:
             parts.append(summary)
+        for b in blocking_issues:
+            parts.append(f"[BLOCKING] {b}")
         for s in suggestions:
             parts.append(s)
         if human_reason:
             parts.append(f"Human reviewer note: {human_reason}")
+        # Include answered clarifying questions
+        answered = [q for q in questions if q.get("answer", "").strip()]
+        for q in answered:
+            parts.append(
+                f"Q ({q.get('source_reviewer', 'reviewer')}): {q.get('text', '')}"
+            )
+            parts.append(f"A: {q['answer']}")
         if parts:
             feedback_items.extend(parts)
 

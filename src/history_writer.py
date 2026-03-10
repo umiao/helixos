@@ -252,6 +252,9 @@ class HistoryWriter:
                 verdict=review.verdict,
                 summary=_truncate(review.summary),
                 suggestions_json=json.dumps(review.suggestions),
+                blocking_issues_json=json.dumps(
+                    getattr(review, "blocking_issues", []) or [],
+                ),
                 consensus_score=consensus_score,
                 human_decision=human_decision,
                 raw_response=getattr(review, "raw_response", ""),
@@ -333,6 +336,9 @@ class HistoryWriter:
                     "verdict": r.verdict,
                     "summary": r.summary,
                     "suggestions": json.loads(r.suggestions_json),
+                    "blocking_issues": json.loads(
+                        getattr(r, "blocking_issues_json", None) or "[]",
+                    ),
                     "consensus_score": r.consensus_score,
                     "human_decision": r.human_decision,
                     "human_reason": getattr(r, "human_reason", None),

@@ -891,6 +891,10 @@ def _build_replan_feedback(task: Task, user_reason: str) -> str:
     parts: list[str] = []
     if task.review is not None and task.review.reviews:
         for review in task.review.reviews:
+            if review.blocking_issues:
+                parts.append(f"Reviewer ({review.focus}) BLOCKING ISSUES:")
+                for b in review.blocking_issues:
+                    parts.append(f"- [BLOCKING] {b}")
             if review.suggestions:
                 parts.append(f"Reviewer ({review.focus}) suggestions:")
                 for s in review.suggestions:

@@ -149,3 +149,10 @@
 - **Sanity check result**: TypeScript clean, Vite build clean. Grep confirms all MarkdownRenderer usages pass content prop correctly. [AUTO-VERIFIED]
 - **Status**: [DONE]
 - **Request**: Move T-P0-161 to Completed
+
+## 2026-03-09 -- [T-P0-162] Verify executor receives reviewer approval and replan feedback (RCA)
+- **What I did**: Traced full data flow from reviewer verdict to executor prompt. Found 3 broken links: (1) `_build_replan_feedback()` in reviews.py ignored `blocking_issues` from LLMReview -- only used suggestions/summary. Fixed: added blocking_issues loop before suggestions. (2) `ReviewHistoryRow` had no `blocking_issues_json` column -- blocking issues were lost on DB persistence. Fixed: added column to db.py, write in history_writer.py `write_review()`, read in `get_reviews()`. Migration handled by `_migrate_missing_columns()`. (3) `build_review_feedback()` in scheduler.py didn't include blocking_issues or answered clarifying questions in execution prompt. Fixed: added both.
+- **Deliverables**: `src/routes/reviews.py`, `src/db.py`, `src/history_writer.py`, `src/scheduler.py`
+- **Sanity check result**: 1604 tests pass (6 skipped), ruff clean on changed files. [AUTO-VERIFIED]
+- **Status**: [DONE]
+- **Request**: Move T-P0-162 to Completed

@@ -136,6 +136,7 @@ class ReviewHistoryRow(Base):
     verdict: Mapped[str] = mapped_column(String(16), nullable=False)
     summary: Mapped[str] = mapped_column(Text, nullable=False, default="")
     suggestions_json: Mapped[str] = mapped_column(Text, nullable=False, default="[]")
+    blocking_issues_json: Mapped[str] = mapped_column(Text, nullable=False, default="[]")
     consensus_score: Mapped[float | None] = mapped_column(Float, nullable=True)
     human_decision: Mapped[str | None] = mapped_column(String(32), nullable=True)
     human_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
