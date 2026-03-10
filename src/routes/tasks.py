@@ -31,8 +31,9 @@ from src.enrichment import (
 )
 from src.events import EventBus
 from src.history_writer import HistoryWriter
-from src.models import TaskStatus
+from src.models import ReviewLifecycleState, TaskStatus
 from src.project_settings import ProjectSettingsStore
+from src.review_pipeline import ReviewPipeline
 from src.schemas import (
     ConfirmGeneratedTasksResponse,
     CreateTaskRequest,
@@ -302,6 +303,42 @@ async def generate_plan(task_id: str, request: Request) -> JSONResponse:
                 },
                 origin="plan",
             )
+
+            # Auto-trigger review after plan generation (T-P1-165)
+            # Idempotent: skip if review is already running
+            try:
+                refreshed = await task_manager.get_task(task_id)
+                if refreshed is not None:
+                    from src.routes.reviews import (
+                        _enqueue_review_pipeline,
+                        _resolve_repo_path,
+                    )
+                    rlc = refreshed.review_lifecycle_state
+                    if rlc != ReviewLifecycleState.RUNNING.value:
+                        rp: ReviewPipeline | None = getattr(
+                            request.app.state, "review_pipeline", None,
+                        )
+                        _enqueue_review_pipeline(
+                            task_manager, rp, event_bus, refreshed, task_id,
+                            history_writer=history_writer,
+                            repo_path=_resolve_repo_path(
+                                refreshed, request,
+                            ),
+                        )
+                        logger.info(
+                            "Auto-triggered review for %s after plan ready",
+                            task_id,
+                        )
+                    else:
+                        logger.info(
+                            "Skipped auto-review for %s: already running",
+                            task_id,
+                        )
+            except Exception as auto_rev_exc:
+                logger.warning(
+                    "Auto-review trigger failed for %s: %s",
+                    task_id, auto_rev_exc,
+                )
 
             # Persist plan_status=ready to TASKS.md (non-fatal on failure)
             try:

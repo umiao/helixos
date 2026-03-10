@@ -741,25 +741,37 @@ async def _handle_replan(
                     "for %s (replan): %s", task_id, _exc,
                 )
 
-            # Auto-enqueue review pipeline for the new plan
+            # Auto-enqueue review pipeline for the new plan (T-P1-165)
+            # Idempotent: skip if review is already running
             refreshed = await task_manager.get_task(task_id)
             if refreshed is not None:
-                review_pipeline: ReviewPipeline | None = getattr(
-                    request.app.state, "review_pipeline", None,
-                )
-                max_attempt = await history_writer.get_max_review_attempt(
-                    task_id,
-                )
-                _enqueue_review_pipeline(
-                    task_manager=task_manager,
-                    review_pipeline=review_pipeline,
-                    event_bus=event_bus,
-                    task=refreshed,
-                    task_id=task_id,
-                    review_attempt=max_attempt + 1,
-                    history_writer=history_writer,
-                    repo_path=_resolve_repo_path(refreshed, request),
-                )
+                rlc = refreshed.review_lifecycle_state
+                if rlc != ReviewLifecycleState.RUNNING.value:
+                    review_pipeline: ReviewPipeline | None = getattr(
+                        request.app.state, "review_pipeline", None,
+                    )
+                    max_attempt = await history_writer.get_max_review_attempt(
+                        task_id,
+                    )
+                    _enqueue_review_pipeline(
+                        task_manager=task_manager,
+                        review_pipeline=review_pipeline,
+                        event_bus=event_bus,
+                        task=refreshed,
+                        task_id=task_id,
+                        review_attempt=max_attempt + 1,
+                        history_writer=history_writer,
+                        repo_path=_resolve_repo_path(refreshed, request),
+                    )
+                    logger.info(
+                        "Auto-triggered review for %s after replan ready",
+                        task_id,
+                    )
+                else:
+                    logger.info(
+                        "Skipped auto-review for %s: already running",
+                        task_id,
+                    )
 
         except Exception as exc:
             logger.warning("Replan failed for %s: %s", task_id, exc)

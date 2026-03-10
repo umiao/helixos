@@ -170,3 +170,10 @@
 - **Sanity check result**: TypeScript clean, Vite build clean. [AUTO-VERIFIED]
 - **Status**: [DONE]
 - **Request**: Move T-P1-163 to Completed
+
+## 2026-03-09 -- [T-P1-165] Auto-trigger review after plan generation
+- **What I did**: Wired auto-review trigger at both plan completion points. In `routes/tasks.py`, after initial plan generation sets plan_status=ready, auto-enqueue review via `_enqueue_review_pipeline` (deferred import to avoid circular). In `routes/reviews.py`, the replan completion path already had auto-enqueue but lacked dedup guard. Added idempotent dedup: check `review_lifecycle_state != RUNNING` before triggering to prevent concurrent duplicate reviews if manual trigger races with auto-trigger.
+- **Deliverables**: `src/routes/tasks.py`, `src/routes/reviews.py`
+- **Sanity check result**: 1604 tests pass (6 skipped), ruff clean. [AUTO-VERIFIED]
+- **Status**: [DONE]
+- **Request**: Move T-P1-165 to Completed

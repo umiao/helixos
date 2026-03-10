@@ -33,21 +33,6 @@
 
 
 
-#### T-P1-165: Auto-trigger review after plan generation
-- **Priority**: P1 | **Complexity**: M
-- **Depends on**: None
-- **Description**: Review should auto-start immediately when plan_status transitions
-  to "ready". Currently review only triggers on explicit status change to REVIEW.
-  Wire plan completion to auto-enqueue review pipeline. Must be idempotent --
-  concurrent manual + auto trigger must not create duplicate reviews.
-- **Files**: `src/routes/reviews.py`, `src/enrichment.py`, `src/routes/tasks.py`
-- **Acceptance Criteria**:
-  1. When plan_status changes to "ready", review pipeline auto-starts immediately
-  2. Idempotent dedup: use plan_version or review lock to prevent duplicate reviews
-     if manual trigger and auto-trigger race
-  3. Review lifecycle_state updates correctly in auto-triggered flow
-  4. SSE events emitted for auto-triggered review
-  5. [AUTO-VERIFIED] Trace logs confirm auto-trigger, dedup tested
 
 #### T-P1-166: Verify subtask decomposition is functional end-to-end
 - **Priority**: P1 | **Complexity**: S
@@ -109,6 +94,9 @@ T-P1-127 depends on T-P1-123 (completed)
 
 
 > 37 completed tasks archived to [archive/completed_tasks.md](archive/completed_tasks.md).
+
+#### [x] T-P1-165: Auto-trigger review after plan generation -- 2026-03-09
+- Wired auto-review trigger at both plan completion points: initial plan (routes/tasks.py) and replan (routes/reviews.py). Idempotent dedup via review_lifecycle_state check -- skips if already RUNNING. Replan path already had auto-enqueue but lacked dedup guard. 1604 tests pass, ruff clean. [AUTO-VERIFIED]
 
 #### [x] T-P1-163: Redesign Plain Log visual hierarchy with role-based highlighting -- 2026-03-09
 - Added content role detection (AI/tool/result/progress) from message prefix patterns. Each role gets distinct color (AI=gray-100/indigo border, tool=cyan/cyan border, result=gray-400/gray border, progress=gray-500). Level badges (ERROR/WARN) overlay on any role. INFO badge hidden (redundant noise). TS clean, Vite build clean. [AUTO-VERIFIED]
