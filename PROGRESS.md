@@ -93,3 +93,10 @@
 - **Sanity check result**: 276 related tests pass (plan_generation, review_pipeline, enrichment, plan_review, replan, review_gate, drag_to_review, start_all_planned). Ruff clean. [AUTO-VERIFIED]
 - **Status**: [DONE]
 - **Request**: Move T-P0-154 to Completed
+
+## 2026-03-09 -- [T-P0-153] Fix plan edit persistence (description/plan_json desync)
+- **What I did**: Fixed PATCH `/api/tasks/{id}` endpoint to route description edits through `plan_json["plan"]` when the task has a plan, then re-derive `description` via `format_plan_as_text()`. Added `plan_json` field to `TaskResponse` schema and `_task_to_response()` so frontend can access plan data. Audited all `plan_json` write paths (generate, replan, PATCH) -- generate and replan were already correct.
+- **Deliverables**: `src/routes/tasks.py`, `src/schemas.py`, `src/api_helpers.py`, `tests/test_review_gate_ux.py`
+- **Sanity check result**: 302 related tests pass (review_gate_ux, api, task_manager, plan_generation, plan_review, plan_validity, enrichment). 8 new regression tests for plan_json sync. Ruff clean. [AUTO-VERIFIED]
+- **Status**: [DONE]
+- **Request**: Move T-P0-153 to Completed

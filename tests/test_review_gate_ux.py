@@ -232,6 +232,181 @@ class TestUpdateTaskFields:
 
 
 # ---------------------------------------------------------------------------
+# T-P0-153: plan_json / description sync on PATCH
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+async def seeded_task_with_plan(task_manager: TaskManager) -> Task:
+    """Create a BACKLOG task with plan_json set (simulates plan generation done)."""
+    import json as _json
+
+    plan_data = {
+        "plan": "Original plan summary",
+        "steps": [
+            {"step": "Step 1: Do something", "files": ["src/foo.py"]},
+            {"step": "Step 2: Do more", "files": []},
+        ],
+        "acceptance_criteria": ["AC1: Works", "AC2: Tests pass"],
+        "proposed_tasks": [
+            {
+                "title": "Subtask A",
+                "description": "First subtask",
+                "files": [],
+                "suggested_priority": "P1",
+                "suggested_complexity": "S",
+                "dependencies": [],
+                "acceptance_criteria": [],
+            },
+        ],
+    }
+    task = make_task(
+        task_id="proj-a:T-P0-99", project_id="proj-a",
+        description="Original plan summary",
+        plan_json=_json.dumps(plan_data),
+        plan_status="ready",
+    )
+    return await task_manager.create_task(task)
+
+
+class TestPlanJsonDescriptionSync:
+    """T-P0-153: PATCH description must sync plan_json when present."""
+
+    async def test_edit_description_updates_plan_json_plan_field(
+        self, client: AsyncClient, seeded_task_with_plan: Task,
+    ):
+        """AC1: plan text edits write to plan_json.plan (canonical source)."""
+        import json as _json
+
+        resp = await client.patch(
+            f"/api/tasks/{seeded_task_with_plan.id}",
+            json={"description": "Updated plan summary text"},
+        )
+        assert resp.status_code == 200
+        data = resp.json()
+
+        # plan_json.plan should contain the edited text
+        plan_json = _json.loads(data["plan_json"])
+        assert plan_json["plan"] == "Updated plan summary text"
+
+    async def test_edit_description_re_derives_description(
+        self, client: AsyncClient, seeded_task_with_plan: Task,
+    ):
+        """AC2: description is re-derived from plan_json via format_plan_as_text()."""
+        resp = await client.patch(
+            f"/api/tasks/{seeded_task_with_plan.id}",
+            json={"description": "New plan text here"},
+        )
+        assert resp.status_code == 200
+        data = resp.json()
+
+        # Description should be format_plan_as_text(plan_json), which includes
+        # the plan text + steps + acceptance criteria + proposed tasks
+        assert "New plan text here" in data["description"]
+        assert "## Implementation Steps" in data["description"]
+        assert "Step 1: Do something" in data["description"]
+        assert "## Acceptance Criteria" in data["description"]
+        assert "AC1: Works" in data["description"]
+
+    async def test_edit_preserves_structural_fields(
+        self, client: AsyncClient, seeded_task_with_plan: Task,
+    ):
+        """AC3: plan_json structural fields preserved after description edit."""
+        import json as _json
+
+        resp = await client.patch(
+            f"/api/tasks/{seeded_task_with_plan.id}",
+            json={"description": "Edited plan text"},
+        )
+        assert resp.status_code == 200
+        data = resp.json()
+
+        plan_json = _json.loads(data["plan_json"])
+        # Steps preserved
+        assert len(plan_json["steps"]) == 2
+        assert plan_json["steps"][0]["step"] == "Step 1: Do something"
+        # Acceptance criteria preserved
+        assert len(plan_json["acceptance_criteria"]) == 2
+        # Proposed tasks preserved
+        assert len(plan_json["proposed_tasks"]) == 1
+        assert plan_json["proposed_tasks"][0]["title"] == "Subtask A"
+
+    async def test_edit_proposed_tasks_in_description_after_save(
+        self, client: AsyncClient, seeded_task_with_plan: Task,
+    ):
+        """AC4: proposed tasks section reflects current plan_json after save."""
+        resp = await client.patch(
+            f"/api/tasks/{seeded_task_with_plan.id}",
+            json={"description": "Modified plan"},
+        )
+        assert resp.status_code == 200
+        data = resp.json()
+
+        # Proposed tasks should appear in re-derived description
+        assert "## Proposed Tasks" in data["description"]
+        assert "Subtask A" in data["description"]
+
+    async def test_edit_persists_across_reload(
+        self, client: AsyncClient, seeded_task_with_plan: Task,
+    ):
+        """AC6: reloading page shows edited plan text everywhere."""
+        import json as _json
+
+        # Edit
+        await client.patch(
+            f"/api/tasks/{seeded_task_with_plan.id}",
+            json={"description": "Persisted plan edit"},
+        )
+
+        # Re-fetch (simulates page reload)
+        resp = await client.get(f"/api/tasks/{seeded_task_with_plan.id}")
+        assert resp.status_code == 200
+        data = resp.json()
+
+        assert "Persisted plan edit" in data["description"]
+        plan_json = _json.loads(data["plan_json"])
+        assert plan_json["plan"] == "Persisted plan edit"
+
+    async def test_edit_without_plan_json_uses_direct_update(
+        self, client: AsyncClient, seeded_task: Task,
+    ):
+        """Tasks without plan_json should update description directly (no sync)."""
+        resp = await client.patch(
+            f"/api/tasks/{seeded_task.id}",
+            json={"description": "Direct edit no plan"},
+        )
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["description"] == "Direct edit no plan"
+        assert data["plan_json"] is None
+
+    async def test_title_edit_does_not_affect_plan_json(
+        self, client: AsyncClient, seeded_task_with_plan: Task,
+    ):
+        """Title-only edits should not modify plan_json."""
+        import json as _json
+
+        # Get original plan_json
+        original_resp = await client.get(
+            f"/api/tasks/{seeded_task_with_plan.id}",
+        )
+        original_plan_json = _json.loads(original_resp.json()["plan_json"])
+
+        # Edit title only
+        resp = await client.patch(
+            f"/api/tasks/{seeded_task_with_plan.id}",
+            json={"title": "New title only"},
+        )
+        assert resp.status_code == 200
+        data = resp.json()
+
+        # plan_json should be unchanged
+        updated_plan_json = _json.loads(data["plan_json"])
+        assert updated_plan_json["plan"] == original_plan_json["plan"]
+        assert updated_plan_json["steps"] == original_plan_json["steps"]
+
+
+# ---------------------------------------------------------------------------
 # 428 review gate response for frontend modal
 # ---------------------------------------------------------------------------
 

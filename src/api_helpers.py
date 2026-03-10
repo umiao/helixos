@@ -84,6 +84,7 @@ def _task_to_response(task: Task) -> TaskResponse:
         review_status=task.review_status,
         review_lifecycle_state=task.review_lifecycle_state,
         plan_status=task.plan_status,
+        plan_json=task.plan_json,
         plan_generation_id=task.plan_generation_id,
         has_proposed_tasks=task.has_proposed_tasks,
         replan_attempt=task.replan_attempt,

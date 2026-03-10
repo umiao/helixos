@@ -74,6 +74,7 @@ class TaskResponse(BaseModel):
     review_status: str = "idle"
     review_lifecycle_state: str = ReviewLifecycleState.NOT_STARTED
     plan_status: str = PlanStatus.NONE
+    plan_json: str | None = None
     plan_generation_id: str | None = None
     has_proposed_tasks: bool = False
     replan_attempt: int = 0

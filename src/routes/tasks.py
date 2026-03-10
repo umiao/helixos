@@ -731,7 +731,13 @@ async def update_task_fields(
     body: UpdateTaskRequest,
     request: Request,
 ) -> TaskResponse:
-    """Update a task's title and/or description."""
+    """Update a task's title and/or description.
+
+    When the task has a ``plan_json``, description edits are routed through
+    ``plan_json["plan"]`` (the canonical source of truth) and then
+    ``description`` is re-derived via ``format_plan_as_text()``.  This
+    keeps ``plan_json`` and ``description`` in sync.
+    """
     task_manager: TaskManager = request.app.state.task_manager
     task = await task_manager.get_task(task_id)
     if task is None:
@@ -742,8 +748,28 @@ async def update_task_fields(
         task.title = body.title
         changed = True
     if body.description is not None and body.description != task.description:
-        task.description = body.description
-        changed = True
+        # When plan_json exists, route edits through plan_json["plan"]
+        # so that plan_json stays in sync with description.
+        if task.plan_json:
+            try:
+                plan_data = json.loads(task.plan_json)
+            except (json.JSONDecodeError, TypeError):
+                plan_data = None
+
+            if isinstance(plan_data, dict):
+                plan_data["plan"] = body.description
+                new_plan_json = json.dumps(plan_data)
+                new_description = format_plan_as_text(plan_data)
+                task.plan_json = new_plan_json
+                task.description = new_description
+                changed = True
+            else:
+                # plan_json is corrupt/unparseable -- fall back to direct update
+                task.description = body.description
+                changed = True
+        else:
+            task.description = body.description
+            changed = True
 
     if changed:
         task = await task_manager.update_task(task)
