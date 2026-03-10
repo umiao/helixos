@@ -31,19 +31,6 @@
 
 ### P1 -- Should Have (agentic intelligence)
 
-#### T-P1-163: Redesign Plain Log visual hierarchy with role-based highlighting
-- **Priority**: P1 | **Complexity**: M
-- **Depends on**: None
-- **Description**: Plain Log needs a designed color/font scheme to clearly distinguish
-  content roles: AI output, tool invocations, and tool results. Current level-based
-  coloring (ERROR/WARN/INFO) is insufficient for comfortable readability. The visual
-  design should make the content type immediately apparent at a glance.
-- **Files**: `frontend/src/components/ExecutionLog.tsx`
-- **Acceptance Criteria**:
-  1. Each content role (AI output, tool use, tool result) has visually distinct treatment
-  2. Level badges (ERROR/WARN) remain visible as overlay on any content type
-  3. Visual hierarchy is comfortable for extended reading
-  4. [AUTO-VERIFIED] Build clean, role-based styling applied
 
 
 #### T-P1-165: Auto-trigger review after plan generation
@@ -122,6 +109,9 @@ T-P1-127 depends on T-P1-123 (completed)
 
 
 > 37 completed tasks archived to [archive/completed_tasks.md](archive/completed_tasks.md).
+
+#### [x] T-P1-163: Redesign Plain Log visual hierarchy with role-based highlighting -- 2026-03-09
+- Added content role detection (AI/tool/result/progress) from message prefix patterns. Each role gets distinct color (AI=gray-100/indigo border, tool=cyan/cyan border, result=gray-400/gray border, progress=gray-500). Level badges (ERROR/WARN) overlay on any role. INFO badge hidden (redundant noise). TS clean, Vite build clean. [AUTO-VERIFIED]
 
 #### [x] T-P1-164: Add animated status dots to Review tab + unify dot colors -- 2026-03-09
 - Added review status dot to BottomPanelContainer: blue pulse for running/partial, green for approved, red for rejected/failed. Unified all tab dots to blue=in-progress (was green for Conversation/Log), green=success, red=failure. TS clean, Vite build clean. [AUTO-VERIFIED]

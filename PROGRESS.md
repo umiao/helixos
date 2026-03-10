@@ -163,3 +163,10 @@
 - **Sanity check result**: TypeScript clean, Vite build clean. [AUTO-VERIFIED]
 - **Status**: [DONE]
 - **Request**: Move T-P1-164 to Completed
+
+## 2026-03-09 -- [T-P1-163] Redesign Plain Log visual hierarchy with role-based highlighting
+- **What I did**: Added content role detection from message prefix patterns ([TOOL], [RESULT], [PROGRESS]/[DONE] = system, else = AI output). Each role gets distinct visual treatment: AI text = bright gray-100 + indigo left border, tool calls = cyan text + cyan border, tool results = muted gray-400 + gray border, progress = dim gray-500 (no border). Level badges (ERROR/WARN) remain visible as overlay. Hid INFO level badge as redundant noise. Left border provides instant visual scanning.
+- **Deliverables**: `frontend/src/components/ExecutionLog.tsx`
+- **Sanity check result**: TypeScript clean, Vite build clean. [AUTO-VERIFIED]
+- **Status**: [DONE]
+- **Request**: Move T-P1-163 to Completed

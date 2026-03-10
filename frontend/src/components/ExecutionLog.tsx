@@ -220,8 +220,16 @@ export default function ExecutionLog({
     }
   };
 
-  /** Message text color based on level and source for visual hierarchy (AC3). */
-  const messageColor = (level?: string, source?: string) => {
+  /** Detect content role from message prefix patterns. */
+  const detectRole = (message: string): "tool" | "result" | "progress" | "ai" => {
+    if (message.startsWith("[TOOL]")) return "tool";
+    if (message.startsWith("[RESULT]")) return "result";
+    if (message.startsWith("[PROGRESS]") || message.startsWith("[DONE]")) return "progress";
+    return "ai";
+  };
+
+  /** Message text color based on content role, with level overlay. */
+  const messageColor = (level?: string, _source?: string, message?: string) => {
     // Level takes priority for error/warn
     if (level) {
       switch (level.toLowerCase()) {
@@ -233,20 +241,33 @@ export default function ExecutionLog({
           return "text-gray-500";
       }
     }
-    // Source-based coloring for clear visual hierarchy
-    if (source) {
-      switch (source.toLowerCase()) {
-        case "review":
-          return "text-purple-300";
-        case "plan":
-          return "text-violet-300";
-        case "executor":
-          return "text-blue-300";
-        case "scheduler":
-          return "text-cyan-300";
-      }
+    // Role-based coloring for clear visual hierarchy
+    const role = detectRole(message ?? "");
+    switch (role) {
+      case "tool":
+        return "text-cyan-300";
+      case "result":
+        return "text-gray-400";
+      case "progress":
+        return "text-gray-500";
+      case "ai":
+        return "text-gray-100";
     }
-    return "text-gray-200";
+  };
+
+  /** Left border color for content role visual distinction. */
+  const roleBorderClass = (message: string): string => {
+    const role = detectRole(message);
+    switch (role) {
+      case "tool":
+        return "border-l-2 border-l-cyan-600 pl-1.5";
+      case "result":
+        return "border-l-2 border-l-gray-600 pl-1.5";
+      case "progress":
+        return "";
+      case "ai":
+        return "border-l-2 border-l-indigo-500 pl-1.5";
+    }
   };
 
   const toggleLevel = useCallback((level: string) => {
@@ -448,7 +469,7 @@ export default function ExecutionLog({
           displayEntries.map((entry) => (
             <div
               key={entry.key}
-              className="flex gap-2 py-0.5 hover:bg-gray-800"
+              className={`flex gap-2 py-0.5 hover:bg-gray-800 ${roleBorderClass(entry.message)}`}
             >
               <span className="text-gray-400 whitespace-nowrap shrink-0">
                 {formatTime(entry.timestamp)}
@@ -460,7 +481,7 @@ export default function ExecutionLog({
                   {entry.source}
                 </span>
               )}
-              {entry.level && (
+              {entry.level && entry.level.toLowerCase() !== "info" && (
                 <span
                   className={`px-1 rounded text-xs uppercase font-medium shrink-0 ${levelBadgeClass(entry.level)}`}
                 >
@@ -477,7 +498,7 @@ export default function ExecutionLog({
                   [{entry.source}]
                 </span>
               )}
-              <span className={messageColor(entry.level, entry.source)}>
+              <span className={messageColor(entry.level, entry.source, entry.message)}>
                 {entry.message}
               </span>
             </div>
