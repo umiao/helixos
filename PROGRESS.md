@@ -51,3 +51,10 @@
 - **Sanity check result**: 37 sdk_adapter tests pass, 217 core tests pass, 144 review/plan tests pass, ruff clean, Vite build clean. [AUTO-VERIFIED]
 - **Status**: [DONE]
 - **Request**: Move T-P1-148 to Completed
+
+## 2026-03-09 -- [T-P1-149] Collapse consecutive tool_use blocks in ConversationView
+- **What I did**: Added grouping logic to ConversationView that identifies consecutive tool_use runs and renders groups of 2+ as a single collapsible container. Container shows tool count and name summary (e.g. "3 tool calls: Read, Grep, Read"). When expanded, individual tool_use blocks are shown inside, each still individually expandable to show input/output. Single tool_use blocks render unchanged (no grouping wrapper). Extracted `renderToolUse` helper to avoid duplication between single and grouped rendering.
+- **Deliverables**: `frontend/src/components/ConversationView.tsx`
+- **Sanity check result**: Vite build clean, TypeScript clean, 188 unit tests pass. [AUTO-VERIFIED]
+- **Status**: [DONE]
+- **Request**: Move T-P1-149 to Completed

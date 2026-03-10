@@ -32,18 +32,6 @@
 
 ### P1 -- Should Have (agentic intelligence)
 
-#### T-P1-149: Collapse consecutive tool_use blocks in ConversationView
-- **Priority**: P1
-- **Complexity**: S (< 1 session)
-- **Depends on**: None
-- **Description**: Multiple consecutive tool_use blocks clutter the conversation. Group them into a single expandable section showing count (e.g. "3 tool calls") with individual tools inside.
-- **Acceptance Criteria**:
-  1. 2+ consecutive tool_use blocks grouped into single collapsible container
-  2. Container shows tool count and summary (e.g. "3 tool calls: Read, Grep, Read")
-  3. Individual tools still expandable within the group
-  4. Single tool_use blocks render as before (no grouping)
-  5. Journey: User scrolls conversation -> sees "5 tool calls" collapsed -> clicks -> expands to see individual tools -> clicks one to see details
-
 #### T-P1-150: Add inline description editing to TaskCardPopover
 - **Priority**: P1
 - **Complexity**: S (< 1 session)
@@ -108,55 +96,11 @@ T-P1-127 depends on T-P1-123 (completed)
 ## Completed Tasks
 
 
-> 21 completed tasks archived to [archive/completed_tasks.md](archive/completed_tasks.md).
 
-#### [x] T-P1-148: Add thinking block rendering in ConversationView -- 2026-03-09
-- Added THINKING event type to backend sdk_adapter.py (previously skipped). Frontend types updated with "thinking" type on StreamDisplayItem. normalizeStreamEvents handles both top-level thinking events and thinking content blocks inside assistant messages. ConversationView renders thinking blocks as collapsible sections (collapsed by default) with muted italic style, text preview when collapsed. Updated test to verify thinking emission instead of skipping; added empty-thinking skip test.
+> 37 completed tasks archived to [archive/completed_tasks.md](archive/completed_tasks.md).
 
-#### [x] T-P1-147: Remove redundant result banner from ConversationView -- 2026-03-09
-- Removed green "Completed successfully" result banner from ConversationView. The `type === "result"` render block now returns null. All other message types (text, tool_use, tool_result) unaffected. Vite build clean.
-
-#### [x] T-P1-146: Fix PlanReviewPanel markdown rendering -- 2026-03-09
-- Fixed three root causes: (1) SSE race condition -- plan_status_change "ready" event did not include description, causing stale/empty description in optimistic update. Added description to SSE payload in tasks.py and reviews.py, threaded through planStatePatch and useSSEHandler. (2) Missing remark-gfm in MarkdownRenderer -- GFM features (tables, strikethrough) did not render. Added remarkGfm plugin. (3) Whitespace edge case -- changed truthiness check to .trim(). Added 6 regression tests for format_plan_as_text edge cases.
-
-#### [x] T-P0-145: Design agent clarifying question protocol -- 2026-03-09
-- Design doc created at `docs/architecture/clarifying-questions.md`. Covers: data model (ReviewQuestionRow table, ReviewQuestion Pydantic model), new AWAITING_ANSWERS lifecycle state with transition rules, 4 API endpoints (GET questions, POST answer, POST answer-all, POST skip), review prompt changes (questions field in ReviewResult JSON, resume prompt template), backend pause/resume flow in review pipeline, frontend UX (question cards with answer textareas in ReviewPanel, Q&A history display, amber banner), 4 new SSE event types, migration plan, edge case matrix (11 scenarios), and 6 implementation subtasks. Awaiting user review before implementation.
-
-#### [x] T-P0-144: Fix ReviewPanel edit persistence bug + always-available Edit button -- 2026-03-09
-- Fixed broken link in edit persistence chain: `onTaskUpdated` callbacks in App.tsx updated `tasks` array but not `selectedTask`, causing ReviewPanel to show stale description after save. Added `setSelectedTask` update to both BottomPanelContainer and SwimLane `onTaskUpdated` callbacks. Changed Edit button gating from `review_lifecycle_state` check to `task.status` check (visible unless done/running). TypeScript clean, Vite build clean, 1478 tests pass.
-
-#### [x] T-P2-142: Enrichment title generation + commit message CJK guard -- 2026-03-09
-- Enrichment prompt now returns `{title, description, priority}`. `EnrichmentResult` and JSON schema updated with `title` field (maxLength 80). `_parse_enrichment()` validates title is ASCII-safe (discards CJK). Added `original_title` column to TaskRow with auto-migration + backfill. Task model, response schema, and api_helpers updated. `commit_msg_guard.py` PreToolUse hook blocks CJK in git commit messages, registered in settings.json. 1405 tests pass, ruff clean.
-
-#### [x] T-P2-141: Security hardening -- cleanup personal paths, accidental files, hook enforcement -- 2026-03-09
-- Replaced hardcoded Windows user paths in orchestrator_config.yaml with ~/. git rm'd accidental =0.1.40 pip output and untracked .claude/settings.local.json. Expanded secret_guard.py with PEM/personal-path patterns and sensitive file blocking. Added .gitignore rules for =*, *.pem, *.key, settings.local.json. Removed stale heartbeat tests. Added LESSONS.md entry #27.
-
-#### [x] T-P0-139: Three QoL improvements: DB-persisted project selection, removed [PROGRESS] heartbeat logging, filtered log artifacts in Conversation view -- 2026-03-09
-- (1) Added `ui_preferences` table to db.py with get/set_preference helpers, GET/PUT `/api/ui-preferences/{key}` endpoints in projects.py, fetchSelectedProjects/saveSelectedProjects in api.ts, updated useProjectState to load from API with debounced saves (1s) and localStorage fallback, flush on beforeunload. (2) Removed on_log [PROGRESS] emission in code_executor.py (lines 337-343), keeping timeout checks. (3) In ConversationView, added regex filter `/^\[(RESULT|TOOL|INIT|DONE|PROGRESS)\]/` to skip log text prefixes, added indigo left border to assistant text bubbles, fixed TypeScript errors (pre-existing) by adding React.ReactNode types to ReactMarkdown component overrides. All acceptance criteria met: checkbox state persists across browsers, API fallback to localStorage works, [PROGRESS] lines removed from logs, Conversation tab shows clean structured view with no log clutter, Plain Log unchanged.
-
-#### [x] T-P2-140: Document dirty state lesson in LESSONS.md -- 2026-03-09
-- Added LESSONS.md entry #26 covering plan regeneration dirty state bug: context (151 inconsistent rows, stale UI), root cause (no state machine, scattered field clearing, no generation IDs), fix (set_plan_state + generation_id + planStatePatch), and 3 architectural principles. References T-P0-134, T-P0-135, T-P0-138, T-P0-124.
-
-#### [x] T-P2-139: Test suite consolidation -- shared fixtures, file splitting, runtime baseline -- 2026-03-09
-- Created `tests/factories.py` with `make_task`, `make_config`, `make_review_pipeline_config`, SDK event builders. Migrated 21 test files to use shared factories. Split `test_enrichment.py` (2606->973 LOC) into `test_plan_generation.py` (1295) and `test_plan_models.py` (417). Split `test_review_pipeline.py` (2601->801 LOC) into `test_review_scoring.py` (1035) and `test_review_models.py` (875). All files under 1500 LOC. 1560 tests pass, 35s baseline, ruff clean.
-
-#### [x] T-P0-124: UI improvements -- conversation folding, plan MD rendering, log highlighting, running status indicators -- 2026-03-09
-- ConversationView: orphaned tool_results hidden entirely, tool_use collapsed by default with expand on click. PlanReviewPanel: plan summary rendered via ReactMarkdown (not `<pre>`). ExecutionLog: source-based color coding (review=purple, plan=violet, scheduler=cyan, executor=blue) with source badges. BottomPanelContainer: animated pulsing green dots on Conversation/Log tabs for running tasks. TypeScript clean, Vite build clean.
-
-#### [x] T-P0-138: Clean up T-P0-124 dirty state + plan integrity check -- 2026-03-09
-- Created `scripts/repair_plan_state.py` to detect and fix plan state invariant violations. Found 151 inconsistent rows (148 with plan_status='none' but stale description, 3 with plan_status='ready' but no plan_json). All fixed and verified with 0 remaining. Rewrote T-P0-124 task spec with proper ACs including journey AC and inverse cases.
-
-#### [x] T-P0-137: Execution decomposition gate (backend + frontend) -- 2026-03-09
-- Added `DecompositionRequiredError` and Layer 3 decomposition gate in `update_status()` blocking QUEUED->RUNNING when `has_proposed_tasks=True` and `plan_status="ready"`, with `force_decompose_bypass` flag. Scheduler `_can_execute()` also checks. PATCH endpoint accepts `force_decompose_bypass` in body. Frontend `DecomposeRequiredModal.tsx` with "Go to Plan Review" (green), "Cancel", "Execute Anyway" (danger link). KanbanBoard intercepts forward drag to RUNNING. `api.ts` updated. 8 new tests. 1560 pass, ruff clean, TS clean, Vite build clean.
-
-#### [x] T-P0-136: Plan deletion with confirmation dialog (all plan states) -- 2026-03-09
-- Added `DELETE /api/tasks/{task_id}/plan` endpoint using `set_plan_state("none")` from any non-none state. Frontend `deletePlan()` API function. PlanReviewPanel updated with inline confirmation delete buttons for all states (generating=Cancel, failed=Delete alongside Retry, decomposed=Delete with subtask warning, ready=Delete in header). 7 new backend tests. TypeScript clean, Vite build clean.
-
-#### [x] T-P0-135: Frontend plan staleness fix with shared utility and generation_id filtering -- 2026-03-09
-- Created `planStatePatch()` shared utility in `frontend/src/utils/planState.ts`. Added `plan_generation_id` and `has_proposed_tasks` to Task interface. Migrated TaskCard, TaskCardPopover, PlanReviewPanel to use shared utility. SSE handler filters stale events via generation_id comparison. TypeScript clean, Vite build clean.
-
-#### [x] T-P0-134: Backend plan state machine with transition rules and field invariants -- 2026-03-09
-- Added `VALID_PLAN_TRANSITIONS` + `set_plan_state()` to TaskManager with per-state invariant enforcement. New `plan_generation_id` and `has_proposed_tasks` columns on TaskRow with auto-migration. Migrated all call sites (generate-plan, reject-plan, confirm-tasks, replan, zombie reset) to use `set_plan_state()`. SSE events include `generation_id`. 73 new tests. 1590 pass, ruff clean.
+#### [x] T-P1-149: Collapse consecutive tool_use blocks in ConversationView -- 2026-03-09
+- Grouped 2+ consecutive tool_use blocks into collapsible container showing count and tool name summary (e.g. "3 tool calls: Read, Grep, Read"). Individual tools still expandable within the group. Single tool_use blocks render unchanged. Vite build clean, 188 tests pass.
 
 #### [x] T-P1-114: Add plan output pydantic validation with retry and error feedback -- 2026-03-08
 - Added `PlanValidationConfig` to config.py with configurable hard/soft limits. `ProposedTask` gains `files` field. `generate_task_plan()` retries up to N times on validation failure with error feedback in prompt. `_validate_plan_structure()` detects dependency cycles via `detect_cycles()`. Soft limits emit warnings. Hard ceiling: max 10 proposed tasks. 25 new tests. 1407 pass, ruff clean.

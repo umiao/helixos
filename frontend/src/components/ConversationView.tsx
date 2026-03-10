@@ -337,6 +337,93 @@ export default function ConversationView({
     }
   }
 
+  // Group consecutive tool_use items into runs for collapsible display.
+  // Items that are tool_results rendered inline are excluded from grouping.
+  type DisplayEntry =
+    | { kind: "single"; item: StreamDisplayItem }
+    | { kind: "tool_group"; items: StreamDisplayItem[]; groupKey: string };
+
+  const displayEntries: DisplayEntry[] = (() => {
+    const entries: DisplayEntry[] = [];
+    let currentToolRun: StreamDisplayItem[] = [];
+
+    const flushToolRun = () => {
+      if (currentToolRun.length === 0) return;
+      if (currentToolRun.length === 1) {
+        entries.push({ kind: "single", item: currentToolRun[0] });
+      } else {
+        const groupKey = `tool-group-${currentToolRun[0].key}`;
+        entries.push({ kind: "tool_group", items: [...currentToolRun], groupKey });
+      }
+      currentToolRun = [];
+    };
+
+    for (const item of mergedItems) {
+      // Skip inline tool_results
+      if (item.type === "tool_result" && inlineResultKeys.has(item.key)) continue;
+
+      if (item.type === "tool_use") {
+        currentToolRun.push(item);
+      } else {
+        flushToolRun();
+        entries.push({ kind: "single", item });
+      }
+    }
+    flushToolRun();
+    return entries;
+  })();
+
+  /** Render a single tool_use item (used both standalone and inside groups). */
+  const renderToolUse = (item: StreamDisplayItem) => {
+    const colors = getToolColor(item.toolName);
+    const isExpanded = expandedTools.has(item.key);
+    const matchedResult = item.toolUseId ? findToolResult(item.toolUseId) : null;
+    const summary = toolSummary(item.toolName, item.toolInput, matchedResult?.resultContent);
+
+    return (
+      <div key={item.key} className={`rounded border ${colors.border} overflow-hidden`}>
+        <button
+          onClick={() => toggleExpand(item.key)}
+          className={`flex items-center gap-1.5 w-full px-2 py-1.5 text-xs font-mono cursor-pointer ${colors.bg} ${colors.text} hover:opacity-90 transition-opacity text-left`}
+        >
+          <span className="flex-shrink-0 text-[10px] opacity-70">{isExpanded ? "\u25BC" : "\u25B6"}</span>
+          <span className="truncate">{summary}</span>
+        </button>
+
+        {isExpanded && (
+          <div className="border-t border-gray-700/50">
+            {item.toolInput && (
+              <div className="bg-gray-800/50">
+                <div className="px-2 py-0.5 text-[10px] text-gray-500 uppercase font-medium border-b border-gray-700/30">
+                  Input
+                </div>
+                <pre className="p-2 text-xs text-gray-300 font-mono overflow-x-auto whitespace-pre-wrap max-h-40 overflow-y-auto leading-relaxed">
+                  {typeof item.toolInput === "string"
+                    ? item.toolInput.length > 2000
+                      ? item.toolInput.slice(0, 2000) + "\n... (truncated)"
+                      : item.toolInput
+                    : JSON.stringify(item.toolInput, null, 2)}
+                </pre>
+              </div>
+            )}
+            {matchedResult && (
+              <div className="bg-gray-800/30">
+                <div className="px-2 py-0.5 text-[10px] text-gray-500 uppercase font-medium border-t border-b border-gray-700/30">
+                  Output
+                </div>
+                <pre className="p-2 text-xs text-gray-300 font-mono overflow-x-auto whitespace-pre-wrap max-h-48 overflow-y-auto leading-relaxed">
+                  {(matchedResult.resultContent ?? "").length > 3000
+                    ? (matchedResult.resultContent ?? "").slice(0, 3000) + "\n... (truncated)"
+                    : matchedResult.resultContent ?? "(empty)"}
+                </pre>
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+    );
+  };
+
   return (
     <div className="flex flex-col h-full bg-gray-900 rounded-lg overflow-hidden">
       {/* Header */}
@@ -389,7 +476,34 @@ export default function ConversationView({
             {loading ? "Loading conversation..." : "No conversation events yet"}
           </p>
         ) : (
-          mergedItems.map((item) => {
+          displayEntries.map((entry) => {
+            if (entry.kind === "tool_group") {
+              const { items: groupItems, groupKey } = entry;
+              const isGroupExpanded = expandedTools.has(groupKey);
+              // Build summary: "3 tool calls: Read, Grep, Read"
+              const toolNames = groupItems.map((i) => i.toolName ?? "unknown");
+              const groupSummary = `${groupItems.length} tool calls: ${toolNames.join(", ")}`;
+
+              return (
+                <div key={groupKey} className="rounded border border-gray-600 overflow-hidden ml-2">
+                  <button
+                    onClick={() => toggleExpand(groupKey)}
+                    className="flex items-center gap-1.5 w-full px-2 py-1.5 text-xs font-mono cursor-pointer bg-gray-800 text-gray-300 hover:bg-gray-700 transition-colors text-left"
+                  >
+                    <span className="flex-shrink-0 text-[10px] opacity-70">{isGroupExpanded ? "\u25BC" : "\u25B6"}</span>
+                    <span className="truncate">{groupSummary}</span>
+                  </button>
+                  {isGroupExpanded && (
+                    <div className="border-t border-gray-700/50 p-1.5 space-y-1 bg-gray-900/50">
+                      {groupItems.map((tool) => renderToolUse(tool))}
+                    </div>
+                  )}
+                </div>
+              );
+            }
+
+            const item = entry.item;
+
             // Skip tool_result items that are rendered inline under their tool_use
             if (item.type === "tool_result" && inlineResultKeys.has(item.key)) {
               return null;
@@ -486,57 +600,7 @@ export default function ConversationView({
             }
 
             if (item.type === "tool_use") {
-              const colors = getToolColor(item.toolName);
-              const isExpanded = expandedTools.has(item.key);
-              const matchedResult = item.toolUseId ? findToolResult(item.toolUseId) : null;
-              const summary = toolSummary(item.toolName, item.toolInput, matchedResult?.resultContent);
-
-              return (
-                <div key={item.key} className={`rounded border ${colors.border} overflow-hidden ml-2`}>
-                  {/* Collapsed summary header -- always visible */}
-                  <button
-                    onClick={() => toggleExpand(item.key)}
-                    className={`flex items-center gap-1.5 w-full px-2 py-1.5 text-xs font-mono cursor-pointer ${colors.bg} ${colors.text} hover:opacity-90 transition-opacity text-left`}
-                  >
-                    <span className="flex-shrink-0 text-[10px] opacity-70">{isExpanded ? "\u25BC" : "\u25B6"}</span>
-                    <span className="truncate">{summary}</span>
-                  </button>
-
-                  {/* Expanded: tool input + result */}
-                  {isExpanded && (
-                    <div className="border-t border-gray-700/50">
-                      {/* Tool input */}
-                      {item.toolInput && (
-                        <div className="bg-gray-800/50">
-                          <div className="px-2 py-0.5 text-[10px] text-gray-500 uppercase font-medium border-b border-gray-700/30">
-                            Input
-                          </div>
-                          <pre className="p-2 text-xs text-gray-300 font-mono overflow-x-auto whitespace-pre-wrap max-h-40 overflow-y-auto leading-relaxed">
-                            {typeof item.toolInput === "string"
-                              ? item.toolInput.length > 2000
-                                ? item.toolInput.slice(0, 2000) + "\n... (truncated)"
-                                : item.toolInput
-                              : JSON.stringify(item.toolInput, null, 2)}
-                          </pre>
-                        </div>
-                      )}
-                      {/* Matched tool result */}
-                      {matchedResult && (
-                        <div className="bg-gray-800/30">
-                          <div className="px-2 py-0.5 text-[10px] text-gray-500 uppercase font-medium border-t border-b border-gray-700/30">
-                            Output
-                          </div>
-                          <pre className="p-2 text-xs text-gray-300 font-mono overflow-x-auto whitespace-pre-wrap max-h-48 overflow-y-auto leading-relaxed">
-                            {(matchedResult.resultContent ?? "").length > 3000
-                              ? (matchedResult.resultContent ?? "").slice(0, 3000) + "\n... (truncated)"
-                              : matchedResult.resultContent ?? "(empty)"}
-                          </pre>
-                        </div>
-                      )}
-                    </div>
-                  )}
-                </div>
-              );
+              return <div key={item.key} className="ml-2">{renderToolUse(item)}</div>;
             }
 
             // Orphaned tool_result (no matching tool_use) -- hidden entirely per AC1
