@@ -371,11 +371,14 @@ function App() {
                     onTaskDeleted={handleTaskDeleted}
                     onSendToReview={handleSendToReview}
                     onEditTask={handleEditTask}
-                    onTaskUpdated={(updated) =>
+                    onTaskUpdated={(updated) => {
                       setTasks((prev) =>
                         prev.map((t) => (t.id === updated.id ? updated : t)),
-                      )
-                    }
+                      );
+                      setSelectedTask((sel) =>
+                        sel && sel.id === updated.id ? updated : sel,
+                      );
+                    }}
                     streamSummaries={streamSummaries}
                     onStarted={(count) =>
                       addToast(`Started ${count} planned task(s)`, "success")
@@ -413,11 +416,14 @@ function App() {
             onReviewDecision={handleReviewDecision}
             onSelectTask={handleSelectTask}
             onError={(msg) => addToast(msg, "error")}
-            onTaskUpdated={(updated) =>
+            onTaskUpdated={(updated) => {
               setTasks((prev) =>
                 prev.map((t) => (t.id === updated.id ? updated : t)),
-              )
-            }
+              );
+              setSelectedTask((sel) =>
+                sel && sel.id === updated.id ? updated : sel,
+              );
+            }}
             onPlanConfirmed={handlePlanConfirmed}
           />
         </div>

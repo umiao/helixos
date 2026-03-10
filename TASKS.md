@@ -28,17 +28,6 @@
 
 ### P0 -- Must Have (core functionality)
 
-#### T-P0-144: Fix ReviewPanel edit persistence bug + always-available Edit button
-- **Priority**: P0
-- **Complexity**: S (< 1 session)
-- **Depends on**: None
-- **Description**: Edits made in ReviewPanel's Edit Plan mode don't propagate correctly to canonical task store. Also, Edit button gated by `!isRunning && !isDone` -- should be available in BACKLOG/PLAN/REVIEW states.
-- **Acceptance Criteria**:
-  1. Edit plan text in ReviewPanel -> Save -> refresh page -> edited text persists
-  2. Edit button visible for tasks in BACKLOG, PLAN, REVIEW states
-  3. Edit in ReviewPanel propagates through: local state -> callback -> store -> DB -> UI refresh (trace and fix the broken link)
-  4. Journey: User hovers task -> opens bottom panel -> clicks Edit Plan -> modifies text -> clicks Save -> navigates away -> returns -> sees saved text
-
 #### T-P0-145: Design agent clarifying question protocol
 - **Priority**: P0 (design)
 - **Complexity**: M (1-2 sessions)
@@ -162,6 +151,9 @@ T-P1-127 depends on T-P1-123 (completed)
 
 
 > 21 completed tasks archived to [archive/completed_tasks.md](archive/completed_tasks.md).
+
+#### [x] T-P0-144: Fix ReviewPanel edit persistence bug + always-available Edit button -- 2026-03-09
+- Fixed broken link in edit persistence chain: `onTaskUpdated` callbacks in App.tsx updated `tasks` array but not `selectedTask`, causing ReviewPanel to show stale description after save. Added `setSelectedTask` update to both BottomPanelContainer and SwimLane `onTaskUpdated` callbacks. Changed Edit button gating from `review_lifecycle_state` check to `task.status` check (visible unless done/running). TypeScript clean, Vite build clean, 1478 tests pass.
 
 #### [x] T-P2-142: Enrichment title generation + commit message CJK guard -- 2026-03-09
 - Enrichment prompt now returns `{title, description, priority}`. `EnrichmentResult` and JSON schema updated with `title` field (maxLength 80). `_parse_enrichment()` validates title is ASCII-safe (discards CJK). Added `original_title` column to TaskRow with auto-migration + backfill. Task model, response schema, and api_helpers updated. `commit_msg_guard.py` PreToolUse hook blocks CJK in git commit messages, registered in settings.json. 1405 tests pass, ruff clean.

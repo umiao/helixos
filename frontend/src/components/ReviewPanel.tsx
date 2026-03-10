@@ -831,7 +831,7 @@ export default function ReviewPanel({
                       Click Retry to try again.
                     </p>
                   )}
-                  {!isRunning && !isDone && (
+                  {task.status !== "done" && task.status !== "running" && (
                     <div className="mt-2 flex gap-2">
                       <button
                         onClick={handleEditPlan}

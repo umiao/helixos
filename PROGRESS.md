@@ -282,3 +282,10 @@
 - **Sanity check result**: 1405 tests pass (6 skipped, 234 deselected pre-existing timeout tests). Ruff clean on all modified files. Hook logic verified: CJK blocked, en-dash/ASCII allowed, heredoc extraction works. Enrichment parse fallback verified: CJK title discarded, empty title preserved.
 - **Status**: [DONE]
 - **Request**: Move T-P2-142 to Completed
+
+## 2026-03-09 -- [T-P0-144] Fix ReviewPanel edit persistence bug + always-available Edit button
+- **What I did**: (1) Fixed persistence bug: `onTaskUpdated` callbacks in App.tsx (lines 416-420 for BottomPanelContainer, lines 374-378 for SwimLane) updated `tasks` array but NOT `selectedTask`. Since ReviewPanel reads from `selectedTask` (passed as `task` prop), saved edits appeared to revert. Added `setSelectedTask` update alongside `setTasks` in both callbacks, matching the existing `handleEditSaved` pattern in useTaskState.ts. (2) Fixed Edit button gating: changed condition from `!isRunning && !isDone` (where `isRunning` checked `review_lifecycle_state === "running"`) to `task.status !== "done" && task.status !== "running"`. This ensures Edit is available in BACKLOG, REVIEW, and all other non-terminal states regardless of stale review lifecycle state.
+- **Deliverables**: `frontend/src/App.tsx`, `frontend/src/components/ReviewPanel.tsx`
+- **Sanity check result**: TypeScript clean (tsc --noEmit), Vite build clean. 1478 Python tests pass (6 skipped, 161 deselected timeout tests). [AUTO-VERIFIED] -- no browser available; wiring confirmed via code trace.
+- **Status**: [DONE]
+- **Request**: Move T-P0-144 to Completed
