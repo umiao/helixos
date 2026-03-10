@@ -33,23 +33,6 @@
 
 
 
-#### T-P1-157: Investigate T-P0-139 decomposition failure (RCA)
-- **Priority**: P1
-- **Complexity**: S
-- **Type**: Investigation
-- **Depends on**: None
-- **Description**: T-P0-139 was executed as a single large task instead of being decomposed
-  into subtasks. Need root cause analysis. Hypotheses: (1) task complexity was "S" so planner
-  skipped decomposition, (2) plan was generated before T-P1-151 enforcement, (3) task was
-  manually moved bypassing decomposition gate. Deliverable is RCA document + fix plan.
-- **Acceptance Criteria**:
-  1. RCA document contains: root cause, reproduction steps, impact scope, fix recommendation
-  2. Root cause is verified (not hypothetical) -- backed by log evidence or code trace
-  3. If systemic issue found, follow-up fix task created in TASKS.md
-  4. If no code fix needed (e.g. user error or pre-T-P1-151 legacy), document why and close
-- **Regression areas**: N/A (investigation only)
-- **Files**: `src/enrichment.py`, `src/routes/tasks.py`, `src/scheduler.py`
-
 ### P2 -- Nice to Have
 
 #### T-P2-158: Design and implement clarifying question workflow for review
@@ -83,9 +66,8 @@
 > Full historical dependency graph relocated to [docs/architecture/dependency-graph-history.md](docs/architecture/dependency-graph-history.md).
 
 ### Current
-T-P1-157: no dependencies
-T-P2-158: depends on T-P1-155 (completed)
-Suggested execution order: 157 -> 158
+T-P2-158: depends on T-P0-153, T-P1-155 (both completed)
+Suggested execution order: 158
 
 ### Historical (completed)
 T-P2-140 depends on T-P0-134 (completed)
@@ -109,6 +91,9 @@ T-P1-127 depends on T-P1-123 (completed)
 
 
 > 37 completed tasks archived to [archive/completed_tasks.md](archive/completed_tasks.md).
+
+#### [x] T-P1-157: Investigate T-P0-139 decomposition failure (RCA) -- 2026-03-09
+- Root cause: T-P0-139 was an ad-hoc task created and completed in a single session, bypassing the planning pipeline entirely. No task spec existed in TASKS.md before execution. Additionally, decomposition enforcement (T-P1-151) was committed ~2.75 hours later the same day. Task ID also collided with existing T-P2-139. No code fix needed -- enforcement exists via T-P1-151, issue was process bypass.
 
 #### [x] T-P1-156: Fix inline task edit across all statuses -- 2026-03-09
 - Fixed popover disappearing when mouse moves from card to portal-rendered popover. Added 150ms delayed close with onMouseEnter/onMouseLeave props on popover to cancel/trigger close. Edit functionality (pencil icon, inline editor, PATCH save) now accessible for all statuses. TS clean, Vite build clean, 1570 tests pass.

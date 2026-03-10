@@ -108,6 +108,13 @@
 - **Status**: [DONE]
 - **Request**: Move T-P1-155 to Completed
 
+## 2026-03-09 -- [T-P1-157] Investigate T-P0-139 decomposition failure (RCA)
+- **What I did**: Investigated why T-P0-139 was executed as a single large task without decomposition. Traced git history, TASKS.md versions, and progress logs. Found that T-P0-139 was never formally specified in TASKS.md -- it was an ad-hoc bundle of 3 QoL improvements created and completed in a single session, bypassing the planning pipeline entirely. The task ID also collided with existing T-P2-139 (Test suite consolidation). Decomposition enforcement (T-P1-151) was committed ~2.75 hours after T-P0-139 on the same day, so even if the planner had been invoked, no enforcement existed yet.
+- **Deliverables**: `TASKS.md` (RCA findings in completed entry, task closed)
+- **Sanity check result**: Root cause verified via git log timestamps (T-P0-139: 16:14:10, T-P1-151: 18:57:46), TASKS.md history (no T-P0-139 spec in any prior commit), and code trace (_validate_plan_structure only enforces M/L after T-P1-151). No code fix needed. [AUTO-VERIFIED]
+- **Status**: [DONE]
+- **Request**: Move T-P1-157 to Completed
+
 ## 2026-03-09 -- [T-P1-156] Fix inline task edit across all statuses
 - **What I did**: Fixed popover disappearing before user can interact with it. Root cause: popover renders via `createPortal` to `document.body`, so moving mouse from card to popover triggers card's `onMouseLeave`, closing popover instantly. Fix: added 150ms delayed close on card's `onMouseLeave`, with `onMouseEnter`/`onMouseLeave` props on popover to cancel/trigger the delayed close. This allows the mouse to travel from card to popover without losing it. Works for all statuses (backlog, review, queued, running, done, etc.) since the bug was status-independent.
 - **Deliverables**: `frontend/src/components/TaskCard.tsx`, `frontend/src/components/TaskCardPopover.tsx`
