@@ -271,3 +271,10 @@
 - **Sanity check result**: 1060 tests pass, TypeScript clean, ruff clean. [AUTO-VERIFIED] - no browser available; wiring verified via code inspection (P3 option in dropdown, P3 in Literal type, P3 in JSON schema enum, P3 case in priorityColor switch).
 - **Status**: [DONE]
 - **Request**: Move T-P1-172 to Completed (DONE)
+
+## 2026-03-11 -- [T-P1-173] Add Cancel Execution button to ExecutionLog
+- **What I did**: Added "Cancel Execution" button to ExecutionLog header that appears when selectedTaskStatus="running". Button shows confirmation dropdown dialog before calling the existing cancelTask API. Added onError/onSuccess callback props to ExecutionLog, threaded through BottomPanelContainer from App.tsx addToast. Success shows "Execution cancelled" toast; errors show error message toast.
+- **Deliverables**: `frontend/src/components/ExecutionLog.tsx`, `frontend/src/components/BottomPanelContainer.tsx`, `frontend/src/App.tsx`
+- **Sanity check result**: TypeScript clean, Vite build clean, 1278 Python tests pass. [AUTO-VERIFIED] - no browser available; wiring verified via code inspection (cancelTask imported, button rendered conditionally on status="running", confirmation dialog, API call on confirm, toast callbacks wired).
+- **Status**: [DONE]
+- **Request**: Move T-P1-173 to Completed (DONE)

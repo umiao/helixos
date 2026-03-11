@@ -9,7 +9,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { ExecutionLogEntry } from "../types";
-import { fetchExecutionLogs } from "../api";
+import { cancelTask, fetchExecutionLogs } from "../api";
 
 export interface LogEntry {
   id: number;
@@ -37,6 +37,10 @@ interface ExecutionLogProps {
   selectedTaskStatus?: string;
   /** ISO timestamp when the selected task's execution started (for elapsed calc). */
   executionStartedAt?: string | null;
+  /** Called when an error occurs (e.g., cancel failure). */
+  onError?: (msg: string) => void;
+  /** Called on successful action (e.g., cancel success). */
+  onSuccess?: (msg: string) => void;
 }
 
 const MAX_VISIBLE_LINES = 500;
@@ -49,11 +53,15 @@ export default function ExecutionLog({
   selectedTaskId,
   selectedTaskStatus,
   executionStartedAt,
+  onError,
+  onSuccess,
 }: ExecutionLogProps) {
   const [filterTaskId, setFilterTaskId] = useState("");
   const [filterLevels, setFilterLevels] = useState<Set<string>>(new Set());
   const [showMoreLevels, setShowMoreLevels] = useState(false);
   const [autoScroll, setAutoScroll] = useState(true);
+  const [showCancelConfirm, setShowCancelConfirm] = useState(false);
+  const [cancelling, setCancelling] = useState(false);
   const moreDropdownRef = useRef<HTMLDivElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const prevScrollTop = useRef(0);
@@ -80,6 +88,22 @@ export default function ExecutionLog({
     const secs = totalSec % 60;
     return `${mins}:${secs.toString().padStart(2, "0")}`;
   };
+
+  const handleCancelExecution = useCallback(async () => {
+    if (!selectedTaskId) return;
+    setCancelling(true);
+    try {
+      await cancelTask(selectedTaskId);
+      onSuccess?.("Execution cancelled");
+    } catch (err) {
+      const msg =
+        err instanceof Error ? err.message : "Failed to cancel execution";
+      onError?.(msg);
+    } finally {
+      setCancelling(false);
+      setShowCancelConfirm(false);
+    }
+  }, [selectedTaskId, onError, onSuccess]);
 
   // DB log state for task-focused mode
   const [dbEntries, setDbEntries] = useState<ExecutionLogEntry[]>([]);
@@ -364,6 +388,39 @@ export default function ExecutionLog({
             <span className="text-xs font-mono text-yellow-400 bg-yellow-900 px-1.5 py-0.5 rounded">
               {formatElapsed(elapsedSeconds)} elapsed
             </span>
+          )}
+          {selectedTaskStatus === "running" && (
+            <div className="relative">
+              <button
+                onClick={() => setShowCancelConfirm(true)}
+                disabled={cancelling}
+                className="px-2 py-0.5 rounded text-xs font-medium bg-red-900 text-red-300 hover:bg-red-800 disabled:opacity-50"
+              >
+                {cancelling ? "Cancelling..." : "Cancel Execution"}
+              </button>
+              {showCancelConfirm && (
+                <div className="absolute left-0 top-full mt-1 bg-gray-700 border border-gray-600 rounded shadow-lg z-20 p-3 min-w-[220px]">
+                  <p className="text-xs text-gray-200 mb-2">
+                    Cancel execution of {selectedTaskId}?
+                  </p>
+                  <div className="flex gap-2">
+                    <button
+                      onClick={handleCancelExecution}
+                      disabled={cancelling}
+                      className="px-2 py-1 rounded text-xs font-medium bg-red-700 text-white hover:bg-red-600 disabled:opacity-50"
+                    >
+                      {cancelling ? "Cancelling..." : "Confirm"}
+                    </button>
+                    <button
+                      onClick={() => setShowCancelConfirm(false)}
+                      className="px-2 py-1 rounded text-xs font-medium bg-gray-600 text-gray-200 hover:bg-gray-500"
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
           )}
           {dbLoading && (
             <span className="text-xs text-gray-500">Loading...</span>

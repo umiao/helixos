@@ -27,6 +27,7 @@ interface BottomPanelContainerProps {
   onReviewDecision: (taskId: string, decision: string) => void;
   onSelectTask: (task: Task) => void;
   onError: (msg: string) => void;
+  onSuccess: (msg: string) => void;
   onTaskUpdated: (updated: Task) => void;
   onPlanConfirmed: (taskId: string, writtenIds: string[]) => void;
 }
@@ -49,6 +50,7 @@ export default function BottomPanelContainer({
   onReviewDecision,
   onSelectTask,
   onError,
+  onSuccess,
   onTaskUpdated,
   onPlanConfirmed,
 }: BottomPanelContainerProps) {
@@ -195,6 +197,8 @@ export default function BottomPanelContainer({
             selectedTaskId={selectedTask?.id}
             selectedTaskStatus={selectedTask?.status}
             executionStartedAt={selectedTask?.execution?.started_at}
+            onError={onError}
+            onSuccess={onSuccess}
           />
         ) : bottomPanel === "review" ? (
           <ReviewPanel

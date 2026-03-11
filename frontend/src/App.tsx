@@ -416,6 +416,7 @@ function App() {
             onReviewDecision={handleReviewDecision}
             onSelectTask={handleSelectTask}
             onError={(msg) => addToast(msg, "error")}
+            onSuccess={(msg) => addToast(msg, "success")}
             onTaskUpdated={(updated) => {
               setTasks((prev) =>
                 prev.map((t) => (t.id === updated.id ? updated : t)),

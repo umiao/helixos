@@ -32,19 +32,6 @@
 ### P1 -- Should Have (agentic intelligence)
 
 
-#### Add Cancel Execution button to ExecutionLog
-- **Priority**: P1
-- **Complexity**: S
-- **Depends on**: None
-- **Description**: Users watching a RUNNING task in ExecutionLog have no visible "Cancel Execution" button. Current workaround is dragging task backward to BACKLOG (non-discoverable). Backend endpoint POST /api/tasks/{id}/cancel already exists (src/routes/execution.py:426). Add "Cancel Execution" button to ExecutionLog header when selectedTaskStatus="running".
-- **Acceptance Criteria**:
-  1. ExecutionLog.tsx shows "Cancel Execution" button in header when selectedTaskStatus="running"
-  2. Button calls POST /api/tasks/{id}/cancel endpoint with selectedTaskId
-  3. On success, task transitions to FAILED status and toast shows "Execution cancelled"
-  4. On error, toast shows error message
-  5. Button hidden when selectedTaskStatus != "running"
-  6. User journey: User views RUNNING task T-P0-100 in ExecutionLog → sees "Cancel Execution" button in header → clicks button → sees confirmation dialog "Cancel execution of T-P0-100?" → confirms → task transitions to FAILED status → ExecutionLog updates
-  7. Manual smoke test: Start task execution, open ExecutionLog, verify Cancel button appears, click it, verify task transitions to FAILED and button disappears
 
 
 ### P2 -- Nice to Have
@@ -137,6 +124,11 @@ T-P1-127 depends on T-P1-123 (completed)
 
 
 > 57 completed tasks archived to [archive/completed_tasks.md](archive/completed_tasks.md).
+
+#### [x] T-P1-173: Add Cancel Execution button to ExecutionLog -- 2026-03-11
+- Added "Cancel Execution" button to ExecutionLog header when task status is "running"
+- Button shows confirmation dialog before calling POST /api/tasks/{id}/cancel
+- Success/error toasts via onSuccess/onError callbacks threaded through BottomPanelContainer
 
 #### [x] T-P1-172: Add P3 priority support to UI and enrichment -- 2026-03-11
 - Added P3 option to NewTaskModal dropdown, enrichment prompt, EnrichmentResult model, and JSON schema
