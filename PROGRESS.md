@@ -236,3 +236,10 @@
 - **Sanity check result**: 15 review pipeline guard tests pass, 65 task_manager + drag_to_review tests pass, 1627 full suite tests pass (6 skipped). Pre-existing scheduler test timeout unrelated. Ruff clean. [AUTO-VERIFIED]
 - **Status**: [DONE]
 - **Request**: No TASKS.md change (fix for blog-proj:T-P0-8 incident, not a tracked task)
+
+## 2026-03-10 -- [T-P0-166] Bug fix: Preserve plan summary during regeneration
+- **What I did**: Fixed bug where plan summary (description field) was cleared when user clicked Replan after review, causing context loss. Removed `row.description = ""` from GENERATING state in `set_plan_state()` (line 705 in task_manager.py). Updated docstring to document that GENERATING now preserves description so UI can show previous summary during regeneration, while still setting `has_proposed_tasks=False` (no valid plan_json to back it) and clearing plan_json. Added inline comments explaining the rationale. Updated 2 tests in test_plan_state_machine.py to reflect new behavior where description is preserved during all transitions to GENERATING state.
+- **Deliverables**: `src/task_manager.py` (modified: removed description clearing, updated docstring, added comments), `tests/test_plan_state_machine.py` (updated 2 tests: test_none_to_generating, test_ready_to_generating)
+- **Sanity check result**: 73 plan state machine tests pass, 383 plan-related tests pass, 40 task_manager tests pass. Frontend gracefully handles description + null plan_json: ReviewPanel shows old description as markdown during GENERATING (verified at line 865-869 in ReviewPanel.tsx), PlanReviewPanel shows spinner during GENERATING (line 119-140 in PlanReviewPanel.tsx). [AUTO-VERIFIED]
+- **Status**: [DONE]
+- **Request**: Move T-P0-166 to Completed

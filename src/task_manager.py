@@ -661,8 +661,9 @@ class TaskManager:
 
         - **NONE**: clears plan_json, description="", has_proposed_tasks=False,
           plan_generation_id=NULL.
-        - **GENERATING**: clears plan_json + description, preserves caller's
-          generation_id.
+        - **GENERATING**: clears plan_json, preserves description (so UI can show
+          previous summary during regeneration), sets has_proposed_tasks=False
+          (no valid plan_json to back it), preserves caller's generation_id.
         - **READY**: requires plan_json + description, computes has_proposed_tasks.
         - **FAILED**: clears plan_json, preserves description.
         - **DECOMPOSED**: preserves all fields.
@@ -702,8 +703,8 @@ class TaskManager:
                 row.plan_generation_id = None
             elif new_status == PlanStatus.GENERATING:
                 row.plan_json = None
-                row.description = ""
-                row.has_proposed_tasks = False
+                # Preserve description so UI can show previous summary during regeneration
+                row.has_proposed_tasks = False  # No valid plan_json to back this flag
                 row.plan_generation_id = plan_generation_id
             elif new_status == PlanStatus.READY:
                 if plan_json is None or description is None:

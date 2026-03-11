@@ -82,7 +82,7 @@ class TestSetPlanStateValid:
     """Test all valid plan state transitions via set_plan_state."""
 
     async def test_none_to_generating(self, session_factory) -> None:
-        """NONE -> GENERATING: clears data, sets generation_id."""
+        """NONE -> GENERATING: preserves description, sets generation_id."""
         tm = TaskManager(session_factory)
         await tm.create_task(make_task(description="old desc"))
 
@@ -94,7 +94,7 @@ class TestSetPlanStateValid:
         assert task is not None
         assert task.plan_status == "generating"
         assert task.plan_generation_id == "gen-1"
-        assert task.description == ""
+        assert task.description == "old desc"  # Preserved during generation
         assert task.plan_json is None
         assert task.has_proposed_tasks is False
 
@@ -206,7 +206,7 @@ class TestSetPlanStateValid:
         assert task.has_proposed_tasks is False
 
     async def test_ready_to_generating(self, session_factory) -> None:
-        """READY -> GENERATING: regeneration clears old data."""
+        """READY -> GENERATING: regeneration preserves description, clears plan_json."""
         tm = TaskManager(session_factory)
         await tm.create_task(make_task(plan_status="generating"))
         await tm.set_plan_state(
@@ -225,7 +225,8 @@ class TestSetPlanStateValid:
         assert task.plan_status == "generating"
         assert task.plan_generation_id == "gen-2"
         assert task.plan_json is None
-        assert task.description == ""
+        # Description is preserved so UI can show old summary during regeneration (T-P0-166)
+        assert task.description == "Old plan text for display."
 
     async def test_failed_to_generating(self, session_factory) -> None:
         """FAILED -> GENERATING: retry clears and sets new generation_id."""
