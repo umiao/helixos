@@ -285,8 +285,9 @@ export default function ConversationView({
         const items = normalizeStreamEvents(resp.events, "db");
         setPersistedItems(items);
       })
-      .catch(() => {
-        // Non-critical - will show live events only
+      .catch((err) => {
+        // Non-critical - will show live events only, but log error for debugging
+        console.error(`[ConversationView] Failed to fetch stream log for ${taskId}:`, err);
       })
       .finally(() => {
         if (!cancelled) setLoading(false);
@@ -431,7 +432,7 @@ export default function ConversationView({
 
         {isExpanded && (
           <div className="border-t border-gray-700/50">
-            {item.toolInput && (
+            {item.toolInput != null && (
               <div className="bg-gray-800/50">
                 <div className="px-2 py-0.5 text-[10px] text-gray-500 uppercase font-medium border-b border-gray-700/30">
                   Input

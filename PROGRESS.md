@@ -48,6 +48,16 @@
 ## 2026-03-09 -- [T-P1-148] Add thinking block rendering in ConversationView
 - **What I did**: Added THINKING event type to backend `sdk_adapter.py` -- ThinkingBlock content is now emitted as `ClaudeEvent(type=THINKING, thinking=...)` instead of being silently skipped. Frontend: added `"thinking"` to `StreamDisplayItem.type` and `StreamContentBlock.type` in `types.ts`. Updated `normalizeStreamEvents` to handle both top-level `thinking` events and thinking content blocks inside `assistant` messages. Added collapsible thinking block renderer in ConversationView: collapsed by default showing "Thinking" label + preview, expandable to full reasoning text. Visual treatment: muted gray-500 italic text, semi-transparent bg, distinct from regular text messages. Updated existing test from "thinking skipped" to "thinking emitted" and added empty-thinking skip test.
 - **Deliverables**: `src/sdk_adapter.py`, `frontend/src/types.ts`, `frontend/src/components/ConversationView.tsx`, `tests/test_sdk_adapter.py`
+- **Sanity check result**: TypeScript clean (`npx tsc --noEmit`), Vite build clean, 11 stream_json tests pass, ruff clean. [AUTO-VERIFIED]
+- **Status**: [DONE]
+- **Request**: Move T-P1-148 to Completed
+
+## 2026-03-10 -- [T-P0-165] Persist task selection to localStorage for conversation recovery after page refresh
+- **What I did**: Implemented localStorage persistence for selected task to recover conversation state after page refresh. Added two useEffect hooks in `useTaskState.ts`: one syncs selectedTask changes to localStorage (key: "helix_selected_task_id"), another restores persisted selection after tasks load (with deleted-task cleanup). Improved error handling in ConversationView.tsx fetchStreamLog catch block to log errors to console instead of silently swallowing. Enhanced backend endpoint `/api/tasks/{task_id}/stream-log` with explicit OSError handling for concurrent read scenarios and added `errors="replace"` to file.open() for robustness during active JSONL writes. Fixed two pre-existing TypeScript errors discovered during build: ConversationView.tsx line 435 (toolInput unknown → null check), types.ts PlanStatus missing "decomposed" value.
+- **Deliverables**: `frontend/src/hooks/useTaskState.ts` (added localStorage sync + restore logic), `frontend/src/components/ConversationView.tsx` (improved error logging + TypeScript fix), `src/routes/dashboard.py` (enhanced stream-log endpoint error handling), `frontend/src/types.ts` (added "decomposed" to PlanStatus)
+- **Sanity check result**: TypeScript clean build, 11 stream_json tests pass, Vite build successful, frontend compiles without errors. [AUTO-VERIFIED]
+- **Status**: [DONE]
+- **Request**: Move T-P0-165 to Completed
 - **Sanity check result**: 37 sdk_adapter tests pass, 217 core tests pass, 144 review/plan tests pass, ruff clean, Vite build clean. [AUTO-VERIFIED]
 - **Status**: [DONE]
 - **Request**: Move T-P1-148 to Completed
@@ -219,3 +229,10 @@
 - **Sanity check result**: 40 task_manager tests pass, no regressions. Audit corrections verified against codebase (App.tsx:311-318 Clear button confirmed, src/routes/execution.py:426 cancel endpoint confirmed, task_manager.py:321,362,480 race mitigations confirmed). All 6 proposed tasks have proper schema (priority, complexity, description, 5+ ACs including user journey and smoke test). UX Task Audit reviewed and found accurate (no corrections needed). [MANUAL-VERIFIED]
 - **Status**: [DONE]
 - **Request**: Move T-P0-164 to Completed
+
+## 2026-03-10 -- [T-P0-8-fix] Atomic review pipeline completion (finalize_review)
+- **What I did**: Fixed review pipeline TOCTOU Gap 1 (multi-field completion not atomic) and Gap 2 (lifecycle state set before pre-flight). Created `finalize_review()` method in TaskManager that atomically writes review_json, review_status, review_lifecycle_state, AND transitions task status in one DB session with one expected_status guard. Refactored `_run_review_bg()` to replace 4 separate calls (2 guarded, 2 unguarded) with single `finalize_review()` call. Moved `set_review_lifecycle_state(RUNNING)` to AFTER pre-flight check passes, so non-REVIEW tasks never get lifecycle_state=RUNNING written. Updated 15 tests (5 new for finalize_review atomicity, updated existing tests to use finalize_review).
+- **Deliverables**: `src/task_manager.py` (new `finalize_review` method), `src/routes/reviews.py` (refactored `_run_review_bg`, reordered lifecycle/pre-flight), `tests/test_review_pipeline_guards.py` (15 tests, 5 new), `LESSONS.md` (lesson #29)
+- **Sanity check result**: 15 review pipeline guard tests pass, 65 task_manager + drag_to_review tests pass, 1627 full suite tests pass (6 skipped). Pre-existing scheduler test timeout unrelated. Ruff clean. [AUTO-VERIFIED]
+- **Status**: [DONE]
+- **Request**: No TASKS.md change (fix for blog-proj:T-P0-8 incident, not a tracked task)

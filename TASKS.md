@@ -116,6 +116,9 @@
   4. User journey: User sets filters (Priority=P0,P1, Status=review_needs_human) → searches "auth" → closes browser → reopens HelixOS → filters and search query restored → same filtered view appears
   5. Manual smoke test: Apply multiple filters, reload page, verify filters persist and correct tasks shown
 
+#### T-P0-166: bug：为什么在review过后 Plan和Review Tab中的plan Summary会被清空？Human因此丢失关键的context信息。
+- **Plan**: ready
+
 ## Dependency Graph
 
 > Full historical dependency graph relocated to [docs/architecture/dependency-graph-history.md](docs/architecture/dependency-graph-history.md).
@@ -147,6 +150,9 @@ T-P1-127 depends on T-P1-123 (completed)
 
 
 > 57 completed tasks archived to [archive/completed_tasks.md](archive/completed_tasks.md).
+
+#### [x] T-P0-165: 刷新页面后conversation会丢失。能否从传输得到的plain log处recover我们的流式conversation结果 -- 2026-03-10
+- Implemented localStorage persistence for selected task ID with automatic restore after page refresh. Added two useEffect hooks in useTaskState.ts: sync selectedTask to localStorage (cleared on deselect/deleted task), restore selection after tasks load. Enhanced ConversationView error handling (log to console instead of silent fail). Improved backend stream-log endpoint with OSError handling for concurrent JSONL reads. Fixed pre-existing TypeScript errors (toolInput unknown check, missing "decomposed" PlanStatus value).
 
 #### [x] T-P0-164: Audit review - Verify findings accuracy and propose fix tasks -- 2026-03-10
 - Reviewed all findings in docs/audits against current codebase. Corrected 2 inaccuracies (LOW-019 Clear button exists, MEDIUM-003 backend endpoint exists). Updated audit docs with verification notes and Known Omissions section. Updated race condition audit with T-P1-169 and RACE-4 mitigation notes. Proposed 6 fix tasks in TASKS.md (2 P1, 3 P2, 1 P3) with full ACs including user journey and smoke test criteria.

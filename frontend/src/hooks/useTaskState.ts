@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   fetchTask,
   fetchTasks,
@@ -25,12 +25,49 @@ export function useTaskState(addToast: (text: string, type: "success" | "error")
   const [filterComplexities, setFilterComplexities] = useState<Set<string>>(new Set());
   const [reviewSubmitTask, setReviewSubmitTask] = useState<Task | null>(null);
   const [editTask, setEditTask] = useState<Task | null>(null);
+  const [hasRestoredSelection, setHasRestoredSelection] = useState(false);
 
   // Keep refs for SSE handler (avoid stale closures)
   const tasksRef = useRef(tasks);
   tasksRef.current = tasks;
   const selectedTaskRef = useRef(selectedTask);
   selectedTaskRef.current = selectedTask;
+
+  // Sync selectedTask to localStorage (for page refresh recovery)
+  useEffect(() => {
+    if (!hasRestoredSelection) return; // Skip initial sync to avoid overwriting restored state
+
+    if (selectedTask) {
+      localStorage.setItem("helix_selected_task_id", selectedTask.id);
+    } else {
+      localStorage.removeItem("helix_selected_task_id");
+    }
+  }, [selectedTask, hasRestoredSelection]);
+
+  // Restore persisted task selection after tasks are loaded (page refresh recovery)
+  useEffect(() => {
+    if (hasRestoredSelection || loading || tasks.length === 0) return;
+
+    const persistedTaskId = localStorage.getItem("helix_selected_task_id");
+    if (persistedTaskId) {
+      const task = tasks.find((t) => t.id === persistedTaskId);
+      if (task) {
+        // Auto-select the persisted task (triggers ConversationView mount and fetchStreamLog)
+        setSelectedTask(task);
+        if (
+          task.status === "review" ||
+          task.status === "review_auto_approved" ||
+          task.status === "review_needs_human"
+        ) {
+          setBottomPanel("review");
+        }
+      } else {
+        // Task was deleted - clear stale localStorage entry
+        localStorage.removeItem("helix_selected_task_id");
+      }
+    }
+    setHasRestoredSelection(true);
+  }, [tasks, loading, hasRestoredSelection]);
 
   // Derive per-task stream summaries for popover display
   const streamSummaries = useMemo(() => {

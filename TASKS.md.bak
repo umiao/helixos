@@ -31,13 +31,95 @@
 
 ### P1 -- Should Have (agentic intelligence)
 
+#### Add P3 priority support to UI and enrichment
+- **Priority**: P1
+- **Complexity**: S
+- **Depends on**: None
+- **Description**: NewTaskModal dropdown only offers P0/P1/P2 options, but TASKS.md schema supports P3 (stretch goals). Enrichment prompt (config/prompts/enrichment_system.md) also omits P3. Users cannot create P3 tasks via UI, forcing manual TASKS.md edits. Add P3 option to dropdown and update enrichment prompt to include P3 in priority selection.
+- **Acceptance Criteria**:
+  1. NewTaskModal.tsx priority dropdown includes P3 option with label "P3 -- Stretch Goals"
+  2. enrichment_system.md prompt updated to generate P0/P1/P2/P3 priorities
+  3. User journey: User opens NewTaskModal → sees P3 option in priority dropdown → selects P3 → creates task → task appears in Backlog with P3 priority badge
+  4. User journey: User creates task with title "Add dark mode" → clicks "Enrich with AI" → enrichment returns priority="P3" → user sees P3 pre-selected in dropdown
+  5. Manual smoke test: Open NewTaskModal in browser, verify P3 option visible and functional, create P3 task and verify it appears in Backlog with correct badge color
 
+#### Add Cancel Execution button to ExecutionLog
+- **Priority**: P1
+- **Complexity**: S
+- **Depends on**: None
+- **Description**: Users watching a RUNNING task in ExecutionLog have no visible "Cancel Execution" button. Current workaround is dragging task backward to BACKLOG (non-discoverable). Backend endpoint POST /api/tasks/{id}/cancel already exists (src/routes/execution.py:426). Add "Cancel Execution" button to ExecutionLog header when selectedTaskStatus="running".
+- **Acceptance Criteria**:
+  1. ExecutionLog.tsx shows "Cancel Execution" button in header when selectedTaskStatus="running"
+  2. Button calls POST /api/tasks/{id}/cancel endpoint with selectedTaskId
+  3. On success, task transitions to FAILED status and toast shows "Execution cancelled"
+  4. On error, toast shows error message
+  5. Button hidden when selectedTaskStatus != "running"
+  6. User journey: User views RUNNING task T-P0-100 in ExecutionLog → sees "Cancel Execution" button in header → clicks button → sees confirmation dialog "Cancel execution of T-P0-100?" → confirms → task transitions to FAILED status → ExecutionLog updates
+  7. Manual smoke test: Start task execution, open ExecutionLog, verify Cancel button appears, click it, verify task transitions to FAILED and button disappears
 
 
 ### P2 -- Nice to Have
 
+#### Add atomic review submission endpoint
+- **Priority**: P2
+- **Complexity**: S
+- **Depends on**: None
+- **Description**: ReviewSubmitModal currently makes 2 separate API calls: PATCH /api/tasks/{id} to update title/description, then PATCH /api/tasks/{id}/status to transition to REVIEW. This creates a race condition where concurrent updates or SSE events between calls can cause data loss or stale review plans. Add backend endpoint POST /api/tasks/{id}/submit-for-review accepting optional {title, description} to ensure atomic transactional consistency.
+- **Acceptance Criteria**:
+  1. Backend endpoint POST /api/tasks/{id}/submit-for-review created in src/routes/reviews.py
+  2. Endpoint accepts optional {title, description} in request body
+  3. Single DB transaction: update title/description if provided, then transition status to REVIEW
+  4. ReviewSubmitModal.tsx updated to call new endpoint instead of 2 separate calls
+  5. User journey: User edits task plan in ReviewSubmitModal → clicks "Submit for Review" → single API call updates description AND transitions to REVIEW atomically → task appears in REVIEW column with updated description
+  6. Manual smoke test: Edit task description in ReviewSubmitModal, submit for review, verify REVIEW column shows task with updated description (no race condition)
 
-#### T-P0-164: 检视docs/audits 中的相关finding 是否准确，有无遗漏等。根据其中提到的内容吸纳采取合理之处，propose task在后续进行执行修正
+#### Add review sub-status badges to task cards
+- **Priority**: P2
+- **Complexity**: S
+- **Depends on**: None
+- **Description**: TaskCard currently shows generic "REVIEW" badge for all 3 review sub-states (review, review_auto_approved, review_needs_human). Users cannot distinguish between "under review", "auto-approved awaiting queue", and "needs human decision" without clicking the task. Add color-coded sub-status badges: gray "Under Review" for review, green "Auto-Approved" for review_auto_approved, orange "Needs Human" for review_needs_human.
+- **Acceptance Criteria**:
+  1. TaskCard.tsx updated to show sub-status badge based on task.status
+  2. review status → gray badge "Under Review"
+  3. review_auto_approved status → green badge "Auto-Approved"
+  4. review_needs_human status → orange badge "Needs Human"
+  5. Badge styles consistent with existing STATUS_COLORS palette
+  6. User journey: User drags task to REVIEW → task card shows gray "Under Review" badge → review pipeline completes with auto-approval → badge changes to green "Auto-Approved" → user drags to QUEUED
+  7. User journey: Review pipeline returns needs_human → task card shows orange "Needs Human" badge → user clicks task → ReviewPanel shows decision UI
+  8. Manual smoke test: Create task, drag to REVIEW, verify gray badge appears, wait for review completion, verify badge changes to green/orange based on result
+
+#### Add browser notification for needs-human review state
+- **Priority**: P2
+- **Complexity**: S
+- **Depends on**: None
+- **Description**: When review pipeline transitions task to review_needs_human, users are not proactively notified. They must check REVIEW column manually to discover tasks awaiting human decision. Add browser notification + toast when task transitions to review_needs_human to improve visibility.
+- **Acceptance Criteria**:
+  1. useSSEHandler.ts detects task_status_changed event with new_status="review_needs_human"
+  2. Browser notification triggered with title "Review Needs Human" and body "Task {local_task_id}: {title}"
+  3. Toast shown with orange theme: "Task {local_task_id} needs human review decision"
+  4. Notification only fires if user has granted browser notification permission
+  5. User journey: User creates task → drags to REVIEW → review pipeline runs → pipeline determines needs_human → browser notification appears with task title → user clicks notification → browser focuses HelixOS tab → task auto-selected in ReviewPanel
+  6. Manual smoke test: Trigger needs_human review result (e.g., by creating task with ambiguous requirements), verify browser notification appears, verify toast shows, verify clicking notification focuses correct task
+
+
+### P3 -- Stretch Goals
+
+#### Persist filter state to localStorage
+- **Priority**: P3
+- **Complexity**: S
+- **Depends on**: None
+- **Description**: Filter state (filterStatus, filterPriorities, filterComplexities, searchQuery) resets on page reload. Users must re-apply filters every session. KanbanBoard already persists DONE column sort order to localStorage. Add filter persistence using same pattern to improve UX for users who regularly use specific filter combinations.
+- **Acceptance Criteria**:
+  1. useTaskState.ts saves filterStatus, filterPriorities, filterComplexities, searchQuery to localStorage on change
+  2. On mount, useTaskState.ts loads persisted filter state from localStorage
+  3. Clear Filters button also clears localStorage
+  4. User journey: User sets filters (Priority=P0,P1, Status=review_needs_human) → searches "auth" → closes browser → reopens HelixOS → filters and search query restored → same filtered view appears
+  5. Manual smoke test: Apply multiple filters, reload page, verify filters persist and correct tasks shown
+
+#### T-P0-165: 刷新页面后conversation会丢失。能否从传输得到的plain log处recover我们的流式conversation结果。
+- **Plan**: ready
+
+#### T-P0-166: bug：为什么在review过后 Plan和Review Tab中的plan Summary会被清空？Human因此丢失关键的context信息。
 
 ## Dependency Graph
 
@@ -70,6 +152,9 @@ T-P1-127 depends on T-P1-123 (completed)
 
 
 > 57 completed tasks archived to [archive/completed_tasks.md](archive/completed_tasks.md).
+
+#### [x] T-P0-164: Audit review - Verify findings accuracy and propose fix tasks -- 2026-03-10
+- Reviewed all findings in docs/audits against current codebase. Corrected 2 inaccuracies (LOW-019 Clear button exists, MEDIUM-003 backend endpoint exists). Updated audit docs with verification notes and Known Omissions section. Updated race condition audit with T-P1-169 and RACE-4 mitigation notes. Proposed 6 fix tasks in TASKS.md (2 P1, 3 P2, 1 P3) with full ACs including user journey and smoke test criteria.
 
 #### [x] T-P1-168: Write-back UI title edits to TASKS.md -- 2026-03-10
 - Added `update_task_title()` to TasksWriter + wired into PATCH handler. Prevents sync from overwriting UI title edits.

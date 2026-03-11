@@ -3,10 +3,12 @@
 Verifies that the review pipeline handles concurrent status changes gracefully:
 - set_review_result only updates review_json (not status or other fields)
 - set_review_result skips write when expected_status doesn't match
+- finalize_review atomically writes all review fields under one status guard
 - Pipeline completion is a no-op when task has left REVIEW
 - Pipeline is not enqueued when BACKLOG->REVIEW transition is a no-op
 - Concurrent status change during pipeline run doesn't cause exceptions
 - Pipeline handles deleted tasks gracefully
+- Lifecycle state is not set before pre-flight passes
 """
 
 from __future__ import annotations
@@ -121,6 +123,117 @@ class TestSetReviewResult:
 
 
 # ---------------------------------------------------------------------------
+# Tests: finalize_review (atomic completion)
+# ---------------------------------------------------------------------------
+
+
+class TestFinalizeReview:
+    """Verify finalize_review atomically writes all review fields."""
+
+    async def test_finalize_review_writes_all_fields(
+        self, task_manager: TaskManager,
+    ):
+        """finalize_review writes review_json, review_status, lifecycle, and status."""
+        task = make_task(status=TaskStatus.REVIEW, description="Plan text")
+        await task_manager.create_task(task)
+
+        review_json = '{"rounds_total": 1, "rounds_completed": 1}'
+        result = await task_manager.finalize_review(
+            task.id,
+            review_json=review_json,
+            review_status="done",
+            lifecycle_state=ReviewLifecycleState.APPROVED,
+            new_task_status=TaskStatus.REVIEW_AUTO_APPROVED,
+            expected_status=TaskStatus.REVIEW,
+        )
+
+        assert result is not None
+        assert result.status == TaskStatus.REVIEW_AUTO_APPROVED
+        assert result.review is not None
+        assert result.review_status == "done"
+        assert result.review_lifecycle_state == ReviewLifecycleState.APPROVED.value
+
+    async def test_finalize_review_atomic_skip_on_mismatch(
+        self, task_manager: TaskManager,
+    ):
+        """When task moved away from REVIEW, finalize_review returns None and writes nothing."""
+        task = make_task(status=TaskStatus.REVIEW, description="Plan text")
+        await task_manager.create_task(task)
+
+        # Simulate user moving task to BACKLOG during pipeline run
+        await task_manager.update_status(task.id, TaskStatus.BACKLOG)
+
+        # finalize_review should return None -- no fields written
+        result = await task_manager.finalize_review(
+            task.id,
+            review_json='{"rounds_total": 1}',
+            review_status="done",
+            lifecycle_state=ReviewLifecycleState.APPROVED,
+            new_task_status=TaskStatus.REVIEW_AUTO_APPROVED,
+            expected_status=TaskStatus.REVIEW,
+        )
+
+        assert result is None
+
+        # Verify NONE of the four fields were written
+        final = await task_manager.get_task(task.id)
+        assert final is not None
+        assert final.status == TaskStatus.BACKLOG
+        assert final.review is None  # review_json not written
+        assert final.review_status == "idle"  # backward cleanup sets idle
+        assert final.review_lifecycle_state == ReviewLifecycleState.NOT_STARTED.value
+
+    async def test_finalize_review_needs_human(
+        self, task_manager: TaskManager,
+    ):
+        """finalize_review transitions to REVIEW_NEEDS_HUMAN correctly."""
+        task = make_task(status=TaskStatus.REVIEW, description="Plan text")
+        await task_manager.create_task(task)
+
+        result = await task_manager.finalize_review(
+            task.id,
+            review_json='{"human_decision_needed": true}',
+            review_status="done",
+            lifecycle_state=ReviewLifecycleState.REJECTED_SINGLE,
+            new_task_status=TaskStatus.REVIEW_NEEDS_HUMAN,
+            expected_status=TaskStatus.REVIEW,
+        )
+
+        assert result is not None
+        assert result.status == TaskStatus.REVIEW_NEEDS_HUMAN
+
+    async def test_finalize_review_raises_for_missing_task(
+        self, task_manager: TaskManager,
+    ):
+        """finalize_review raises ValueError for non-existent task."""
+        with pytest.raises(ValueError, match="Task not found"):
+            await task_manager.finalize_review(
+                "nonexistent:T-P0-999",
+                review_json='{}',
+                review_status="done",
+                lifecycle_state=ReviewLifecycleState.APPROVED,
+                new_task_status=TaskStatus.REVIEW_AUTO_APPROVED,
+            )
+
+    async def test_finalize_review_deleted_task_raises(
+        self, task_manager: TaskManager,
+    ):
+        """finalize_review raises ValueError for deleted task."""
+        task = make_task(status=TaskStatus.REVIEW, description="Plan text")
+        await task_manager.create_task(task)
+        await task_manager.delete_task(task.id)
+
+        with pytest.raises(ValueError, match="Task not found"):
+            await task_manager.finalize_review(
+                task.id,
+                review_json='{}',
+                review_status="done",
+                lifecycle_state=ReviewLifecycleState.APPROVED,
+                new_task_status=TaskStatus.REVIEW_AUTO_APPROVED,
+            )
+
+
+# ---------------------------------------------------------------------------
 # Tests: pipeline completion guards
 # ---------------------------------------------------------------------------
 
@@ -131,19 +244,26 @@ class TestPipelineCompletionGuards:
     async def test_completion_noop_when_not_in_review(
         self, task_manager: TaskManager,
     ):
-        """update_status with expected_status=REVIEW returns current state on mismatch."""
+        """finalize_review returns None when task is not in REVIEW."""
         task = make_task(status=TaskStatus.BACKLOG, description="Plan text")
         await task_manager.create_task(task)
 
-        # Simulate pipeline trying to transition BACKLOG -> REVIEW_AUTO_APPROVED
-        # (expected_status=REVIEW doesn't match current=BACKLOG, so no-op)
-        result = await task_manager.update_status(
-            task.id, TaskStatus.REVIEW_AUTO_APPROVED,
+        # Simulate pipeline trying to finalize on a BACKLOG task
+        result = await task_manager.finalize_review(
+            task.id,
+            review_json='{"rounds_total": 1}',
+            review_status="done",
+            lifecycle_state=ReviewLifecycleState.APPROVED,
+            new_task_status=TaskStatus.REVIEW_AUTO_APPROVED,
             expected_status=TaskStatus.REVIEW,
         )
 
-        # Should return current state without raising
-        assert result.status == TaskStatus.BACKLOG
+        assert result is None
+        # Verify task unchanged
+        final = await task_manager.get_task(task.id)
+        assert final is not None
+        assert final.status == TaskStatus.BACKLOG
+        assert final.review is None
 
 
 # ---------------------------------------------------------------------------
@@ -196,7 +316,8 @@ class TestConcurrentStatusChangeDuringPipeline:
     ):
         """Pipeline starts, user moves task REVIEW->BACKLOG mid-run.
 
-        Pipeline completes: no exception, no status transition, review_json NOT written.
+        Pipeline completes: no exception, no status transition, NO fields written
+        (atomic finalize_review returns None).
         """
         task = make_task(status=TaskStatus.REVIEW, description="Plan text")
         await task_manager.create_task(task)
@@ -204,25 +325,24 @@ class TestConcurrentStatusChangeDuringPipeline:
         # Simulate user moving task to BACKLOG during pipeline run
         await task_manager.update_status(task.id, TaskStatus.BACKLOG)
 
-        # Pipeline completes and tries to write review result
-        wrote = await task_manager.set_review_result(
-            task.id, '{"rounds_total": 1}',
+        # Pipeline completes and tries atomic finalization
+        result = await task_manager.finalize_review(
+            task.id,
+            review_json='{"rounds_total": 1}',
+            review_status="done",
+            lifecycle_state=ReviewLifecycleState.APPROVED,
+            new_task_status=TaskStatus.REVIEW_AUTO_APPROVED,
             expected_status=TaskStatus.REVIEW,
         )
-        assert wrote is False
+        # No exception, returns None (all writes skipped)
+        assert result is None
 
-        # Pipeline tries status transition
-        result = await task_manager.update_status(
-            task.id, TaskStatus.REVIEW_AUTO_APPROVED,
-            expected_status=TaskStatus.REVIEW,
-        )
-        # No exception, task stays in BACKLOG
-        assert result.status == TaskStatus.BACKLOG
-
-        # review_json should not have been written
+        # Verify nothing was written
         final = await task_manager.get_task(task.id)
         assert final is not None
+        assert final.status == TaskStatus.BACKLOG
         assert final.review is None
+        assert final.review_status == "idle"
 
     async def test_pipeline_completes_after_task_deleted(
         self, task_manager: TaskManager,
@@ -234,21 +354,24 @@ class TestConcurrentStatusChangeDuringPipeline:
         # Delete task
         await task_manager.delete_task(task.id)
 
-        # Pipeline tries to write review result -- should raise ValueError
+        # Pipeline tries atomic finalization -- should raise ValueError
         with pytest.raises(ValueError, match="Task not found"):
-            await task_manager.set_review_result(
-                task.id, '{"rounds_total": 1}',
-                expected_status=TaskStatus.REVIEW,
+            await task_manager.finalize_review(
+                task.id,
+                review_json='{"rounds_total": 1}',
+                review_status="done",
+                lifecycle_state=ReviewLifecycleState.APPROVED,
+                new_task_status=TaskStatus.REVIEW_AUTO_APPROVED,
             )
 
 
 # ---------------------------------------------------------------------------
-# Tests: pre-flight check (Fix 5)
+# Tests: pre-flight check (Gap 2 fix)
 # ---------------------------------------------------------------------------
 
 
 class TestPreflightCheck:
-    """Verify pre-flight status check aborts pipeline for non-REVIEW tasks."""
+    """Verify pre-flight status check aborts pipeline without touching lifecycle."""
 
     async def test_preflight_aborts_for_backlog_task(self):
         """_run_review_bg aborts early when task is not in REVIEW at pre-flight."""
@@ -279,7 +402,46 @@ class TestPreflightCheck:
         # review_task should NOT have been called (pre-flight aborted)
         assert not mock_pipeline.review_task.called
 
-        # Lifecycle should have been reset to NOT_STARTED
-        mock_tm.set_review_lifecycle_state.assert_any_call(
-            backlog_task.id, ReviewLifecycleState.NOT_STARTED,
+        # Lifecycle should NOT have been set at all -- pre-flight aborts
+        # before set_review_lifecycle_state(RUNNING) is reached (Gap 2 fix)
+        mock_tm.set_review_lifecycle_state.assert_not_called()
+
+    async def test_lifecycle_not_set_before_preflight(self):
+        """Lifecycle state is only set to RUNNING after pre-flight passes."""
+        from src.routes.reviews import _enqueue_review_pipeline
+
+        review_task = make_task(status=TaskStatus.REVIEW, description="Plan text")
+
+        mock_tm = AsyncMock()
+        mock_tm.set_review_lifecycle_state = AsyncMock()
+        mock_tm.get_task = AsyncMock(return_value=review_task)
+        # finalize_review returns a result (pipeline completes successfully)
+        mock_tm.finalize_review = AsyncMock(return_value=review_task)
+
+        mock_pipeline = MagicMock()
+        # Return a mock ReviewState
+        mock_review_state = MagicMock()
+        mock_review_state.human_decision_needed = False
+        mock_review_state.lifecycle_state = ReviewLifecycleState.APPROVED.value
+        mock_review_state.model_dump_json.return_value = '{}'
+        mock_pipeline.review_task = AsyncMock(return_value=mock_review_state)
+
+        event_bus = EventBus()
+
+        _enqueue_review_pipeline(
+            task_manager=mock_tm,
+            review_pipeline=mock_pipeline,
+            event_bus=event_bus,
+            task=review_task,
+            task_id=review_task.id,
         )
+
+        await asyncio.sleep(0.15)
+
+        # Pre-flight passed, so lifecycle RUNNING should be set
+        mock_tm.set_review_lifecycle_state.assert_called_once_with(
+            review_task.id, ReviewLifecycleState.RUNNING,
+        )
+
+        # review_task was called (pipeline ran)
+        assert mock_pipeline.review_task.called

@@ -163,6 +163,14 @@
   - Note: `content_block_delta` in our parser maps to `stream_event.event.delta` in actual CLI output. The event nesting is different than assumed.
   - Tags: #stream-json #event-types #parser #code-executor
 
+  29. Atomic multi-field completion: guard ALL writes, not just the transition
+  - Context: Review pipeline completion wrote 4 fields in separate DB sessions (set_review_result, set_review_status, set_review_lifecycle_state, update_status). Only 2 of 4 calls had expected_status guards. If the task moved between the guarded set_review_result (passes) and the guarded update_status, the unguarded set_review_status and set_review_lifecycle_state wrote orphaned metadata to a task no longer in REVIEW.
+  - Root cause: Multi-field completion treated as sequential independent writes rather than one atomic operation. The TOCTOU fix (expected_status guards) was applied to some calls but not all, leaving windows for partial writes.
+  - Fix: Created `finalize_review()` in TaskManager that bundles review_json, review_status, review_lifecycle_state, and status transition into one DB session with one precondition check. If the task has moved, ALL writes are skipped atomically.
+  - Second fix: Moved `set_review_lifecycle_state(RUNNING)` to AFTER the pre-flight check, so a non-REVIEW task never gets lifecycle_state=RUNNING written to it.
+  - Rule: When a background pipeline writes N fields on completion, bundle them into one method with one precondition check. N separate guarded calls still have N-1 TOCTOU windows between them.
+  - Tags: #toctou #atomic #review-pipeline #multi-field #state-consistency
+
   22. `--verbose` is REQUIRED for stream-json to emit intermediate events
   - Context: T-P0-91 addendum. Official docs say: "Use `--output-format stream-json` with `--verbose` and `--include-partial-messages` to receive tokens as they're generated."
   - Our code_executor.py (line 271-280) uses `--output-format stream-json` and `--include-partial-messages` but does NOT include `--verbose`. Without `--verbose`, stream-json likely only emits the final `result` event -- no `system`, `assistant`, `stream_event` events appear during execution.

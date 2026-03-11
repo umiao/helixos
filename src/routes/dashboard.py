@@ -119,12 +119,22 @@ async def get_task_stream_log(
 
     latest = jsonl_files[-1]
     events: list[dict] = []
-    with open(latest, encoding="utf-8") as f:
-        for line in f:
-            stripped = line.strip()
-            if stripped:
-                with contextlib.suppress(json.JSONDecodeError, ValueError):
-                    events.append(json.loads(stripped))
+    # Read JSONL file with explicit error handling for concurrent writes.
+    # The executor may still be writing to this file during active execution.
+    # We suppress JSON decode errors to skip incomplete lines at the end.
+    try:
+        with open(latest, encoding="utf-8", errors="replace") as f:
+            for line in f:
+                stripped = line.strip()
+                if stripped:
+                    with contextlib.suppress(json.JSONDecodeError, ValueError):
+                        events.append(json.loads(stripped))
+    except OSError as e:
+        # File access error (unlikely, but possible on Windows with file locking)
+        logger.warning(
+            f"Failed to read stream log {latest} for task {task_id}: {e}",
+        )
+        return StreamLogResponse(task_id=task_id, file="", events=[])
 
     return StreamLogResponse(
         task_id=task_id,

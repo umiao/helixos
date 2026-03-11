@@ -541,6 +541,52 @@ class TaskManager:
                 return False
             return row.execution_epoch_id == epoch_id
 
+    async def finalize_review(
+        self,
+        task_id: str,
+        review_json: str,
+        review_status: str,
+        lifecycle_state: ReviewLifecycleState,
+        new_task_status: TaskStatus,
+        expected_status: TaskStatus = TaskStatus.REVIEW,
+    ) -> Task | None:
+        """Atomic review pipeline completion.
+
+        Writes review_json, review_status, review_lifecycle_state, AND transitions
+        task status -- all in one session, guarded by expected_status.
+        Returns the updated Task, or None if precondition failed (task moved away).
+
+        Args:
+            task_id: The task to finalize.
+            review_json: Serialized ReviewState JSON.
+            review_status: Review status string (e.g. "done").
+            lifecycle_state: Terminal lifecycle state from the pipeline.
+            new_task_status: Target task status (REVIEW_AUTO_APPROVED or REVIEW_NEEDS_HUMAN).
+            expected_status: The status the task must be in for writes to proceed.
+
+        Raises:
+            ValueError: If the task is not found or is deleted.
+        """
+        async with get_session(self._sf) as session:
+            row = await session.get(TaskRow, task_id)
+            if row is None or row.is_deleted:
+                raise ValueError(f"Task not found: {task_id}")
+            if TaskStatus(row.status) != expected_status:
+                return None  # task moved away, all writes skipped
+
+            # Validate transition
+            if new_task_status not in VALID_TRANSITIONS.get(TaskStatus(row.status), set()):
+                return None  # invalid transition, skip silently
+
+            now = datetime.now(UTC).isoformat()
+            row.review_json = review_json
+            row.review_status = review_status
+            row.review_lifecycle_state = lifecycle_state.value
+            row.status = new_task_status.value
+            row.updated_at = now
+            self._cleanup_on_backward(row, TaskStatus(expected_status), new_task_status)
+            return Task.model_validate(task_row_to_dict(row))
+
     async def set_review_result(
         self,
         task_id: str,

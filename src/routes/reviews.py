@@ -120,12 +120,9 @@ def _enqueue_review_pipeline(
     async def _run_review_bg() -> None:
         """Background task to run the review pipeline."""
         try:
-            # Set lifecycle state to RUNNING at pipeline start
-            await task_manager.set_review_lifecycle_state(
-                task_id, ReviewLifecycleState.RUNNING,
-            )
-
-            # Pre-flight: verify task is still in a review state before expensive LLM work
+            # Pre-flight: verify task is still in a review state before expensive LLM work.
+            # Lifecycle state is set AFTER pre-flight passes to avoid writing RUNNING
+            # to a task that will immediately abort (Gap 2 fix).
             _review_preflight_statuses = {
                 TaskStatus.REVIEW, TaskStatus.REVIEW_NEEDS_HUMAN,
             }
@@ -135,10 +132,12 @@ def _enqueue_review_pipeline(
                     "Review pre-flight failed for %s: status=%s, expected review. Aborting.",
                     task_id, preflight.status.value if preflight else "deleted",
                 )
-                await task_manager.set_review_lifecycle_state(
-                    task_id, ReviewLifecycleState.NOT_STARTED,
-                )
                 return
+
+            # Set lifecycle state to RUNNING only after pre-flight passes
+            await task_manager.set_review_lifecycle_state(
+                task_id, ReviewLifecycleState.RUNNING,
+            )
 
             def on_progress(completed: int, total: int, phase: str) -> None:
                 event_bus.emit(
@@ -197,50 +196,35 @@ def _enqueue_review_pipeline(
                 repo_path=repo_path,
             )
 
-            # Targeted update: only write review_json, not the full task object.
-            # The expected_status guard prevents stale results from overwriting
-            # a task that has moved away from REVIEW during the async pipeline.
-            wrote = await task_manager.set_review_result(
-                task_id, review_state.model_dump_json(),
-                expected_status=TaskStatus.REVIEW,
-            )
-            if not wrote:
-                logger.warning(
-                    "Review result for %s discarded: task no longer in REVIEW",
-                    task_id,
-                )
-                return  # bail -- no point setting review_status/lifecycle/transition
-
-            # Mark review_status as "done"
-            await task_manager.set_review_status(task_id, "done")
-
-            # Set lifecycle state to the terminal state computed by pipeline
-            await task_manager.set_review_lifecycle_state(
-                task_id,
-                ReviewLifecycleState(review_state.lifecycle_state),
-            )
-
+            # Determine target status based on review outcome
             if review_state.human_decision_needed:
                 new_status = TaskStatus.REVIEW_NEEDS_HUMAN
             else:
                 new_status = TaskStatus.REVIEW_AUTO_APPROVED
 
-            # Defense-in-depth: expected_status guard on the status transition
-            # catches the narrow TOCTOU window between set_review_result and here.
-            result = await task_manager.update_status(
-                task_id, new_status, expected_status=TaskStatus.REVIEW,
+            # Atomic completion: write review_json, review_status,
+            # lifecycle_state, AND transition task status in one DB session.
+            # All writes are guarded by expected_status=REVIEW -- if the task
+            # moved away during the async pipeline, nothing is written.
+            result = await task_manager.finalize_review(
+                task_id,
+                review_json=review_state.model_dump_json(),
+                review_status="done",
+                lifecycle_state=ReviewLifecycleState(review_state.lifecycle_state),
+                new_task_status=new_status,
+                expected_status=TaskStatus.REVIEW,
             )
-            if result.status == new_status:
-                event_bus.emit(
-                    "status_change", task_id, {"status": new_status.value},
-                    origin="review",
-                )
-            else:
+            if result is None:
                 logger.warning(
-                    "Review completed for %s but task no longer in REVIEW "
-                    "(current: %s), skipping transition to %s",
-                    task_id, result.status.value, new_status.value,
+                    "Review completed for %s but task no longer in REVIEW, "
+                    "all writes skipped",
+                    task_id,
                 )
+                return
+            event_bus.emit(
+                "status_change", task_id, {"status": result.status.value},
+                origin="review",
+            )
         except Exception as exc:
             logger.exception("Review failed for task %s", task_id)
             error_msg = f"Review pipeline failed: {exc}"
