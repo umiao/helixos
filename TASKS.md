@@ -36,19 +36,6 @@
 
 ### P2 -- Nice to Have
 
-#### Add atomic review submission endpoint
-- **Priority**: P2
-- **Complexity**: S
-- **Depends on**: None
-- **Description**: ReviewSubmitModal currently makes 2 separate API calls: PATCH /api/tasks/{id} to update title/description, then PATCH /api/tasks/{id}/status to transition to REVIEW. This creates a race condition where concurrent updates or SSE events between calls can cause data loss or stale review plans. Add backend endpoint POST /api/tasks/{id}/submit-for-review accepting optional {title, description} to ensure atomic transactional consistency.
-- **Acceptance Criteria**:
-  1. Backend endpoint POST /api/tasks/{id}/submit-for-review created in src/routes/reviews.py
-  2. Endpoint accepts optional {title, description} in request body
-  3. Single DB transaction: update title/description if provided, then transition status to REVIEW
-  4. ReviewSubmitModal.tsx updated to call new endpoint instead of 2 separate calls
-  5. User journey: User edits task plan in ReviewSubmitModal → clicks "Submit for Review" → single API call updates description AND transitions to REVIEW atomically → task appears in REVIEW column with updated description
-  6. Manual smoke test: Edit task description in ReviewSubmitModal, submit for review, verify REVIEW column shows task with updated description (no race condition)
-
 #### Add review sub-status badges to task cards
 - **Priority**: P2
 - **Complexity**: S
@@ -124,6 +111,11 @@ T-P1-127 depends on T-P1-123 (completed)
 
 
 > 57 completed tasks archived to [archive/completed_tasks.md](archive/completed_tasks.md).
+
+#### [x] T-P2-174: Add atomic review submission endpoint -- 2026-03-11
+- Added POST /api/tasks/{id}/submit-for-review endpoint that atomically updates title/description and transitions to REVIEW
+- Updated ReviewSubmitModal to use single API call instead of 2 separate calls
+- 6 regression tests in test_submit_for_review.py
 
 #### [x] T-P1-173: Add Cancel Execution button to ExecutionLog -- 2026-03-11
 - Added "Cancel Execution" button to ExecutionLog header when task status is "running"

@@ -39,6 +39,7 @@ from src.schemas import (
     ErrorResponse,
     ReviewDecisionRequest,
     StatusTransitionRequest,
+    SubmitForReviewRequest,
     TaskResponse,
 )
 from src.task_manager import (
@@ -415,6 +416,119 @@ async def update_task_status(
         existing.status != TaskStatus.REVIEW
         and body.status == TaskStatus.REVIEW
     ):
+        review_pipeline: ReviewPipeline | None = request.app.state.review_pipeline
+        hw: HistoryWriter = request.app.state.history_writer
+        _enqueue_review_pipeline(
+            task_manager, review_pipeline, event_bus, updated, task_id,
+            history_writer=hw,
+            repo_path=_resolve_repo_path(updated, request),
+        )
+
+    return _task_to_response(updated)
+
+
+# ------------------------------------------------------------------
+# Atomic submit-for-review endpoint
+# ------------------------------------------------------------------
+
+
+@router.post(
+    "/api/tasks/{task_id}/submit-for-review",
+    responses={
+        404: {"model": ErrorResponse},
+        409: {"model": ErrorResponse},
+    },
+)
+async def submit_for_review(
+    task_id: str,
+    body: SubmitForReviewRequest,
+    request: Request,
+) -> TaskResponse:
+    """Atomically update title/description and transition to REVIEW.
+
+    Combines the separate PATCH /tasks/{id} + PATCH /tasks/{id}/status
+    calls into a single transactional operation, eliminating the race
+    condition where concurrent updates between the two calls could cause
+    data loss.
+    """
+    task_manager: TaskManager = request.app.state.task_manager
+    scheduler: Scheduler = request.app.state.scheduler
+
+    task = await task_manager.get_task(task_id)
+    if task is None:
+        raise HTTPException(status_code=404, detail=f"Task not found: {task_id}")
+
+    # --- Step 1: Apply field updates (same logic as update_task_fields) ---
+    if body.title is not None and body.title != task.title:
+        task.title = body.title
+    if body.description is not None and body.description != task.description:
+        if task.plan_json:
+            try:
+                plan_data = json.loads(task.plan_json)
+            except (json.JSONDecodeError, TypeError):
+                plan_data = None
+            if isinstance(plan_data, dict):
+                plan_data["plan"] = body.description
+                task.plan_json = json.dumps(plan_data)
+                task.description = format_plan_as_text(plan_data)
+            else:
+                task.description = body.description
+        else:
+            task.description = body.description
+
+    # Persist field changes before status transition so the status
+    # transition sees the updated description (needed for plan validity).
+    task = await task_manager.update_task(task)
+
+    # Write-back title to TASKS.md (non-fatal, same as update_task_fields)
+    if body.title is not None:
+        try:
+            registry: ProjectRegistry = request.app.state.registry
+            project = registry.get_project(task.project_id)
+            if project.repo_path is not None:
+                tasks_md = project.repo_path / project.tasks_file
+                writer = TasksWriter(tasks_md)
+                if not writer.update_task_title(task.local_task_id, body.title):
+                    logger.warning("Failed to write-back title for %s", task_id)
+        except Exception as exc:
+            logger.warning("Title write-back failed for %s: %s", task_id, exc)
+
+    # --- Step 2: Transition to REVIEW ---
+    old_status = task.status
+    gate_enabled = scheduler.is_review_gate_enabled(task.project_id)
+
+    try:
+        updated = await task_manager.update_status(
+            task_id, TaskStatus.REVIEW,
+            review_gate_enabled=gate_enabled,
+        )
+    except DecompositionRequiredError as exc:
+        return JSONResponse(
+            status_code=428,
+            content={
+                "detail": str(exc),
+                "gate_action": "decomposition_required",
+                "task_id": task_id,
+            },
+        )
+    except PlanInvalidError as exc:
+        return JSONResponse(
+            status_code=428,
+            content={
+                "detail": str(exc),
+                "gate_action": "plan_invalid",
+                "task_id": task_id,
+            },
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from None
+
+    event_bus: EventBus = request.app.state.event_bus
+    event_bus.emit("status_change", task_id, {"status": "review"}, origin="api")
+    event_bus.emit("board_sync", task_id, {"trigger": "status_change"}, origin="api")
+
+    # Enqueue review pipeline if entering REVIEW
+    if old_status != TaskStatus.REVIEW:
         review_pipeline: ReviewPipeline | None = request.app.state.review_pipeline
         hw: HistoryWriter = request.app.state.history_writer
         _enqueue_review_pipeline(

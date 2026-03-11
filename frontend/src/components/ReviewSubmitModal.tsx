@@ -6,7 +6,7 @@
  */
 
 import { useCallback, useState } from "react";
-import { updateTask, updateTaskStatus } from "../api";
+import { submitForReview } from "../api";
 import type { Task } from "../types";
 
 const MIN_PLAN_LENGTH = 20;
@@ -38,15 +38,11 @@ export default function ReviewSubmitModal({
   const handleSubmit = useCallback(async () => {
     setSubmitting(true);
     try {
-      // If title/description changed, PATCH the task first
-      if (hasEdits) {
-        const fields: { title?: string; description?: string } = {};
-        if (titleChanged) fields.title = title;
-        if (descriptionChanged) fields.description = description;
-        await updateTask(task.id, fields);
-      }
-      // Transition to REVIEW
-      await updateTaskStatus(task.id, "review");
+      // Single atomic call: update fields + transition to REVIEW
+      const fields: { title?: string; description?: string } = {};
+      if (titleChanged) fields.title = title;
+      if (descriptionChanged) fields.description = description;
+      await submitForReview(task.id, fields);
       onSubmitted(task.id);
     } catch (err) {
       const msg =
@@ -55,7 +51,7 @@ export default function ReviewSubmitModal({
     } finally {
       setSubmitting(false);
     }
-  }, [task.id, title, description, titleChanged, descriptionChanged, hasEdits, onSubmitted, onError]);
+  }, [task.id, title, description, titleChanged, descriptionChanged, onSubmitted, onError]);
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">

@@ -151,6 +151,40 @@ export async function updateTaskStatus(
   return handleResponse<Task>(res);
 }
 
+/** Atomically update title/description and transition to REVIEW in one call. */
+export async function submitForReview(
+  taskId: string,
+  fields?: { title?: string; description?: string },
+): Promise<Task> {
+  const res = await fetch(
+    `/api/tasks/${encodeURIComponent(taskId)}/submit-for-review`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(fields ?? {}),
+    },
+  );
+
+  // Handle review gate blocked (428)
+  if (res.status === 428) {
+    let detail = "Review gate blocked";
+    let gateAction = "";
+    let blockedTaskId = "";
+    try {
+      const body = await res.json();
+      if (body.detail) detail = body.detail;
+      if (body.gate_action) gateAction = body.gate_action;
+      if (body.task_id) blockedTaskId = body.task_id;
+    } catch { /* ignore */ }
+    const err = new ApiError(428, detail);
+    (err as ApiError & { gate_action?: string; task_id?: string }).gate_action = gateAction;
+    (err as ApiError & { gate_action?: string; task_id?: string }).task_id = blockedTaskId;
+    throw err;
+  }
+
+  return handleResponse<Task>(res);
+}
+
 /** Retry the review pipeline for a task. Returns 202 on success. */
 export async function retryReview(
   taskId: string,

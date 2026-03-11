@@ -147,6 +147,16 @@ class UpdateTaskRequest(BaseModel):
     )
 
 
+class SubmitForReviewRequest(BaseModel):
+    """Atomic submit-for-review: optionally update title/description and
+    transition to REVIEW in a single request."""
+
+    title: str | None = Field(default=None, description="Updated task title")
+    description: str | None = Field(
+        default=None, description="Updated task description",
+    )
+
+
 class ReviewDecisionRequest(BaseModel):
     """Request to submit a human review decision."""
 

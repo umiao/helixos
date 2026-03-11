@@ -278,3 +278,10 @@
 - **Sanity check result**: TypeScript clean, Vite build clean, 1278 Python tests pass. [AUTO-VERIFIED] - no browser available; wiring verified via code inspection (cancelTask imported, button rendered conditionally on status="running", confirmation dialog, API call on confirm, toast callbacks wired).
 - **Status**: [DONE]
 - **Request**: Move T-P1-173 to Completed (DONE)
+
+## 2026-03-11 -- [T-P2-174] Add atomic review submission endpoint
+- **What I did**: Added POST /api/tasks/{id}/submit-for-review endpoint in src/routes/reviews.py that atomically updates optional title/description fields and transitions status to REVIEW in a single request. Added SubmitForReviewRequest schema. Added submitForReview() API function in frontend. Updated ReviewSubmitModal.tsx to use single atomic call instead of 2 separate calls (updateTask + updateTaskStatus). Handles plan_json sync, TASKS.md title write-back, review pipeline enqueue, and all gate errors (428).
+- **Deliverables**: `src/routes/reviews.py`, `src/schemas.py`, `frontend/src/api.ts`, `frontend/src/components/ReviewSubmitModal.tsx`, `tests/test_submit_for_review.py`
+- **Sanity check result**: 6 new tests pass, 66 review tests pass, TypeScript clean, Vite build clean, ruff clean. [AUTO-VERIFIED] - no browser available; wiring verified via code inspection (submitForReview imported in modal, single POST call replaces 2-call pattern, backend handles field update + status transition atomically).
+- **Status**: [DONE]
+- **Request**: Move T-P2-174 to Completed (DONE)
