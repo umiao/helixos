@@ -97,6 +97,7 @@ VALID_TRANSITIONS: dict[TaskStatus, set[TaskStatus]] = {
         TaskStatus.REVIEW_AUTO_APPROVED,
         TaskStatus.REVIEW_NEEDS_HUMAN,
         TaskStatus.BACKLOG,
+        TaskStatus.QUEUED,  # auto-approved tasks skip intermediate state
     },
     TaskStatus.REVIEW_AUTO_APPROVED: {TaskStatus.QUEUED, TaskStatus.BACKLOG},
     TaskStatus.REVIEW_NEEDS_HUMAN: {TaskStatus.QUEUED, TaskStatus.BACKLOG, TaskStatus.REVIEW},
@@ -561,7 +562,7 @@ class TaskManager:
             review_json: Serialized ReviewState JSON.
             review_status: Review status string (e.g. "done").
             lifecycle_state: Terminal lifecycle state from the pipeline.
-            new_task_status: Target task status (REVIEW_AUTO_APPROVED or REVIEW_NEEDS_HUMAN).
+            new_task_status: Target task status (QUEUED for auto-approve, REVIEW_NEEDS_HUMAN).
             expected_status: The status the task must be in for writes to proceed.
 
         Raises:

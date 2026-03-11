@@ -250,3 +250,10 @@
 - **Sanity check result**: Hook blocks CJK messages, blocks bad format, allows valid `[T-P0-999]` and `[T-P0-999 WIP]` formats, allows merge commits. `git log --oneline -10` shows all English with proper format. No CJK in TASKS.md.
 - **Status**: [DONE]
 - **Request**: No TASKS.md status change (not a tracked task, infrastructure improvement)
+
+## 2026-03-11 -- [T-P0-167] Fix task workflow data flow after review completion
+- **What I did**: Fixed three workflow breaks: (1) Auto-approved tasks now transition REVIEW -> QUEUED directly via finalize_review (eliminated REVIEW_AUTO_APPROVED as a produced state). (2) request_changes/reject now auto-trigger replan with semantic differentiation (targeted-fix vs fundamental-rework framing in LLM prompt). reject doesn't increment replan counter; falls back to BACKLOG at max attempts. (3) approve forces immediate debounced scheduler tick via new force_tick() method. Raised MAX_REPLAN_ATTEMPTS from 2 to 4.
+- **Deliverables**: `src/task_manager.py` (REVIEW->QUEUED transition), `src/routes/reviews.py` (auto-approve->QUEUED, reject/request_changes->replan, approve->force_tick, _build_replan_feedback decision_type), `src/scheduler.py` (force_tick method), `tests/test_review_workflow.py` (14 new regression tests), updated 7 existing test files for new behavior, `TASKS.md` (English spec + completed)
+- **Sanity check result**: 1685 tests pass (excluding 2 pre-existing flaky sdk_adapter tests and 1 pre-existing slow Windows-hang test). Ruff clean. No code path produces REVIEW_AUTO_APPROVED (enum preserved for backward compat). SSE payloads emit "queued" for auto-approved tasks.
+- **Status**: [DONE]
+- **Request**: Move T-P0-167 to Completed (DONE)

@@ -481,11 +481,12 @@ class TestTransitionTableCoverage:
         }
 
     def test_review_targets(self) -> None:
-        """REVIEW can go to REVIEW_AUTO_APPROVED, REVIEW_NEEDS_HUMAN, or BACKLOG."""
+        """REVIEW can go to REVIEW_AUTO_APPROVED, REVIEW_NEEDS_HUMAN, BACKLOG, or QUEUED."""
         assert VALID_TRANSITIONS[TaskStatus.REVIEW] == {
             TaskStatus.REVIEW_AUTO_APPROVED,
             TaskStatus.REVIEW_NEEDS_HUMAN,
             TaskStatus.BACKLOG,
+            TaskStatus.QUEUED,
         }
 
     def test_review_auto_approved_targets(self) -> None:
@@ -563,9 +564,8 @@ class TestLifecycleScenarios:
 
         # Reopen
         await tm.update_status("P0:T-P0-1", TaskStatus.BACKLOG)
-        # Go through review
+        # Go through review (auto-approve goes directly to QUEUED now)
         await tm.update_status("P0:T-P0-1", TaskStatus.REVIEW)
-        await tm.update_status("P0:T-P0-1", TaskStatus.REVIEW_AUTO_APPROVED)
         await tm.update_status("P0:T-P0-1", TaskStatus.QUEUED)
         await tm.update_status("P0:T-P0-1", TaskStatus.RUNNING)
         updated = await tm.update_status("P0:T-P0-1", TaskStatus.DONE)

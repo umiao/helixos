@@ -151,8 +151,7 @@ async def test_review_approve_auto(
     # 2 calls: "Starting..." + "Completed..." for single reviewer
     assert len(progress_calls) == 2
 
-    # Transition to REVIEW_AUTO_APPROVED -> QUEUED
-    await task_manager.update_status(task.id, TaskStatus.REVIEW_AUTO_APPROVED)
+    # Auto-approved tasks go directly to QUEUED (no intermediate state)
     await task_manager.update_status(task.id, TaskStatus.QUEUED)
 
     final = await task_manager.get_task(task.id)

@@ -112,6 +112,7 @@ async def app(task_manager, session_factory, mock_config):
     application.state.event_bus = EventBus()
     application.state.scheduler = MagicMock()
     application.state.scheduler.is_review_gate_enabled = MagicMock(return_value=False)
+    application.state.scheduler.force_tick = AsyncMock()
     application.state.history_writer = AsyncMock()
     application.state.review_pipeline = MagicMock()
     application.state.registry = MagicMock()
@@ -206,13 +207,15 @@ class TestReplanDecision:
     async def test_replan_max_attempts_enforced(
         self, client: AsyncClient, task_manager: TaskManager, app,
     ):
-        """3rd replan attempt should return 409."""
+        """Replan at max attempts should return 409."""
+        from src.routes.reviews import MAX_REPLAN_ATTEMPTS
+
         task = make_task(
             task_id="proj-a:T-P0-RP3",
             project_id="proj-a",
             local_task_id="T-P0-RP3",
             status=TaskStatus.REVIEW_NEEDS_HUMAN,
-            replan_attempt=2,  # Already at max
+            replan_attempt=MAX_REPLAN_ATTEMPTS,  # Already at max
         )
         task = task.model_copy(update={
             "review": ReviewState(
@@ -314,34 +317,58 @@ class TestReplanDecision:
             )
         assert resp.status_code == 503
 
-    async def test_existing_decisions_unchanged(
+    async def test_approve_decision_moves_to_queued(
         self, client: AsyncClient, task_manager: TaskManager,
     ):
-        """approve/reject/request_changes should work as before."""
-        for decision, expected_status in [
-            ("approve", "queued"),
-            ("reject", "backlog"),
-        ]:
-            task = make_task(
-                task_id=f"proj-a:T-P0-EX{decision}",
-                project_id="proj-a",
-                local_task_id=f"T-P0-EX{decision}",
-                status=TaskStatus.REVIEW_NEEDS_HUMAN,
-            )
-            task = task.model_copy(update={
-                "review": ReviewState(
-                    rounds_total=1, rounds_completed=1,
-                    consensus_score=0.5, human_decision_needed=True,
-                ),
-            })
-            await task_manager.create_task(task)
+        """approve should move task to QUEUED."""
+        task = make_task(
+            task_id="proj-a:T-P0-EXapprove",
+            project_id="proj-a",
+            local_task_id="T-P0-EXapprove",
+            status=TaskStatus.REVIEW_NEEDS_HUMAN,
+        )
+        task = task.model_copy(update={
+            "review": ReviewState(
+                rounds_total=1, rounds_completed=1,
+                consensus_score=0.5, human_decision_needed=True,
+            ),
+        })
+        await task_manager.create_task(task)
 
+        resp = await client.post(
+            "/api/tasks/proj-a:T-P0-EXapprove/review/decide",
+            json={"decision": "approve", "reason": "test"},
+        )
+        assert resp.status_code == 200
+        assert resp.json()["status"] == "queued"
+
+    async def test_reject_decision_triggers_replan(
+        self, client: AsyncClient, task_manager: TaskManager,
+    ):
+        """reject should trigger replan (not move to BACKLOG)."""
+        task = make_task(
+            task_id="proj-a:T-P0-EXreject",
+            project_id="proj-a",
+            local_task_id="T-P0-EXreject",
+            status=TaskStatus.REVIEW_NEEDS_HUMAN,
+        )
+        task = task.model_copy(update={
+            "review": ReviewState(
+                rounds_total=1, rounds_completed=1,
+                consensus_score=0.5, human_decision_needed=True,
+            ),
+        })
+        await task_manager.create_task(task)
+
+        with patch("src.routes.reviews.is_claude_cli_available", return_value=True):
             resp = await client.post(
-                f"/api/tasks/proj-a:T-P0-EX{decision}/review/decide",
-                json={"decision": decision, "reason": "test"},
+                "/api/tasks/proj-a:T-P0-EXreject/review/decide",
+                json={"decision": "reject", "reason": "test"},
             )
-            assert resp.status_code == 200
-            assert resp.json()["status"] == expected_status
+        assert resp.status_code == 200
+        # reject now triggers replan; task stays in REVIEW_NEEDS_HUMAN
+        assert resp.json()["status"] == "review_needs_human"
+        assert resp.json()["plan_status"] == "generating"
 
     async def test_invalid_decision_returns_400(
         self, client: AsyncClient, task_manager: TaskManager,

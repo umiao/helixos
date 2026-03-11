@@ -200,7 +200,7 @@ def _enqueue_review_pipeline(
             if review_state.human_decision_needed:
                 new_status = TaskStatus.REVIEW_NEEDS_HUMAN
             else:
-                new_status = TaskStatus.REVIEW_AUTO_APPROVED
+                new_status = TaskStatus.QUEUED  # auto-approved: skip intermediate state
 
             # Atomic completion: write review_json, review_status,
             # lifecycle_state, AND transition task status in one DB session.
@@ -221,6 +221,18 @@ def _enqueue_review_pipeline(
                     task_id,
                 )
                 return
+
+            # Log auto-approve event
+            if not review_state.human_decision_needed:
+                logger.info(
+                    "Task %s auto-approved (consensus=%.2f), transitioned directly to QUEUED",
+                    task_id, review_state.consensus_score,
+                )
+                event_bus.emit("log", task_id,
+                               {"message": "Review auto-approved, task queued for execution",
+                                "source": "review"},
+                               origin="review")
+
             event_bus.emit(
                 "status_change", task_id, {"status": result.status.value},
                 origin="review",
@@ -545,25 +557,29 @@ async def submit_review_decision(
     if body.decision == "replan":
         return await _handle_replan(task_id, task, body, request)
 
+    # --- request_changes / reject: auto-replan with semantic differentiation ---
+    if body.decision in ("request_changes", "reject"):
+        review_state = task.review if task.review is not None else ReviewState()
+        review_state = review_state.model_copy(update={"human_choice": body.decision})
+        updated_task = task.model_copy(update={"review": review_state})
+        await task_manager.update_task(updated_task)
+
+        history_writer: HistoryWriter = request.app.state.history_writer
+        await history_writer.write_review_decision(task_id, body.decision, reason=body.reason)
+
+        return await _handle_replan(task_id, updated_task, body, request)
+
+    # --- approve branch ---
     review_state = task.review if task.review is not None else ReviewState()
     review_state = review_state.model_copy(update={"human_choice": body.decision})
     updated_task = task.model_copy(update={"review": review_state})
     await task_manager.update_task(updated_task)
 
-    # Persist human decision (and optional reason) to review history
-    history_writer: HistoryWriter = request.app.state.history_writer
-    await history_writer.write_review_decision(task_id, body.decision, reason=body.reason)
+    history_writer_approve: HistoryWriter = request.app.state.history_writer
+    await history_writer_approve.write_review_decision(task_id, body.decision, reason=body.reason)
 
-    # Determine target status based on decision
-    if body.decision == "approve":
-        new_status = TaskStatus.QUEUED
-    elif body.decision == "request_changes":
-        new_status = TaskStatus.REVIEW  # stays in REVIEW with idle review_status
-    else:
-        new_status = TaskStatus.BACKLOG
+    new_status = TaskStatus.QUEUED
 
-    # Pass review gate for defense-in-depth (REVIEW_NEEDS_HUMAN -> QUEUED
-    # is allowed even with gate on, since the task already went through review)
     gate_enabled = scheduler.is_review_gate_enabled(task.project_id)
     try:
         updated = await task_manager.update_status(
@@ -581,26 +597,17 @@ async def submit_review_decision(
     except ValueError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from None
 
-    # For request_changes: set review_status to idle (not running)
-    # The state machine sets it to "running" when entering REVIEW,
-    # but request_changes means the user wants to edit before re-review.
-    if body.decision == "request_changes":
-        await task_manager.set_review_status(task_id, "idle")
-
     event_bus.emit("status_change", task_id, {"status": new_status.value}, origin="api")
     event_bus.emit("board_sync", task_id, {"trigger": "status_change"}, origin="api")
 
-    # Re-fetch to get the updated review_status
-    if body.decision == "request_changes":
-        updated = await task_manager.get_task(task_id)
-        if updated is None:
-            raise HTTPException(status_code=404, detail=f"Task not found: {task_id}")
+    # Force immediate scheduler tick so approved task starts without 5s delay
+    asyncio.create_task(scheduler.force_tick())
 
     return _task_to_response(updated)
 
 
 # Maximum number of replan attempts before the endpoint refuses further replans.
-MAX_REPLAN_ATTEMPTS = 2
+MAX_REPLAN_ATTEMPTS = 4
 
 
 async def _handle_replan(
@@ -620,6 +627,14 @@ async def _handle_replan(
 
     # Enforce replan attempt limit
     if task.replan_attempt >= MAX_REPLAN_ATTEMPTS:
+        # reject at max attempts falls back to BACKLOG (hard stop)
+        if body.decision == "reject":
+            await task_manager.update_status(task_id, TaskStatus.BACKLOG)
+            event_bus.emit("status_change", task_id, {"status": "backlog"}, origin="api")
+            refreshed = await task_manager.get_task(task_id)
+            if refreshed is None:
+                raise HTTPException(status_code=404, detail=f"Task not found: {task_id}")
+            return _task_to_response(refreshed)
         raise HTTPException(
             status_code=409,
             detail=f"Maximum replan attempts ({MAX_REPLAN_ATTEMPTS}) reached. "
@@ -638,10 +653,10 @@ async def _handle_replan(
     )
 
     # Build review feedback from latest review suggestions
-    review_feedback = _build_replan_feedback(task, body.reason)
+    review_feedback = _build_replan_feedback(task, body.reason, decision_type=body.decision)
 
-    # Increment replan_attempt and set plan_status to generating
-    new_attempt = task.replan_attempt + 1
+    # reject = fresh start (don't increment); request_changes/replan = targeted fix (increment)
+    new_attempt = task.replan_attempt if body.decision == "reject" else task.replan_attempt + 1
     generation_id = uuid.uuid4().hex
     await task_manager.set_plan_state(
         task_id, "generating",
@@ -933,13 +948,37 @@ async def answer_review_question(
     return _task_to_response(task)
 
 
-def _build_replan_feedback(task: Task, user_reason: str) -> str:
+def _build_replan_feedback(
+    task: Task,
+    user_reason: str,
+    decision_type: str = "replan",
+) -> str:
     """Build structured review feedback for replan from the task's review state.
 
     Combines the latest review suggestions (from task.review.reviews[]),
     answered clarifying questions, and any user-supplied reason text.
+
+    Args:
+        task: The task being replanned.
+        user_reason: Human reviewer's reason text.
+        decision_type: One of "replan", "reject", "request_changes".
+            Controls the framing preamble for the LLM.
     """
     parts: list[str] = []
+
+    # Semantic framing based on decision type
+    if decision_type == "reject":
+        parts.append(
+            "PLAN REJECTED by reviewer. The overall approach/direction needs "
+            "fundamental rework. Do NOT make incremental tweaks -- reconsider "
+            "the core strategy."
+        )
+    elif decision_type == "request_changes":
+        parts.append(
+            "CHANGES REQUESTED by reviewer. The overall direction is correct, "
+            "but specific details need targeted fixes. Preserve the existing approach."
+        )
+
     if task.review is not None and task.review.reviews:
         for review in task.review.reviews:
             if review.blocking_issues:

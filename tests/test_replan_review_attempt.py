@@ -86,6 +86,7 @@ async def app(task_manager, session_factory, mock_config):
     application.state.event_bus = EventBus()
     application.state.scheduler = MagicMock()
     application.state.scheduler.is_review_gate_enabled = MagicMock(return_value=False)
+    application.state.scheduler.force_tick = AsyncMock()
     application.state.history_writer = AsyncMock()
     application.state.review_pipeline = MagicMock()
     application.state.registry = MagicMock()

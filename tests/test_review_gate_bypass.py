@@ -90,6 +90,7 @@ async def test_app(tmp_path: Path, test_session_factory):
     scheduler.is_project_paused = MagicMock(return_value=False)
     scheduler.pause_project = AsyncMock()
     scheduler.resume_project = AsyncMock()
+    scheduler.force_tick = AsyncMock()
 
     _review_gate_state: dict[str, bool] = {}  # default: enabled (True)
 
@@ -387,7 +388,9 @@ class TestReviewDecideGate:
     async def test_reject_from_review_needs_human(
         self, client: AsyncClient, task_manager: TaskManager,
     ) -> None:
-        """Gate on: rejecting REVIEW_NEEDS_HUMAN -> BACKLOG is allowed."""
+        """Gate on: rejecting REVIEW_NEEDS_HUMAN triggers replan."""
+        from unittest.mock import patch
+
         task = make_task(
             task_id="proj-a:T-P0-3", project_id="proj-a",
             local_task_id="T-P0-3", status=TaskStatus.REVIEW_NEEDS_HUMAN,
@@ -400,12 +403,15 @@ class TestReviewDecideGate:
         })
         await task_manager.create_task(task)
 
-        resp = await client.post(
-            "/api/tasks/proj-a:T-P0-3/review/decide",
-            json={"decision": "reject"},
-        )
+        with patch("src.routes.reviews.is_claude_cli_available", return_value=True):
+            resp = await client.post(
+                "/api/tasks/proj-a:T-P0-3/review/decide",
+                json={"decision": "reject"},
+            )
         assert resp.status_code == 200
-        assert resp.json()["status"] == "backlog"
+        # reject now triggers replan; task stays in REVIEW_NEEDS_HUMAN
+        assert resp.json()["status"] == "review_needs_human"
+        assert resp.json()["plan_status"] == "generating"
 
 
 # ==================================================================

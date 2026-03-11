@@ -148,6 +148,14 @@ T-P1-127 depends on T-P1-123 (completed)
 
 > 57 completed tasks archived to [archive/completed_tasks.md](archive/completed_tasks.md).
 
+#### [x] T-P0-167: Fix task workflow data flow after review completion -- 2026-03-11
+- Auto-approved tasks now transition REVIEW -> QUEUED directly (no REVIEW_AUTO_APPROVED intermediate state)
+- request_changes/reject auto-trigger replan with semantic differentiation (targeted-fix vs fundamental-rework framing)
+- reject does not increment replan counter; falls back to BACKLOG at max attempts
+- approve forces immediate debounced scheduler tick via force_tick()
+- MAX_REPLAN_ATTEMPTS raised from 2 to 4
+- 14 regression tests in test_review_workflow.py
+
 #### [x] T-P0-166: Fix plan summary being cleared after review completion -- 2026-03-10
 - Removed `row.description = ""` from GENERATING state in `set_plan_state()` to preserve plan summary during regeneration
 - Updated docstring and added inline comments explaining the behavior

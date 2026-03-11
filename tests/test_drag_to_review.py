@@ -94,6 +94,7 @@ async def test_app(tmp_path: Path, session_factory, event_bus):
     scheduler.is_project_paused = MagicMock(return_value=False)
     scheduler.pause_project = AsyncMock()
     scheduler.resume_project = AsyncMock()
+    scheduler.force_tick = AsyncMock()
 
     # Review gate: default disabled for drag-to-review tests
     _review_gate_state: dict[str, bool] = {"proj-a": False}
@@ -326,7 +327,7 @@ class TestTransitionDrivenPipeline:
 
         get_resp = await client.get("/api/tasks/proj-a:T-P0-1")
         data = get_resp.json()
-        assert data["status"] == "review_auto_approved"
+        assert data["status"] == "queued"  # auto-approved goes directly to QUEUED
         assert data["review_status"] == "done"
 
     async def test_pipeline_success_transitions_to_needs_human(

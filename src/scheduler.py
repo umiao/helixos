@@ -131,6 +131,7 @@ class Scheduler:
         self._tick_task: asyncio.Task[None] | None = None
         self._tick_lock = asyncio.Lock()
         self._background_ticks: set[asyncio.Task[None]] = set()
+        self._force_tick_pending: bool = False
         self._stopped: bool = False
         self._paused_projects: set[str] = set()
         # Projects where review gate is disabled (default: enabled for all)
@@ -180,6 +181,20 @@ class Scheduler:
             await asyncio.gather(*self._background_ticks, return_exceptions=True)
             self._background_ticks.clear()
         logger.info("Scheduler stopped")
+
+    async def force_tick(self) -> None:
+        """Trigger an immediate scheduler tick with debounce.
+
+        If a force_tick is already pending, this call is a no-op.
+        Used after human approve to avoid the 5s scheduler delay.
+        """
+        if self._force_tick_pending:
+            return
+        self._force_tick_pending = True
+        try:
+            await self._safe_tick()
+        finally:
+            self._force_tick_pending = False
 
     async def _tick_loop(self) -> None:
         """Run tick() every TICK_INTERVAL_SECONDS until cancelled."""

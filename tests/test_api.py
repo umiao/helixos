@@ -84,6 +84,7 @@ async def test_app(tmp_path: Path, test_session_factory):
     scheduler.is_project_paused = MagicMock(return_value=False)
     scheduler.pause_project = AsyncMock()
     scheduler.resume_project = AsyncMock()
+    scheduler.force_tick = AsyncMock()
 
     # Review gate: track state in a mutable container
     _review_gate_state: dict[str, bool] = {}  # default: enabled (True)
@@ -464,10 +465,12 @@ class TestReviewDecide:
         assert resp.status_code == 200
         assert resp.json()["status"] == "queued"
 
-    async def test_reject_moves_to_backlog(
+    async def test_reject_triggers_replan(
         self, client: AsyncClient, task_manager: TaskManager,
     ):
-        """Reject decision should move task to BACKLOG."""
+        """Reject decision should trigger replan (stays in REVIEW_NEEDS_HUMAN while replanning)."""
+        from unittest.mock import patch
+
         task = make_task(
             task_id="proj-a:T-P0-3",
             project_id="proj-a",
@@ -484,12 +487,15 @@ class TestReviewDecide:
         })
         await task_manager.create_task(task)
 
-        resp = await client.post(
-            "/api/tasks/proj-a:T-P0-3/review/decide",
-            json={"decision": "reject"},
-        )
+        with patch("src.routes.reviews.is_claude_cli_available", return_value=True):
+            resp = await client.post(
+                "/api/tasks/proj-a:T-P0-3/review/decide",
+                json={"decision": "reject"},
+            )
         assert resp.status_code == 200
-        assert resp.json()["status"] == "backlog"
+        # reject now triggers replan; task stays in REVIEW_NEEDS_HUMAN while replan runs
+        assert resp.json()["status"] == "review_needs_human"
+        assert resp.json()["plan_status"] == "generating"
 
     async def test_decide_wrong_status_returns_409(
         self, client: AsyncClient, seeded_task: Task,
@@ -501,10 +507,12 @@ class TestReviewDecide:
         )
         assert resp.status_code == 409
 
-    async def test_request_changes_stays_in_review(
+    async def test_request_changes_triggers_replan(
         self, client: AsyncClient, task_manager: TaskManager,
     ):
-        """request_changes should transition to REVIEW with review_status=idle."""
+        """request_changes should trigger replan (plan_status=generating)."""
+        from unittest.mock import patch
+
         task = make_task(
             task_id="proj-a:T-P0-RC1",
             project_id="proj-a",
@@ -521,14 +529,17 @@ class TestReviewDecide:
         })
         await task_manager.create_task(task)
 
-        resp = await client.post(
-            "/api/tasks/proj-a:T-P0-RC1/review/decide",
-            json={"decision": "request_changes", "reason": "Add timeout handling"},
-        )
+        with patch("src.routes.reviews.is_claude_cli_available", return_value=True):
+            resp = await client.post(
+                "/api/tasks/proj-a:T-P0-RC1/review/decide",
+                json={"decision": "request_changes", "reason": "Add timeout handling"},
+            )
         assert resp.status_code == 200
         data = resp.json()
-        assert data["status"] == "review"
-        assert data["review_status"] == "idle"
+        # request_changes now triggers replan; task stays in REVIEW_NEEDS_HUMAN
+        assert data["status"] == "review_needs_human"
+        assert data["plan_status"] == "generating"
+        assert data["replan_attempt"] == 1  # request_changes increments counter
 
     async def test_request_changes_requires_reason(
         self, client: AsyncClient, task_manager: TaskManager,
