@@ -1,0 +1,48 @@
+#!/usr/bin/env bash
+# commit-msg hook: Enforce commit message format and language.
+# Format: [T-P{0-3}-{number}] or [T-P{0-3}-{number} WIP]
+# Language: English only (no CJK characters)
+# Exceptions: merge commits, fixup commits
+
+MSG_FILE="$1"
+MSG=$(cat "$MSG_FILE")
+
+# Allow merge commits and fixups
+if echo "$MSG" | grep -qE '^(Merge |fixup! |squash! )'; then
+    exit 0
+fi
+
+# Check for CJK characters (Unicode ranges for CJK Unified Ideographs and common CJK)
+if echo "$MSG" | grep -qP '[\x{3000}-\x{9FFF}\x{F900}-\x{FAFF}\x{FE30}-\x{FE4F}\x{FF00}-\x{FFEF}]'; then
+    echo ""
+    echo "[BLOCKED] Bad commit message format."
+    echo ""
+    echo "  Got:      \"$(head -1 "$MSG_FILE")\""
+    echo "  Expected: \"[T-P0-166] Brief English description of what was done\""
+    echo ""
+    echo "Rules:"
+    echo "  - Must start with [T-P{0-3}-{number}] or [T-P{0-3}-{number} WIP]"
+    echo "  - English only (no CJK characters)"
+    echo "  - Describe what was DONE, not the task spec"
+    echo ""
+    exit 1
+fi
+
+# Check format: must start with [T-P{0-3}-{number}] or [T-P{0-3}-{number} WIP]
+FIRST_LINE=$(head -1 "$MSG_FILE")
+if ! echo "$FIRST_LINE" | grep -qE '^\[T-P[0-3]-[0-9]+( WIP)?\] .+'; then
+    echo ""
+    echo "[BLOCKED] Bad commit message format."
+    echo ""
+    echo "  Got:      \"$FIRST_LINE\""
+    echo "  Expected: \"[T-P0-166] Brief English description of what was done\""
+    echo ""
+    echo "Rules:"
+    echo "  - Must start with [T-P{0-3}-{number}] or [T-P{0-3}-{number} WIP]"
+    echo "  - English only (no CJK characters)"
+    echo "  - Describe what was DONE, not the task spec"
+    echo ""
+    exit 1
+fi
+
+exit 0

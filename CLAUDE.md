@@ -33,6 +33,15 @@
 2. No hardcoded secrets in code
 3. <!-- Add your domain-specific invariants here -->
 
+## Git Conventions
+- **Commit message format**: `[T-XX-N] Brief English description of what was done`
+  - Describe the IMPLEMENTATION (what was done), not the task spec verbatim
+  - If the task title is in Chinese, translate/summarize to English
+  - Use the same brief-title style as PROGRESS.md entries
+  - Example: Task "刷新页面后conversation会丢失" -> `[T-P0-165] Recover conversation from plain log after page refresh`
+- **Language**: All commit messages in English. No CJK characters.
+- **Force-push**: Always use `--force-with-lease`, never `--force`.
+
 ## Code Style
 - Use ruff for linting
 - Type checking: mypy

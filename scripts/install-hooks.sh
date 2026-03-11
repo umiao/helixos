@@ -19,3 +19,15 @@ fi
 cp "$HOOK_SRC" "$HOOK_DST"
 chmod +x "$HOOK_DST"
 echo "[OK] pre-commit hook installed to .git/hooks/pre-commit"
+
+# Install commit-msg hook
+COMMIT_MSG_SRC="$REPO_ROOT/scripts/commit-msg"
+COMMIT_MSG_DST="$REPO_ROOT/.git/hooks/commit-msg"
+
+if [ ! -f "$COMMIT_MSG_SRC" ]; then
+    echo "[WARN] commit-msg hook source not found: $COMMIT_MSG_SRC (skipping)"
+else
+    cp "$COMMIT_MSG_SRC" "$COMMIT_MSG_DST"
+    chmod +x "$COMMIT_MSG_DST"
+    echo "[OK] commit-msg hook installed to .git/hooks/commit-msg"
+fi

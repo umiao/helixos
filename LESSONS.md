@@ -178,6 +178,14 @@
   - Fix: Add `--verbose` to the CLI args in code_executor.py (and review_pipeline/enrichment when they switch to stream-json).
   - Tags: #claude-cli #stream-json #verbose #missing-flag
 
+  30. Claude Code hooks only guard Claude's tool calls -- use real git hooks for project-wide enforcement
+  - Context: 4 commits had Chinese messages made directly from terminal, bypassing the PreToolUse commit_msg_guard.py hook entirely. The hook only intercepts Claude Code's Bash tool calls containing `git commit`.
+  - Root cause: PreToolUse hooks are Claude Code-specific middleware. Any commit made outside Claude Code (terminal, IDE, scripts) is invisible to them.
+  - Fix: Installed `.git/hooks/commit-msg` that validates format (`[T-P{0-3}-{N}]` prefix) and rejects CJK characters at the git level. Added `scripts/commit-msg` (tracked) + updated `scripts/install-hooks.sh` for re-setup after clone. Added Git Conventions section to CLAUDE.md with explicit format template.
+  - Rule: Implicit expectations produce inconsistent output. If you want a specific format, enforce it at the lowest possible level (git hooks > Claude Code hooks > documentation). Template it explicitly (like PROGRESS.md's Exit Protocol format).
+  - Rule: Hook error messages must be actionable: show what was received, what was expected, and the rules.
+  - Tags: #git-hooks #commit-messages #enforcement #claude-code
+
   28. Async background tasks must verify preconditions (TOCTOU)
   - Context: Review pipeline runs asynchronously (LLM call takes seconds-minutes). Pipeline completes and tries `update_status(BACKLOG -> REVIEW_AUTO_APPROVED)` -- ValueError because the task was moved away from REVIEW during the async gap. Five interacting bugs: pipeline enqueued outside status guard, full DB overwrite from stale closure, no expected_status on completion transition, no replan status check, no pre-flight check.
   - Root cause: Time-Of-Check-To-Time-Of-Use -- the task status is checked at enqueue time but changes before the pipeline completes. Full-object overwrites (`task.model_copy(update=...)` + `update_task()`) silently revert concurrent status changes.

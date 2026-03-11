@@ -243,3 +243,10 @@
 - **Sanity check result**: 73 plan state machine tests pass, 383 plan-related tests pass, 40 task_manager tests pass. Frontend gracefully handles description + null plan_json: ReviewPanel shows old description as markdown during GENERATING (verified at line 865-869 in ReviewPanel.tsx), PlanReviewPanel shows spinner during GENERATING (line 119-140 in PlanReviewPanel.tsx). [AUTO-VERIFIED]
 - **Status**: [DONE]
 - **Request**: Move T-P0-166 to Completed
+
+## 2026-03-10 -- Fix Chinese commit messages and enforce commit format
+- **What I did**: Implemented git-level commit message enforcement. Added `commit-msg` hook rejecting CJK characters and enforcing `[T-P{0-3}-{N}]` prefix format with actionable error messages. Added Git Conventions section to CLAUDE.md. Rebased 4 Chinese commit messages to English. Translated Chinese task descriptions in TASKS.md. Updated `scripts/install-hooks.sh` to install the new hook. Added lesson #30 to LESSONS.md.
+- **Deliverables**: `.git/hooks/commit-msg` (installed), `scripts/commit-msg` (tracked copy), `scripts/install-hooks.sh` (updated), `CLAUDE.md` (Git Conventions section), `TASKS.md` (translated 3 entries), `LESSONS.md` (lesson #30)
+- **Sanity check result**: Hook blocks CJK messages, blocks bad format, allows valid `[T-P0-999]` and `[T-P0-999 WIP]` formats, allows merge commits. `git log --oneline -10` shows all English with proper format. No CJK in TASKS.md.
+- **Status**: [DONE]
+- **Request**: No TASKS.md status change (not a tracked task, infrastructure improvement)
