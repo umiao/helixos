@@ -47,7 +47,7 @@ class EnrichmentResult(BaseModel):
 
     title: str = ""
     description: str
-    priority: Literal["P0", "P1", "P2"]
+    priority: Literal["P0", "P1", "P2", "P3"]
 
 
 class PlanStep(BaseModel):
@@ -168,7 +168,7 @@ _ENRICHMENT_JSON_SCHEMA = json.dumps({
     "properties": {
         "title": {"type": "string", "maxLength": 80},
         "description": {"type": "string"},
-        "priority": {"type": "string", "enum": ["P0", "P1", "P2"]},
+        "priority": {"type": "string", "enum": ["P0", "P1", "P2", "P3"]},
     },
     "required": ["title", "description", "priority"],
 })

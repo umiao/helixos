@@ -31,17 +31,6 @@
 
 ### P1 -- Should Have (agentic intelligence)
 
-#### Add P3 priority support to UI and enrichment
-- **Priority**: P1
-- **Complexity**: S
-- **Depends on**: None
-- **Description**: NewTaskModal dropdown only offers P0/P1/P2 options, but TASKS.md schema supports P3 (stretch goals). Enrichment prompt (config/prompts/enrichment_system.md) also omits P3. Users cannot create P3 tasks via UI, forcing manual TASKS.md edits. Add P3 option to dropdown and update enrichment prompt to include P3 in priority selection.
-- **Acceptance Criteria**:
-  1. NewTaskModal.tsx priority dropdown includes P3 option with label "P3 -- Stretch Goals"
-  2. enrichment_system.md prompt updated to generate P0/P1/P2/P3 priorities
-  3. User journey: User opens NewTaskModal → sees P3 option in priority dropdown → selects P3 → creates task → task appears in Backlog with P3 priority badge
-  4. User journey: User creates task with title "Add dark mode" → clicks "Enrich with AI" → enrichment returns priority="P3" → user sees P3 pre-selected in dropdown
-  5. Manual smoke test: Open NewTaskModal in browser, verify P3 option visible and functional, create P3 task and verify it appears in Backlog with correct badge color
 
 #### Add Cancel Execution button to ExecutionLog
 - **Priority**: P1
@@ -148,6 +137,11 @@ T-P1-127 depends on T-P1-123 (completed)
 
 
 > 57 completed tasks archived to [archive/completed_tasks.md](archive/completed_tasks.md).
+
+#### [x] T-P1-172: Add P3 priority support to UI and enrichment -- 2026-03-11
+- Added P3 option to NewTaskModal dropdown, enrichment prompt, EnrichmentResult model, and JSON schema
+- Added P3 color (blue) to priorityColor in PlanComponents.tsx
+- Updated enrichment test to validate P3 priority
 
 #### [x] T-P1-171: Auto-sync Claude Code additionalDirectories on project import -- 2026-03-11
 - Created `src/settings_sync.py` syncing non-primary project paths from orchestrator_config.yaml to .claude/settings.local.json additionalDirectories

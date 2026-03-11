@@ -1,6 +1,6 @@
 /**
  * NewTaskModal -- form to create a new task in a project's TASKS.md.
- * Fields: title (required), description, priority (P0/P1/P2).
+ * Fields: title (required), description, priority (P0/P1/P2/P3).
  * Shows loading state during creation and success/error feedback.
  * "Enrich with AI" button calls POST /api/tasks/enrich to pre-fill
  * description and priority (editable before submit).
@@ -169,6 +169,7 @@ export default function NewTaskModal({
               <option value="P0">P0 -- Must Have</option>
               <option value="P1">P1 -- Should Have</option>
               <option value="P2">P2 -- Nice to Have</option>
+              <option value="P3">P3 -- Stretch Goals</option>
             </select>
           </div>
 

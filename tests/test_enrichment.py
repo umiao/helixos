@@ -151,7 +151,7 @@ class TestParseEnrichment:
 
     def test_all_priorities(self) -> None:
         """All valid priorities are accepted."""
-        for p in ("P0", "P1", "P2"):
+        for p in ("P0", "P1", "P2", "P3"):
             text = json.dumps({"description": "desc", "priority": p})
             result = _parse_enrichment(text)
             assert result["priority"] == p

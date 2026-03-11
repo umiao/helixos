@@ -264,3 +264,10 @@
 - **Sanity check result**: 9 new tests pass. 76 API tests pass. Ruff clean. Real sync run confirmed: 2 directories (homestead, blog_proj) written to settings.local.json with all existing allow rules preserved. Cross-directory Read verified: successfully read blog_proj/TASKS.md from helixos session.
 - **Status**: [DONE]
 - **Request**: Move T-P1-171 and T-P0-168 to Completed (DONE)
+
+## 2026-03-11 -- [T-P1-172] Add P3 priority support to UI and enrichment
+- **What I did**: Added P3 ("Stretch Goals") as a valid priority across the stack: NewTaskModal dropdown option, enrichment_system.md prompt, EnrichmentResult Pydantic model, JSON schema enum, and PlanComponents.tsx priorityColor mapping (blue badge). Updated enrichment test to validate P3.
+- **Deliverables**: `frontend/src/components/NewTaskModal.tsx`, `config/prompts/enrichment_system.md`, `src/enrichment.py`, `frontend/src/components/PlanComponents.tsx`, `tests/test_enrichment.py`
+- **Sanity check result**: 1060 tests pass, TypeScript clean, ruff clean. [AUTO-VERIFIED] - no browser available; wiring verified via code inspection (P3 option in dropdown, P3 in Literal type, P3 in JSON schema enum, P3 case in priorityColor switch).
+- **Status**: [DONE]
+- **Request**: Move T-P1-172 to Completed (DONE)
