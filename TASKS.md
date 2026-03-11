@@ -116,6 +116,7 @@
   4. User journey: User sets filters (Priority=P0,P1, Status=review_needs_human) → searches "auth" → closes browser → reopens HelixOS → filters and search query restored → same filtered view appears
   5. Manual smoke test: Apply multiple filters, reload page, verify filters persist and correct tasks shown
 
+
 ## Dependency Graph
 
 > Full historical dependency graph relocated to [docs/architecture/dependency-graph-history.md](docs/architecture/dependency-graph-history.md).
@@ -147,6 +148,14 @@ T-P1-127 depends on T-P1-123 (completed)
 
 
 > 57 completed tasks archived to [archive/completed_tasks.md](archive/completed_tasks.md).
+
+#### [x] T-P1-171: Auto-sync Claude Code additionalDirectories on project import -- 2026-03-11
+- Created `src/settings_sync.py` syncing non-primary project paths from orchestrator_config.yaml to .claude/settings.local.json additionalDirectories
+- Called from import endpoint, api.py lifespan, and autonomous_run.sh pre-launch
+- Atomic write with backup, JSON validation, preserves existing allow rules. 9 unit tests.
+
+#### [x] T-P0-168: Investigate blog_proj TASKS.md access and propose onboarding improvements -- 2026-03-11
+- Root cause: Claude Code tool-level permissions scoped to working directory. External projects unreachable from helixos-centric sessions. Solution: auto-sync additionalDirectories. Implemented as T-P1-171.
 
 #### [x] T-P0-167: Fix task workflow data flow after review completion -- 2026-03-11
 - Auto-approved tasks now transition REVIEW -> QUEUED directly (no REVIEW_AUTO_APPROVED intermediate state)

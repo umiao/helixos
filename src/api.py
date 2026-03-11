@@ -235,6 +235,18 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     if empty_removed > 0:
         logger.info("Removed %d empty log files from %s", empty_removed, config.orchestrator.stream_log_dir)
 
+    # Sync Claude Code additionalDirectories from orchestrator config
+    try:
+        from src.settings_sync import sync_additional_directories
+        synced_dirs = sync_additional_directories()
+        if synced_dirs:
+            logger.info(
+                "Synced %d additional directories to Claude Code settings",
+                len(synced_dirs),
+            )
+    except Exception:
+        logger.warning("Failed to sync additional directories", exc_info=True)
+
     # Process monitor (background failure detection)
     process_monitor = ProcessMonitor(
         subprocess_registry=subprocess_registry,

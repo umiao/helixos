@@ -38,6 +38,14 @@ while [ $session_count -lt $MAX_SESSIONS ]; do
   # Capture commit SHA before session for progress detection
   start_sha=$(git rev-parse HEAD)
 
+  # Sync Claude Code additionalDirectories from orchestrator config
+  python -c "
+import sys; sys.path.insert(0, '.')
+from src.settings_sync import sync_additional_directories
+result = sync_additional_directories()
+print(f'[orchestrator] Synced {len(result)} additional directories')
+" || echo "[orchestrator] Warning: settings sync failed (non-fatal)"
+
   claude -p "Autonomous mode. Read TASKS.md, pick ONE highest-priority unblocked task, \
     and complete it. After completing the task: \
     1) run tests, 2) update PROGRESS.md and TASKS.md, 3) git commit with message \

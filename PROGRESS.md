@@ -257,3 +257,10 @@
 - **Sanity check result**: 1685 tests pass (excluding 2 pre-existing flaky sdk_adapter tests and 1 pre-existing slow Windows-hang test). Ruff clean. No code path produces REVIEW_AUTO_APPROVED (enum preserved for backward compat). SSE payloads emit "queued" for auto-approved tasks.
 - **Status**: [DONE]
 - **Request**: Move T-P0-167 to Completed (DONE)
+
+## 2026-03-11 -- [T-P1-171] Auto-sync Claude Code additionalDirectories on project import
+- **What I did**: Created `src/settings_sync.py` with `sync_additional_directories()` that reads all non-primary project repo_paths from orchestrator_config.yaml and writes them to `.claude/settings.local.json` `permissions.additionalDirectories`. Integrated at 3 call sites: import endpoint (src/routes/projects.py), server startup (src/api.py lifespan), and autonomous_run.sh pre-launch. Features: atomic write (tempfile + os.replace), .bak backup before overwrite, JSON validation before write, preserves all existing settings (allow rules etc.), skips primary project, skips non-existent paths with warning, deduplicates. Also completed T-P0-168 investigation (root cause: Claude Code tools scoped to working directory; solution is this additionalDirectories sync).
+- **Deliverables**: `src/settings_sync.py` (new, ~140 lines), `tests/test_settings_sync.py` (new, 9 tests), `src/routes/projects.py` (3 lines added), `src/api.py` (7 lines added), `scripts/autonomous_run.sh` (6 lines added), `TASKS.md` (updated)
+- **Sanity check result**: 9 new tests pass. 76 API tests pass. Ruff clean. Real sync run confirmed: 2 directories (homestead, blog_proj) written to settings.local.json with all existing allow rules preserved. Cross-directory Read verified: successfully read blog_proj/TASKS.md from helixos session.
+- **Status**: [DONE]
+- **Request**: Move T-P1-171 and T-P0-168 to Completed (DONE)

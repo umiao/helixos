@@ -320,6 +320,13 @@ async def import_project(
             )
             warnings.append("Auto-sync failed -- run sync manually")
 
+    # Sync Claude Code additionalDirectories so next session can access this project
+    try:
+        from src.settings_sync import sync_additional_directories
+        sync_additional_directories()
+    except Exception:
+        logger.warning("Failed to sync additionalDirectories", exc_info=True)
+
     return ImportProjectResponse(
         project_id=project_id,
         name=name,
