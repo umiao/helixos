@@ -62,6 +62,7 @@
 
 ## Completed Tasks
 
+- [x] **2026-03-12** -- T-P2-179: Add busy_timeout to task_store.py for concurrent hook safety
 - [x] **2026-03-12** -- T-P0-178: Implement DB-as-source-of-truth for task management. Replace regex-based TASKS.md parsing with SQLite-backed task store
 - [x] **2026-03-11** -- T-P2-174: Add atomic review submission endpoint. - Added POST /api/tasks/{id}/submit-for-review endpoint that atomically updates title/description and transitions to REV
 - [x] **2026-03-11** -- T-P1-173: Add Cancel Execution button to ExecutionLog. - Added "Cancel Execution" button to ExecutionLog header when task status is "running"

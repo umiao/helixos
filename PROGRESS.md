@@ -327,3 +327,10 @@
 - **Sanity check result**: 21 bridge tests pass. 36 task_generator tests pass. 40 task_manager tests pass. 14 tasks_parser + plan_status tests pass. 304 total tests pass (0 failures from our changes). Ruff clean on all modified files. Zero remaining `tasks_writer`/`TasksWriter`/`TasksParser` code imports. [AUTO-VERIFIED]
 - **Status**: [DONE]
 - **Request**: No task status change needed (infrastructure project, not a tracked helixos task)
+
+## 2026-03-12 -- DB-as-source-of-truth migration for template and blog_proj
+- **What I did**: Migrated template and blog_proj to DB-backed task management. Added `PRAGMA busy_timeout=5000` to `task_store.py` (shared + helixos). Added orphan hook deletion and `sync_settings()` to `sync.py`. Created `CLAUDE.md.local` for template. Synced hooks to both targets (3 new hooks added, 3 orphans removed, 3 updated per project). Settings.json overwritten from `settings_base.json`. Imported blog_proj TASKS.md into `tasks.db` (19 completed tasks). Regenerated projected TASKS.md for both projects. Verified tasks_md_guard blocks, session_context and archive_check exit cleanly, template CRUD cycle works.
+- **Deliverables**: `shared/hooks/task_store.py` (busy_timeout), `sync.py` (orphan deletion + settings sync), `CLAUDE.md.local` (template), `blog_proj/.claude/tasks.db` (created), `blog_proj/TASKS.md` (regenerated), `template/.claude/settings.json`, `template/CLAUDE.md`, `blog_proj/.claude/settings.json`, `blog_proj/CLAUDE.md`
+- **Sanity check result**: sync.py idempotent (second run = all up to date). blog_proj import: 19 tasks, verification passed. Template CRUD: add/list/project/delete cycle works. tasks_md_guard blocks in both. Session hooks exit 0 gracefully. [AUTO-VERIFIED]
+- **Status**: [DONE]
+- **Request**: No task status change needed (infrastructure migration, not a tracked helixos task)
