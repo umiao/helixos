@@ -48,9 +48,10 @@ print(f'[orchestrator] Synced {len(result)} additional directories')
 
   claude -p "Autonomous mode. Read TASKS.md, pick ONE highest-priority unblocked task, \
     and complete it. After completing the task: \
-    1) run tests, 2) update PROGRESS.md and TASKS.md, 3) git commit with message \
-    format '[T-XX-N] description', 4) update .claude/session_state.json, then stop. \
-    If no unblocked tasks remain, set all_done=true in session_state.json and stop." \
+    1) run tests, 2) update PROGRESS.md, update tasks via task_db.py, 3) git commit \
+    with message format '[T-XX-N] description', 4) update .claude/session_state.json, \
+    then stop. If no unblocked tasks remain, set all_done=true in session_state.json \
+    and stop." \
     --allowedTools "Read,Write,Edit,Bash,Glob,Grep,Task" \
     --max-turns 200
 

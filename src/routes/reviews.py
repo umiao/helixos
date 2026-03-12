@@ -42,6 +42,7 @@ from src.schemas import (
     SubmitForReviewRequest,
     TaskResponse,
 )
+from src.sync.task_store_bridge import TaskStoreBridge
 from src.task_manager import (
     DecompositionRequiredError,
     OptimisticLockError,
@@ -49,7 +50,6 @@ from src.task_manager import (
     ReviewGateBlockedError,
     TaskManager,
 )
-from src.tasks_writer import TasksWriter
 
 logger = logging.getLogger(__name__)
 
@@ -480,16 +480,17 @@ async def submit_for_review(
     # transition sees the updated description (needed for plan validity).
     task = await task_manager.update_task(task)
 
-    # Write-back title to TASKS.md (non-fatal, same as update_task_fields)
+    # Write-back title to tasks.db (non-fatal, same as update_task_fields)
     if body.title is not None:
         try:
             registry: ProjectRegistry = request.app.state.registry
             project = registry.get_project(task.project_id)
             if project.repo_path is not None:
-                tasks_md = project.repo_path / project.tasks_file
-                writer = TasksWriter(tasks_md)
-                if not writer.update_task_title(task.local_task_id, body.title):
+                bridge = TaskStoreBridge(project.repo_path)
+                if not bridge.update_task_title(task.local_task_id, body.title):
                     logger.warning("Failed to write-back title for %s", task_id)
+                else:
+                    bridge.reproject()
         except Exception as exc:
             logger.warning("Title write-back failed for %s: %s", task_id, exc)
 
@@ -870,26 +871,8 @@ async def _handle_replan(
                 origin="plan",
             )
 
-            # Persist plan_status=ready to TASKS.md (non-fatal)
-            try:
-                _task = await task_manager.get_task(task_id)
-                if _task is not None:
-                    _project = registry.get_project(_task.project_id)
-                    if _project.repo_path is not None:
-                        _tasks_md = _project.repo_path / _project.tasks_file
-                        _writer = TasksWriter(_tasks_md)
-                        if not _writer.update_task_plan_status(
-                            _task.local_task_id, "ready",
-                        ):
-                            logger.warning(
-                                "DB plan_status=ready but TASKS.md not "
-                                "updated for %s (replan)", task_id,
-                            )
-            except Exception as _exc:
-                logger.warning(
-                    "DB plan_status=ready but TASKS.md not updated "
-                    "for %s (replan): %s", task_id, _exc,
-                )
+            # plan_status is a state.db-only concept; tasks.db does not
+            # store it, so no TASKS.md writeback needed.
 
             # Auto-enqueue review pipeline for the new plan (T-P1-165)
             # Transition back to REVIEW if needed (e.g., from REVIEW_NEEDS_HUMAN)

@@ -45,14 +45,13 @@ from src.schemas import (
     TaskResponse,
     UpdateTaskRequest,
 )
+from src.sync.task_store_bridge import TaskStoreBridge
 from src.sync.tasks_parser import sync_project_tasks
 from src.task_generator import (
     extract_proposals_from_plan,
     process_proposals,
-    write_allocated_tasks,
 )
 from src.task_manager import TaskManager
-from src.tasks_writer import NewTask, TasksWriter
 
 logger = logging.getLogger(__name__)
 
@@ -361,26 +360,8 @@ async def generate_plan(task_id: str, request: Request) -> JSONResponse:
                     task_id, auto_rev_exc,
                 )
 
-            # Persist plan_status=ready to TASKS.md (non-fatal on failure)
-            try:
-                _task = await task_manager.get_task(task_id)
-                if _task is not None:
-                    _project = registry.get_project(_task.project_id)
-                    if _project.repo_path is not None:
-                        _tasks_md = _project.repo_path / _project.tasks_file
-                        _writer = TasksWriter(_tasks_md)
-                        if not _writer.update_task_plan_status(
-                            _task.local_task_id, "ready",
-                        ):
-                            logger.warning(
-                                "DB plan_status=ready but TASKS.md not "
-                                "updated for %s", task_id,
-                            )
-            except Exception as _exc:
-                logger.warning(
-                    "DB plan_status=ready but TASKS.md not updated "
-                    "for %s: %s", task_id, _exc,
-                )
+            # plan_status is a state.db-only concept; tasks.db does not
+            # store it, so no TASKS.md writeback needed.
         except Exception as exc:
             logger.warning("Plan generation failed for %s: %s", task_id, exc)
             # Extract structured error info if available
@@ -593,34 +574,44 @@ async def confirm_generated_tasks(
             detail=f"Project {task.project_id} has no repo_path",
         )
 
-    tasks_md_path = project.repo_path / project.tasks_file
-    if not tasks_md_path.is_file():
+    # Use bridge for direct SQL-to-SQL task creation
+    try:
+        bridge = TaskStoreBridge(project.repo_path)
+    except (FileNotFoundError, ImportError) as exc:
         raise HTTPException(
             status_code=422,
-            detail=f"TASKS.md not found at {tasks_md_path}",
-        )
+            detail=f"Failed to load task store bridge: {exc}",
+        ) from None
 
-    tasks_md_content = tasks_md_path.read_text(encoding="utf-8")
-
-    # Re-process with fresh content (IDs may have changed since preview)
+    # Re-process with fresh IDs from tasks.db
     result = process_proposals(
         proposals=proposals,
-        tasks_md_content=tasks_md_content,
+        bridge=bridge,
         parent_task_id=task.local_task_id,
     )
 
     if not result.success:
         raise HTTPException(status_code=422, detail=result.error or "Unknown error")
 
-    # Write tasks to TASKS.md
-    writer = TasksWriter(tasks_md_path)
-    write_result = write_allocated_tasks(writer, result.allocated_tasks)
-
-    if not write_result.success:
+    # Write tasks to tasks.db via bridge
+    written_ids: list[str] = []
+    try:
+        for at in result.allocated_tasks:
+            bridge.add_task(
+                title=at.title,
+                priority=at.priority,
+                complexity=at.complexity,
+                description=at.description,
+                depends_on=at.depends_on,
+                task_id=at.task_id,
+            )
+            written_ids.append(at.task_id)
+        bridge.reproject()
+    except Exception as exc:
         raise HTTPException(
             status_code=500,
-            detail=write_result.error or "Failed to write tasks",
-        )
+            detail=f"Failed to write tasks: {exc}",
+        ) from None
 
     # Update parent task plan_status to reflect decomposition complete
     await task_manager.set_plan_state(task_id, "decomposed")
@@ -647,20 +638,20 @@ async def confirm_generated_tasks(
     )
     event_bus.emit(
         "board_sync", task_id,
-        {"reason": "task_generation", "count": len(write_result.written_ids)},
+        {"reason": "task_generation", "count": len(written_ids)},
         origin="task_generator",
     )
 
     return ConfirmGeneratedTasksResponse(
         parent_task_id=task.local_task_id,
-        written_ids=write_result.written_ids,
+        written_ids=written_ids,
         auto_paused=auto_paused,
-        detail=f"Generated {len(write_result.written_ids)} tasks from {task.local_task_id}",
+        detail=f"Generated {len(written_ids)} tasks from {task.local_task_id}",
     )
 
 
 # ------------------------------------------------------------------
-# Task creation endpoint (writes to TASKS.md)
+# Task creation endpoint (writes to tasks.db)
 # ------------------------------------------------------------------
 
 
@@ -676,10 +667,10 @@ async def create_project_task(
     body: CreateTaskRequest,
     request: Request,
 ) -> CreateTaskResponse:
-    """Create a new task by appending to the project's TASKS.md.
+    """Create a new task by writing to the project's tasks.db.
 
-    Uses filelock for safe concurrent writes, creates a .bak backup,
-    and auto-triggers sync to bring the new task into the database.
+    Uses the TaskStoreBridge for direct SQL writes, then reprojects
+    TASKS.md and auto-triggers sync to bring the new task into state.db.
     """
     registry: ProjectRegistry = request.app.state.registry
     task_manager: TaskManager = request.app.state.task_manager
@@ -692,29 +683,34 @@ async def create_project_task(
             status_code=404, detail=f"Project not found: {project_id}",
         ) from None
 
-    # Verify repo_path and TASKS.md path
+    # Verify repo_path
     if project.repo_path is None:
         raise HTTPException(
             status_code=400,
             detail=f"Project {project_id} has no repo_path configured",
         )
 
-    tasks_md_path = project.repo_path / project.tasks_file
-    writer = TasksWriter(tasks_md_path)
-
-    # Create the new task
-    new_task = NewTask(
-        title=body.title,
-        description=body.description,
-        priority=body.priority,
-    )
-    result = writer.append_task(new_task)
-
-    if not result.success:
+    try:
+        bridge = TaskStoreBridge(project.repo_path)
+    except (FileNotFoundError, ImportError) as exc:
         raise HTTPException(
             status_code=400,
-            detail=f"Failed to write task: {result.error}",
+            detail=f"Failed to load task store bridge: {exc}",
+        ) from None
+
+    # Create the new task via bridge
+    try:
+        task_id = bridge.add_task(
+            title=body.title,
+            priority=body.priority,
+            description=body.description,
         )
+        bridge.reproject()
+    except Exception as exc:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Failed to write task: {exc}",
+        ) from None
 
     # Auto-trigger sync to bring the new task into the database
     sync_result_resp = None
@@ -741,9 +737,9 @@ async def create_project_task(
         )
 
     return CreateTaskResponse(
-        task_id=result.task_id,
+        task_id=task_id,
         success=True,
-        backup_path=result.backup_path,
+        backup_path=None,
         synced=synced,
         sync_result=sync_result_resp,
         sync_error=sync_error_msg,
@@ -831,16 +827,17 @@ async def update_task_fields(
 
     if changed:
         task = await task_manager.update_task(task)
-        # Write-back title to TASKS.md so sync doesn't overwrite (non-fatal)
+        # Write-back title to tasks.db so sync doesn't overwrite (non-fatal)
         if body.title is not None:
             try:
                 registry: ProjectRegistry = request.app.state.registry
                 project = registry.get_project(task.project_id)
                 if project.repo_path is not None:
-                    tasks_md = project.repo_path / project.tasks_file
-                    writer = TasksWriter(tasks_md)
-                    if not writer.update_task_title(task.local_task_id, body.title):
+                    bridge = TaskStoreBridge(project.repo_path)
+                    if not bridge.update_task_title(task.local_task_id, body.title):
                         logger.warning("Failed to write-back title for %s", task_id)
+                    else:
+                        bridge.reproject()
             except Exception as exc:
                 logger.warning("Title write-back failed for %s: %s", task_id, exc)
 

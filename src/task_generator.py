@@ -1,7 +1,7 @@
-"""Deterministic Task Generator -- proposal-to-TASKS.md pipeline.
+"""Deterministic Task Generator -- proposal-to-tasks.db pipeline.
 
 Processes ``proposed_tasks[]`` from a plan result into fully-formed
-TASKS.md entries with auto-allocated IDs, dependency validation,
+task entries with auto-allocated IDs, dependency validation,
 cycle detection, and diff generation for human approval.
 
 Pure Python -- no LLM calls.  Human-in-the-loop is mandatory:
@@ -12,13 +12,20 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 from dataclasses import dataclass, field
+from typing import TYPE_CHECKING
 
 from src.dependency_graph import detect_cycles
 from src.enrichment import MAX_TASKS_PER_PLAN, ProposedTask
-from src.tasks_writer import TASK_ID_RE, TasksWriter, generate_next_task_id
+
+if TYPE_CHECKING:
+    from src.sync.task_store_bridge import TaskStoreBridge
 
 logger = logging.getLogger(__name__)
+
+# Regex to match task IDs like T-P0-1, T-P2-14 (used in _resolve_dependencies)
+TASK_ID_RE = re.compile(r"T-P(\d+)-(\d+)")
 
 
 # ---------------------------------------------------------------------------
@@ -28,7 +35,7 @@ logger = logging.getLogger(__name__)
 
 @dataclass
 class AllocatedTask:
-    """A proposed task with an allocated ID, ready for TASKS.md insertion."""
+    """A proposed task with an allocated ID, ready for tasks.db insertion."""
 
     task_id: str
     title: str
@@ -47,15 +54,6 @@ class GeneratorResult:
     success: bool
     allocated_tasks: list[AllocatedTask] = field(default_factory=list)
     diff_text: str = ""
-    error: str | None = None
-
-
-@dataclass
-class WriteAllResult:
-    """Result of writing all allocated tasks to TASKS.md."""
-
-    success: bool
-    written_ids: list[str] = field(default_factory=list)
     error: str | None = None
 
 
@@ -158,37 +156,32 @@ def _detect_cycles_in_allocated(
 
 def _allocate_ids(
     proposals: list[ProposedTask],
-    tasks_md_content: str,
+    bridge: TaskStoreBridge,
 ) -> tuple[list[str], dict[str, str]]:
-    """Allocate sequential task IDs for each proposal.
+    """Allocate sequential task IDs for each proposal via bridge.
 
     Returns (list_of_ids, title_to_id_mapping).
     """
-    # Track content as we allocate to avoid collisions
-    content = tasks_md_content
     allocated_ids: list[str] = []
     title_to_id: dict[str, str] = {}
 
     for p in proposals:
         priority = p.suggested_priority
-        task_id = generate_next_task_id(content, priority)
+        task_id = bridge.generate_next_task_id(priority)
         allocated_ids.append(task_id)
         title_to_id[p.title] = task_id
-        # Add the new ID to content so next allocation sees it
-        content += f"\n{task_id}"
 
     return allocated_ids, title_to_id
 
 
 # ---------------------------------------------------------------------------
-# Task block formatting
+# Task block formatting (for diff display only)
 # ---------------------------------------------------------------------------
 
 
 def _build_full_task_block(task: AllocatedTask) -> str:
-    """Build a full TASKS.md task block with all metadata fields.
+    """Build a full task block with all metadata fields for diff display.
 
-    Follows the project's task schema template:
     ```
     #### T-PX-NN: Title
     - **Priority**: P0 | P1 | P2 | P3
@@ -265,14 +258,9 @@ def _generate_diff(
 # ---------------------------------------------------------------------------
 
 
-def _scan_existing_task_ids(content: str) -> set[str]:
-    """Scan TASKS.md content for all existing task IDs."""
-    return {m.group(0) for m in TASK_ID_RE.finditer(content)}
-
-
 def process_proposals(
     proposals: list[ProposedTask],
-    tasks_md_content: str,
+    bridge: TaskStoreBridge,
     parent_task_id: str,
 ) -> GeneratorResult:
     """Process proposed tasks into allocated tasks with validation.
@@ -281,14 +269,14 @@ def process_proposals(
     It performs:
     1. Schema validation (required fields)
     2. Count enforcement (max 8)
-    3. ID allocation
+    3. ID allocation (via bridge)
     4. Dependency resolution
     5. Cycle detection
     6. Diff generation
 
     Args:
         proposals: List of ProposedTask from plan output.
-        tasks_md_content: Current TASKS.md content for ID allocation.
+        bridge: TaskStoreBridge for ID allocation and existing ID lookup.
         parent_task_id: The task ID that generated these proposals.
 
     Returns:
@@ -303,11 +291,11 @@ def process_proposals(
     if not proposals:
         return GeneratorResult(success=True, allocated_tasks=[], diff_text="")
 
-    # 2. Allocate IDs
-    allocated_ids, title_to_id = _allocate_ids(proposals, tasks_md_content)
+    # 2. Allocate IDs via bridge
+    allocated_ids, title_to_id = _allocate_ids(proposals, bridge)
 
     # 3. Resolve dependencies
-    existing_ids = _scan_existing_task_ids(tasks_md_content)
+    existing_ids = bridge.get_all_task_ids()
     # Also include newly allocated IDs as valid targets
     all_valid_ids = existing_ids | set(allocated_ids)
     resolved_deps, dep_error = _resolve_dependencies(
@@ -375,114 +363,3 @@ def extract_proposals_from_plan(plan_json: str | None) -> list[ProposedTask]:
             logger.warning("Skipping invalid proposed task: %s", exc)
 
     return proposals
-
-
-# ---------------------------------------------------------------------------
-# TASKS.md writer
-# ---------------------------------------------------------------------------
-
-
-def write_allocated_tasks(
-    writer: TasksWriter,
-    allocated_tasks: list[AllocatedTask],
-) -> WriteAllResult:
-    """Write allocated tasks to TASKS.md via the TasksWriter.
-
-    Uses the writer's locking and backup mechanisms.  Each task
-    is inserted as a full task block in the Active Tasks section.
-
-    Args:
-        writer: TasksWriter instance for the target TASKS.md.
-        allocated_tasks: Tasks to insert (already validated).
-
-    Returns:
-        WriteAllResult with list of written IDs on success.
-    """
-    if not allocated_tasks:
-        return WriteAllResult(success=True)
-
-    # Read current content once (we'll do the writes atomically)
-    path = writer.path
-    if not path.is_file():
-        return WriteAllResult(
-            success=False,
-            error=f"TASKS.md not found at {path}",
-        )
-
-    # Build all task blocks and insert them in one write
-    # (avoid multiple read-write cycles with potential ID collision)
-    try:
-        _write_tasks_atomic(writer, allocated_tasks)
-    except Exception as exc:
-        return WriteAllResult(
-            success=False,
-            error=f"Failed to write tasks: {exc}",
-        )
-
-    return WriteAllResult(
-        success=True,
-        written_ids=[t.task_id for t in allocated_tasks],
-    )
-
-
-def _write_tasks_atomic(
-    writer: TasksWriter,
-    allocated_tasks: list[AllocatedTask],
-) -> None:
-    """Write all tasks in a single atomic file operation.
-
-    Uses the writer's internal locks for safety.
-    """
-    import shutil
-
-    from src.tasks_writer import _find_active_section_end, _validate_written_file
-
-    path = writer.path
-
-    with writer._thread_lock, writer._file_lock:  # noqa: SLF001
-        content = path.read_text(encoding="utf-8")
-
-        insert_line = _find_active_section_end(content)
-        if insert_line is None:
-            content = content.rstrip("\n") + "\n\n## Active Tasks\n\n"
-            insert_line = len(content.split("\n"))
-
-        # Build all blocks
-        all_blocks: list[str] = []
-        for task in allocated_tasks:
-            block = _build_full_task_block(task)
-            all_blocks.append(block)
-
-        # Insert all blocks at once
-        lines = content.split("\n")
-        insert_lines: list[str] = []
-        for block in all_blocks:
-            insert_lines.extend(block.rstrip("\n").split("\n"))
-            insert_lines.append("")  # blank line separator
-
-        lines[insert_line:insert_line] = insert_lines
-        new_content = "\n".join(lines)
-
-        # Create backup
-        bak_path = path.with_suffix(".md.bak")
-        if path.is_file():
-            shutil.copy2(str(path), str(bak_path))
-
-        # Write
-        path.write_text(new_content, encoding="utf-8")
-
-        # Validate -- check all IDs are present
-        for task in allocated_tasks:
-            error = _validate_written_file(path, task.task_id)
-            if error is not None:
-                # Restore backup
-                shutil.copy2(str(bak_path), str(path))
-                msg = f"Post-write validation failed for {task.task_id}: {error}"
-                raise RuntimeError(msg)
-
-        logger.info(
-            "Wrote %d tasks to %s: %s",
-            len(allocated_tasks),
-            path,
-            [t.task_id for t in allocated_tasks],
-        )

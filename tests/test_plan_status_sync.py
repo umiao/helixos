@@ -1,25 +1,26 @@
-"""Tests for plan_status bidirectional sync between TASKS.md and DB.
+"""Tests for plan_status sync semantics between tasks.db and state.db.
 
 Covers:
-- ParsedTask.plan_status field (AC1)
-- Parser recognition of `- **Plan**: <value>` (AC2)
-- TasksWriter.update_task_plan_status (AC3)
 - upsert_task plan_status=None -> DB wins (AC4, AC7)
-- Round-trip: generate plan -> TASKS.md=ready -> sync -> DB=ready (AC6)
-- Absence: DB=ready, TASKS.md absent -> sync -> DB still ready (AC7)
+- Round-trip: bridge sync -> DB preserves plan_status (AC6)
+- Absence: DB=ready, tasks.db has no plan_status -> sync -> DB still ready (AC7)
+
+Note: The old TasksParser/TasksWriter plan_status tests (AC1-AC3) have been
+removed because TASKS.md is now auto-generated from tasks.db (which does not
+store plan_status). plan_status is a state.db-only concept.
 """
 
 from __future__ import annotations
 
+import shutil
 from pathlib import Path
 
 import pytest
 
 from src.config import OrchestratorConfig, ProjectConfig, ProjectRegistry
 from src.models import ExecutorType, PlanStatus, Task, TaskStatus
-from src.sync.tasks_parser import ParsedTask, TasksParser, sync_project_tasks
+from src.sync.tasks_parser import sync_project_tasks
 from src.task_manager import TaskManager, UpsertResult
-from src.tasks_writer import TasksWriter
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -45,212 +46,28 @@ def _make_registry(
     return ProjectRegistry(config)
 
 
-# ===================================================================
-# AC1: ParsedTask has plan_status: str | None = None
-# ===================================================================
+def _setup_repo_with_bridge(tmp_path: Path) -> Path:
+    """Create a repo with .claude/hooks/task_store.py for bridge tests."""
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    hooks_dir = repo / ".claude" / "hooks"
+    hooks_dir.mkdir(parents=True)
 
-
-class TestParsedTaskPlanStatus:
-    """ParsedTask dataclass includes plan_status."""
-
-    def test_default_none(self) -> None:
-        """plan_status defaults to None."""
-        pt = ParsedTask(
-            local_task_id="T-P0-1",
-            title="Test",
-            status=TaskStatus.BACKLOG,
-            description="desc",
+    # Copy real task_store.py
+    real_store = Path(__file__).parent.parent / ".claude" / "hooks" / "task_store.py"
+    if not real_store.is_file():
+        real_store = (
+            Path(__file__).parent.parent.parent
+            / "claude-code-project-template"
+            / "shared"
+            / "hooks"
+            / "task_store.py"
         )
-        assert pt.plan_status is None
+    if not real_store.is_file():
+        pytest.skip("task_store.py not found for integration test")
 
-    def test_explicit_value(self) -> None:
-        """plan_status can be set explicitly."""
-        pt = ParsedTask(
-            local_task_id="T-P0-1",
-            title="Test",
-            status=TaskStatus.BACKLOG,
-            description="desc",
-            plan_status="ready",
-        )
-        assert pt.plan_status == "ready"
-
-
-# ===================================================================
-# AC2: Parser recognizes `- **Plan**: <value>` with whitelist
-# ===================================================================
-
-
-class TestParserPlanStatus:
-    """Parser extracts plan_status from task descriptions."""
-
-    def test_plan_ready(self) -> None:
-        """Parses `- **Plan**: ready` correctly."""
-        content = (
-            "## Active Tasks\n\n"
-            "#### T-P0-1: My task\n"
-            "- **Priority**: P0\n"
-            "- **Plan**: ready\n"
-        )
-        parser = TasksParser()
-        tasks = parser.parse(content, "test")
-        assert len(tasks) == 1
-        assert tasks[0].plan_status == "ready"
-
-    def test_plan_failed(self) -> None:
-        """Parses `- **Plan**: failed` correctly."""
-        content = (
-            "## Active Tasks\n\n"
-            "#### T-P0-1: My task\n"
-            "- **Plan**: failed\n"
-        )
-        parser = TasksParser()
-        tasks = parser.parse(content, "test")
-        assert tasks[0].plan_status == "failed"
-
-    def test_plan_none_value(self) -> None:
-        """Parses `- **Plan**: none` correctly."""
-        content = (
-            "## Active Tasks\n\n"
-            "#### T-P0-1: My task\n"
-            "- **Plan**: none\n"
-        )
-        parser = TasksParser()
-        tasks = parser.parse(content, "test")
-        assert tasks[0].plan_status == "none"
-
-    def test_plan_absent(self) -> None:
-        """No Plan line -> plan_status is None (absent sentinel)."""
-        content = (
-            "## Active Tasks\n\n"
-            "#### T-P0-1: My task\n"
-            "- **Priority**: P0\n"
-        )
-        parser = TasksParser()
-        tasks = parser.parse(content, "test")
-        assert tasks[0].plan_status is None
-
-    def test_plan_invalid_value_warning(self) -> None:
-        """Invalid Plan value -> None + warning."""
-        content = (
-            "## Active Tasks\n\n"
-            "#### T-P0-1: My task\n"
-            "- **Plan**: bogus\n"
-        )
-        parser = TasksParser()
-        tasks = parser.parse(content, "test")
-        assert tasks[0].plan_status is None
-        assert any("invalid Plan status" in w for w in parser.warnings)
-
-    def test_plan_case_insensitive(self) -> None:
-        """Plan value is case-insensitive."""
-        content = (
-            "## Active Tasks\n\n"
-            "#### T-P0-1: My task\n"
-            "- **Plan**: Ready\n"
-        )
-        parser = TasksParser()
-        tasks = parser.parse(content, "test")
-        assert tasks[0].plan_status == "ready"
-
-
-# ===================================================================
-# AC3: TasksWriter.update_task_plan_status
-# ===================================================================
-
-
-class TestWriterUpdatePlanStatus:
-    """TasksWriter.update_task_plan_status inserts/updates Plan field."""
-
-    def test_insert_plan_status(self, tmp_path: Path) -> None:
-        """Inserts Plan line when none exists."""
-        tasks_md = tmp_path / "TASKS.md"
-        tasks_md.write_text(
-            "## Active Tasks\n\n"
-            "#### T-P0-1: My task\n"
-            "- **Priority**: P0\n"
-            "- **Complexity**: S\n\n"
-            "## Completed Tasks\n",
-            encoding="utf-8",
-        )
-        writer = TasksWriter(tasks_md)
-        result = writer.update_task_plan_status("T-P0-1", "ready")
-        assert result is True
-
-        content = tasks_md.read_text(encoding="utf-8")
-        assert "- **Plan**: ready" in content
-
-    def test_update_existing_plan_status(self, tmp_path: Path) -> None:
-        """Updates existing Plan line."""
-        tasks_md = tmp_path / "TASKS.md"
-        tasks_md.write_text(
-            "## Active Tasks\n\n"
-            "#### T-P0-1: My task\n"
-            "- **Priority**: P0\n"
-            "- **Plan**: failed\n\n"
-            "## Completed Tasks\n",
-            encoding="utf-8",
-        )
-        writer = TasksWriter(tasks_md)
-        result = writer.update_task_plan_status("T-P0-1", "ready")
-        assert result is True
-
-        content = tasks_md.read_text(encoding="utf-8")
-        assert "- **Plan**: ready" in content
-        assert "- **Plan**: failed" not in content
-
-    def test_creates_backup(self, tmp_path: Path) -> None:
-        """Creates .bak backup before writing."""
-        tasks_md = tmp_path / "TASKS.md"
-        original = (
-            "## Active Tasks\n\n"
-            "#### T-P0-1: My task\n"
-            "- desc\n"
-        )
-        tasks_md.write_text(original, encoding="utf-8")
-        writer = TasksWriter(tasks_md)
-        writer.update_task_plan_status("T-P0-1", "ready")
-
-        bak = tasks_md.with_suffix(".md.bak")
-        assert bak.is_file()
-        assert bak.read_text(encoding="utf-8") == original
-
-    def test_task_not_found(self, tmp_path: Path) -> None:
-        """Returns False when task ID is not in file."""
-        tasks_md = tmp_path / "TASKS.md"
-        tasks_md.write_text(
-            "## Active Tasks\n\n"
-            "#### T-P0-1: My task\n- desc\n",
-            encoding="utf-8",
-        )
-        writer = TasksWriter(tasks_md)
-        result = writer.update_task_plan_status("T-P0-99", "ready")
-        assert result is False
-
-    def test_file_missing(self, tmp_path: Path) -> None:
-        """Returns False when TASKS.md does not exist."""
-        tasks_md = tmp_path / "TASKS.md"
-        writer = TasksWriter(tasks_md)
-        result = writer.update_task_plan_status("T-P0-1", "ready")
-        assert result is False
-
-    def test_insert_after_heading_when_no_metadata(self, tmp_path: Path) -> None:
-        """Inserts Plan right after heading when there are no metadata lines."""
-        tasks_md = tmp_path / "TASKS.md"
-        tasks_md.write_text(
-            "## Active Tasks\n\n"
-            "#### T-P0-1: My task\n"
-            "Some plain description text\n",
-            encoding="utf-8",
-        )
-        writer = TasksWriter(tasks_md)
-        result = writer.update_task_plan_status("T-P0-1", "ready")
-        assert result is True
-
-        content = tasks_md.read_text(encoding="utf-8")
-        lines = content.split("\n")
-        # Plan line should be right after the heading
-        heading_idx = next(i for i, line in enumerate(lines) if "T-P0-1" in line)
-        assert "- **Plan**: ready" in lines[heading_idx + 1]
+    shutil.copy2(str(real_store), str(hooks_dir / "task_store.py"))
+    return repo
 
 
 # ===================================================================
@@ -305,7 +122,7 @@ class TestUpsertPlanStatus:
     async def test_absence_preserves_db_value(
         self, task_manager: TaskManager,
     ) -> None:
-        """AC7: DB=ready, TASKS.md line absent (plan_status=None) -> DB still ready."""
+        """AC7: DB=ready, plan_status=None on upsert -> DB still ready."""
         # Create task with plan_status=ready
         task = Task(
             id="proj:T-P0-1",
@@ -317,7 +134,7 @@ class TestUpsertPlanStatus:
         )
         await task_manager.create_task(task)
 
-        # Upsert with plan_status=None (line absent in TASKS.md)
+        # Upsert with plan_status=None (bridge sync always passes None)
         task2 = Task(
             id="proj:T-P0-1",
             project_id="proj",
@@ -335,7 +152,7 @@ class TestUpsertPlanStatus:
     async def test_explicit_overwrite(
         self, task_manager: TaskManager,
     ) -> None:
-        """Explicit plan_status in TASKS.md overwrites DB value."""
+        """Explicit plan_status overwrites DB value."""
         task = Task(
             id="proj:T-P0-1",
             project_id="proj",
@@ -363,7 +180,7 @@ class TestUpsertPlanStatus:
     async def test_explicit_none_resets(
         self, task_manager: TaskManager,
     ) -> None:
-        """Explicit `- **Plan**: none` in TASKS.md resets DB to 'none'."""
+        """Explicit plan_status='none' resets DB to 'none'."""
         task = Task(
             id="proj:T-P0-1",
             project_id="proj",
@@ -390,109 +207,83 @@ class TestUpsertPlanStatus:
 
 
 # ===================================================================
-# AC6: Round-trip test via sync_project_tasks
+# AC6: Round-trip test via sync_project_tasks (bridge-based)
 # ===================================================================
 
 
 class TestRoundTrip:
-    """End-to-end: TASKS.md with Plan field -> sync -> DB preserves it."""
+    """End-to-end: tasks.db -> bridge -> sync -> state.db."""
 
     @pytest.fixture
     def task_manager(self, session_factory) -> TaskManager:
         """Create a TaskManager with in-memory DB."""
         return TaskManager(session_factory)
 
-    async def test_round_trip_ready(
+    async def test_round_trip_sync(
         self, task_manager: TaskManager, tmp_path: Path,
     ) -> None:
-        """AC6: TASKS.md has `- **Plan**: ready` -> sync -> DB plan_status=ready."""
-        md = (
-            "## Active Tasks\n\n"
-            "#### T-P0-1: My task\n"
-            "- **Priority**: P0\n"
-            "- **Plan**: ready\n"
-        )
-        (tmp_path / "TASKS.md").write_text(md, encoding="utf-8")
-        registry = _make_registry("proj", tmp_path)
+        """Tasks from tasks.db appear in state.db after sync."""
+        repo = _setup_repo_with_bridge(tmp_path)
 
+        # Add a task to tasks.db via the store directly
+        from src.sync.task_store_bridge import TaskStoreBridge
+        bridge = TaskStoreBridge(repo)
+        bridge.add_task(
+            title="My task",
+            priority="P0",
+            description="Test description",
+            task_id="T-P0-1",
+        )
+        bridge.reproject()
+
+        registry = _make_registry("proj", repo)
         result = await sync_project_tasks("proj", task_manager, registry)
         assert result.added == 1
 
         db_task = await task_manager.get_task("proj:T-P0-1")
         assert db_task is not None
-        assert db_task.plan_status == "ready"
+        assert db_task.title == "My task"
+        assert db_task.status == TaskStatus.BACKLOG
 
-    async def test_round_trip_preserves_on_resync(
+    async def test_plan_status_preserved_through_sync(
         self, task_manager: TaskManager, tmp_path: Path,
     ) -> None:
-        """Plan=ready in TASKS.md survives a second sync."""
-        md = (
-            "## Active Tasks\n\n"
-            "#### T-P0-1: My task\n"
-            "- **Plan**: ready\n"
-        )
-        (tmp_path / "TASKS.md").write_text(md, encoding="utf-8")
-        registry = _make_registry("proj", tmp_path)
+        """AC7: plan_status in state.db is preserved through bridge sync.
 
+        Since tasks.db does not store plan_status, the bridge always passes
+        plan_status=None to upsert_task, which preserves the DB value.
+        """
+        repo = _setup_repo_with_bridge(tmp_path)
+
+        from src.sync.task_store_bridge import TaskStoreBridge
+        bridge = TaskStoreBridge(repo)
+        bridge.add_task(
+            title="My task",
+            priority="P0",
+            task_id="T-P0-1",
+        )
+        bridge.reproject()
+
+        registry = _make_registry("proj", repo)
+
+        # First sync creates the task
         await sync_project_tasks("proj", task_manager, registry)
+
+        # Set plan_status=ready in state.db (via proper state machine)
+        db_task = await task_manager.get_task("proj:T-P0-1")
+        assert db_task is not None
+        await task_manager.set_plan_state("proj:T-P0-1", "generating")
+        await task_manager.set_plan_state(
+            "proj:T-P0-1", "ready",
+            description="Test plan",
+            plan_json='{"plan": "test", "steps": [], "acceptance_criteria": []}',
+        )
+
+        # Re-sync: plan_status should be preserved (bridge passes None)
         result2 = await sync_project_tasks("proj", task_manager, registry)
-        assert result2.unchanged == 1
+        # May be updated (description changed by set_plan_state) or unchanged
+        assert result2.added == 0
 
-        db_task = await task_manager.get_task("proj:T-P0-1")
-        assert db_task is not None
-        assert db_task.plan_status == "ready"
-
-    async def test_absence_does_not_reset_db(
-        self, task_manager: TaskManager, tmp_path: Path,
-    ) -> None:
-        """AC7: DB=ready, TASKS.md has no Plan line -> sync -> DB still ready."""
-        # First sync with Plan=ready
-        md_with_plan = (
-            "## Active Tasks\n\n"
-            "#### T-P0-1: My task\n"
-            "- **Plan**: ready\n"
-        )
-        (tmp_path / "TASKS.md").write_text(md_with_plan, encoding="utf-8")
-        registry = _make_registry("proj", tmp_path)
-        await sync_project_tasks("proj", task_manager, registry)
-
-        # Now remove the Plan line and re-sync
-        md_without_plan = (
-            "## Active Tasks\n\n"
-            "#### T-P0-1: My task\n"
-            "- **Priority**: P0\n"
-        )
-        (tmp_path / "TASKS.md").write_text(md_without_plan, encoding="utf-8")
-        await sync_project_tasks("proj", task_manager, registry)
-
-        db_task = await task_manager.get_task("proj:T-P0-1")
-        assert db_task is not None
-        assert db_task.plan_status == "ready"
-
-
-# ===================================================================
-# Writer + Parser round-trip
-# ===================================================================
-
-
-class TestWriterParserRoundTrip:
-    """Writer writes Plan line, parser reads it back correctly."""
-
-    def test_write_then_parse(self, tmp_path: Path) -> None:
-        """Writer inserts Plan=ready, parser reads it back."""
-        tasks_md = tmp_path / "TASKS.md"
-        tasks_md.write_text(
-            "## Active Tasks\n\n"
-            "#### T-P0-1: My task\n"
-            "- **Priority**: P0\n\n"
-            "## Completed Tasks\n",
-            encoding="utf-8",
-        )
-        writer = TasksWriter(tasks_md)
-        writer.update_task_plan_status("T-P0-1", "ready")
-
-        content = tasks_md.read_text(encoding="utf-8")
-        parser = TasksParser()
-        tasks = parser.parse(content, "test")
-        assert len(tasks) == 1
-        assert tasks[0].plan_status == "ready"
+        db_task2 = await task_manager.get_task("proj:T-P0-1")
+        assert db_task2 is not None
+        assert db_task2.plan_status == "ready"  # Preserved through sync

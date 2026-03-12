@@ -1,8 +1,8 @@
-"""Tests for src.task_generator -- deterministic proposal-to-TASKS.md pipeline."""
+"""Tests for src.task_generator -- deterministic proposal-to-tasks.db pipeline."""
 
 from __future__ import annotations
 
-from pathlib import Path
+from unittest.mock import MagicMock
 
 from src.enrichment import ProposedTask
 from src.task_generator import (
@@ -11,40 +11,17 @@ from src.task_generator import (
     _build_full_task_block,
     _generate_diff,
     _resolve_dependencies,
-    _scan_existing_task_ids,
     _validate_proposals,
     extract_proposals_from_plan,
     process_proposals,
-    write_allocated_tasks,
 )
 from src.task_generator import (
     _detect_cycles_in_allocated as _detect_cycles,
 )
-from src.tasks_writer import TasksWriter
 
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
-
-MINIMAL_TASKS_MD = """\
-# Task Backlog
-
-## Active Tasks
-
-### P0 -- Must Have
-
-#### T-P0-1: Existing task one
-- **Priority**: P0
-- **Description**: Already exists
-
-### P1 -- Should Have
-
-#### T-P1-10: Existing task two
-- **Priority**: P1
-- **Description**: Another existing task
-
-## Completed Tasks
-"""
 
 
 def _make_proposal(
@@ -64,6 +41,31 @@ def _make_proposal(
         dependencies=dependencies or [],
         acceptance_criteria=acceptance_criteria or [],
     )
+
+
+def _make_mock_bridge(
+    existing_ids: set[str] | None = None,
+    id_counter: int = 1,
+) -> MagicMock:
+    """Create a mock TaskStoreBridge for testing.
+
+    Args:
+        existing_ids: Set of existing task IDs to return from get_all_task_ids.
+        id_counter: Starting counter for generate_next_task_id.
+    """
+    bridge = MagicMock()
+    bridge.get_all_task_ids.return_value = existing_ids or set()
+
+    # Track ID generation to return sequential IDs
+    counter = {"value": id_counter}
+
+    def gen_id(priority: str) -> str:
+        task_id = f"T-{priority}-{counter['value']}"
+        counter["value"] += 1
+        return task_id
+
+    bridge.generate_next_task_id.side_effect = gen_id
+    return bridge
 
 
 # ---------------------------------------------------------------------------
@@ -112,31 +114,12 @@ class TestValidateProposals:
 
 
 # ---------------------------------------------------------------------------
-# _scan_existing_task_ids
-# ---------------------------------------------------------------------------
-
-
-class TestScanExistingIds:
-    """Tests for existing task ID scanning."""
-
-    def test_finds_all_ids(self) -> None:
-        """All task IDs found in content."""
-        ids = _scan_existing_task_ids(MINIMAL_TASKS_MD)
-        assert "T-P0-1" in ids
-        assert "T-P1-10" in ids
-
-    def test_empty_content(self) -> None:
-        """Empty content returns empty set."""
-        assert _scan_existing_task_ids("") == set()
-
-
-# ---------------------------------------------------------------------------
 # _allocate_ids
 # ---------------------------------------------------------------------------
 
 
 class TestAllocateIds:
-    """Tests for ID allocation."""
+    """Tests for ID allocation via bridge."""
 
     def test_allocates_sequential_ids(self) -> None:
         """IDs are sequential within priority level."""
@@ -144,8 +127,8 @@ class TestAllocateIds:
             _make_proposal(title="A", priority="P1"),
             _make_proposal(title="B", priority="P1"),
         ]
-        ids, title_map = _allocate_ids(proposals, MINIMAL_TASKS_MD)
-        # T-P1-10 exists, so next should be T-P1-11, then T-P1-12
+        bridge = _make_mock_bridge(id_counter=11)
+        ids, title_map = _allocate_ids(proposals, bridge)
         assert ids == ["T-P1-11", "T-P1-12"]
         assert title_map["A"] == "T-P1-11"
         assert title_map["B"] == "T-P1-12"
@@ -157,10 +140,11 @@ class TestAllocateIds:
             _make_proposal(title="B", priority="P1"),
             _make_proposal(title="C", priority="P2"),
         ]
-        ids, _ = _allocate_ids(proposals, MINIMAL_TASKS_MD)
-        assert ids[0] == "T-P0-2"   # after T-P0-1
-        assert ids[1] == "T-P1-11"  # after T-P1-10
-        assert ids[2] == "T-P2-0"   # first P2
+        bridge = _make_mock_bridge(id_counter=2)
+        ids, _ = _allocate_ids(proposals, bridge)
+        assert ids[0] == "T-P0-2"
+        assert ids[1] == "T-P1-3"
+        assert ids[2] == "T-P2-4"
 
     def test_no_collisions_within_batch(self) -> None:
         """Multiple tasks at same priority don't collide."""
@@ -169,9 +153,9 @@ class TestAllocateIds:
             _make_proposal(title="B", priority="P0"),
             _make_proposal(title="C", priority="P0"),
         ]
-        ids, _ = _allocate_ids(proposals, MINIMAL_TASKS_MD)
+        bridge = _make_mock_bridge(id_counter=2)
+        ids, _ = _allocate_ids(proposals, bridge)
         assert len(set(ids)) == 3  # all unique
-        assert ids == ["T-P0-2", "T-P0-3", "T-P0-4"]
 
 
 # ---------------------------------------------------------------------------
@@ -382,7 +366,7 @@ class TestGenerateDiff:
 
 
 # ---------------------------------------------------------------------------
-# process_proposals (integration)
+# process_proposals (integration with mock bridge)
 # ---------------------------------------------------------------------------
 
 
@@ -406,7 +390,8 @@ class TestProcessProposals:
                 acceptance_criteria=["All tests green"],
             ),
         ]
-        result = process_proposals(proposals, MINIMAL_TASKS_MD, "T-P0-1")
+        bridge = _make_mock_bridge(existing_ids={"T-P0-1", "T-P1-10"}, id_counter=11)
+        result = process_proposals(proposals, bridge, "T-P0-1")
         assert result.success
         assert len(result.allocated_tasks) == 2
         assert result.allocated_tasks[0].task_id == "T-P1-11"
@@ -416,14 +401,16 @@ class TestProcessProposals:
 
     def test_empty_proposals(self) -> None:
         """Empty proposals list returns success with no tasks."""
-        result = process_proposals([], MINIMAL_TASKS_MD, "T-P0-1")
+        bridge = _make_mock_bridge()
+        result = process_proposals([], bridge, "T-P0-1")
         assert result.success
         assert result.allocated_tasks == []
 
     def test_too_many_rejected(self) -> None:
         """More than 10 proposals rejected."""
         proposals = [_make_proposal(title=f"Task {i}") for i in range(11)]
-        result = process_proposals(proposals, MINIMAL_TASKS_MD, "T-P0-1")
+        bridge = _make_mock_bridge()
+        result = process_proposals(proposals, bridge, "T-P0-1")
         assert not result.success
         assert "Too many" in (result.error or "")
 
@@ -433,7 +420,8 @@ class TestProcessProposals:
             _make_proposal(title="Task A", dependencies=["Task B"]),
             _make_proposal(title="Task B", dependencies=["Task A"]),
         ]
-        result = process_proposals(proposals, MINIMAL_TASKS_MD, "T-P0-1")
+        bridge = _make_mock_bridge(id_counter=11)
+        result = process_proposals(proposals, bridge, "T-P0-1")
         assert not result.success
         assert "Circular" in (result.error or "")
 
@@ -442,16 +430,18 @@ class TestProcessProposals:
         proposals = [
             _make_proposal(title="Task A", dependencies=["T-P0-99"]),
         ]
-        result = process_proposals(proposals, MINIMAL_TASKS_MD, "T-P0-1")
+        bridge = _make_mock_bridge(existing_ids={"T-P0-1"}, id_counter=11)
+        result = process_proposals(proposals, bridge, "T-P0-1")
         assert not result.success
         assert "non-existent" in (result.error or "")
 
     def test_dep_on_existing_task(self) -> None:
-        """Dependency on existing task in TASKS.md works."""
+        """Dependency on existing task in tasks.db works."""
         proposals = [
             _make_proposal(title="Task A", dependencies=["T-P0-1"]),
         ]
-        result = process_proposals(proposals, MINIMAL_TASKS_MD, "T-P0-1")
+        bridge = _make_mock_bridge(existing_ids={"T-P0-1", "T-P1-10"}, id_counter=11)
+        result = process_proposals(proposals, bridge, "T-P0-1")
         assert result.success
         assert result.allocated_tasks[0].depends_on == ["T-P0-1"]
 
@@ -461,10 +451,11 @@ class TestProcessProposals:
             _make_proposal(title="P0 task", priority="P0"),
             _make_proposal(title="P2 task", priority="P2"),
         ]
-        result = process_proposals(proposals, MINIMAL_TASKS_MD, "T-P0-1")
+        bridge = _make_mock_bridge(existing_ids={"T-P0-1", "T-P1-10"}, id_counter=2)
+        result = process_proposals(proposals, bridge, "T-P0-1")
         assert result.success
         assert result.allocated_tasks[0].task_id == "T-P0-2"
-        assert result.allocated_tasks[1].task_id == "T-P2-0"
+        assert result.allocated_tasks[1].task_id == "T-P2-3"
 
 
 # ---------------------------------------------------------------------------
@@ -506,120 +497,3 @@ class TestExtractProposalsFromPlan:
         proposals = extract_proposals_from_plan(plan_json)
         assert len(proposals) == 1
         assert proposals[0].title == "Good"
-
-
-# ---------------------------------------------------------------------------
-# write_allocated_tasks
-# ---------------------------------------------------------------------------
-
-
-class TestWriteAllocatedTasks:
-    """Tests for writing allocated tasks to TASKS.md."""
-
-    def test_writes_tasks_to_file(self, tmp_path: Path) -> None:
-        """Tasks written to TASKS.md file."""
-        tasks_md = tmp_path / "TASKS.md"
-        tasks_md.write_text(MINIMAL_TASKS_MD, encoding="utf-8")
-
-        writer = TasksWriter(tasks_md)
-        tasks = [
-            AllocatedTask(
-                task_id="T-P1-11", title="New Task A",
-                description="Implement A",
-                priority="P1", complexity="M",
-                depends_on=["T-P0-1"],
-                acceptance_criteria=["Works", "Tested"],
-                parent_task_id="T-P0-1",
-            ),
-            AllocatedTask(
-                task_id="T-P1-12", title="New Task B",
-                description="Implement B",
-                priority="P1", complexity="S",
-                depends_on=["T-P1-11"],
-                acceptance_criteria=["Works"],
-                parent_task_id="T-P0-1",
-            ),
-        ]
-
-        result = write_allocated_tasks(writer, tasks)
-        assert result.success
-        assert result.written_ids == ["T-P1-11", "T-P1-12"]
-
-        # Verify content
-        content = tasks_md.read_text(encoding="utf-8")
-        assert "#### T-P1-11: New Task A" in content
-        assert "#### T-P1-12: New Task B" in content
-        assert "- **Priority**: P1" in content
-        assert "- **Depends on**: T-P0-1" in content
-        assert "- **Depends on**: T-P1-11" in content
-        assert "  1. Works" in content
-        assert "  2. Tested" in content
-
-    def test_backup_created(self, tmp_path: Path) -> None:
-        """Backup file created before write."""
-        tasks_md = tmp_path / "TASKS.md"
-        tasks_md.write_text(MINIMAL_TASKS_MD, encoding="utf-8")
-
-        writer = TasksWriter(tasks_md)
-        tasks = [
-            AllocatedTask(
-                task_id="T-P1-11", title="Task A",
-                description="Do A", priority="P1", complexity="M",
-                depends_on=[], acceptance_criteria=[],
-                parent_task_id="T-P0-1",
-            ),
-        ]
-
-        result = write_allocated_tasks(writer, tasks)
-        assert result.success
-        assert (tmp_path / "TASKS.md.bak").is_file()
-
-    def test_empty_list_noop(self, tmp_path: Path) -> None:
-        """Empty task list is a no-op."""
-        tasks_md = tmp_path / "TASKS.md"
-        tasks_md.write_text(MINIMAL_TASKS_MD, encoding="utf-8")
-
-        writer = TasksWriter(tasks_md)
-        result = write_allocated_tasks(writer, [])
-        assert result.success
-        assert result.written_ids == []
-
-    def test_missing_file_fails(self, tmp_path: Path) -> None:
-        """Missing TASKS.md file returns error."""
-        tasks_md = tmp_path / "TASKS.md"
-        writer = TasksWriter(tasks_md)
-        tasks = [
-            AllocatedTask(
-                task_id="T-P1-1", title="Task A",
-                description="Do A", priority="P1", complexity="M",
-                depends_on=[], acceptance_criteria=[],
-                parent_task_id="T-P0-1",
-            ),
-        ]
-        result = write_allocated_tasks(writer, tasks)
-        assert not result.success
-        assert "not found" in (result.error or "")
-
-    def test_tasks_inserted_in_active_section(self, tmp_path: Path) -> None:
-        """New tasks inserted before the Completed Tasks section."""
-        tasks_md = tmp_path / "TASKS.md"
-        tasks_md.write_text(MINIMAL_TASKS_MD, encoding="utf-8")
-
-        writer = TasksWriter(tasks_md)
-        tasks = [
-            AllocatedTask(
-                task_id="T-P1-11", title="New One",
-                description="Test", priority="P1", complexity="S",
-                depends_on=[], acceptance_criteria=[],
-                parent_task_id="T-P0-1",
-            ),
-        ]
-
-        write_allocated_tasks(writer, tasks)
-
-        content = tasks_md.read_text(encoding="utf-8")
-        # New task should appear before ## Completed Tasks
-        active_idx = content.index("## Active Tasks")
-        new_task_idx = content.index("T-P1-11")
-        completed_idx = content.index("## Completed Tasks")
-        assert active_idx < new_task_idx < completed_idx
