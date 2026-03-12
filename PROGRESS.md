@@ -334,3 +334,10 @@
 - **Sanity check result**: sync.py idempotent (second run = all up to date). blog_proj import: 19 tasks, verification passed. Template CRUD: add/list/project/delete cycle works. tasks_md_guard blocks in both. Session hooks exit 0 gracefully. [AUTO-VERIFIED]
 - **Status**: [DONE]
 - **Request**: No task status change needed (infrastructure migration, not a tracked helixos task)
+
+## 2026-03-12 -- [T-P2-175] Add review sub-status badges to task cards
+- **What I did**: Updated TaskCard.tsx and TaskCardPopover.tsx to show distinct color-coded badges for the 3 review sub-states. Changed `review` from yellow "REVIEW" to gray "Under Review". Changed label casing from ALL-CAPS to title case: "Auto-Approved" (green), "Needs Human" (orange). Both card face and hover popover are consistent.
+- **Deliverables**: `frontend/src/components/TaskCard.tsx`, `frontend/src/components/TaskCardPopover.tsx`
+- **Sanity check result**: TypeScript clean, Vite build clean. Grep confirms labels appear in both TaskCard and TaskCardPopover. STATUS_COLORS palette uses gray for review (matches AC), green for auto-approved, orange for needs-human. Labels consistent with App.tsx filter dropdown. [AUTO-VERIFIED] - no browser available; wiring verified via grep + build.
+- **Status**: [DONE]
+- **Request**: `task_db.py update T-P2-175 --status completed`

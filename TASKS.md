@@ -13,22 +13,6 @@
 
 ### P2 -- Nice to Have
 
-#### T-P2-175: Add review sub-status badges to task cards
-- **Priority**: P2
-- **Complexity**: S
-- **Depends on**: None
-- **Description**: TaskCard currently shows generic "REVIEW" badge for all 3 review sub-states (review, review_auto_approved, review_needs_human). Users cannot distinguish between "under review", "auto-approved awaiting queue", and "needs human decision" without clicking the task. Add color-coded sub-status badges: gray "Under Review" for review, green "Auto-Approved" for review_auto_approved, orange "Needs Human" for review_needs_human.
-
-- **Acceptance Criteria**:
-  1. TaskCard.tsx updated to show sub-status badge based on task.status
-  2. review status → gray badge "Under Review"
-  3. review_auto_approved status → green badge "Auto-Approved"
-  4. review_needs_human status → orange badge "Needs Human"
-  5. Badge styles consistent with existing STATUS_COLORS palette
-  6. User journey: User drags task to REVIEW → task card shows gray "Under Review" badge → review pipeline completes with auto-approval → badge changes to green "Auto-Approved" → user drags to QUEUED
-  7. User journey: Review pipeline returns needs_human → task card shows orange "Needs Human" badge → user clicks task → ReviewPanel shows decision UI
-  8. Manual smoke test: Create task, drag to REVIEW, verify gray badge appears, wait for review completion, verify badge changes to green/orange based on result
-
 #### T-P2-176: Add browser notification for needs-human review state
 - **Priority**: P2
 - **Complexity**: S
@@ -63,6 +47,7 @@
 ## Completed Tasks
 
 - [x] **2026-03-12** -- T-P2-179: Add busy_timeout to task_store.py for concurrent hook safety
+- [x] **2026-03-12** -- T-P2-175: Add review sub-status badges to task cards. TaskCard currently shows generic "REVIEW" badge for all 3 review sub-states (review, review_auto_approved, review_needs_
 - [x] **2026-03-12** -- T-P0-178: Implement DB-as-source-of-truth for task management. Replace regex-based TASKS.md parsing with SQLite-backed task store
 - [x] **2026-03-11** -- T-P2-174: Add atomic review submission endpoint. - Added POST /api/tasks/{id}/submit-for-review endpoint that atomically updates title/description and transitions to REV
 - [x] **2026-03-11** -- T-P1-173: Add Cancel Execution button to ExecutionLog. - Added "Cancel Execution" button to ExecutionLog header when task status is "running"
