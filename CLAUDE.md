@@ -77,7 +77,8 @@
 - **Never invent new task ID formats.** Task IDs must match `T-P{priority}-{number}`
   (e.g., T-P0-1, T-P1-42). Do not create alternative prefixes like T-TD, T-BUG, etc.
   Use the Priority field inside the task spec for categorization instead.
-<!-- CUSTOMIZE: Add your project-specific prohibitions -->
+- **Never create #### task headers without T-PX-NN IDs** in Active Tasks or
+  In Progress sections of TASKS.md. Assign the next sequential ID.
 
 ## Behavior Rules
 - **Fix violations immediately**: When a check you run (lint, emoji scan, tests) discovers

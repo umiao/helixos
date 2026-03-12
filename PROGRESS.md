@@ -285,3 +285,10 @@
 - **Sanity check result**: 6 new tests pass, 66 review tests pass, TypeScript clean, Vite build clean, ruff clean. [AUTO-VERIFIED] - no browser available; wiring verified via code inspection (submitForReview imported in modal, single POST call replaces 2-call pattern, backend handles field update + status transition atomically).
 - **Status**: [DONE]
 - **Request**: Move T-P2-174 to Completed (DONE)
+
+## 2026-03-11 -- [T-P2-175] Enforce TASKS.md task header format
+- **What I did**: Added automated enforcement to prevent bare #### task headers (missing T-PX-NN: IDs) in Active/In Progress sections of TASKS.md. Added `find_malformed_task_headers()` and `HeaderError` dataclass to `hook_utils.py`. Created PostToolUse warning hook (`task_header_check.py`) and Stop blocking hook (`task_header_stop_check.py`). Registered both in `.claude/settings.json`. Added CLAUDE.md prohibited-action rule. Fixed 3 bare headers in TASKS.md (T-P2-175, T-P2-176, T-P3-177).
+- **Deliverables**: `.claude/hooks/hook_utils.py`, `.claude/hooks/task_header_check.py`, `.claude/hooks/task_header_stop_check.py`, `.claude/settings.json`, `CLAUDE.md`, `TASKS.md`
+- **Sanity check result**: Both hooks pass clean on current TASKS.md. PostToolUse hook warns on injected bad header. Stop hook blocks (exit 2) on bad header. Fail-open on missing file. Ruff clean. 766 tests pass.
+- **Status**: [DONE]
+- **Request**: No task status change needed (this was infrastructure work, not a tracked task)

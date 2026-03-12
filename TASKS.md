@@ -36,7 +36,7 @@
 
 ### P2 -- Nice to Have
 
-#### Add review sub-status badges to task cards
+#### T-P2-175: Add review sub-status badges to task cards
 - **Priority**: P2
 - **Complexity**: S
 - **Depends on**: None
@@ -51,7 +51,7 @@
   7. User journey: Review pipeline returns needs_human → task card shows orange "Needs Human" badge → user clicks task → ReviewPanel shows decision UI
   8. Manual smoke test: Create task, drag to REVIEW, verify gray badge appears, wait for review completion, verify badge changes to green/orange based on result
 
-#### Add browser notification for needs-human review state
+#### T-P2-176: Add browser notification for needs-human review state
 - **Priority**: P2
 - **Complexity**: S
 - **Depends on**: None
@@ -67,7 +67,7 @@
 
 ### P3 -- Stretch Goals
 
-#### Persist filter state to localStorage
+#### T-P3-177: Persist filter state to localStorage
 - **Priority**: P3
 - **Complexity**: S
 - **Depends on**: None
