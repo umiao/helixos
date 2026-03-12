@@ -269,3 +269,10 @@
 - **Sanity check result**: TypeScript clean (`npx tsc --noEmit`), Vite build clean. Grep confirms: Notification API usage in useSSEHandler, warning type flows through Toast/useToasts/useSSEHandler, permission request in App.tsx. [AUTO-VERIFIED] - no browser available; wiring verified via grep + build.
 - **Status**: [DONE]
 - **Request**: `task_db.py update T-P2-176 --status completed`
+
+## 2026-03-12 -- [T-P3-177] Persist filter state to localStorage
+- **What I did**: Added localStorage persistence for all four filter fields (filterStatus, searchQuery, filterPriorities, filterComplexities) in useTaskState.ts. State initializers read from localStorage on mount. useEffect hooks write to localStorage on change. clearFilters now also clears filterStatus and searchQuery (previously only cleared priorities/complexities). Sets are serialized as JSON arrays.
+- **Deliverables**: `frontend/src/hooks/useTaskState.ts`
+- **Sanity check result**: TypeScript clean (`npx tsc --noEmit`), Vite build clean. localStorage keys: helix_filter_status, helix_filter_search, helix_filter_priorities, helix_filter_complexities. clearFilters resets all four fields which triggers useEffect cleanup of localStorage. [AUTO-VERIFIED] - no browser available; wiring verified via grep + build.
+- **Status**: [DONE]
+- **Request**: `task_db.py update T-P3-177 --status completed`

@@ -19,10 +19,57 @@ export function useTaskState(addToast: (text: string, type: "success" | "error")
   const [viewMode, setViewMode] = useState<"conversation" | "log">("conversation");
   const [reviewPhase, setReviewPhase] = useState("");
   const [bottomPanel, setBottomPanel] = useState<"log" | "review" | "plan" | "running" | "costs">("log");
-  const [filterStatus, setFilterStatus] = useState("");
-  const [searchQuery, setSearchQuery] = useState("");
-  const [filterPriorities, setFilterPriorities] = useState<Set<string>>(new Set());
-  const [filterComplexities, setFilterComplexities] = useState<Set<string>>(new Set());
+  const [filterStatus, setFilterStatus] = useState(() => {
+    return localStorage.getItem("helix_filter_status") ?? "";
+  });
+  const [searchQuery, setSearchQuery] = useState(() => {
+    return localStorage.getItem("helix_filter_search") ?? "";
+  });
+  const [filterPriorities, setFilterPriorities] = useState<Set<string>>(() => {
+    try {
+      const raw = localStorage.getItem("helix_filter_priorities");
+      return raw ? new Set(JSON.parse(raw) as string[]) : new Set();
+    } catch { return new Set(); }
+  });
+  const [filterComplexities, setFilterComplexities] = useState<Set<string>>(() => {
+    try {
+      const raw = localStorage.getItem("helix_filter_complexities");
+      return raw ? new Set(JSON.parse(raw) as string[]) : new Set();
+    } catch { return new Set(); }
+  });
+  // Persist filter state to localStorage
+  useEffect(() => {
+    if (filterStatus) {
+      localStorage.setItem("helix_filter_status", filterStatus);
+    } else {
+      localStorage.removeItem("helix_filter_status");
+    }
+  }, [filterStatus]);
+
+  useEffect(() => {
+    if (searchQuery) {
+      localStorage.setItem("helix_filter_search", searchQuery);
+    } else {
+      localStorage.removeItem("helix_filter_search");
+    }
+  }, [searchQuery]);
+
+  useEffect(() => {
+    if (filterPriorities.size > 0) {
+      localStorage.setItem("helix_filter_priorities", JSON.stringify([...filterPriorities]));
+    } else {
+      localStorage.removeItem("helix_filter_priorities");
+    }
+  }, [filterPriorities]);
+
+  useEffect(() => {
+    if (filterComplexities.size > 0) {
+      localStorage.setItem("helix_filter_complexities", JSON.stringify([...filterComplexities]));
+    } else {
+      localStorage.removeItem("helix_filter_complexities");
+    }
+  }, [filterComplexities]);
+
   const [reviewSubmitTask, setReviewSubmitTask] = useState<Task | null>(null);
   const [editTask, setEditTask] = useState<Task | null>(null);
   const [hasRestoredSelection, setHasRestoredSelection] = useState(false);
@@ -293,6 +340,8 @@ export function useTaskState(addToast: (text: string, type: "success" | "error")
   );
 
   const clearFilters = useCallback(() => {
+    setFilterStatus("");
+    setSearchQuery("");
     setFilterPriorities(new Set());
     setFilterComplexities(new Set());
   }, []);
