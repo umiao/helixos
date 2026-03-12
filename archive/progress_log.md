@@ -1,6 +1,6 @@
 # Progress Log Archive
 
-> Archived from PROGRESS.md. 170 session entries (sessions 1-170) as of 2026-03-09.
+> Archived from PROGRESS.md. 180 session entries (sessions 1-180) as of 2026-03-12.
 > See [PROGRESS.md](../PROGRESS.md) for recent sessions.
 
 ---
@@ -1433,3 +1433,82 @@
 - **Sanity check result**: Vite build clean. 225 core tests pass (plan, enrichment, db, task_manager). 10/10 format_plan_as_text tests pass including 6 new edge cases. TypeScript pre-existing errors only (no new errors). [AUTO-VERIFIED] -- no browser available; wiring confirmed via code trace.
 - **Status**: [DONE]
 - **Request**: Move T-P1-146 to Completed
+## 2026-03-08 -- [T-P1-109] Add cost/usage dashboard endpoint and frontend panel
+- **What I did**: Added `GET /api/dashboard/costs` endpoint with single GROUP BY query joining `review_history` with `tasks` to aggregate per-project cost data. Created `ProjectCostSummary` and `CostDashboardResponse` schemas. Added `get_cost_summary()` to `HistoryWriter`. Frontend: created `CostDashboard.tsx` component with formatted USD table (project name, reviews, total cost, avg cost, grand total row), empty state handling. Added "Costs" tab to `BottomPanelContainer`. Updated panel type union across `useTaskState`, `useSSEHandler`, and `BottomPanelContainer`. 4 new backend tests.
+- **Deliverables**: `src/routes/dashboard.py` (new endpoint), `src/schemas.py` (2 new schemas), `src/history_writer.py` (new method), `frontend/src/components/CostDashboard.tsx` (new), `frontend/src/components/BottomPanelContainer.tsx` (updated), `frontend/src/hooks/useTaskState.ts` (updated), `frontend/src/hooks/useSSEHandler.ts` (updated), `frontend/src/api.ts` (new function), `frontend/src/types.ts` (2 new interfaces), `tests/test_api.py` (4 new tests)
+- **Sanity check result**: TypeScript clean (`npx tsc --noEmit`), Vite build clean, 1363 Python tests pass + 6 skipped, ruff clean. [AUTO-VERIFIED]
+- **Status**: [DONE]
+- **Request**: Move T-P1-109 to Completed
+
+## 2026-03-08 -- [T-P1-108] Add Playwright E2E smoke test infrastructure
+- **What I did**: Added Playwright E2E test infrastructure to the frontend. Installed `@playwright/test` as dev dependency, installed Chromium browser. Created `playwright.config.ts` with Chromium headless project, CI-compatible settings (forbidOnly, retries, single worker), trace/screenshot on failure. Created 4 test files in `frontend/e2e/` with 12 tests total: `page-load.spec.ts` (dashboard loads, Kanban columns visible, header buttons), `task-card.spec.ts` (card rendering, task ID/title, status badge), `task-click.spec.ts` (click opens bottom panel, panel shows content), `project-filter.spec.ts` (filter bar, status dropdown options, search input, priority chips). Added `npm run e2e` and `npm run e2e:headed` scripts.
+- **Deliverables**: `frontend/playwright.config.ts`, `frontend/e2e/page-load.spec.ts`, `frontend/e2e/task-card.spec.ts`, `frontend/e2e/task-click.spec.ts`, `frontend/e2e/project-filter.spec.ts`, `frontend/package.json` (updated scripts + devDep)
+- **Sanity check result**: TypeScript clean (`npx tsc --noEmit`), Vite build clean, 1359 Python tests pass + 6 skipped, `npx playwright test --list` discovers all 12 tests in 4 files. [AUTO-VERIFIED]
+- **Status**: [DONE]
+- **Request**: Move T-P1-108 to Completed
+
+## 2026-03-08 -- [T-P1-106] Decompose App.tsx into container components and custom hooks
+- **What I did**: Extracted App.tsx (1131 lines, 59+ state variables) into 4 custom hooks and 1 container component. Created `useToasts.ts` (toast state management), `useTaskState.ts` (tasks, filters, selected task, log entries, stream events, and all task handlers), `useProjectState.ts` (projects, selected projects, syncing, sync handlers), `useSSEHandler.ts` (SSE event handler construction + connection via useSSE). Created `BottomPanelContainer.tsx` encapsulating tab bar + panel rendering (ConversationView, ExecutionLog, ReviewPanel, RunningJobsPanel). App.tsx is now a thin composition layer (~280 lines) that calls hooks and renders components.
+- **Deliverables**: `frontend/src/hooks/useToasts.ts`, `frontend/src/hooks/useTaskState.ts`, `frontend/src/hooks/useProjectState.ts`, `frontend/src/hooks/useSSEHandler.ts`, `frontend/src/components/BottomPanelContainer.tsx`, `frontend/src/App.tsx` (rewritten)
+- **Sanity check result**: TypeScript clean (`npx tsc --noEmit`), Vite build clean, 1359 Python tests pass + 6 skipped, `npx playwright test --list` discovers all 12 tests in 4 files. [AUTO-VERIFIED]
+- **Status**: [DONE]
+- **Request**: Move T-P1-106 to Completed
+
+## 2026-03-08 -- [T-P1-113] Extract agent prompts into config template files
+- **What I did**: Moved all inline prompt constants from `enrichment.py`, `review_pipeline.py`, and `code_executor.py` into 9 `.md` template files under `config/prompts/`. Created `src/prompt_loader.py` with `load_prompt(name)` (UTF-8, module-level cache) and `render_prompt(name, **kwargs)` for `{{variable}}` substitution. Updated all 3 source files to use the loader. Added 6 new tasks (T-P1-113 through T-P1-118) to TASKS.md.
+- **Deliverables**: `config/prompts/` (9 files: enrichment_system, task_schema_context, project_rules_context, plan_system, review_conventions_context, review_feasibility, review_adversarial, review_default, execution_prompt), `src/prompt_loader.py`, updated `src/enrichment.py`, `src/review_pipeline.py`, `src/executors/code_executor.py`, `tests/test_prompt_loader.py`
+- **Sanity check result**: 1383 tests pass + 6 skipped (20 new), ruff clean. [AUTO-VERIFIED]
+- **Status**: [DONE]
+- **Request**: Move T-P1-113 to Completed
+
+## 2026-03-09 -- [T-P1-148] Add thinking block rendering in ConversationView
+- **What I did**: Added THINKING event type to backend `sdk_adapter.py` -- ThinkingBlock content is now emitted as `ClaudeEvent(type=THINKING, thinking=...)` instead of being silently skipped. Frontend: added `"thinking"` to `StreamDisplayItem.type` and `StreamContentBlock.type` in `types.ts`. Updated `normalizeStreamEvents` to handle both top-level `thinking` events and thinking content blocks inside `assistant` messages. Added collapsible thinking block renderer in ConversationView: collapsed by default showing "Thinking" label + preview, expandable to full reasoning text. Visual treatment: muted gray-500 italic text, semi-transparent bg, distinct from regular text messages. Updated existing test from "thinking skipped" to "thinking emitted" and added empty-thinking skip test.
+- **Deliverables**: `src/sdk_adapter.py`, `frontend/src/types.ts`, `frontend/src/components/ConversationView.tsx`, `tests/test_sdk_adapter.py`
+- **Sanity check result**: TypeScript clean (`npx tsc --noEmit`), Vite build clean, 11 stream_json tests pass, ruff clean. [AUTO-VERIFIED]
+- **Status**: [DONE]
+- **Request**: Move T-P1-148 to Completed
+
+## 2026-03-10 -- [T-P0-165] Persist task selection to localStorage for conversation recovery after page refresh
+- **What I did**: Implemented localStorage persistence for selected task to recover conversation state after page refresh. Added two useEffect hooks in `useTaskState.ts`: one syncs selectedTask changes to localStorage (key: "helix_selected_task_id"), another restores persisted selection after tasks load (with deleted-task cleanup). Improved error handling in ConversationView.tsx fetchStreamLog catch block to log errors to console instead of silently swallowing. Enhanced backend endpoint `/api/tasks/{task_id}/stream-log` with explicit OSError handling for concurrent read scenarios and added `errors="replace"` to file.open() for robustness during active JSONL writes. Fixed two pre-existing TypeScript errors discovered during build: ConversationView.tsx line 435 (toolInput unknown → null check), types.ts PlanStatus missing "decomposed" value.
+- **Deliverables**: `frontend/src/hooks/useTaskState.ts` (added localStorage sync + restore logic), `frontend/src/components/ConversationView.tsx` (improved error logging + TypeScript fix), `src/routes/dashboard.py` (enhanced stream-log endpoint error handling), `frontend/src/types.ts` (added "decomposed" to PlanStatus)
+- **Sanity check result**: TypeScript clean build, 11 stream_json tests pass, Vite build successful, frontend compiles without errors. [AUTO-VERIFIED]
+- **Status**: [DONE]
+- **Request**: Move T-P0-165 to Completed
+- **Sanity check result**: 37 sdk_adapter tests pass, 217 core tests pass, 144 review/plan tests pass, ruff clean, Vite build clean. [AUTO-VERIFIED]
+- **Status**: [DONE]
+- **Request**: Move T-P1-148 to Completed
+
+## 2026-03-09 -- [T-P1-149] Collapse consecutive tool_use blocks in ConversationView
+- **What I did**: Added grouping logic to ConversationView that identifies consecutive tool_use runs and renders groups of 2+ as a single collapsible container. Container shows tool count and name summary (e.g. "3 tool calls: Read, Grep, Read"). When expanded, individual tool_use blocks are shown inside, each still individually expandable to show input/output. Single tool_use blocks render unchanged (no grouping wrapper). Extracted `renderToolUse` helper to avoid duplication between single and grouped rendering.
+- **Deliverables**: `frontend/src/components/ConversationView.tsx`
+- **Sanity check result**: Vite build clean, TypeScript clean, 188 unit tests pass. [AUTO-VERIFIED]
+- **Status**: [DONE]
+- **Request**: Move T-P1-149 to Completed
+
+## 2026-03-09 -- [T-P1-150] Add inline description editing to TaskCardPopover
+- **What I did**: Added inline description editing to TaskCardPopover following the existing title editing pattern. Description section now always visible (shows "No description" placeholder when empty). Clicking the pencil icon opens a textarea with Save/Cancel buttons. Ctrl+Enter saves, Escape cancels, blur saves. Edits persist via PATCH /api/tasks/{id} with { description }. No backend changes needed -- API already supported description updates.
+- **Deliverables**: `frontend/src/components/TaskCardPopover.tsx`
+- **Sanity check result**: TypeScript clean, Vite build clean, 1643 Python tests pass. [AUTO-VERIFIED]
+- **Status**: [DONE]
+- **Request**: Move T-P1-150 to Completed
+
+## 2026-03-09 -- [T-P1-151] Enforce subtask decomposition in planner prompt + review validation
+- **What I did**: Updated planner system prompt (plan_system.md) with explicit per-complexity decomposition requirements: M must propose 2-4 subtasks, L must propose 3-8 subtasks, S is exempt. Added `min_proposed_tasks_m` (default 2) and `min_proposed_tasks_l` (default 3) to PlanValidationConfig. Extended `_validate_plan_structure` to accept `complexity_hint` and reject plans with insufficient decomposition. Updated review.md to flag missing decomposition as a FAIL condition. Added 11 new tests covering unit validation, configurable limits, and integration with `generate_task_plan`. Fixed 3 existing tests that needed proposed_tasks for M/L complexity hints.
+- **Deliverables**: `config/prompts/plan_system.md`, `config/prompts/review.md`, `src/config.py`, `src/enrichment.py`, `tests/test_plan_generation.py`, `tests/test_prompt_eval.py`, `tests/factories.py`
+- **Sanity check result**: 1578 tests pass (6 skipped), ruff clean. Scheduler tests hang on Windows asyncio (pre-existing). [AUTO-VERIFIED]
+- **Status**: [DONE]
+- **Request**: Move T-P1-151 to Completed
+
+## 2026-03-09 -- [T-P0-152] Fix ConversationView event normalization (invisible content)
+- **What I did**: Fixed `normalizeStreamEvents()` to handle backend `sdk_adapter.py` event types. Added `type: "text"` as primary handler (was only checking `"assistant"`), causing all assistant text to be silently dropped. Added `type: "init"` (silently ignored), `type: "error"` (red error bubble). Fixed field name mismatches: backend uses `tool_name`/`tool_input`/`tool_use_id`/`tool_result_content`/`tool_result_for_id` but normalizer was reading `name`/`input`/`id`/`content`/`tool_use_id`. Also fixed `result` event to read `result_text` field. Added `errorMessage` field and `"error"` type to `StreamDisplayItem`.
+- **Deliverables**: `frontend/src/components/ConversationView.tsx`, `frontend/src/types.ts`
+- **Sanity check result**: TypeScript clean, Vite build clean, 1576 Python tests pass. Grep-verified wiring: error type flows through normalization -> display entries -> render. [AUTO-VERIFIED]
+- **Status**: [DONE]
+- **Request**: Move T-P0-152 to Completed
+
+## 2026-03-09 -- [T-P2-143] Rewrite historical non-English commit messages
+- **What I did**: Verified that both target commits (`f31a013` -> `d4a02ef`, `5ea7b4c` -> `4c0b50f`) already have the correct English messages in the current git history. No non-ASCII commit messages remain. The rewriting was already done as part of T-P2-142. No code changes needed.
+- **Deliverables**: `TASKS.md` (updated status)
+- **Sanity check result**: `git log --oneline --all` shows all commits have ASCII-only messages. Both target messages confirmed present. [AUTO-VERIFIED]
+- **Status**: [DONE]
+- **Request**: Move T-P2-143 to Completed

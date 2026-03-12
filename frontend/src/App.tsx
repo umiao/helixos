@@ -113,6 +113,16 @@ function App() {
     loadData();
   }, [loadData]);
 
+  // Request browser notification permission on first load
+  useEffect(() => {
+    if (
+      typeof Notification !== "undefined" &&
+      Notification.permission === "default"
+    ) {
+      Notification.requestPermission();
+    }
+  }, []);
+
   // Modal state
   const [showImportModal, setShowImportModal] = useState(false);
   const [newTaskProject, setNewTaskProject] = useState<Project | null>(null);

@@ -7,7 +7,7 @@ import type { Project } from "../types";
 import { planStatePatch } from "../utils/planState";
 
 interface UseSSEHandlerDeps {
-  addToast: (text: string, type: "success" | "error") => void;
+  addToast: (text: string, type: "success" | "error" | "warning") => void;
   addLogEntry: (task_id: string, message: string, timestamp: string, source?: string) => void;
   setTasks: React.Dispatch<React.SetStateAction<Task[]>>;
   setProjects: React.Dispatch<React.SetStateAction<Project[]>>;
@@ -74,8 +74,8 @@ export function useSSEHandler(deps: UseSSEHandlerDeps) {
           );
           if (newStatus === "review_needs_human") {
             addToast(
-              `[${event.task_id}] Review needs human decision`,
-              "error",
+              `Task ${event.task_id} needs human review decision`,
+              "warning",
             );
             setBottomPanel("review");
             fetchTask(event.task_id)
@@ -84,6 +84,22 @@ export function useSSEHandler(deps: UseSSEHandlerDeps) {
                   prev.map((t) => (t.id === updated.id ? updated : t)),
                 );
                 setSelectedTask(updated);
+                // Browser notification (only if permission granted)
+                if (
+                  typeof Notification !== "undefined" &&
+                  Notification.permission === "granted"
+                ) {
+                  const n = new Notification("Review Needs Human", {
+                    body: `Task ${updated.local_task_id ?? event.task_id}: ${updated.title}`,
+                    tag: `review-needs-human-${event.task_id}`,
+                  });
+                  n.onclick = () => {
+                    window.focus();
+                    setSelectedTask(updated);
+                    setBottomPanel("review");
+                    n.close();
+                  };
+                }
               })
               .catch(() => {
                 setTasks((prev) => {

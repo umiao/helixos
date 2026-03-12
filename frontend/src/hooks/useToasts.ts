@@ -7,7 +7,7 @@ export function useToasts() {
   const [toasts, setToasts] = useState<ToastMessage[]>([]);
 
   const addToast = useCallback(
-    (text: string, type: "success" | "error") => {
+    (text: string, type: "success" | "error" | "warning") => {
       const id = ++toastIdCounter;
       setToasts((prev) => [...prev, { id, text, type }]);
     },

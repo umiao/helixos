@@ -8,7 +8,7 @@ import { useEffect } from "react";
 export interface ToastMessage {
   id: number;
   text: string;
-  type: "success" | "error";
+  type: "success" | "error" | "warning";
 }
 
 interface ToastProps {
@@ -41,7 +41,9 @@ function ToastItem({
   const bg =
     message.type === "error"
       ? "bg-red-600 text-white"
-      : "bg-green-600 text-white";
+      : message.type === "warning"
+        ? "bg-orange-500 text-white"
+        : "bg-green-600 text-white";
 
   return (
     <div

@@ -13,20 +13,6 @@
 
 ### P2 -- Nice to Have
 
-#### T-P2-176: Add browser notification for needs-human review state
-- **Priority**: P2
-- **Complexity**: S
-- **Depends on**: None
-- **Description**: When review pipeline transitions task to review_needs_human, users are not proactively notified. They must check REVIEW column manually to discover tasks awaiting human decision. Add browser notification + toast when task transitions to review_needs_human to improve visibility.
-
-- **Acceptance Criteria**:
-  1. useSSEHandler.ts detects task_status_changed event with new_status="review_needs_human"
-  2. Browser notification triggered with title "Review Needs Human" and body "Task {local_task_id}: {title}"
-  3. Toast shown with orange theme: "Task {local_task_id} needs human review decision"
-  4. Notification only fires if user has granted browser notification permission
-  5. User journey: User creates task → drags to REVIEW → review pipeline runs → pipeline determines needs_human → browser notification appears with task title → user clicks notification → browser focuses HelixOS tab → task auto-selected in ReviewPanel
-  6. Manual smoke test: Trigger needs_human review result (e.g., by creating task with ambiguous requirements), verify browser notification appears, verify toast shows, verify clicking notification focuses correct task
-
 ### P3 -- Stretch Goals
 
 #### T-P3-177: Persist filter state to localStorage
@@ -47,6 +33,7 @@
 ## Completed Tasks
 
 - [x] **2026-03-12** -- T-P2-179: Add busy_timeout to task_store.py for concurrent hook safety
+- [x] **2026-03-12** -- T-P2-176: Add browser notification for needs-human review state. When review pipeline transitions task to review_needs_human, users are not proactively notified. They must check REVIEW 
 - [x] **2026-03-12** -- T-P2-175: Add review sub-status badges to task cards. TaskCard currently shows generic "REVIEW" badge for all 3 review sub-states (review, review_auto_approved, review_needs_
 - [x] **2026-03-12** -- T-P0-178: Implement DB-as-source-of-truth for task management. Replace regex-based TASKS.md parsing with SQLite-backed task store
 - [x] **2026-03-11** -- T-P2-174: Add atomic review submission endpoint. - Added POST /api/tasks/{id}/submit-for-review endpoint that atomically updates title/description and transitions to REV
