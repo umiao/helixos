@@ -306,3 +306,17 @@
 - **Sanity check result**: `sync.py --check` exit 0 for both projects. Grep confirms 18 h4 headers and 0 bold-format headers in blog_proj TASKS.md.
 - **Status**: [DONE]
 - **Request**: No task status change needed (infrastructure fix, not a tracked helixos task)
+
+## 2026-03-12 -- Fix completed task format recognition in archive_check.py
+- **What I did**: Fixed `archive_check.py` regex patterns to recognize blog_proj's `- [x] **date** -- T-PX-NN:` completed task format. Updated `_COMPLETED_ONELINER_RE` to match all 3 oneliner variants (bare, checkbox, checkbox+date). Updated `_COMPLETED_BLOCK_RE` to stop before oneliner entries (preventing them from being swallowed into block ranges). Updated archive body detection regex to find all entry formats. Added completed task format convention to shared `claude_md_shared.md`. Synced to both helixos and blog_proj.
+- **Deliverables**: `claude-code-project-template/shared/hooks/archive_check.py`, `claude-code-project-template/shared/claude_md_shared.md`, synced to helixos + blog_proj
+- **Sanity check result**: All 7 oneliner regex tests pass. All 4 archive detection tests pass. Mixed-format integration test: 21 entries (2 blocks + 19 oneliners) correctly counted, 16 archived, 5 kept. Helixos block format regression: 2 blocks still matched correctly. `sync.py --check` exit 0 for both projects.
+- **Status**: [DONE]
+- **Request**: No task status change needed (infrastructure fix, not a tracked helixos task)
+
+## 2026-03-12 -- DB-as-source-of-truth for task management (Tasks 1-3)
+- **What I did**: Implemented SQLite-backed task store replacing regex-based TASKS.md parsing. Created `task_store.py` (SQLite layer: schema, CRUD, ID generation, projection, archival, batch, import/verify) and `task_db.py` (CLI wrapper with add/update/list/get/depend/delete/archive/project/import/reorder/batch commands). Created `tasks_md_guard.py` (PreToolUse hook blocking TASKS.md edits). Rewrote `session_context.py` (DB-first with TASKS.md fallback) and `archive_check.py` (DB-based archival with legacy fallback). Simplified `hook_utils.py` (removed task-header regex). Deleted 3 obsolete hooks (task_header_check, task_header_stop_check, task_dedup_check). Updated settings.json hook wiring. Imported helixos TASKS.md (20 tasks) with verified lossless round-trip. Updated CLAUDE.md rules for DB-first workflow.
+- **Deliverables**: `shared/hooks/task_store.py`, `shared/hooks/task_db.py`, `shared/hooks/tasks_md_guard.py`, updated `shared/hooks/session_context.py`, `shared/hooks/archive_check.py`, `shared/hooks/hook_utils.py`, `shared/settings_base.json`, `shared/claude_md_shared.md`, `tests/test_task_store.py` (62 tests), synced to helixos
+- **Sanity check result**: 62 unit tests pass (CRUD, ID generation, projection determinism, archival, batch, import round-trip). 223 task-related tests pass with no regressions. Ruff clean. Import of real helixos TASKS.md: 20 tasks imported, verification passed. E2E cycle (add/update/complete/delete) works. tasks_md_guard blocks TASKS.md edits, allows other files. Projection output verified: no duplicate headers, no doubled description prefixes.
+- **Status**: [DONE]
+- **Request**: No task status change needed (infrastructure project, not a tracked helixos task)

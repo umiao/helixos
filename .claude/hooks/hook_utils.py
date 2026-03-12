@@ -10,68 +10,11 @@ import contextlib
 import hashlib
 import io
 import json
-import re
 import subprocess
 import sys
 from collections.abc import Callable
-from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
-
-
-@dataclass
-class HeaderError:
-    """A malformed task header in TASKS.md."""
-
-    line_num: int
-    line_text: str
-
-
-ACTIVE_TASK_HEADER_RE = re.compile(r"^####\s+T-P\d+-\d+[a-z]?:")
-
-
-def find_malformed_task_headers(content: str) -> list[HeaderError]:
-    """Find #### headers in Active/In Progress sections missing T-PX-NN: IDs.
-
-    Uses a state machine to track the current ## section. Only checks lines
-    inside 'In Progress' and 'Active Tasks' sections.
-
-    Args:
-        content: Full TASKS.md file content.
-
-    Returns:
-        List of HeaderError for each malformed header found.
-    """
-    active_sections = {"in progress", "active tasks"}
-    errors: list[HeaderError] = []
-    in_active_section = False
-
-    for line_num, line in enumerate(content.splitlines(), start=1):
-        stripped = line.strip()
-
-        # Track ## section transitions
-        if stripped.startswith("## "):
-            section_name = stripped[3:].strip().lower()
-            in_active_section = section_name in active_sections
-            continue
-
-        if not in_active_section:
-            continue
-
-        # Only check #### lines (task headers)
-        if not stripped.startswith("#### "):
-            continue
-
-        # Skip completed/checked-off tasks like "#### [x] T-P0-1: ..."
-        header_text = stripped[5:].strip()
-        if header_text.startswith("[x]"):
-            continue
-
-        # Must match T-PX-NN: pattern
-        if not ACTIVE_TASK_HEADER_RE.match(stripped):
-            errors.append(HeaderError(line_num=line_num, line_text=stripped))
-
-    return errors
 
 
 def init_utf8_streams() -> None:

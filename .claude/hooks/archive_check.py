@@ -1,12 +1,17 @@
-"""SessionStart hook: auto-archive PROGRESS.md and TASKS.md completed entries.
+"""SessionStart hook: auto-archive PROGRESS.md entries and completed tasks.
 
 Runs BEFORE session_context.py so context sees trimmed files.
+
+DB-first: uses .claude/tasks.db for task archival when available,
+falls back to regex-based TASKS.md parsing.
+
 Uses hysteresis thresholds to avoid frequent IO:
   - PROGRESS.md: trigger at >80 entries, keep 40
-  - TASKS.md completed: trigger at >20 entries, keep 5
+  - tasks.db completed: trigger at >20 entries, keep 5
 
 Always exits 0 -- archival failure must not block sessions.
 """
+
 import os
 import re
 import sys
@@ -16,14 +21,18 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from hook_utils import run_hook  # noqa: E402
 
-# Regex matching PROGRESS.md entry headers (same as session_context.py:44)
+# Regex matching PROGRESS.md entry headers (same as session_context.py)
 _PROGRESS_ENTRY_RE = re.compile(r"(?=^## \d{4}-\d{2}-\d{2})", re.MULTILINE)
 
-# Regex matching completed task lines in TASKS.md (#### [x] T-P...: or - T-P...:)
+# Legacy regex patterns for TASKS.md fallback (no DB available)
 _COMPLETED_BLOCK_RE = re.compile(
-    r"^####\s+\[x\]\s+T-P\d+-\d+:.+?(?=\n####|\n##|\Z)", re.MULTILINE | re.DOTALL
+    r"^####\s+\[x\]\s+T-P\d+-\d+:.+?(?=\n####|\n##|\n- (?:\[x\]|T-P)|\Z)",
+    re.MULTILINE | re.DOTALL,
 )
-_COMPLETED_ONELINER_RE = re.compile(r"^- T-P\d+-\d+:.+$", re.MULTILINE)
+_COMPLETED_ONELINER_RE = re.compile(
+    r"^- (?:\[x\]\s+)?(?:\*\*\d{4}-\d{2}-\d{2}\*\*\s+--\s+)?T-P\d+-\d+:.+$",
+    re.MULTILINE,
+)
 
 
 def _find_project_root() -> Path:
@@ -143,19 +152,70 @@ def archive_progress(root: Path, max_entries: int = 80, keep_entries: int = 40) 
     return len(to_archive)
 
 
-def archive_completed_tasks(root: Path, max_completed: int = 20, keep_completed: int = 5) -> int:
-    """Archive old completed task entries from TASKS.md.
-
-    Keeps the most recent keep_completed entries. Appends the rest to
-    archive/completed_tasks.md in chronological order.
+def archive_completed_tasks_db(root: Path, max_completed: int = 20, keep_completed: int = 5) -> int:
+    """Archive completed tasks using the SQLite database.
 
     Args:
         root: Project root directory.
-        max_completed: Trigger archival when completed entry count exceeds this.
-        keep_completed: Number of recent completed entries to keep.
+        max_completed: Trigger archival when completed count exceeds this.
+        keep_completed: Number of recent completed tasks to keep.
 
     Returns:
-        Number of entries archived (0 if threshold not reached).
+        Number of tasks archived (0 if threshold not reached).
+    """
+    db_path = root / ".claude" / "tasks.db"
+    if not db_path.exists():
+        return 0
+
+    from task_store import TaskStore
+
+    store = TaskStore(str(db_path))
+    try:
+        archived = store.archive(max_completed=max_completed, keep_completed=keep_completed)
+
+        if archived > 0:
+            # Regenerate TASKS.md projection
+            from task_db import _write_projection
+            _write_projection(root, store)
+
+            # Also update archive/completed_tasks.md from archived_tasks table
+            _sync_archive_file(root, store)
+
+        return archived
+    finally:
+        store.close()
+
+
+def _sync_archive_file(root: Path, store: "TaskStore") -> None:  # noqa: F821
+    """Sync archive/completed_tasks.md from the archived_tasks table."""
+    archive_file = root / "archive" / "completed_tasks.md"
+    archive_file.parent.mkdir(parents=True, exist_ok=True)
+
+    archived = store.list_archived()
+    if not archived:
+        return
+
+    lines = [
+        "# Completed Tasks Archive",
+        "",
+        f"> {len(archived)} completed tasks archived as of latest archival.",
+        "",
+    ]
+    for task in reversed(archived):  # Chronological order (oldest first)
+        date = task.completed_at or "unknown"
+        if task.summary:
+            lines.append(f"- [x] **{date}** -- {task.id}: {task.title}. {task.summary[:120]}")
+        else:
+            lines.append(f"- [x] **{date}** -- {task.id}: {task.title}")
+    lines.append("")
+
+    _atomic_write(archive_file, "\n".join(lines))
+
+
+def archive_completed_tasks_legacy(root: Path, max_completed: int = 20, keep_completed: int = 5) -> int:
+    """Archive old completed task entries from TASKS.md (legacy regex-based).
+
+    Used as fallback when .claude/tasks.db is not available.
     """
     tasks_file = root / "TASKS.md"
     if not tasks_file.exists():
@@ -177,14 +237,13 @@ def archive_completed_tasks(root: Path, max_completed: int = 20, keep_completed:
     before_completed = content[: completed_match.start()]
 
     # Parse completed entries: both #### [x] blocks and - T-P... oneliners
-    # Collect all entries with their positions for ordering
-    entries: list[str] = []
+    entries: list[tuple[str, int, str]] = []
 
     # Find #### [x] blocks
     for m in _COMPLETED_BLOCK_RE.finditer(section_body):
         entries.append(("block", m.start(), m.group(0).strip()))
 
-    # Find - T-P... oneliners (only if not inside a block)
+    # Find oneliners (only if not inside a block)
     block_ranges = [(m.start(), m.end()) for m in _COMPLETED_BLOCK_RE.finditer(section_body)]
     for m in _COMPLETED_ONELINER_RE.finditer(section_body):
         in_block = any(start <= m.start() < end for start, end in block_ranges)
@@ -217,10 +276,12 @@ def archive_completed_tasks(root: Path, max_completed: int = 20, keep_completed:
         "# Completed Tasks Archive\n\n"
         f"> {new_count} completed tasks archived as of latest archival.\n\n"
     )
-    # Strip old header, keep entries
     if existing_archive:
-        # Find first entry line
-        first_entry = re.search(r"^(?:####|\- T-P)", existing_archive, re.MULTILINE)
+        first_entry = re.search(
+            r"^(?:####\s+\[x\]\s+T-P\d+-\d+|- (?:\[x\]\s+)?(?:\*\*\d{4}-\d{2}-\d{2}\*\*\s+--\s+)?T-P\d+-\d+):",
+            existing_archive,
+            re.MULTILINE,
+        )
         existing_body = existing_archive[first_entry.start() :] if first_entry else ""
     else:
         existing_body = ""
@@ -250,7 +311,7 @@ def _today() -> str:
 
 
 def main(hook_input: dict) -> None:
-    """Run archival checks for PROGRESS.md and TASKS.md."""
+    """Run archival checks for PROGRESS.md and TASKS.md/tasks.db."""
     root = _find_project_root()
 
     archived_progress = 0
@@ -261,10 +322,15 @@ def main(hook_input: dict) -> None:
     except Exception as exc:
         print(f"[ARCHIVE] PROGRESS.md archival failed: {exc}", file=sys.stderr)
 
+    # Try DB-based archival first, fall back to legacy
+    db_path = root / ".claude" / "tasks.db"
     try:
-        archived_tasks = archive_completed_tasks(root)
+        if db_path.exists():
+            archived_tasks = archive_completed_tasks_db(root)
+        else:
+            archived_tasks = archive_completed_tasks_legacy(root)
     except Exception as exc:
-        print(f"[ARCHIVE] TASKS.md archival failed: {exc}", file=sys.stderr)
+        print(f"[ARCHIVE] Task archival failed: {exc}", file=sys.stderr)
 
     if archived_progress or archived_tasks:
         print(

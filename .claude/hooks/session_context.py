@@ -1,4 +1,8 @@
-"""SessionStart hook: output project context summary at session start."""
+"""SessionStart hook: output project context summary at session start.
+
+DB-first: queries .claude/tasks.db when available, falls back to TASKS.md parsing.
+"""
+
 import contextlib
 import json
 import re
@@ -49,6 +53,81 @@ def _get_last_progress_entries(root: Path, count: int = 1) -> str:
 
     recent = real_entries[-count:]
     return "\n\n".join(recent)
+
+
+def _get_active_tasks_from_db(root: Path, current_task_id: str | None) -> str | None:
+    """Query .claude/tasks.db for active tasks. Returns None if DB unavailable."""
+    db_path = root / ".claude" / "tasks.db"
+    if not db_path.exists():
+        return None
+
+    try:
+        from task_store import TaskStore
+
+        store = TaskStore(str(db_path))
+        try:
+            sections: list[str] = []
+
+            # In Progress
+            in_progress = store.list_tasks(status="in_progress")
+            if in_progress:
+                task_lines: list[str] = []
+                for task in in_progress:
+                    if current_task_id and task.id == current_task_id:
+                        task_lines.append(
+                            f"[CURRENT TASK]\n#### {task.id}: {task.title}\n"
+                            f"- **Priority**: {task.priority}\n"
+                            f"- **Complexity**: {task.complexity}\n"
+                            f"- **Depends on**: {', '.join(task.depends_on) or 'None'}\n"
+                            + (f"- **Description**: {task.description}" if task.description else "")
+                        )
+                    else:
+                        task_lines.append(_summarize_task_db(task))
+                sections.append("**In Progress:**\n" + "\n".join(task_lines))
+
+            # Active Tasks
+            active = store.list_tasks(status="active")
+            if active:
+                task_lines = []
+                for task in active:
+                    if current_task_id and task.id == current_task_id:
+                        task_lines.append(
+                            f"[CURRENT TASK]\n#### {task.id}: {task.title}\n"
+                            f"- **Priority**: {task.priority}\n"
+                            f"- **Complexity**: {task.complexity}\n"
+                            f"- **Depends on**: {', '.join(task.depends_on) or 'None'}\n"
+                            + (f"- **Description**: {task.description}" if task.description else "")
+                        )
+                    else:
+                        task_lines.append(_summarize_task_db(task))
+                sections.append("**Active Tasks:**\n" + "\n".join(task_lines))
+
+            # Blocked
+            blocked = store.list_tasks(status="blocked")
+            if blocked:
+                task_lines = [_summarize_task_db(t) for t in blocked]
+                sections.append("**Blocked:**\n" + "\n".join(task_lines))
+
+            return "\n\n".join(sections) if sections else "No active tasks."
+        finally:
+            store.close()
+    except Exception:
+        return None  # Fall back to TASKS.md parsing
+
+
+def _summarize_task_db(task: "Task") -> str:  # noqa: F821
+    """Format a task from DB as a one-line summary."""
+    parts = [f"{task.id}: {task.title}"]
+    meta = []
+    if task.priority:
+        meta.append(task.priority)
+    if task.complexity:
+        meta.append(task.complexity)
+    if task.depends_on:
+        meta.append(f"depends: {', '.join(task.depends_on)}")
+    if meta:
+        parts.append(f"[{', '.join(meta)}]")
+    return " ".join(parts)
 
 
 def _summarize_task_oneline(task_block: str) -> str:
@@ -102,12 +181,13 @@ def _summarize_task_oneline(task_block: str) -> str:
 
 
 def _get_active_tasks(root: Path, current_task_id: str | None) -> str:
-    """Extract tasks from TASKS.md with two-tier detail.
+    """Extract tasks with two-tier detail. DB-first, TASKS.md fallback."""
+    # Try DB first
+    db_result = _get_active_tasks_from_db(root, current_task_id)
+    if db_result is not None:
+        return db_result
 
-    Current task (from session_state.json): FULL details.
-    All other tasks: ONE LINE each.
-    Dedup: tasks already in Completed Tasks are filtered out.
-    """
+    # Fall back to TASKS.md parsing
     tasks_file = root / "TASKS.md"
     if not tasks_file.exists():
         return "No TASKS.md found."
@@ -189,34 +269,53 @@ def _get_recent_lessons(root: Path, current_task_id: str | None) -> str:
 
     # If we know the current task, try keyword-based filtering
     if current_task_id:
-        tasks_file = root / "TASKS.md"
-        if tasks_file.exists():
-            tasks_content = tasks_file.read_text(encoding="utf-8")
-            # Find the task block for the current task
-            task_match = re.search(
-                rf"####\s+{re.escape(current_task_id)}:\s*(.+)",
-                tasks_content,
-            )
-            if task_match:
-                title = task_match.group(1).lower()
-                # Extract meaningful words as keywords (skip common words)
-                skip_words = {"the", "a", "an", "and", "or", "for", "with", "in", "on", "to", "of"}
-                keywords = [
-                    w for w in re.findall(r"[a-z]{3,}", title)
-                    if w not in skip_words
+        # Try DB first for task title
+        task_title = _get_task_title(root, current_task_id)
+        if task_title:
+            title_lower = task_title.lower()
+            skip_words = {"the", "a", "an", "and", "or", "for", "with", "in", "on", "to", "of"}
+            keywords = [
+                w for w in re.findall(r"[a-z]{3,}", title_lower)
+                if w not in skip_words
+            ]
+            if keywords:
+                matched = [
+                    e for e in real_entries
+                    if any(kw in e.lower() for kw in keywords)
                 ]
-                if keywords:
-                    # Filter entries that mention any keyword in tags or title
-                    matched = [
-                        e for e in real_entries
-                        if any(kw in e.lower() for kw in keywords)
-                    ]
-                    if matched:
-                        return "\n\n".join(matched[-3:])
+                if matched:
+                    return "\n\n".join(matched[-3:])
 
     # Fall back to last 3 entries
     recent = real_entries[-3:]
     return "\n\n".join(recent)
+
+
+def _get_task_title(root: Path, task_id: str) -> str | None:
+    """Get task title from DB or TASKS.md."""
+    # Try DB
+    db_path = root / ".claude" / "tasks.db"
+    if db_path.exists():
+        try:
+            from task_store import TaskStore
+            store = TaskStore(str(db_path))
+            try:
+                task = store.get(task_id)
+                if task:
+                    return task.title
+            finally:
+                store.close()
+        except Exception:
+            pass
+
+    # Fall back to TASKS.md
+    tasks_file = root / "TASKS.md"
+    if tasks_file.exists():
+        content = tasks_file.read_text(encoding="utf-8")
+        match = re.search(rf"####\s+{re.escape(task_id)}:\s*(.+)", content)
+        if match:
+            return match.group(1)
+    return None
 
 
 def _get_human_input_status(root: Path) -> str:

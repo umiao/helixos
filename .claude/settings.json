@@ -23,6 +23,11 @@
             "type": "command",
             "command": "python \"$CLAUDE_PROJECT_DIR/.claude/hooks/secret_guard.py\"",
             "timeout": 10
+          },
+          {
+            "type": "command",
+            "command": "python \"$CLAUDE_PROJECT_DIR/.claude/hooks/tasks_md_guard.py\"",
+            "timeout": 10
           }
         ]
       }
@@ -40,11 +45,6 @@
             "type": "command",
             "command": "python \"$CLAUDE_PROJECT_DIR/.claude/hooks/yaml_validate.py\"",
             "timeout": 10
-          },
-          {
-            "type": "command",
-            "command": "python \"$CLAUDE_PROJECT_DIR/.claude/hooks/task_header_check.py\"",
-            "timeout": 10
           }
         ]
       }
@@ -54,7 +54,7 @@
         "hooks": [
           {
             "type": "prompt",
-            "prompt": "You are a strict exit gate for a Claude Code session. Evaluate whether Claude should be allowed to stop.\n\nCRITICAL: Respond with ONLY a JSON object. No markdown, no code blocks, no explanation.\n\nSchema: {\"ok\": true} or {\"ok\": false, \"reason\": \"concise list of what's missing\"}\n\nRules (evaluate in order):\n\nRule 0: If the input field \"stop_hook_active\" is true, respond {\"ok\": true} immediately.\n\nRule 1 - Work completeness: Did Claude finish the user's request? Unresolved errors, half-done implementations, or TODOs left in code mean {\"ok\": false}.\n\nRule 2 - Sanity check: If Claude wrote or modified code, did it verify results (ran code, checked output, inspected files)? If the task modified a server, script, or subprocess launcher, did Claude actually run it (not just tests) and confirm it reaches its expected state without errors? Unverified work means {\"ok\": false}.\n\nRule 3 - PROGRESS.md: If Claude did substantive work (not just Q&A), did it append a session entry with: what was done, deliverables, sanity check result, and status? Missing means {\"ok\": false}.\n\nRule 4 - TASKS.md: Did Claude update task status? Missing means {\"ok\": false}.\n\nRule 5 - LESSONS.md: Only flag if Claude hit a significant bug or surprising behavior but didn't log it. Routine work does not need a lesson entry.\n\nIf all rules pass: {\"ok\": true}\nIf any rule fails: {\"ok\": false, \"reason\": \"Rule N: concise description\"}\n\nHook input: $ARGUMENTS",
+            "prompt": "You are a strict exit gate for a Claude Code session. Evaluate whether Claude should be allowed to stop.\n\nCRITICAL: Respond with ONLY a JSON object. No markdown, no code blocks, no explanation.\n\nSchema: {\"ok\": true} or {\"ok\": false, \"reason\": \"concise list of what's missing\"}\n\nRules (evaluate in order):\n\nRule 0: If the input field \"stop_hook_active\" is true, respond {\"ok\": true} immediately.\n\nRule 1 - Work completeness: Did Claude finish the user's request? Unresolved errors, half-done implementations, or TODOs left in code mean {\"ok\": false}.\n\nRule 2 - Sanity check: If Claude wrote or modified code, did it verify results (ran code, checked output, inspected files)? If the task modified a server, script, or subprocess launcher, did Claude actually run it (not just tests) and confirm it reaches its expected state without errors? Unverified work means {\"ok\": false}.\n\nRule 3 - PROGRESS.md: If Claude did substantive work (not just Q&A), did it append a session entry with: what was done, deliverables, sanity check result, and status? Missing means {\"ok\": false}.\n\nRule 4 - TASKS.md: Did Claude update task status (via task_db.py)? Missing means {\"ok\": false}.\n\nRule 5 - LESSONS.md: Only flag if Claude hit a significant bug or surprising behavior but didn't log it. Routine work does not need a lesson entry.\n\nIf all rules pass: {\"ok\": true}\nIf any rule fails: {\"ok\": false, \"reason\": \"Rule N: concise description\"}\n\nHook input: $ARGUMENTS",
             "timeout": 30
           },
           {
@@ -66,16 +66,6 @@
             "type": "command",
             "command": "python \"$CLAUDE_PROJECT_DIR/.claude/hooks/test_check.py\"",
             "timeout": 300
-          },
-          {
-            "type": "command",
-            "command": "python \"$CLAUDE_PROJECT_DIR/.claude/hooks/task_dedup_check.py\"",
-            "timeout": 10
-          },
-          {
-            "type": "command",
-            "command": "python \"$CLAUDE_PROJECT_DIR/.claude/hooks/task_header_stop_check.py\"",
-            "timeout": 10
           }
         ]
       }
