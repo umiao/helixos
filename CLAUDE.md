@@ -1,37 +1,70 @@
+<!-- Auto-generated: CLAUDE.md.local + shared. Do not edit directly. -->
 # Project Context
 
-<!-- CUSTOMIZE: Replace this section with your project's overview -->
-
 ## Project Overview
-<!-- Describe what your project does in 2-3 sentences -->
+HelixOS is a task management and AI workflow orchestration platform with a FastAPI backend and React frontend.
 
 ## Tech Stack
-<!-- List your core technologies -->
 - Python 3.11+
+- FastAPI (backend API)
+- React + TypeScript (frontend)
+- SQLAlchemy (ORM)
 - pytest (testing)
 - ruff (linting)
 
 ## Key Constraints
-<!-- CUSTOMIZE: Add your project-specific constraints -->
-- All API keys and cookies from .env, never hardcoded
-- Every function must have type hints and docstring
 - **Dependency source-of-truth**: Both `pyproject.toml` `[project].dependencies` and
   `requirements.txt` list dependencies. Keep them in sync manually. When adding a new
   dependency, add it to BOTH files. `pyproject.toml` is the canonical spec;
   `requirements.txt` exists for `pip install -r` convenience.
 
 ## File Structure
-<!-- CUSTOMIZE: Describe your project's directory layout -->
 - `src/` - Source code
 - `tests/` - Test files
 - `config/` - Configuration files
 - `data/` - Runtime data (not in git)
 
 ## Invariants (must always hold, violation = bug)
-<!-- CUSTOMIZE: List your project's invariants. These are checked by /review -->
 1. .env file never tracked by git
 2. No hardcoded secrets in code
-3. <!-- Add your domain-specific invariants here -->
+
+## Project-Specific Code Style
+- **Windows asyncio subprocess**: Any use of `asyncio.create_subprocess_exec` or
+  `create_subprocess_shell` requires `WindowsProactorEventLoopPolicy` at app startup.
+  Guard with `sys.platform == "win32"`.
+- **Schema changes require migration**: When adding a column to an existing
+  SQLAlchemy model, ensure `init_db()` handles the case where the table
+  already exists without the new column.  Never assume users will delete
+  their database.
+
+## Smoke Test Enforcement
+
+These rules prevent the class of bugs found in T-P0-57/T-P0-59, where UX
+tasks were marked DONE with "build succeeds + tests pass" verification, but
+three critical bugs (T-P0-66) were found on first real use.
+
+1. **UX DONE gate**: A UX task cannot be marked DONE unless the PROGRESS.md
+   entry includes a "Smoke test performed" line describing what was manually
+   verified (e.g., "clicked Generate Plan on card -> spinner appeared ->
+   plan populated after 30s").  "TypeScript clean, Vite build clean" is
+   necessary but NOT sufficient for UX tasks.
+
+2. **Cross-component regression check**: When modifying a component that is
+   rendered inside other components (e.g., TaskCard inside KanbanBoard inside
+   SwimLane), verify that the change works in ALL rendering contexts, not
+   just the one you are focused on.  Common miss: popover works but card
+   face does not, or vice versa.
+
+3. **Autonomous mode exception**: In autonomous mode (no browser available),
+   UX tasks may substitute a build + TypeScript type-check + grep-based
+   wiring verification (e.g., confirm event handler is connected, prop is
+   threaded through component tree).  Document what was verified and tag
+   with "[AUTO-VERIFIED]" in PROGRESS.md.  These tasks should be flagged
+   for human smoke test on next manual session.
+
+## Key Constraints
+- All API keys and cookies from .env, never hardcoded
+- Every function must have type hints and docstring
 
 ## Git Conventions
 - **Commit message format**: `[T-XX-N] Brief English description of what was done`
@@ -55,13 +88,6 @@
   bash and Windows PowerShell 5.x. Use separate lines instead of `&&` chaining.
   For bash-only commands (`source`, `rm -rf`, `~` paths), provide a labeled
   PowerShell alternative.
-- **Windows asyncio subprocess**: Any use of `asyncio.create_subprocess_exec` or
-  `create_subprocess_shell` requires `WindowsProactorEventLoopPolicy` at app startup.
-  Guard with `sys.platform == "win32"`.
-- **Schema changes require migration**: When adding a column to an existing
-  SQLAlchemy model, ensure `init_db()` handles the case where the table
-  already exists without the new column.  Never assume users will delete
-  their database.
 
 ## Prohibited Actions
 - Never hardcode API keys, cookies, or personal info
@@ -153,31 +179,6 @@ planning missed entire branches of behavior.
    (Post-mortem: T-P0-57/T-P0-59 -> T-P0-66 -- `hasNoPlan` used `plan_status`
    instead of `description`, showing wrong state for all existing tasks.)
 
-## Smoke Test Enforcement
-
-These rules prevent the class of bugs found in T-P0-57/T-P0-59, where UX
-tasks were marked DONE with "build succeeds + tests pass" verification, but
-three critical bugs (T-P0-66) were found on first real use.
-
-1. **UX DONE gate**: A UX task cannot be marked DONE unless the PROGRESS.md
-   entry includes a "Smoke test performed" line describing what was manually
-   verified (e.g., "clicked Generate Plan on card -> spinner appeared ->
-   plan populated after 30s").  "TypeScript clean, Vite build clean" is
-   necessary but NOT sufficient for UX tasks.
-
-2. **Cross-component regression check**: When modifying a component that is
-   rendered inside other components (e.g., TaskCard inside KanbanBoard inside
-   SwimLane), verify that the change works in ALL rendering contexts, not
-   just the one you are focused on.  Common miss: popover works but card
-   face does not, or vice versa.
-
-3. **Autonomous mode exception**: In autonomous mode (no browser available),
-   UX tasks may substitute a build + TypeScript type-check + grep-based
-   wiring verification (e.g., confirm event handler is connected, prop is
-   threaded through component tree).  Document what was verified and tag
-   with "[AUTO-VERIFIED]" in PROGRESS.md.  These tasks should be flagged
-   for human smoke test on next manual session.
-
 ## State Machine Rules
 
 1. **Document transitions completely**: Any workflow with status transitions
@@ -227,7 +228,7 @@ Before stopping, complete these steps (the **Stop hook** enforces them):
 
 1. **Verify**: Run code, check outputs exist, run tests if applicable
 2. **PROGRESS.md**: Append a session entry (format below)
-3. **TASKS.md**: Update task status
+3. **TASKS.md**: Update task status (done = remove spec from active section AND add to Completed)
 4. **LESSONS.md**: Only if bug >10 min, surprising behavior, or effective pattern
 
 ```

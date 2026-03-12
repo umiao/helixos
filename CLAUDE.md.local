@@ -1,0 +1,62 @@
+# Project Context
+
+## Project Overview
+HelixOS is a task management and AI workflow orchestration platform with a FastAPI backend and React frontend.
+
+## Tech Stack
+- Python 3.11+
+- FastAPI (backend API)
+- React + TypeScript (frontend)
+- SQLAlchemy (ORM)
+- pytest (testing)
+- ruff (linting)
+
+## Key Constraints
+- **Dependency source-of-truth**: Both `pyproject.toml` `[project].dependencies` and
+  `requirements.txt` list dependencies. Keep them in sync manually. When adding a new
+  dependency, add it to BOTH files. `pyproject.toml` is the canonical spec;
+  `requirements.txt` exists for `pip install -r` convenience.
+
+## File Structure
+- `src/` - Source code
+- `tests/` - Test files
+- `config/` - Configuration files
+- `data/` - Runtime data (not in git)
+
+## Invariants (must always hold, violation = bug)
+1. .env file never tracked by git
+2. No hardcoded secrets in code
+
+## Project-Specific Code Style
+- **Windows asyncio subprocess**: Any use of `asyncio.create_subprocess_exec` or
+  `create_subprocess_shell` requires `WindowsProactorEventLoopPolicy` at app startup.
+  Guard with `sys.platform == "win32"`.
+- **Schema changes require migration**: When adding a column to an existing
+  SQLAlchemy model, ensure `init_db()` handles the case where the table
+  already exists without the new column.  Never assume users will delete
+  their database.
+
+## Smoke Test Enforcement
+
+These rules prevent the class of bugs found in T-P0-57/T-P0-59, where UX
+tasks were marked DONE with "build succeeds + tests pass" verification, but
+three critical bugs (T-P0-66) were found on first real use.
+
+1. **UX DONE gate**: A UX task cannot be marked DONE unless the PROGRESS.md
+   entry includes a "Smoke test performed" line describing what was manually
+   verified (e.g., "clicked Generate Plan on card -> spinner appeared ->
+   plan populated after 30s").  "TypeScript clean, Vite build clean" is
+   necessary but NOT sufficient for UX tasks.
+
+2. **Cross-component regression check**: When modifying a component that is
+   rendered inside other components (e.g., TaskCard inside KanbanBoard inside
+   SwimLane), verify that the change works in ALL rendering contexts, not
+   just the one you are focused on.  Common miss: popover works but card
+   face does not, or vice versa.
+
+3. **Autonomous mode exception**: In autonomous mode (no browser available),
+   UX tasks may substitute a build + TypeScript type-check + grep-based
+   wiring verification (e.g., confirm event handler is connected, prop is
+   threaded through component tree).  Document what was verified and tag
+   with "[AUTO-VERIFIED]" in PROGRESS.md.  These tasks should be flagged
+   for human smoke test on next manual session.
