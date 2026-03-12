@@ -299,3 +299,10 @@
 - **Sanity check result**: `sync.py --check` returns exit 0 for both helixos and blog_proj. Stale detection verified (exit 1 when shared content modified). hook_utils imports work in both projects. All project-specific content (Major Change Approval Protocol, Schema migration rules, Smoke Test Enforcement) preserved in CLAUDE.md.local files. Pre-commit hooks pass in template and blog_proj.
 - **Status**: [DONE]
 - **Request**: No task status change needed (infrastructure work, not a tracked helixos task)
+
+## 2026-03-12 -- Fix TASKS.md task header format recognition across all projects
+- **What I did**: Fixed blog_proj's TASKS.md using bold (`**T-PX-NN:**`) instead of h4 (`#### T-PX-NN:`) for task headers, which broke hook-based parsing. Converted all 18 task headers to `####` format. Added positive format rule to shared `claude_md_shared.md` ("Always use #### T-PX-NN: Title format"). Added Task Schema Template block to blog_proj TASKS.md header. Re-synced CLAUDE.md to both helixos and blog_proj via sync.py.
+- **Deliverables**: `claude-code-project-template/shared/claude_md_shared.md`, `blog_proj/TASKS.md`, `helixos/CLAUDE.md`, `blog_proj/CLAUDE.md`
+- **Sanity check result**: `sync.py --check` exit 0 for both projects. Grep confirms 18 h4 headers and 0 bold-format headers in blog_proj TASKS.md.
+- **Status**: [DONE]
+- **Request**: No task status change needed (infrastructure fix, not a tracked helixos task)
