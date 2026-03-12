@@ -292,3 +292,10 @@
 - **Sanity check result**: Both hooks pass clean on current TASKS.md. PostToolUse hook warns on injected bad header. Stop hook blocks (exit 2) on bad header. Fail-open on missing file. Ruff clean. 766 tests pass.
 - **Status**: [DONE]
 - **Request**: No task status change needed (this was infrastructure work, not a tracked task)
+
+## 2026-03-11 -- [T-P2-178] Centralized Claude Code convention sharing (MVP)
+- **What I did**: Implemented shared hooks/CLAUDE.md sync system across 3 repos (helixos, blog_proj, claude-code-project-template). Created `shared/` directory in template repo with 14 universal hooks, `claude_md_shared.md`, and `settings_base.json`. Built `sync.py` (~80 lines) for copying hooks and composing CLAUDE.md from `CLAUDE.md.local` + shared content. Split each project's CLAUDE.md into project-specific `CLAUDE.md.local` and auto-generated `CLAUDE.md`. Added 3 missing hooks to blog_proj and 4 missing hooks to template repo. Updated settings.json registrations in all repos.
+- **Deliverables**: `template/shared/hooks/*` (14 files), `template/shared/claude_md_shared.md`, `template/shared/settings_base.json`, `template/sync.py`, `helixos/CLAUDE.md.local`, `blog_proj/CLAUDE.md.local`, `blog_proj/.claude/settings.json`
+- **Sanity check result**: `sync.py --check` returns exit 0 for both helixos and blog_proj. Stale detection verified (exit 1 when shared content modified). hook_utils imports work in both projects. All project-specific content (Major Change Approval Protocol, Schema migration rules, Smoke Test Enforcement) preserved in CLAUDE.md.local files. Pre-commit hooks pass in template and blog_proj.
+- **Status**: [DONE]
+- **Request**: No task status change needed (infrastructure work, not a tracked helixos task)
