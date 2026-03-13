@@ -323,17 +323,6 @@ class CodeExecutor(BaseExecutor):
                     )
                 except TimeoutError:
                     # Re-check session/inactivity at top of loop
-                    # Emit heartbeat if neither threshold was hit
-                    check_now = time.monotonic()
-                    session_expired = (
-                        session_timeout > 0
-                        and (check_now - start) >= session_timeout
-                    )
-                    inact_expired = (
-                        inactivity_timeout > 0
-                        and (check_now - last_event_time) >= inactivity_timeout
-                    )
-                    # Heartbeat: timeout checks only, no log emission
                     continue
 
                 if item is _sentinel:

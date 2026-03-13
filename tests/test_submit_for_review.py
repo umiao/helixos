@@ -19,7 +19,6 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_asyn
 
 from src.db import Base
 from src.events import EventBus
-from src.models import TaskStatus
 from src.process_manager import ProcessStatus
 from src.scheduler import Scheduler
 from src.task_manager import TaskManager

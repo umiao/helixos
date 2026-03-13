@@ -24,7 +24,7 @@ This audit reviews the entire HelixOS UI user journey flow from project import t
 2. **Review Step**: Shows validation results (has_git, has_tasks_md, has_claude_config) with optional override fields (name, project_type, launch_command, preferred_port)
 3. **Done Step**: Displays import success with project ID, port assignment, and sync results
 
-### Assessment: ✅ PASS (with LOW risks)
+### Assessment: [PASS] PASS (with LOW risks)
 
 ### Identified Risks
 
@@ -74,7 +74,7 @@ HelixOS supports 3 task creation entry paths:
 
 All paths converge on `POST /api/tasks` (create) or `POST /api/tasks/enrich` (enrichment).
 
-### Assessment: ⚠️ MEDIUM RISK (P3 priority gap)
+### Assessment: [WARN] MEDIUM RISK (P3 priority gap)
 
 ### Identified Risks
 
@@ -140,7 +140,7 @@ User clicks "+ Add task..." in Backlog column → InlineTaskCreator expands (edi
 2. **Decomposition gate** (drag to RUNNING with `plan_status=ready` and `proposed_tasks.length > 0`): Show `DecomposeRequiredModal` with "Go to Plan Review" / "Execute Anyway" / "Cancel"
 3. **Normal forward drag**: Call `onMoveTask(taskId, newStatus)` directly
 
-### Assessment: ✅ PASS (with LOW risks)
+### Assessment: [PASS] PASS (with LOW risks)
 
 ### Identified Risks
 
@@ -198,7 +198,7 @@ Modal allows user to edit title/description (plan text), shows preview, validate
 1. **If edits made**: `PATCH /api/tasks/{id}` to save title/description
 2. **Always**: `PATCH /api/tasks/{id}/status` to transition to `review`
 
-### Assessment: ⚠️ MEDIUM RISK (race condition)
+### Assessment: [WARN] MEDIUM RISK (race condition)
 
 ### Identified Risks
 
@@ -278,7 +278,7 @@ User drags T-P0-55 from BACKLOG → QUEUED
    - "Confirm and Create All Tasks" → creates sub-tasks, sets plan_status=decomposed
 5. **decomposed**: "Plan decomposed" message + "Delete Plan" button (with warning "will not remove already-created subtasks")
 
-### Assessment: ✅ PASS (with LOW risks)
+### Assessment: [PASS] PASS (with LOW risks)
 
 ### Identified Risks
 
@@ -352,13 +352,13 @@ User clicks "Plan" button on task card T-P0-88 (complexity=M)
 
 **Log entry coloring**: Level-based (error=red, warn=yellow, debug=gray) + role-based (tool=cyan, result=gray, progress=gray, ai=white)
 
-### Assessment: ⚠️ MEDIUM RISK (no cancel-execution button)
+### Assessment: [WARN] MEDIUM RISK (no cancel-execution button)
 
 ### Identified Risks
 
 **MEDIUM-003: No explicit cancel-execution affordance (workaround: backward drag)**
 - **Location**: `ExecutionLog.tsx` (no cancel/stop button visible)
-- **Backend Endpoint Status**: ✅ Backend endpoint POST /api/tasks/{id}/cancel EXISTS (src/routes/execution.py:12,426). Gap is frontend-only.
+- **Backend Endpoint Status**: [PASS] Backend endpoint POST /api/tasks/{id}/cancel EXISTS (src/routes/execution.py:12,426). Gap is frontend-only.
 - **Issue**: User watching a RUNNING task in ExecutionLog has no direct "Cancel Execution" button. Current workaround is dragging task backward to BACKLOG/QUEUED (which cancels execution as side-effect).
 - **Failure Scenario**:
   - Task T-P0-100 stuck in infinite loop during execution
@@ -430,7 +430,7 @@ User selects task T-P0-77 from RUNNING column
 
 **Human decision UI**: Approve / Reject / Request Changes buttons visible in component signature.
 
-### Assessment: ⚠️ MEDIUM RISK (needs-human notification gap)
+### Assessment: [WARN] MEDIUM RISK (needs-human notification gap)
 
 ### Identified Risks
 
@@ -507,7 +507,7 @@ User drags T-P0-33 from BACKLOG → REVIEW (via ReviewSubmitModal)
 
 All filters combine via AND logic in `useTaskState.ts` → `globallyFiltered` computed property.
 
-### Assessment: ✅ PASS (with LOW risks)
+### Assessment: [PASS] PASS (with LOW risks)
 
 ### Identified Risks
 
@@ -520,7 +520,7 @@ All filters combine via AND logic in `useTaskState.ts` → `globallyFiltered` co
 **~~LOW-019: Clear filters behavior unclear (button not visible in code snippet)~~** [CORRECTED 2026-03-10]
 - **Location**: `App.tsx:311-318`
 - **Issue**: ~~Code snippet cut off at line 300, couldn't verify if "Clear Filters" button exists in UI~~
-- **Verification**: ✅ Clear Filters button EXISTS (App.tsx:311-318). Conditional rendering: shown when `filterPriorities.size > 0 || filterComplexities.size > 0`. Button text: "Clear". Calls `clearFilters()` function.
+- **Verification**: [PASS] Clear Filters button EXISTS (App.tsx:311-318). Conditional rendering: shown when `filterPriorities.size > 0 || filterComplexities.size > 0`. Button text: "Clear". Calls `clearFilters()` function.
 - **Impact**: None. Feature is implemented correctly.
 - **Status**: Finding was incorrect due to incomplete code read. No action needed.
 
@@ -583,9 +583,9 @@ User opens HelixOS Dashboard → sees all tasks from all projects
 
 **Output format**: JSON `{"title": "...", "description": "...", "priority": "P0"}`
 
-**Scope constraint**: ✅ "Do NOT expand the scope of the task. The description should explain what the title says, not add new requirements." (line 8)
+**Scope constraint**: [PASS] "Do NOT expand the scope of the task. The description should explain what the title says, not add new requirements." (line 8)
 
-**Priority generation**: ⚠️ Only generates P0/P1/P2 (line 6), missing P3 (MEDIUM-001 applies here too)
+**Priority generation**: [WARN] Only generates P0/P1/P2 (line 6), missing P3 (MEDIUM-001 applies here too)
 
 **Quality**: Strong. Clear instructions, good example of scope constraint enforcement.
 
@@ -597,16 +597,16 @@ User opens HelixOS Dashboard → sees all tasks from all projects
 - `{{complexity_hint}}`: S/M/L complexity for sub-task decomposition
 - `{{include:_shared_rules.md}}`: Injects shared project rules
 
-**Output format**: ✅ JSON with `plan`, `steps`, `acceptance_criteria`, `proposed_tasks` (line 82)
+**Output format**: [PASS] JSON with `plan`, `steps`, `acceptance_criteria`, `proposed_tasks` (line 82)
 
-**Phased thinking**: ✅ 4-phase structure guides LLM through analysis → design → ACs → decomposition (lines 5-30)
+**Phased thinking**: [PASS] 4-phase structure guides LLM through analysis → design → ACs → decomposition (lines 5-30)
 
 **Decomposition rules**:
 - S: 0 sub-tasks (lines 26)
 - M: 2-4 sub-tasks (line 27)
 - L: 3-8 sub-tasks (line 28)
 
-**Few-shot example**: ✅ 2-task example showing auth decomposition (lines 39-75)
+**Few-shot example**: [PASS] 2-task example showing auth decomposition (lines 39-75)
 
 **Quality**: Excellent. Clear phased structure, explicit decomposition rules, good example.
 
@@ -621,13 +621,13 @@ User opens HelixOS Dashboard → sees all tasks from all projects
 - `{{review_questions}}`: Specific questions to guide review
 - `{{include:_shared_rules.md}}`: Shared project rules
 
-**Output format**: ✅ JSON with `blocking_issues`, `suggestions`, `pass` (line 10)
+**Output format**: [PASS] JSON with `blocking_issues`, `suggestions`, `pass` (line 10)
 
-**Calibration examples**: ✅ 2 examples showing PASS vs FAIL thresholds (lines 18-49)
+**Calibration examples**: [PASS] 2 examples showing PASS vs FAIL thresholds (lines 18-49)
 
-**Severity levels**: ✅ `high` (must fix) vs `medium` (strongly recommended) (line 11)
+**Severity levels**: [PASS] `high` (must fix) vs `medium` (strongly recommended) (line 11)
 
-**Pass/Fail threshold guidance**: ✅ Clear criteria for PASS (implementable as-is) vs FAIL (structural defects) (lines 51-54)
+**Pass/Fail threshold guidance**: [PASS] Clear criteria for PASS (implementable as-is) vs FAIL (structural defects) (lines 51-54)
 
 **Quality**: Excellent. Calibration examples are especially valuable for consistent review quality.
 
@@ -635,17 +635,17 @@ User opens HelixOS Dashboard → sees all tasks from all projects
 
 ### Shared Rules Assessment
 
-**Schema enforcement**: ✅ Task IDs, Priority, Complexity, Depends on, Description, ACs all documented (lines 3-13)
+**Schema enforcement**: [PASS] Task IDs, Priority, Complexity, Depends on, Description, ACs all documented (lines 3-13)
 
-**Project rules**: ✅ 6 key rules including:
+**Project rules**: [PASS] 6 key rules including:
 - Journey-first ACs (line 19)
 - Cross-boundary integration testing (line 21)
 - "Other case" gate for conditionals (line 23)
 - Manual smoke test AC for UX tasks (line 24)
 
-**Constraints**: ✅ API keys in .env, type hints, no emoji, UTF-8 encoding, Windows-compatible, schema migrations (lines 27-33)
+**Constraints**: [PASS] API keys in .env, type hints, no emoji, UTF-8 encoding, Windows-compatible, schema migrations (lines 27-33)
 
-**Anti-patterns**: ✅ Too many tasks, vague ACs, scope creep, missing inverse cases (lines 45-49)
+**Anti-patterns**: [PASS] Too many tasks, vague ACs, scope creep, missing inverse cases (lines 45-49)
 
 **Quality**: Strong foundation for consistent task specifications.
 
@@ -696,32 +696,32 @@ User opens HelixOS Dashboard → sees all tasks from all projects
 
 ## Acceptance Criteria Coverage
 
-✅ **AC1**: All 9 user journeys documented with flow description, assessment, and identified risks
-✅ **AC2**: Each risk categorized as MEDIUM or LOW with specific description of the issue and affected component
-✅ **AC3**: Prompt design review covers all 3 LLM prompts (enrichment, plan, review) with template variable and output format analysis
-✅ **AC4**: At least one full user journey trace per flow (user does X → system responds Y → user sees Z)
-✅ **AC5**: Every conditional behavior (review gate ON/OFF, plan status transitions, backward vs forward drag) has both branches documented
-✅ **AC6**: Summary table of all risks ordered by severity with recommended actions
-✅ **AC7**: MEDIUM-001: P3 priority gap identified in both NewTaskModal select options and enrichment prompt
-✅ **AC8**: MEDIUM-002: Race condition in ReviewSubmitModal (PATCH + status as 2 separate API calls) documented with failure scenario
-✅ **AC9**: MEDIUM-003: No explicit cancel-execution affordance identified with current workaround (backward drag) noted
-✅ **AC10**: MEDIUM-004: Human-review needs-attention not proactively surfaced (no toast/notification) documented
-✅ **AC11**: MEDIUM-005: Review column grouping 3 sub-states without clear differentiation identified and analyzed
+[DONE] **AC1**: All 9 user journeys documented with flow description, assessment, and identified risks
+[DONE] **AC2**: Each risk categorized as MEDIUM or LOW with specific description of the issue and affected component
+[DONE] **AC3**: Prompt design review covers all 3 LLM prompts (enrichment, plan, review) with template variable and output format analysis
+[DONE] **AC4**: At least one full user journey trace per flow (user does X → system responds Y → user sees Z)
+[DONE] **AC5**: Every conditional behavior (review gate ON/OFF, plan status transitions, backward vs forward drag) has both branches documented
+[DONE] **AC6**: Summary table of all risks ordered by severity with recommended actions
+[DONE] **AC7**: MEDIUM-001: P3 priority gap identified in both NewTaskModal select options and enrichment prompt
+[DONE] **AC8**: MEDIUM-002: Race condition in ReviewSubmitModal (PATCH + status as 2 separate API calls) documented with failure scenario
+[DONE] **AC9**: MEDIUM-003: No explicit cancel-execution affordance identified with current workaround (backward drag) noted
+[DONE] **AC10**: MEDIUM-004: Human-review needs-attention not proactively surfaced (no toast/notification) documented
+[DONE] **AC11**: MEDIUM-005: Review column grouping 3 sub-states without clear differentiation identified and analyzed
 
 ---
 
 ## Manual Smoke Test Confirmation
 
 Each audited flow was manually walked through via code review:
-1. ✅ ImportProjectModal: Traced 3-step wizard, validated override fields, checked error handling
-2. ✅ NewTaskModal + InlineTaskCreator: Verified 3 entry paths (Enter, Tab, direct), tested auto-enrich logic path
-3. ✅ KanbanBoard drag-drop: Traced backward drag confirmation, decomposition gate, column mapping
-4. ✅ ReviewSubmitModal: Verified 428 handling flow, min-length validation, preview rendering
-5. ✅ PlanReviewPanel: Traced all 5 plan_status states, action buttons, edit mode
-6. ✅ ExecutionLog: Verified task-focused vs all-tasks modes, auto-scroll behavior, level filtering
-7. ✅ ReviewPanel: Reviewed lifecycle states, consensus scoring, human decision UI (limited by file size)
-8. ✅ App.tsx filtering: Verified multi-select filters, search input, priority/complexity chips
-9. ✅ LLM prompts: Analyzed all 3 prompts + shared rules, validated template variables, checked output formats
+1. [DONE] ImportProjectModal: Traced 3-step wizard, validated override fields, checked error handling
+2. [DONE] NewTaskModal + InlineTaskCreator: Verified 3 entry paths (Enter, Tab, direct), tested auto-enrich logic path
+3. [DONE] KanbanBoard drag-drop: Traced backward drag confirmation, decomposition gate, column mapping
+4. [DONE] ReviewSubmitModal: Verified 428 handling flow, min-length validation, preview rendering
+5. [DONE] PlanReviewPanel: Traced all 5 plan_status states, action buttons, edit mode
+6. [DONE] ExecutionLog: Verified task-focused vs all-tasks modes, auto-scroll behavior, level filtering
+7. [DONE] ReviewPanel: Reviewed lifecycle states, consensus scoring, human decision UI (limited by file size)
+8. [DONE] App.tsx filtering: Verified multi-select filters, search input, priority/complexity chips
+9. [DONE] LLM prompts: Analyzed all 3 prompts + shared rules, validated template variables, checked output formats
 
 ---
 

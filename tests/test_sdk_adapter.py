@@ -817,16 +817,38 @@ class TestModels:
 
     def test_build_sdk_options_passes_setting_sources(self) -> None:
         """_build_sdk_options passes setting_sources to ClaudeAgentOptions."""
-        _ensure_fake_sdk()
-        opts = QueryOptions(setting_sources=[])
-        sdk_opts = _build_sdk_options(opts)
-        assert sdk_opts._kwargs["setting_sources"] == []
+        fake_mod = _ensure_fake_sdk()
+        captured: list[dict[str, Any]] = []
+
+        class CapturingOpts:
+            def __init__(self, **kwargs: Any) -> None:
+                captured.append(kwargs)
+
+        original = fake_mod.ClaudeAgentOptions  # type: ignore[union-attr]
+        fake_mod.ClaudeAgentOptions = CapturingOpts  # type: ignore[attr-defined]
+        try:
+            opts = QueryOptions(setting_sources=[])
+            _build_sdk_options(opts)
+            assert captured[0]["setting_sources"] == []
+        finally:
+            fake_mod.ClaudeAgentOptions = original  # type: ignore[attr-defined]
 
     def test_build_sdk_options_omits_setting_sources_when_none(self) -> None:
         """_build_sdk_options omits setting_sources when None (SDK default)."""
-        _ensure_fake_sdk()
-        opts = QueryOptions()
-        sdk_opts = _build_sdk_options(opts)
-        # When setting_sources is None, it should not be passed, so SDK uses
-        # its own default (which loads all setting sources).
-        assert "setting_sources" not in sdk_opts._kwargs
+        fake_mod = _ensure_fake_sdk()
+        captured: list[dict[str, Any]] = []
+
+        class CapturingOpts:
+            def __init__(self, **kwargs: Any) -> None:
+                captured.append(kwargs)
+
+        original = fake_mod.ClaudeAgentOptions  # type: ignore[union-attr]
+        fake_mod.ClaudeAgentOptions = CapturingOpts  # type: ignore[attr-defined]
+        try:
+            opts = QueryOptions()
+            _build_sdk_options(opts)
+            # When setting_sources is None, it should not be passed, so SDK uses
+            # its own default (which loads all setting sources).
+            assert "setting_sources" not in captured[0]
+        finally:
+            fake_mod.ClaudeAgentOptions = original  # type: ignore[attr-defined]

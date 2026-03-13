@@ -149,7 +149,7 @@ Background pipeline wastes resources running to completion.
 
 **Recommended Fix**:
 ~~1. Reset `review_lifecycle_state = NOT_STARTED` in `_cleanup_on_backward()`
-   for `-> BACKLOG` transitions (implemented in this task).~~ ✅ Complete.
+   for `-> BACKLOG` transitions (implemented in this task).~~ [DONE] Complete.
 2. Future: cancel background review task on backward drag.
 
 **Test Coverage**: `test_race_review_completion_vs_backward_drag` (added),

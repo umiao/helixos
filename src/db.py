@@ -10,9 +10,10 @@ import json
 import logging
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
+from datetime import UTC, datetime
 from pathlib import Path
 
-from sqlalchemy import Float, Index, Integer, String, Text, text
+from sqlalchemy import Float, Index, Integer, String, Text, select, text
 from sqlalchemy import inspect as sa_inspect
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
@@ -340,7 +341,6 @@ async def get_preference(
     key: str,
 ) -> str | None:
     """Retrieve a UI preference by key. Returns None if not found."""
-    from sqlalchemy import select
     stmt = select(UIPreferenceRow).where(UIPreferenceRow.key == key)
     result = await session.execute(stmt)
     row = result.scalar_one_or_none()
@@ -353,14 +353,11 @@ async def set_preference(
     value: str,
 ) -> None:
     """Set a UI preference. Creates or updates the key."""
-    from datetime import datetime, timezone
-    from sqlalchemy import select
-
     stmt = select(UIPreferenceRow).where(UIPreferenceRow.key == key)
     result = await session.execute(stmt)
     row = result.scalar_one_or_none()
 
-    timestamp = datetime.now(timezone.utc).isoformat()
+    timestamp = datetime.now(UTC).isoformat()
 
     if row:
         row.value = value

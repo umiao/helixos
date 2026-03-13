@@ -26,7 +26,7 @@ _SCAN_EXTENSIONS = {
 
 _SKIP_DIRS = {
     ".git", "__pycache__", ".venv", "venv", "node_modules",
-    ".mypy_cache", ".ruff_cache", "data", ".claude",
+    ".mypy_cache", ".ruff_cache", "data", ".claude", "dist",
 }
 
 

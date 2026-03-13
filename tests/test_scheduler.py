@@ -1707,6 +1707,10 @@ class TestTimeoutRaceGuards:
         scheduler.running["proj:t3"] = asyncio.current_task()
         await scheduler._execute_task(mock_exec, task, proj)
 
+        # Drain background ticks spawned by _execute_task finally block
+        if hasattr(scheduler, "_background_ticks") and scheduler._background_ticks:
+            await asyncio.gather(*list(scheduler._background_ticks), return_exceptions=True)
+
         # Should still be DONE -- NOT FAILED or BLOCKED
         final = await task_manager.get_task("proj:t3")
         assert final is not None
@@ -2083,6 +2087,10 @@ class TestSchedulerEpochId:
         running_tasks = list(scheduler.running.values())
         if running_tasks:
             await asyncio.gather(*running_tasks, return_exceptions=True)
+
+        # Drain background ticks spawned by _execute_task finally block
+        if hasattr(scheduler, "_background_ticks") and scheduler._background_ticks:
+            await asyncio.gather(*list(scheduler._background_ticks), return_exceptions=True)
 
         # Task should NOT have moved to FAILED/BLOCKED because epoch mismatched
         final = await task_manager.get_task("proj:t1")
