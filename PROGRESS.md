@@ -290,3 +290,10 @@
 - **Sanity check result**: `ruff check` clean. `check_emoji.py` [OK]. All 87 targeted tests pass. Full suite: 1719 passed, 6 skipped, 0 failures.
 - **Status**: [DONE]
 - **Request**: `task_db.py update T-P1-181 --status completed`
+
+## 2026-03-14 -- [T-P2-182] Fix CI test warnings (unawaited coroutines, leaked transports)
+- **What I did**: Fixed 6 CI warnings from 3 test files. (1) `test_replan_and_plan_enrichment.py`: added `spec=HistoryWriter` to AsyncMock, set proper `generate_task_plan` return values in 4 tests, replaced sleep teardown with async task cancellation. (2) `test_api.py`: added `generate_task_plan` mock with return value to `test_request_changes_triggers_replan`, added async task cleanup to `test_app` fixture, consolidated `patch` import at top level. (3) `test_review_gate.py`: added fire-and-forget task cleanup in `test_human_approved_review_satisfies_gate`.
+- **Deliverables**: `tests/test_replan_and_plan_enrichment.py`, `tests/test_api.py`, `tests/test_review_gate.py`
+- **Sanity check result**: `ruff check` clean. 119 tests pass across all 3 files. All RuntimeWarning and PytestUnraisableExceptionWarning eliminated (verified with `-W error`).
+- **Status**: [DONE]
+- **Request**: `task_db.py update T-P2-182 --status completed`

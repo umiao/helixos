@@ -8,9 +8,10 @@ and status code contracts per PRD Section 10.
 from __future__ import annotations
 
 import asyncio
+import contextlib
 from collections.abc import AsyncGenerator
 from pathlib import Path
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from httpx import ASGITransport, AsyncClient
@@ -129,6 +130,13 @@ async def test_app(tmp_path: Path, test_session_factory):
     app.state.process_monitor = mock_monitor
 
     yield app
+
+    # Cancel lingering background tasks to prevent transport leaks
+    for t in asyncio.all_tasks():
+        if t is not asyncio.current_task() and not t.done():
+            t.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await t
 
 
 @pytest.fixture
@@ -469,8 +477,6 @@ class TestReviewDecide:
         self, client: AsyncClient, task_manager: TaskManager,
     ):
         """Reject decision should trigger replan (stays in REVIEW_NEEDS_HUMAN while replanning)."""
-        from unittest.mock import patch
-
         task = make_task(
             task_id="proj-a:T-P0-3",
             project_id="proj-a",
@@ -511,8 +517,6 @@ class TestReviewDecide:
         self, client: AsyncClient, task_manager: TaskManager,
     ):
         """request_changes should trigger replan (plan_status=generating)."""
-        from unittest.mock import patch
-
         task = make_task(
             task_id="proj-a:T-P0-RC1",
             project_id="proj-a",
@@ -529,7 +533,9 @@ class TestReviewDecide:
         })
         await task_manager.create_task(task)
 
-        with patch("src.routes.reviews.is_claude_cli_available", return_value=True):
+        with patch("src.routes.reviews.is_claude_cli_available", return_value=True), \
+             patch("src.routes.reviews.generate_task_plan", new_callable=AsyncMock) as mock_gen:
+            mock_gen.return_value = {"plan": "new plan", "steps": [], "acceptance_criteria": []}
             resp = await client.post(
                 "/api/tasks/proj-a:T-P0-RC1/review/decide",
                 json={"decision": "request_changes", "reason": "Add timeout handling"},

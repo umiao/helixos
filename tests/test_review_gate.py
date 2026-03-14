@@ -9,6 +9,7 @@ and API endpoint behavior.
 from __future__ import annotations
 
 import asyncio
+import contextlib
 from collections.abc import Callable
 from pathlib import Path
 from unittest.mock import MagicMock
@@ -359,6 +360,14 @@ class TestSchedulerCanExecute:
         running_tasks = list(scheduler.running.values())
         if running_tasks:
             await asyncio.gather(*running_tasks)
+
+        # Clean up fire-and-forget tasks (write_log, background ticks)
+        await asyncio.sleep(0)
+        for t in asyncio.all_tasks():
+            if t is not asyncio.current_task() and not t.done():
+                t.cancel()
+                with contextlib.suppress(asyncio.CancelledError):
+                    await t
 
         assert len(mock_exec.calls) == 1
 

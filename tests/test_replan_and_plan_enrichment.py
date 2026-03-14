@@ -7,6 +7,7 @@ Part 2: Execution prompt enrichment with structured plan_json data
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import json
 from datetime import UTC, datetime
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -23,6 +24,7 @@ from src.config import (
 )
 from src.db import Base
 from src.executors.code_executor import CodeExecutor, _format_plan_json_for_prompt
+from src.history_writer import HistoryWriter
 from src.models import LLMReview, ReviewState, TaskStatus
 from src.task_manager import TaskManager
 from tests.factories import make_task
@@ -113,7 +115,7 @@ async def app(task_manager, session_factory, mock_config):
     application.state.scheduler = MagicMock()
     application.state.scheduler.is_review_gate_enabled = MagicMock(return_value=False)
     application.state.scheduler.force_tick = AsyncMock()
-    application.state.history_writer = AsyncMock()
+    application.state.history_writer = AsyncMock(spec=HistoryWriter)
     application.state.review_pipeline = MagicMock()
     application.state.registry = MagicMock()
     application.state.config = mock_config
@@ -126,8 +128,13 @@ async def app(task_manager, session_factory, mock_config):
 
     yield application
 
-    # Let any background tasks settle before teardown
-    await asyncio.sleep(0.1)
+    # Cancel lingering background tasks to prevent unawaited coroutine warnings
+    await asyncio.sleep(0)
+    for t in asyncio.all_tasks():
+        if t is not asyncio.current_task() and not t.done():
+            t.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await t
 
 
 @pytest.fixture
@@ -194,7 +201,8 @@ class TestReplanDecision:
         await task_manager.create_task(task)
 
         with patch("src.routes.reviews.is_claude_cli_available", return_value=True), \
-             patch("src.routes.reviews.generate_task_plan", new_callable=AsyncMock):
+             patch("src.routes.reviews.generate_task_plan", new_callable=AsyncMock) as mock_gen:
+            mock_gen.return_value = {"plan": "new plan", "steps": [], "acceptance_criteria": []}
             resp = await client.post(
                 "/api/tasks/proj-a:T-P0-RP2/review/decide",
                 json={"decision": "replan"},
@@ -251,7 +259,8 @@ class TestReplanDecision:
         await task_manager.create_task(task)
 
         with patch("src.routes.reviews.is_claude_cli_available", return_value=True), \
-             patch("src.routes.reviews.generate_task_plan", new_callable=AsyncMock):
+             patch("src.routes.reviews.generate_task_plan", new_callable=AsyncMock) as mock_gen:
+            mock_gen.return_value = {"plan": "new plan", "steps": [], "acceptance_criteria": []}
             resp = await client.post(
                 "/api/tasks/proj-a:T-P0-RP4/review/decide",
                 json={"decision": "replan"},
@@ -280,7 +289,8 @@ class TestReplanDecision:
         await task_manager.create_task(task)
 
         with patch("src.routes.reviews.is_claude_cli_available", return_value=True), \
-             patch("src.routes.reviews.generate_task_plan", new_callable=AsyncMock):
+             patch("src.routes.reviews.generate_task_plan", new_callable=AsyncMock) as mock_gen:
+            mock_gen.return_value = {"plan": "new plan", "steps": [], "acceptance_criteria": []}
             await client.post(
                 "/api/tasks/proj-a:T-P0-RP5/review/decide",
                 json={"decision": "replan", "reason": "Need better ACs"},
@@ -360,7 +370,9 @@ class TestReplanDecision:
         })
         await task_manager.create_task(task)
 
-        with patch("src.routes.reviews.is_claude_cli_available", return_value=True):
+        with patch("src.routes.reviews.is_claude_cli_available", return_value=True), \
+             patch("src.routes.reviews.generate_task_plan", new_callable=AsyncMock) as mock_gen:
+            mock_gen.return_value = {"plan": "new plan", "steps": [], "acceptance_criteria": []}
             resp = await client.post(
                 "/api/tasks/proj-a:T-P0-EXreject/review/decide",
                 json={"decision": "reject", "reason": "test"},
