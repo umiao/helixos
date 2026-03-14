@@ -17,6 +17,7 @@ from src.models import TaskStatus
 from src.scheduler import Scheduler
 from src.sync.tasks_parser import sync_project_tasks
 from src.task_manager import TaskManager
+from tests.conftest import setup_tasks_db
 
 from .conftest import MockExecutor
 
@@ -41,6 +42,12 @@ async def test_sync_creates_backlog_tasks(
     # Write TASKS.md to the project repo
     tasks_file = temp_project_repo / "TASKS.md"
     tasks_file.write_text(sample_tasks_md, encoding="utf-8")
+
+    # Create tasks.db for bridge-based sync
+    setup_tasks_db(temp_project_repo, [
+        {"title": "Implement feature A", "priority": "P0", "task_id": "T-P0-1", "description": "Build the widget"},
+        {"title": "Implement feature B", "priority": "P0", "task_id": "T-P0-2", "description": "Depends on A"},
+    ])
 
     config = make_config()
     registry = ProjectRegistry(config)
@@ -68,6 +75,12 @@ async def test_sync_to_execute_full_lifecycle(
     # Write TASKS.md
     tasks_file = temp_project_repo / "TASKS.md"
     tasks_file.write_text(sample_tasks_md, encoding="utf-8")
+
+    # Create tasks.db for bridge-based sync
+    setup_tasks_db(temp_project_repo, [
+        {"title": "Implement feature A", "priority": "P0", "task_id": "T-P0-1", "description": "Build the widget"},
+        {"title": "Implement feature B", "priority": "P0", "task_id": "T-P0-2", "description": "Depends on A"},
+    ])
 
     config = make_config()
     registry = ProjectRegistry(config)
@@ -130,6 +143,11 @@ async def test_sync_to_execute_with_git_commit(
     )
     tasks_file = temp_project_repo / "TASKS.md"
     tasks_file.write_text(tasks_md, encoding="utf-8")
+
+    # Create tasks.db for bridge-based sync
+    setup_tasks_db(temp_project_repo, [
+        {"title": "Add new file", "priority": "P0", "task_id": "T-P0-1", "description": "Add something"},
+    ])
 
     config = make_config()
     registry = ProjectRegistry(config)
@@ -196,6 +214,12 @@ async def test_events_emitted_during_lifecycle(
     """Status change and log events should be emitted during execution."""
     tasks_file = temp_project_repo / "TASKS.md"
     tasks_file.write_text(sample_tasks_md, encoding="utf-8")
+
+    # Create tasks.db for bridge-based sync
+    setup_tasks_db(temp_project_repo, [
+        {"title": "Implement feature A", "priority": "P0", "task_id": "T-P0-1", "description": "Build the widget"},
+        {"title": "Implement feature B", "priority": "P0", "task_id": "T-P0-2", "description": "Depends on A"},
+    ])
 
     config = make_config()
     registry = ProjectRegistry(config)

@@ -30,6 +30,7 @@ from src.events import EventBus
 from src.executors.base import BaseExecutor, ExecutorResult
 from src.models import ExecutorType, Project, Task
 from src.task_manager import TaskManager
+from tests.conftest import _PROJECT_TASK_STORE
 
 
 def pytest_collection_modifyitems(items: list[pytest.Item]) -> None:
@@ -37,6 +38,32 @@ def pytest_collection_modifyitems(items: list[pytest.Item]) -> None:
     for item in items:
         if "integration" in str(item.fspath):
             item.add_marker(pytest.mark.integration)
+
+
+@pytest.fixture(autouse=True)
+def _patch_task_store_for_integration():
+    """Auto-patch TaskStoreBridge loader for all integration tests.
+
+    Falls back to the project's own task_store.py when the test repo
+    doesn't have .claude/hooks/task_store.py.
+    """
+    if _PROJECT_TASK_STORE is None:
+        yield
+        return
+
+    from src.sync import task_store_bridge
+
+    original = task_store_bridge._load_task_store_module
+
+    def _fallback_loader(repo_path: Path) -> object:
+        try:
+            return original(repo_path)
+        except FileNotFoundError:
+            return _PROJECT_TASK_STORE
+
+    task_store_bridge._load_task_store_module = _fallback_loader
+    yield
+    task_store_bridge._load_task_store_module = original
 
 # ---------------------------------------------------------------------------
 # Mock executor

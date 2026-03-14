@@ -146,11 +146,11 @@ class TaskStoreBridge:
         repo_path: Root of the repository containing .claude/tasks.db.
     """
 
-    def __init__(self, repo_path: Path) -> None:
+    def __init__(self, repo_path: Path, *, _module: Any | None = None) -> None:
         self._repo_path = repo_path
         self._db_path = repo_path / ".claude" / "tasks.db"
         self._tasks_md_path = repo_path / "TASKS.md"
-        self._module = _load_task_store_module(repo_path)
+        self._module = _module if _module is not None else _load_task_store_module(repo_path)
 
     def _open_store(self) -> Any:
         """Open a fresh TaskStore connection.

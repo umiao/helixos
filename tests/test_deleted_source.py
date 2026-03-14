@@ -19,6 +19,7 @@ from src.db import TaskRow, get_session
 from src.models import ExecutorType
 from src.sync.tasks_parser import sync_project_tasks
 from src.task_manager import TaskManager, UpsertResult
+from tests.conftest import setup_tasks_db
 from tests.factories import make_task
 
 
@@ -202,7 +203,7 @@ class TestSyncMarkRemoved:
 class TestSyncSkippedCount:
     """Verify sync counts skipped-deleted tasks."""
 
-    async def test_sync_counts_skipped(self, session_factory, tmp_path) -> None:
+    async def test_sync_counts_skipped(self, session_factory, tmp_path, patch_task_store_loader) -> None:
         """Sync should count user-deleted tasks as skipped."""
         tm = TaskManager(session_factory)
 
@@ -210,12 +211,10 @@ class TestSyncSkippedCount:
         await tm.create_task(make_task(task_id="P0:T-P0-1", local_task_id="T-P0-1"))
         await tm.delete_task("P0:T-P0-1")
 
-        # Write TASKS.md with the same task ID
-        tasks_md = tmp_path / "TASKS.md"
-        tasks_md.write_text(
-            "## Active Tasks\n\n#### T-P0-1: Deleted task\n- stuff\n",
-            encoding="utf-8",
-        )
+        # Create tasks.db with the same task ID
+        setup_tasks_db(tmp_path, [
+            {"title": "Deleted task", "priority": "P0", "task_id": "T-P0-1", "description": "stuff"},
+        ])
 
         registry = _make_registry("P0", tmp_path)
         result = await sync_project_tasks("P0", tm, registry)
@@ -232,17 +231,15 @@ class TestSyncSkippedCount:
 class TestDeleteSyncJourney:
     """End-to-end journey tests for delete + sync interactions."""
 
-    async def test_user_delete_survives_sync(self, session_factory, tmp_path) -> None:
+    async def test_user_delete_survives_sync(self, session_factory, tmp_path, patch_task_store_loader) -> None:
         """User deletes task via UI -> sync runs -> task stays deleted."""
         tm = TaskManager(session_factory)
         registry = _make_registry("P0", tmp_path)
 
-        # Step 1: Initial sync creates the task
-        tasks_md = tmp_path / "TASKS.md"
-        tasks_md.write_text(
-            "## Active Tasks\n\n#### T-P0-1: My task\n- description\n",
-            encoding="utf-8",
-        )
+        # Step 1: Create tasks.db + sync -> task appears in state.db
+        setup_tasks_db(tmp_path, [
+            {"title": "My task", "priority": "P0", "task_id": "T-P0-1", "description": "description"},
+        ])
         result = await sync_project_tasks("P0", tm, registry)
         assert result.added == 1
 
@@ -250,7 +247,7 @@ class TestDeleteSyncJourney:
         await tm.delete_task("P0:T-P0-1")
         assert await tm.get_task("P0:T-P0-1") is None
 
-        # Step 3: Sync runs again (task still in TASKS.md)
+        # Step 3: Sync runs again (task still in tasks.db) -> should be skipped
         result2 = await sync_project_tasks("P0", tm, registry)
         assert result2.skipped == 1
         assert result2.added == 0
@@ -258,25 +255,24 @@ class TestDeleteSyncJourney:
         # Task should STILL be deleted
         assert await tm.get_task("P0:T-P0-1") is None
 
-    async def test_sync_delete_then_readd_resurrects(self, session_factory, tmp_path) -> None:
-        """Task removed from TASKS.md -> sync-deleted -> re-added -> resurrects."""
+    async def test_sync_delete_then_readd_resurrects(self, session_factory, tmp_path, patch_task_store_loader) -> None:
+        """Task removed from tasks.db -> sync-deleted -> re-added -> resurrects."""
+        import os
+
         tm = TaskManager(session_factory)
         registry = _make_registry("P0", tmp_path)
-        tasks_md = tmp_path / "TASKS.md"
 
-        # Step 1: Initial sync creates the task
-        tasks_md.write_text(
-            "## Active Tasks\n\n#### T-P0-1: My task\n- description\n",
-            encoding="utf-8",
-        )
+        # Step 1: Create tasks.db with task -> sync
+        setup_tasks_db(tmp_path, [
+            {"title": "My task", "priority": "P0", "task_id": "T-P0-1", "description": "description"},
+        ])
         result = await sync_project_tasks("P0", tm, registry)
         assert result.added == 1
 
-        # Step 2: Remove task from TASKS.md -> sync marks as sync-deleted
-        tasks_md.write_text(
-            "## Active Tasks\n\n",
-            encoding="utf-8",
-        )
+        # Step 2: Remove task from tasks.db -> sync marks as sync-deleted
+        db_path = tmp_path / ".claude" / "tasks.db"
+        os.unlink(db_path)
+        setup_tasks_db(tmp_path, [])  # empty DB
         await sync_project_tasks("P0", tm, registry)
         assert await tm.get_task("P0:T-P0-1") is None
 
@@ -286,11 +282,11 @@ class TestDeleteSyncJourney:
             assert row.is_deleted is True
             assert row.deleted_source == "sync"
 
-        # Step 3: Re-add task to TASKS.md -> should resurrect
-        tasks_md.write_text(
-            "## Active Tasks\n\n#### T-P0-1: My task restored\n- new description\n",
-            encoding="utf-8",
-        )
+        # Step 3: Re-add task to tasks.db -> should resurrect
+        os.unlink(db_path)
+        setup_tasks_db(tmp_path, [
+            {"title": "My task restored", "priority": "P0", "task_id": "T-P0-1", "description": "new description"},
+        ])
         result3 = await sync_project_tasks("P0", tm, registry)
         assert result3.updated == 1  # resurrected counts as updated
 

@@ -304,6 +304,27 @@ def archive_completed_tasks_legacy(root: Path, max_completed: int = 20, keep_com
     return len(to_archive)
 
 
+def archive_completed_tasks(
+    root: Path,
+    max_completed: int = 20,
+    keep_completed: int = 5,
+) -> int:
+    """Archive completed tasks, using DB when available, legacy otherwise.
+
+    Args:
+        root: Project root directory.
+        max_completed: Trigger archival when completed count exceeds this.
+        keep_completed: Number of recent completed tasks to keep.
+
+    Returns:
+        Number of tasks archived (0 if threshold not reached).
+    """
+    db_path = root / ".claude" / "tasks.db"
+    if db_path.is_file():
+        return archive_completed_tasks_db(root, max_completed, keep_completed)
+    return archive_completed_tasks_legacy(root, max_completed, keep_completed)
+
+
 def _today() -> str:
     """Return today's date as YYYY-MM-DD."""
     import datetime

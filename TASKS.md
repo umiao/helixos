@@ -21,6 +21,8 @@
 
 > 16 completed tasks archived to [archive/completed_tasks.md](archive/completed_tasks.md).
 
+- [x] **2026-03-13** -- T-P2-180: Fix ruff lint errors, flaky tests, and emoji violations for CI
+- [x] **2026-03-13** -- T-P1-181: Fix 27 CI test failures (API drift, tasks.db migration, missing wrapper). Fix 27 test failures across 6 files caused by API signature drift, tasks.db migration, and missing archive_completed_tas
 - [x] **2026-03-12** -- T-P3-177: Persist filter state to localStorage. Filter state (filterStatus, filterPriorities, filterComplexities, searchQuery) resets on page reload. Users must re-appl
 - [x] **2026-03-12** -- T-P2-179: Add busy_timeout to task_store.py for concurrent hook safety
 - [x] **2026-03-12** -- T-P2-176: Add browser notification for needs-human review state. When review pipeline transitions task to review_needs_human, users are not proactively notified. They must check REVIEW 

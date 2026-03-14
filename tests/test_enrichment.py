@@ -106,15 +106,16 @@ def _make_error_event(message: str) -> ClaudeEvent:
 
 def _make_config(tmp_path: Path) -> OrchestratorConfig:
     """Create a minimal OrchestratorConfig for API tests."""
+    from tests.conftest import setup_tasks_db
+
     repo_path = tmp_path / "test_repo"
     repo_path.mkdir(exist_ok=True)
-    tasks_md = repo_path / "TASKS.md"
-    tasks_md.write_text(
-        "# Task Backlog\n\n## Active Tasks\n\n"
-        "#### T-P0-1: Test task\n- Description\n\n"
-        "## Completed Tasks\n",
-        encoding="utf-8",
-    )
+
+    # Create tasks.db for bridge-based sync
+    setup_tasks_db(repo_path, [
+        {"title": "Test task", "priority": "P0", "task_id": "T-P0-1", "description": "Description"},
+    ])
+
     return OrchestratorConfig(
         orchestrator=OrchestratorSettings(
             state_db_path=tmp_path / "test.db",
@@ -311,7 +312,7 @@ async def test_session_factory(
 
 
 @pytest.fixture
-async def test_app(tmp_path: Path, test_session_factory):
+async def test_app(tmp_path: Path, test_session_factory, patch_task_store_loader):
     """Create a test FastAPI app for enrichment tests."""
     from fastapi import FastAPI
 

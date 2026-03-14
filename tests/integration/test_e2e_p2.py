@@ -13,7 +13,6 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
-import shutil
 import subprocess
 from pathlib import Path
 
@@ -69,39 +68,13 @@ def project_dir_with_tasks(tmp_path: Path) -> Path:
         encoding="utf-8",
     )
 
-    # Set up .claude/hooks/task_store.py for TaskStoreBridge
-    hooks_dir = project / ".claude" / "hooks"
-    hooks_dir.mkdir(parents=True)
+    # Create tasks.db via shared helper (no file copying needed)
+    from tests.conftest import setup_tasks_db
 
-    real_store = Path(__file__).parent.parent.parent / ".claude" / "hooks" / "task_store.py"
-    if not real_store.is_file():
-        real_store = (
-            Path(__file__).parent.parent.parent.parent
-            / "claude-code-project-template"
-            / "shared"
-            / "hooks"
-            / "task_store.py"
-        )
-    if not real_store.is_file():
-        pytest.skip("task_store.py not found for integration test")
-
-    shutil.copy2(str(real_store), str(hooks_dir / "task_store.py"))
-
-    # Create tasks via bridge (populates tasks.db + TASKS.md)
-    bridge = TaskStoreBridge(project)
-    bridge.add_task(
-        title="Build the widget",
-        priority="P0",
-        description="Implement widget logic",
-        task_id="T-P0-1",
-    )
-    bridge.add_task(
-        title="Add tests",
-        priority="P0",
-        description="Unit tests for widget",
-        task_id="T-P0-2",
-    )
-    bridge.reproject()
+    setup_tasks_db(project, [
+        {"title": "Build the widget", "priority": "P0", "description": "Implement widget logic", "task_id": "T-P0-1"},
+        {"title": "Add tests", "priority": "P0", "description": "Unit tests for widget", "task_id": "T-P0-2"},
+    ])
 
     # Initial git commit
     subprocess.run(
@@ -157,8 +130,7 @@ def p2_port_registry(tmp_path: Path, p2_config: OrchestratorConfig) -> PortRegis
 @pytest.fixture
 def p2_subprocess_registry(tmp_path: Path) -> SubprocessRegistry:
     """SubprocessRegistry for P2 integration tests."""
-    persist = tmp_path / "subprocesses.json"
-    return SubprocessRegistry(persist)
+    return SubprocessRegistry(max_total=10)
 
 
 @pytest.fixture
@@ -177,6 +149,7 @@ def p2_process_manager(
     """ProcessManager wired to P2 fixtures."""
     return ProcessManager(
         config=p2_config,
+        registry=ProjectRegistry(p2_config),
         port_registry=p2_port_registry,
         subprocess_registry=p2_subprocess_registry,
         event_bus=event_bus,
@@ -318,8 +291,8 @@ async def test_dashboard_summary_includes_process_status(
     assert len(tasks) == 2
 
     # Process not launched yet
-    status = p2_process_manager.get_status("proj_a")
-    assert status is None or status.get("running") is not True
+    status = p2_process_manager.status("proj_a")
+    assert status is None or status.running is not True
 
 
 # ==================================================================
@@ -333,11 +306,13 @@ async def test_subprocess_registry_cleanup(
 ) -> None:
     """SubprocessRegistry startup removes stale entries."""
     # Add a fake stale entry
-    p2_subprocess_registry.register("proj_a", pid=99999)
+    p2_subprocess_registry.register(
+        "proj_a", pid=999999999, project_id="proj_a", subprocess_type="dev_server",
+    )
 
     # Cleanup should remove stale entries (PID doesn't exist)
-    cleaned = p2_subprocess_registry.cleanup_stale()
-    assert cleaned >= 1
+    cleaned = p2_subprocess_registry.cleanup_dead()
+    assert len(cleaned) >= 1
 
 
 @pytest.mark.integration
@@ -346,11 +321,11 @@ async def test_port_registry_cleanup(
 ) -> None:
     """PortRegistry startup removes stale port claims."""
     # Add a fake stale claim
-    p2_port_registry.claim("proj_a", 3100, pid=99999)
+    p2_port_registry.assign_port("proj_a", "frontend", pid=999999999)
 
     # Cleanup should remove stale claims
-    cleaned = p2_port_registry.cleanup_stale()
-    assert cleaned >= 1
+    cleaned = p2_port_registry.cleanup_orphans()
+    assert len(cleaned) >= 1
 
 
 # ==================================================================

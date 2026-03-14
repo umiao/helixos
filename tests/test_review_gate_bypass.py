@@ -151,17 +151,20 @@ class TestSyncGateFix:
     """Verify sync no longer converts BACKLOG -> QUEUED."""
 
     async def test_sync_keeps_backlog_with_gate_on(
-        self, task_manager: TaskManager, tmp_path: Path,
+        self, task_manager: TaskManager, tmp_path: Path, patch_task_store_loader,
     ) -> None:
         """Gate on: synced tasks from Active section stay BACKLOG."""
+        from tests.conftest import setup_tasks_db
+
         repo = tmp_path / "repo"
         repo.mkdir()
-        (repo / "TASKS.md").write_text(
-            "# Backlog\n\n## Active Tasks\n\n"
-            "#### T-P0-1: Task one\n- desc\n\n"
-            "#### T-P0-2: Task two\n- desc\n",
-            encoding="utf-8",
-        )
+
+        # Create tasks.db for bridge-based sync
+        setup_tasks_db(repo, [
+            {"title": "Task one", "priority": "P0", "task_id": "T-P0-1", "description": "desc"},
+            {"title": "Task two", "priority": "P0", "task_id": "T-P0-2", "description": "desc"},
+        ])
+
         config = OrchestratorConfig(
             projects={
                 "proj": ProjectConfig(
@@ -183,16 +186,19 @@ class TestSyncGateFix:
             )
 
     async def test_sync_keeps_backlog_regardless_of_gate(
-        self, task_manager: TaskManager, tmp_path: Path,
+        self, task_manager: TaskManager, tmp_path: Path, patch_task_store_loader,
     ) -> None:
         """Sync behavior is gate-independent: tasks always enter as BACKLOG."""
+        from tests.conftest import setup_tasks_db
+
         repo = tmp_path / "repo"
         repo.mkdir()
-        (repo / "TASKS.md").write_text(
-            "# Backlog\n\n## Active Tasks\n\n"
-            "#### T-P0-1: Task one\n- desc\n",
-            encoding="utf-8",
-        )
+
+        # Create tasks.db for bridge-based sync
+        setup_tasks_db(repo, [
+            {"title": "Task one", "priority": "P0", "task_id": "T-P0-1", "description": "desc"},
+        ])
+
         config = OrchestratorConfig(
             projects={
                 "proj": ProjectConfig(
