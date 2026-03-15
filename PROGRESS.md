@@ -297,3 +297,10 @@
 - **Sanity check result**: `ruff check` clean. 119 tests pass across all 3 files. All RuntimeWarning and PytestUnraisableExceptionWarning eliminated (verified with `-W error`).
 - **Status**: [DONE]
 - **Request**: `task_db.py update T-P2-182 --status completed`
+
+## 2026-03-15 -- [T-P1-183][T-P1-184] Multi-project orchestrator with has_unblocked_tasks
+- **What I did**: (1) Added `has_unblocked_tasks()` method to `task_store.py` -- returns True if any active task has all deps completed. Added `has-unblocked` CLI command to `task_db.py` (exit 0 = yes, exit 1 = no). Added 6 unit tests. (2) Created `scripts/orchestrator.py` (~190 lines) -- serial multi-project dispatcher that reads `orchestrator_config.yaml`, checks each project for repo existence + tasks.db + unblocked tasks, runs claude sessions with correct CWD. Features: PID lockfile, --max-sessions budget, per-project failure counting, --dry-run mode. (3) Synced changes to shared template and MLInterviewPrep.
+- **Deliverables**: `.claude/hooks/task_store.py`, `.claude/hooks/task_db.py`, `scripts/orchestrator.py`, `tests/test_task_store.py`, shared template files, MLInterviewPrep hooks sync
+- **Sanity check result**: `ruff check` clean. 68 task_store tests pass. `has-unblocked` returns exit 1 in helixos (no active tasks), exit 0 in MLInterviewPrep. `orchestrator.py --dry-run` iterates all 4 projects correctly.
+- **Status**: [DONE]
+- **Request**: `task_db.py update T-P1-183 --status completed` and `task_db.py update T-P1-184 --status completed`

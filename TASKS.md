@@ -21,6 +21,8 @@
 
 > 16 completed tasks archived to [archive/completed_tasks.md](archive/completed_tasks.md).
 
+- [x] **2026-03-15** -- T-P1-184: Multi-project orchestrator script. Serial multi-project dispatcher that reads orchestrator_config.yaml and runs claude sessions per project
+- [x] **2026-03-15** -- T-P1-183: has_unblocked_tasks() in task_store + CLI command. Add has_unblocked_tasks() method and has-unblocked CLI command for orchestrator use
 - [x] **2026-03-14** -- T-P2-182: Fix CI test warnings (unawaited coroutines, leaked transports)
 - [x] **2026-03-13** -- T-P2-180: Fix ruff lint errors, flaky tests, and emoji violations for CI
 - [x] **2026-03-13** -- T-P1-181: Fix 27 CI test failures (API drift, tasks.db migration, missing wrapper). Fix 27 test failures across 6 files caused by API signature drift, tasks.db migration, and missing archive_completed_tas

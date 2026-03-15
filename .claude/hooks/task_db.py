@@ -293,6 +293,21 @@ def cmd_delete(args: argparse.Namespace) -> None:
         store.close()
 
 
+def cmd_has_unblocked(args: argparse.Namespace) -> None:
+    """Handle 'has-unblocked' command."""
+    root = _find_project_root()
+    store = _get_store(root)
+    try:
+        result = store.has_unblocked_tasks()
+        if result:
+            print("yes")
+        else:
+            print("no")
+            sys.exit(1)
+    finally:
+        store.close()
+
+
 def cmd_batch(args: argparse.Namespace) -> None:
     """Handle 'batch' command."""
     root = _find_project_root()
@@ -379,6 +394,12 @@ def main() -> None:
     p_delete = subparsers.add_parser("delete", help="Delete a task")
     p_delete.add_argument("task_id", help="Task ID to delete")
     p_delete.set_defaults(func=cmd_delete)
+
+    # has-unblocked
+    p_has_unblocked = subparsers.add_parser(
+        "has-unblocked", help="Check if project has runnable (unblocked) active tasks"
+    )
+    p_has_unblocked.set_defaults(func=cmd_has_unblocked)
 
     # batch
     p_batch = subparsers.add_parser("batch", help="Execute multiple commands atomically")

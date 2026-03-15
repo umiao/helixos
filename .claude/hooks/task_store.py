@@ -454,6 +454,20 @@ class TaskStore:
             )
         return tasks
 
+    def has_unblocked_tasks(self) -> bool:
+        """Return True if any active task has all dependencies completed."""
+        active = self.list_tasks(status="active")
+        for task in active:
+            if not task.depends_on:
+                return True  # no deps = runnable
+            if all(
+                (dep := self.get(dep_id)) is not None
+                and dep.status == "completed"
+                for dep_id in task.depends_on
+            ):
+                return True
+        return False
+
     # --- Dependencies ---
 
     def add_dependency(self, task_id: str, depends_on: str) -> bool:

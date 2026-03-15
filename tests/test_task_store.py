@@ -596,3 +596,46 @@ class TestEdgeCases:
         # Both start at sort_order 100 (independent per priority)
         assert t1.sort_order == 100
         assert t2.sort_order == 100
+
+
+class TestHasUnblockedTasks:
+    """Test has_unblocked_tasks() method."""
+
+    def test_no_tasks_returns_false(self, store: TaskStore) -> None:
+        assert store.has_unblocked_tasks() is False
+
+    def test_active_task_no_deps_returns_true(self, store: TaskStore) -> None:
+        store.add(title="Simple task", priority="P0")
+        assert store.has_unblocked_tasks() is True
+
+    def test_only_completed_tasks_returns_false(self, store: TaskStore) -> None:
+        t = store.add(title="Done task", priority="P0")
+        store.update(t.id, status="completed")
+        assert store.has_unblocked_tasks() is False
+
+    def test_blocked_by_unmet_dep_returns_false(self, store: TaskStore) -> None:
+        t1 = store.add(title="Upstream", priority="P0")
+        t2 = store.add(title="Downstream", priority="P0")
+        store.add_dependency(t2.id, t1.id)
+        # t2 depends on t1, t1 has no deps -> t1 is runnable
+        assert store.has_unblocked_tasks() is True
+        # Complete t1 and block t2's only free path
+        store.update(t1.id, status="completed")
+        # Now t2 is active with dep on completed t1 -> still runnable
+        assert store.has_unblocked_tasks() is True
+
+    def test_all_active_blocked_returns_false(self, store: TaskStore) -> None:
+        t1 = store.add(title="Upstream", priority="P0")
+        t2 = store.add(title="Downstream", priority="P0")
+        store.add_dependency(t2.id, t1.id)
+        # Mark t1 as in_progress (not completed), so t2 is blocked
+        store.update(t1.id, status="in_progress")
+        # t1 is in_progress (not active), t2 is active but dep not completed
+        assert store.has_unblocked_tasks() is False
+
+    def test_dep_completed_unblocks(self, store: TaskStore) -> None:
+        t1 = store.add(title="Upstream", priority="P0")
+        t2 = store.add(title="Downstream", priority="P1")
+        store.add_dependency(t2.id, t1.id)
+        store.update(t1.id, status="completed")
+        assert store.has_unblocked_tasks() is True
