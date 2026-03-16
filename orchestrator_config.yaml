@@ -42,6 +42,13 @@ projects:
     tasks_file: TASKS.md
     max_concurrency: 1
     claude_md_path: ~/Desktop/blog_proj/CLAUDE.md
+  mlinterviewprep:
+    name: MLInterviewPrep
+    repo_path: C:\Users\Shenghui Xu\Desktop\Gen_AI_Proj\MLInterviewPrep
+    executor_type: code
+    tasks_file: TASKS.md
+    max_concurrency: 1
+    claude_md_path: C:\Users\Shenghui Xu\Desktop\Gen_AI_Proj\MLInterviewPrep\CLAUDE.md
 git:
   auto_commit: true
   commit_message_template: "[helixos] {project}: {task_id} {task_title}"
