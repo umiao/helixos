@@ -224,6 +224,24 @@
   - Rule: Moving a task to Completed requires: (1) `#### [x] T-XX-N: Title -- YYYY-MM-DD` heading, (2) one-line summary of what was done. A bare bullet line is NOT a valid completed entry.
   - Tags: #tasks-md #formatting #exit-protocol #autonomous
 
+### [2026-03-18] Stop hooks don't fire when Claude ends with pure text (no tool call)
+- **Context**: A ruff F401 error slipped through because the session ended with a pure text response, and the Stop hook only fires after tool calls.
+- **What went wrong / What I learned**: The Stop hook (lint_check.py) is not guaranteed to run on every session exit. If Claude's final response is pure text with no tool call, the hook infrastructure never triggers. Additionally, lint cache could produce false passes if files changed between cache write and next session.
+- **Fix / Correct approach**: (1) Added `scripts/check.sh` as unified ruff+pytest runner. (2) Made running `bash scripts/check.sh` Step 0 in Exit Protocol -- primary defense. (3) Removed lint cache from lint_check.py so every Stop hook invocation runs fresh.
+- **Tags**: #hooks #lint #ruff #exit-protocol #cache
+
+### [2026-03-20] batch command doc/code mismatch caused silent data loss
+- **Context**: `task_db.py batch` created tasks with empty title and description because batch call used nested `{"cmd": "add", "args": {"title": "..."}}` format but code reads flat keys: `cmd_dict.get("title", "")`.
+- **What went wrong / What I learned**: Documentation showed `args` nesting format that never existed in implementation. Batch add had no validation -- empty title silently accepted. The `{"ok": true}` response gave no signal of data loss.
+- **Fix / Correct approach**: (1) Support BOTH flat and nested-args formats. (2) Added title-non-empty validation. (3) Fixed docs to show correct flat format. Key takeaway: any CLI command returning success must validate required fields.
+- **Tags**: #task-db #batch #validation #docs-code-mismatch
+
+### [2026-03-15] SQLAlchemy create_all() does not ALTER existing tables
+- **Context**: Added new column to model. Tests passed (in-memory DBs start fresh), but production crashed with missing column error.
+- **What went wrong / What I learned**: `Base.metadata.create_all()` only creates NEW tables, never ALTER TABLE for existing ones. In-memory test DBs always start from scratch, hiding this gap.
+- **Fix / Correct approach**: Added versioned auto-migration system that tracks applied versions. Each migration is idempotent. Added file-based migration tests and schema audit tests.
+- **Tags**: #sqlalchemy #migration #sqlite #schema-drift
+
   27. Security hygiene: personal paths, accidental files, and local settings in git
   - Context: Security audit of all 252 commits found no real secret leaks, but 3 privacy/hygiene issues: (1) `orchestrator_config.yaml` had hardcoded `C:\Users\<username>\...` paths leaking user identity, (2) `=0.1.40` -- accidental pip output file tracked in git, (3) `.claude/settings.local.json` tracked, exposing personal WebFetch domain allowlist.
   - Root cause: No gitignore rules for pip output files (`=*`), local Claude settings, or private keys. `secret_guard.py` hook only checked .env files and API key patterns, not personal paths or sensitive file targets.

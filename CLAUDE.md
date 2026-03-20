@@ -106,7 +106,8 @@ three critical bugs (T-P0-66) were found on first real use.
 - **Task IDs are auto-generated.** Never invent IDs manually.
   Use `task_db.py add --title "..." --priority P0` and the system assigns the next ID.
 - **For batch operations**: use `task_db.py batch --commands '[...]'` to wrap multiple
-  commands atomically.
+  commands atomically. Use flat keys: `{"cmd": "add", "title": "...", "priority": "P0"}`,
+  NOT nested `{"cmd": "add", "args": {"title": "..."}}`. Validate required fields.
 
 ## Behavior Rules
 - **Fix violations immediately**: When a check you run (lint, emoji scan, tests) discovers
@@ -134,14 +135,20 @@ three critical bugs (T-P0-66) were found on first real use.
   and config between the two.  Every delta is a finding.  Do NOT skip to
   output-format analysis or external doc research before completing this diff.
   Analysis of "why" comes AFTER identifying "what's different."
+- **Schema migration rule**: `SQLAlchemy create_all()` only creates NEW tables,
+  never ALTERs existing ones. Any new column on an existing model needs a versioned
+  migration (idempotent ALTER TABLE). In-memory test DBs always start fresh and
+  will NOT catch missing migrations.
 
 ### Task Planning Mode
-When the user says "plan tasks" / "edit TASKS.md only" / contains keyword "TASKS.md":
-- **ONLY** read code and use `task_db.py` commands (add/update/reorder tasks, set dependencies)
-- Do **NOT** execute any task, write code, create files, or run tests
-- Do **NOT** use TaskCreate/TaskUpdate/TaskList tools (session-only, not persistent)
-- Write clear task specs with acceptance criteria, complexity, and dependencies
-- End by summarizing what changed
+Use the `/task-planning` skill for structured planning sessions. It activates plan mode
+(via `plan_mode.py activate`), which blocks all mutating tools via a PreToolUse hook,
+ensuring only read-only operations and `task_db.py` commands are allowed.
+
+Manual activation: `python .claude/hooks/plan_mode.py activate`
+Check status: `python .claude/hooks/plan_mode.py status`
+Deactivate: `python .claude/hooks/plan_mode.py deactivate`
+Validate output: `python .claude/hooks/plan_validate.py`
 
 ## Task Planning Rules
 
@@ -228,6 +235,7 @@ the full ruleset.
 
 Before stopping, complete these steps (the **Stop hook** enforces them):
 
+0. **Run checks**: `bash scripts/check.sh` (primary defense -- Stop hooks don't fire on pure text exits)
 1. **Verify**: Run code, check outputs exist, run tests if applicable
 2. **PROGRESS.md**: Append a session entry (format below)
 3. **TASKS.md**: Update task status via `task_db.py update T-XX-N --status completed`
