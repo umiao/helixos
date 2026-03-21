@@ -262,3 +262,8 @@
     (3) Shared utilities over inline logic -- when 3+ components need the same state-clearing logic, extract it to a shared utility and import it. Inline duplication guarantees drift.
   - Related tasks: T-P0-134, T-P0-135, T-P0-138, T-P0-124
   - Tags: #state-machine #dirty-state #plan-generation #async #generation-id #frontend-consistency
+
+### [2026-03-20] [PROPAGATED] Claude Code Bash tool ignores .bashrc
+- **Source**: MLInterviewPrep (propagated via cross-project review 2026-03-21)
+- **What I learned**: The Bash tool runs non-login, non-interactive shells. `.bashrc` and `.bash_profile` are NOT sourced. The only way to inject env vars is `$CLAUDE_ENV_FILE` (written by a SessionStart bash hook). All hook commands in `settings.json` must use absolute paths.
+- **Tags**: #windows #bash-tool #path #hooks #claude-code #propagated
