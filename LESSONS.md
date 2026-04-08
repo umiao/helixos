@@ -267,3 +267,10 @@
 - **Source**: MLInterviewPrep (propagated via cross-project review 2026-03-21)
 - **What I learned**: The Bash tool runs non-login, non-interactive shells. `.bashrc` and `.bash_profile` are NOT sourced. The only way to inject env vars is `$CLAUDE_ENV_FILE` (written by a SessionStart bash hook). All hook commands in `settings.json` must use absolute paths.
 - **Tags**: #windows #bash-tool #path #hooks #claude-code #propagated
+
+### [2026-04-07] [PROPAGATED] SQLite + naive datetime: never assume UTC, check the data convention first
+- **Source**: MLInterviewPrep/LESSONS.md#2026-04-07 (propagated 2026-04-08)
+- **Context**: SQLite strips timezone info from stored datetimes. A 7-hour display shift was diagnosed as a timezone bug, but the real issue was only the frontend form calling `.toISOString()` (converting to UTC) while the rest of the system stored naive Pacific Time.
+- **What I learned**: Never assume naive datetimes are UTC. Check the actual data in the DB to discover the convention before writing a fix. Three distinct issues (frontend form converting to UTC, SQLite not preserving TZ, response serialization format) were conflated into one wrong diagnosis. Only the frontend form was the actual bug.
+- **Fix / Correct approach**: (1) Check existing data in the DB before assuming a timezone convention. (2) Frontend: send naive `datetime-local` value directly, no `.toISOString()`. (3) Backend (FastAPI/Pydantic): add a `NaivePacific` validator that strips TZ info and converts TZ-aware inputs to the expected local timezone before storage via SQLAlchemy. (4) Fix any corrupted DB rows. Key lesson: **"check what's in the database" before writing a timezone fix. The convention is in the data, not in the schema declaration.**
+- **Tags**: #timezone #sqlite #naive-datetime #frontend #data-convention #investigate-first #propagated
