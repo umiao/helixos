@@ -53,9 +53,17 @@ frontend/dist/
 # Accidental pip output
 =*
 
-# Private keys and certificates
+# Private keys, certificates, and secrets
+.secrets/
 *.pem
 *.key
+*.secret
+*.token
+credentials*
+
+# Claude Code local state + backups
+.claude/state.json
+.claude/*.bak
 
 # Misc
 *.log
