@@ -12,6 +12,15 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
+
+# --- Robustness: ignore SIGPIPE, always log to a file ---
+# Prevents silent death when launched via Claude Code's run_in_background:
+# after an inner `claude -p` session returns, any echo to a closed stdout fd
+# fires SIGPIPE, and `set -e` terminates the script. See root LESSONS.md
+# [2026-04-11] for the full forensic timeline.
+trap '' PIPE
+mkdir -p logs
+exec > >(tee -a logs/autonomous.log) 2>&1
 # --- PID lockfile for concurrent run protection ---
 LOCKFILE=".claude/autonomous.lock"
 if [ -f "$LOCKFILE" ] && kill -0 "$(cat "$LOCKFILE")" 2>/dev/null; then
@@ -60,7 +69,7 @@ print(f'[orchestrator] Synced {len(result)} additional directories')
   if [ $exit_code -eq 0 ]; then
     consecutive_failures=0
     # Check if all tasks done
-    if python3 -c "
+    if python -c "
 import json, sys
 try:
     with open('.claude/session_state.json', encoding='utf-8') as f:
