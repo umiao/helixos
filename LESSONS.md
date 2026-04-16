@@ -274,3 +274,56 @@
 - **What I learned**: Never assume naive datetimes are UTC. Check the actual data in the DB to discover the convention before writing a fix. Three distinct issues (frontend form converting to UTC, SQLite not preserving TZ, response serialization format) were conflated into one wrong diagnosis. Only the frontend form was the actual bug.
 - **Fix / Correct approach**: (1) Check existing data in the DB before assuming a timezone convention. (2) Frontend: send naive `datetime-local` value directly, no `.toISOString()`. (3) Backend (FastAPI/Pydantic): add a `NaivePacific` validator that strips TZ info and converts TZ-aware inputs to the expected local timezone before storage via SQLAlchemy. (4) Fix any corrupted DB rows. Key lesson: **"check what's in the database" before writing a timezone fix. The convention is in the data, not in the schema declaration.**
 - **Tags**: #timezone #sqlite #naive-datetime #frontend #data-convention #investigate-first #propagated
+
+### [2026-04-08] [PROPAGATED] DB-only content must have a recovery path
+- **Source**: MLInterviewPrep/LESSONS.md#2026-04-08 (propagated 2026-04-11)
+- **Context**: A seed-like script with hardcoded English content was re-run and overwrote translated content that existed only in SQLite. The DB file was not in git, so there was no version history to recover from.
+- **What I learned**: Translated or manually curated content stored only in DB with no git-tracked backup and no reproducible seed script is vulnerable to overwrite. Helixos stores substantial state in `data/*.db` (tasks, plans, reviews) that is similarly git-excluded -- any script that writes to those DBs must treat the script itself as the source of truth.
+- **Fix / Correct approach**: After evolving DB content, update the seed script to contain the new version, or export the evolved content to a git-tracked JSON/markdown backup file. Any seed script that writes to DB must be the source of truth -- if content evolves past the seed script, the script becomes dangerous and should be gated or deleted.
+- **Tags**: #data-loss #backup #sqlite #seed-script #propagated
+
+### [2026-04-08] [PROPAGATED] Markdown math `|` conflicts with remark-gfm table parsing
+- **Source**: MLInterviewPrep/LESSONS.md#2026-04-08 (propagated 2026-04-11)
+- **Context**: Formula rendering broke on a study-note page using `remark-gfm + remark-math + rehype-katex`. Helixos uses the same stack in `frontend/src/components/MarkdownRenderer.tsx` and `ConversationView.tsx`, so the same trap applies here.
+- **What I learned**: `remark-gfm` parses `|` as table cell separators BEFORE `remark-math` processes `$`/`$$` blocks. A formula like `$P(\text{click}|m, q, u)$` gets its `|` eaten by the GFM table parser, breaking the math. Additionally: (1) multi-line `$$` blocks can fail, (2) consecutive `$$` blocks need blank lines between them.
+- **Fix / Correct approach**: Always use `\mid` instead of `|` for conditional probability notation in LaTeX whenever the renderer uses remark-gfm. Keep `$$` display math on single lines. Separate consecutive `$$` blocks with blank lines.
+- **Tags**: #markdown #katex #remark-gfm #formula #rendering #propagated
+
+### [2026-04-08] [PROPAGATED] autonomous_run.sh uses sub-project task_db, not root
+- **Source**: MLInterviewPrep/LESSONS.md#2026-04-08 (propagated 2026-04-11)
+- **Context**: Tasks were created in root `.claude/tasks.db`, but `autonomous_run.sh` was launched with a sub-project directory. The session picked up a different task from the sub-project's own tasks.db and the root tasks were never executed.
+- **What I learned**: When `autonomous_run.sh` runs with a sub-project directory (e.g. `autonomous_run.sh 8 helixos`), it uses `--cwd helixos/`, which means the session reads `helixos/.claude/tasks.db`, NOT the root tasks.db. Tasks must be created in the correct sub-project's task_db for autonomous execution to pick them up.
+- **Fix / Correct approach**: Always create tasks in the sub-project's task_db when planning autonomous execution for that sub-project. Use `cd helixos && python .claude/hooks/task_db.py add ...`, not `cd Gen_AI_Proj && python .claude/hooks/task_db.py add ...`.
+- **Tags**: #autonomous #task-db #sub-project #orchestration #propagated
+
+### [2026-04-10] [PROPAGATED] Validation must happen on a surface isomorphic to the production path
+- **Source**: MLInterviewPrep/LESSONS.md#2026-04-10 (propagated 2026-04-16)
+- **Context**: A single feature task delivered four failures in one session: (1) a seed function skipped new rows due to an all-or-nothing guard, (2) SQLite WAL concurrent writes silently lost data, (3) `tsc --noEmit` passed but `npm run build` (`tsc -b`, stricter) failed, (4) CSS changes were never visually verified.
+- **What I learned**: All four are the same root cause -- validating on a surface not isomorphic to the production path. INSERT success != API-visible data. `tsc --noEmit` != production build. "Compiles" != "looks right". Helixos has the same shape: SQLite writes to `data/*.db`, a React+Vite frontend with `tsc -b && vite build`, and seed scripts that hit the ORM directly. The single rule: **verify through the consumer (API, browser, production build), never through the producer (DB insert, lenient compiler, code inspection).**
+- **Fix / Correct approach**: (1) After DB seed/insert, always verify via the API layer (`curl` against FastAPI) or a real ORM read, not a direct `SELECT`. (2) Use `npm run build` (which runs `tsc -b && vite build`) for TypeScript validation, not `tsc --noEmit`. (3) For UI changes, run DOM assertions or take a Playwright screenshot; don't claim "works" based on a green build. (4) Side-effect verification must always go through the consumer path.
+- **Tags**: #validation #production-path #consumer-verification #visual-testing #seed #wal #typescript #propagated
+
+### [2026-04-13] [PROPAGATED] react-markdown v10 urlTransform strips custom schemes
+- **Source**: MLInterviewPrep/LESSONS.md#2026-04-13 (propagated 2026-04-16)
+- **Context**: A custom `lc://N` link scheme was wired via an `a` component override in `MarkdownPreview`, but clicks opened blank new tabs instead of firing the drawer. Helixos uses `react-markdown` in `MarkdownRenderer.tsx` and `ConversationView.tsx`, so the same trap applies for any future custom in-app scheme (e.g. `task://`, `plan://`).
+- **What I learned**: react-markdown 10's default `defaultUrlTransform` whitelists only `http`, `https`, `mailto`, `tel`, and relative URLs. Any other scheme is stripped to an empty string BEFORE reaching custom component overrides. The override receives `href=""`, regex doesn't match, fallback renders `<a href="" target="_blank">` -> browser opens a blank tab.
+- **Fix / Correct approach**: Pass `urlTransform={(url) => url}` (identity) to `<ReactMarkdown>` and handle scheme routing inside the `a` component override: custom scheme -> in-app button/handler, everything else -> external anchor with `rel="noopener noreferrer"`. Security still holds because the override owns the dispatch.
+- **Detection tip**: "Link clicks open blank tabs" with no console errors == DOM `href` is empty. Inspect the rendered `<a>` in devtools; if `href=""`, the markdown sanitizer is eating your custom scheme.
+- **Tags**: #frontend #react-markdown #custom-scheme #sanitization #propagated
+
+### [2026-04-13] [PROPAGATED] Orchestrator `all_done` flag is sticky; new-batch launches can silently bail
+- **Source**: MLInterviewPrep/LESSONS.md#2026-04-13 (propagated 2026-04-16)
+- **Context**: A new batch of tasks was added to `task_db` and `autonomous_run.ps1 10` was launched expecting 10 sessions. The runner completed only the first task then exited announcing "all_done=true -- all tasks complete!" even though 9 active tasks remained. Helixos uses the same `scripts/autonomous_run.{sh,ps1}` orchestrator, so the same sticky-flag trap applies.
+- **Root cause**: `.claude/session_state.json` had `all_done: true` left over from the **previous** batch. Child sessions update `last_task` and `last_status` on exit but do NOT automatically reset `all_done`. The orchestrator checks `all_done` at the top of each loop iteration and bails if true, regardless of whether new unblocked tasks exist.
+- **Symptom**: Background runner exits after 1 session (or even 0) with exit 0 and a misleading "all tasks complete" log line, despite `task_db.py list` showing unfinished active tasks.
+- **Detection tip**: If a launched autonomous runner exits much sooner than expected (e.g. after 1 session when 10 were configured), check `.claude/session_state.json` for `all_done: true` and cross-check with `task_db.py list` and `task_db.py has-unblocked`.
+- **Fix (manual)**: Before launching a new batch after a previous batch completed, reset with: `python -c "import json, pathlib; p=pathlib.Path('.claude/session_state.json'); s=json.loads(p.read_text(encoding='utf-8')); s['all_done']=False; p.write_text(json.dumps(s, indent=2), encoding='utf-8')"`
+- **Fix (systemic, future work)**: Either (a) `task_db.py add` should reset `all_done=False` atomically when new tasks land, or (b) the orchestrator should cross-check: if `all_done=true` but `has-unblocked` returns unblocked tasks, ignore the flag and proceed.
+- **Tags**: #orchestration #autonomous #session-state #sticky-flag #propagated
+
+### [2026-04-15] [PROPAGATED] Auto-bolding inside LaTeX/code leaks `**` into rendered output
+- **Source**: MLInterviewPrep/LESSONS.md#2026-04-15 (propagated 2026-04-16)
+- **Context**: A note builder registered abbreviations and auto-bolded the first occurrence via `re.sub` over the entire content string. The docstring claimed it skipped math/code; the implementation did not. A term whose first match was inside `$$...$$` (e.g. `\mathrm{MSE}`) became `\mathrm{**MSE**}`, which in math mode renders as literal asterisks inside the formula. Helixos has the same class of risk anywhere prose post-processing touches markdown that contains KaTeX (`$`/`$$`) or code blocks -- e.g. enrichment, review synthesis, or any content pipeline writing to `conversations/notes`.
+- **Fix pattern**: Substitutions that semantically belong to prose must explicitly tokenise the input into prose vs protected spans (code fences, inline code, display math, inline math) and run the substitution ONLY on prose spans. Lookbehind/lookahead guards (e.g. `(?<!\*\*)`) are insufficient because they don't know about surrounding context like `\mathrm{...}`.
+- **Also**: `save_to_db` with "skip-if-title-exists" idempotency made the fix hard to roll out -- re-running the seed didn't refresh content. Any content-repair writer must support update-on-hash-mismatch (or document how to force a repair), otherwise fixes silently no-op.
+- **Tags**: #markdown #latex #regex-scoping #idempotent-seed-limitation #propagated
