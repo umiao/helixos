@@ -304,3 +304,38 @@
 - **Sanity check result**: `ruff check` clean. 68 task_store tests pass. `has-unblocked` returns exit 1 in helixos (no active tasks), exit 0 in MLInterviewPrep. `orchestrator.py --dry-run` iterates all 4 projects correctly.
 - **Status**: [DONE]
 - **Request**: `task_db.py update T-P1-183 --status completed` and `task_db.py update T-P1-184 --status completed`
+
+## 2026-04-15 -- [SCHEDULED] Cross-project sync & tech debt audit
+- **What I did**: Ran automated cross-project sync audit. Activity gate found only MLInterviewPrep had recent commits (18 commits in last 24h). Performed harness diff, lint, hook health, dependency sync, and git hygiene checks. Found 4 new lessons in MLInterviewPrep not yet propagated to helixos, and 2 dependency sync issues in MLInterviewPrep pyproject.toml/requirements.txt.
+- **Deliverables**: Created 3 tasks: T-P2-204 (helixos) for propagating 4 new lessons; T-P2-438 + T-P2-439 (MLInterviewPrep) for dependency sync debt. No files modified (read-only audit).
+- **Sanity check result**: MLInterviewPrep ruff clean. All hooks use hook_utils + encoding="utf-8". No sensitive untracked files. Existing duplicate SYNC/DEBT tasks for helixos bare-python issue noted (T-P1-184, T-P1-238, T-P1-254, T-P1-319 all blocked).
+- **Status**: [DONE]
+- **Request**: No task status change (scheduled audit, no pre-existing task ID)
+
+## 2026-04-18 -- [SCHEDULED] Cross-project sync & tech debt audit
+- **What I did**: Ran automated cross-project sync audit (scheduled task). Activity gate found only MLInterviewPrep had recent commits (11 commits in last 24h; helixos, homestead, blog-proj all zero). Performed harness diff, lint/dead-code checks, hook health audit, CLAUDE.md staleness check, git hygiene, and dependency sync check against mlinterviewprep.
+- **Deliverables**: Created 3 tasks: T-P2-207 (helixos) to propagate 2 new universal lessons; T-P1-499 (mlinterviewprep, P1) to fix bare `python` in settings.json + add setup_python_env.sh; T-P2-500 (mlinterviewprep) to remove duplicate Key Constraints section in CLAUDE.md. No files modified (read-only audit).
+- **Sanity check result**: MLInterviewPrep ruff clean (0 errors). All hooks use hook_utils + encoding="utf-8". No deprecated cache calls. No sensitive untracked files. pyproject.toml/requirements.txt in sync. 2 new lessons (2026-04-16 dual task.db scoping, 2026-04-17 Claude Code usage limits) confirmed absent from helixos -- flagged for propagation via T-P2-207.
+- **Status**: [DONE]
+- **Request**: No pre-existing task ID (scheduled audit). New tasks T-P2-207 / T-P1-499 / T-P2-500 created and active.
+
+## 2026-04-19 -- [SCHEDULED] Cross-project sync & tech debt audit
+- **What I did**: Ran automated cross-project sync audit (scheduled task). Activity gate: MLInterviewPrep had 26 commits in the last 24h; helixos, homestead, blog-proj all zero. Audited MLInterviewPrep harness vs helixos: hooks identical, CLAUDE.md paths all valid, lint clean, no dead code, no deprecated hook patterns, no sensitive untracked files, pyproject.toml/requirements.txt in sync. Found 3 findings: (1) 3 new universal lessons in MLInterviewPrep (2026-04-16..04-19) not yet in helixos; (2) helixos settings.json still uses bare `python` (prohibited) while MLInterviewPrep already fixed; (3) MLInterviewPrep CLAUDE.md.local has unfilled placeholder text.
+- **Deliverables**: Created 3 tasks -- T-P2-208 (helixos: propagate 3 lessons), T-P1-209 (helixos: fix bare python in settings.json + add setup_python_env.sh), T-P2-521 (MLInterviewPrep: customize CLAUDE.md.local). No files modified (read-only audit + task creation only).
+- **Sanity check result**: MLInterviewPrep ruff check clean. All hooks use hook_utils, no bare json.load, no deprecated cache calls. All CLAUDE.md paths exist. git remote correct. deps in sync. 3 new lessons (dual tasks.db scoping, background runner visibility, approval-gate stickiness) confirmed absent from helixos LESSONS.md -- flagged via T-P2-208.
+- **Status**: [DONE]
+- **Request**: No pre-existing task ID (scheduled audit). T-P2-208, T-P1-209 created in helixos; T-P2-521 created in MLInterviewPrep.
+
+## 2026-04-21 -- [SCHEDULED] Cross-project sync & tech debt audit
+- **What I did**: Ran automated cross-project sync audit (scheduled task). Activity gate: MLInterviewPrep had 20+ commits in the last 24h; helixos, homestead, blog-proj all zero. Audited MLInterviewPrep harness vs helixos template: hooks identical (MLInterviewPrep correctly uses /c/Anaconda/python.exe; helixos still uses bare python, pre-existing T-P1-184/238/254/319 debt). Ran ruff lint, dead code (F401/F841), hook health (safe_read_stdin, encoding, no deprecated cache), CLAUDE.md staleness, git hygiene, dependency sync -- all clean. Identified 3 new universal lessons (2026-04-17..04-19) absent from root LESSONS.md. Found 10 stale blocked duplicate SYNC/DEBT tasks in helixos task DB.
+- **Deliverables**: Created 2 tasks via task_db.py batch: T-P2-586 ([SYNC] propagate 3 universal lessons from MLInterviewPrep 2026-04-17..04-19), T-P2-587 ([DEBT] deduplicate 10 stale blocked helixos SYNC tasks). No files modified (read-only audit + task creation only). TASKS.md regenerated.
+- **Sanity check result**: MLInterviewPrep ruff clean (src/ + tests/). All hooks pass health checks. No sensitive untracked files. pyproject.toml/requirements.txt fully in sync. All CLAUDE.md path references verified to exist. 3 new lessons (claude-p 429 limits, nohup background runner visibility, approval-gate stickiness) confirmed absent from root LESSONS.md -- flagged via T-P2-586. plan_validate.py reported path mismatch bug (looks for Gen_AI_Proj/.claude/tasks.db, not helixos/.claude/tasks.db) -- spawned side task chip.
+- **Status**: [DONE]
+- **Request**: No pre-existing task ID (scheduled audit). New tasks T-P2-586 and T-P2-587 created as pending.
+
+## 2026-04-23 -- [T-P1-185] Fix Python stub (exit 49): helixos settings.json + setup_python_env.sh
+- **What I did**: Replaced all 11 bare `python` hook commands in `.claude/settings.json` with absolute `/c/Anaconda/python.exe` (covers PreToolUse plan_mode/block_dangerous/commit_msg_guard/secret_guard/tasks_md_guard; PostToolUse file_watch_warn/yaml_validate; Stop lint_check/test_check; SessionStart archive_check/session_context). Added new SessionStart hook `bash .claude/hooks/setup_python_env.sh` as the first entry so subsequent Bash tool calls inherit `/c/Anaconda` on PATH. Created `.claude/hooks/setup_python_env.sh` mirroring the MLInterviewPrep reference (appends Anaconda PATH export to `$CLAUDE_ENV_FILE`). Closed duplicate tasks T-P1-189/197/201/206/209/211 with pointer to T-P1-185.
+- **Deliverables**: `.claude/settings.json` (11 hook command rewrites + 1 new SessionStart entry), `.claude/hooks/setup_python_env.sh` (new).
+- **Sanity check result**: `json.load` on settings.json succeeds; count confirms 0 bare `python `, 11 `/c/Anaconda/python.exe`. `bash setup_python_env.sh` with `CLAUDE_ENV_FILE=/tmp/test` writes the expected `export PATH="/c/Anaconda:/c/Anaconda/Scripts:/c/Anaconda/Library/bin:$PATH"` line. No windows-store stub (exit 49) risk remains.
+- **Status**: [DONE]
+- **Request**: `task_db.py update T-P1-185 --status completed`. Also close duplicates T-P1-189/197/201/206/209/211 with note.

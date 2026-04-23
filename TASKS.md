@@ -11,20 +11,6 @@
 
 ### P1 -- Should Have (agentic intelligence)
 
-#### T-P1-185: [SYNC] Fix Python stub (exit 49): update helixos settings.json to use absolute python path
-- **Priority**: P1
-- **Complexity**: S
-- **Depends on**: None
-- **Description**: helixos/.claude/settings.json uses bare `python` in all hook commands. On this Windows machine, bare `python` resolves to the Windows Store stub (AppData/Local/Microsoft/WindowsApps/python.exe) which exits with code 49 -- a no-op. All PreToolUse, PostToolUse, and Stop hooks are silently failing on every invocation.
-
-Fix (copy from MLInterviewPrep):
-1. Replace all `python` with `/c/Anaconda/python.exe` in .claude/settings.json
-2. Add setup_python_env.sh to .claude/hooks/ (copy from MLInterviewPrep/.claude/hooks/setup_python_env.sh)
-3. Add SessionStart bash hook entry: `bash "$CLAUDE_PROJECT_DIR/.claude/hooks/setup_python_env.sh"`
-4. Append lesson to LESSONS.md: [2026-03-20] Claude Code Bash tool ignores .bashrc -- use CLAUDE_ENV_FILE and absolute paths
-
-Ref: MLInterviewPrep commit bc22e4d. Also clean up .claude/settings.local.json.bak (add to .gitignore).
-
 #### T-P1-186: [SYNC] Fix Python stub (exit 49): update homestead settings.json to use absolute python path
 - **Priority**: P1
 - **Complexity**: S
@@ -53,48 +39,11 @@ Fix (copy from MLInterviewPrep):
 
 Ref: MLInterviewPrep commit bc22e4d.
 
-#### T-P1-189: [SYNC] Fix helixos: add setup_python_env.sh and use absolute python path in hooks
-- **Priority**: P1
-- **Complexity**: S
-- **Depends on**: None
-- **Description**: CRITICAL: helixos settings.json uses bare python for all hook commands, which resolves to the Windows Store stub (exit code 49). All hooks are silently failing. Fix: (1) Copy setup_python_env.sh from MLInterviewPrep to .claude/hooks/. (2) Add SessionStart bash hook for setup_python_env.sh in settings.json. (3) Update all settings.json hook commands from bare python to /c/Anaconda/python.exe. Reference: MLInterviewPrep LESSONS.md [2026-03-20] entry and MLInterviewPrep .claude/settings.json for the fixed version.
-
 #### T-P1-194: [SYNC] Propagate 2 improvements to helixos from MLInterviewPrep
 - **Priority**: P1
 - **Complexity**: S
 - **Depends on**: None
 - **Description**: Source: MLInterviewPrep (2026-03-20 bash-tool lesson propagated). Changes needed: (1) settings.json: replace bare python with /c/Anaconda/python.exe absolute path in ALL hook commands (PreToolUse, PostToolUse, Stop, SessionStart). (2) settings.json: add setup_python_env.sh as first SessionStart hook (writes Anaconda PATH to $CLAUDE_ENV_FILE -- needed for env var injection since .bashrc is not sourced). (3) test_check.py: remove deprecated stop cache (check_stop_cache/write_stop_cache) per 2026-03-18 lesson -- MLInterviewPrep already removed these. Note: helixos currently has broken hooks on Windows because bare python resolves to the Windows Store stub.
-
-#### T-P1-197: [SYNC] helixos: Replace bare python with /c/Anaconda/python.exe in settings.json
-- **Priority**: P1
-- **Complexity**: S
-- **Depends on**: None
-- **Description**: ALL 11 hook commands in helixos/.claude/settings.json use bare `python` which resolves to the Windows Store stub (exit code 49), silently breaking ALL safety hooks (block_dangerous, secret_guard, lint_check, commit_msg_guard, etc.).
-
-Fix:
-1. Replace every `python ` with `/c/Anaconda/python.exe ` in .claude/settings.json
-2. Copy setup_python_env.sh from MLInterviewPrep/.claude/hooks/ and add it as the first SessionStart hook
-
-Context: MLInterviewPrep fixed this on 2026-03-20. Lesson #bashrc was propagated to helixos LESSONS.md but settings.json was never actually updated -- the propagation was docs-only.
-
-AC:
-- All settings.json hook commands use /c/Anaconda/python.exe
-- SessionStart includes setup_python_env.sh as first hook
-- Verify hooks fire correctly by running a test bash command and confirming plan_mode_hook.py output appears
-
-#### T-P1-201: [DEBT] helixos: Fix bare python in settings.json and add setup_python_env.sh
-- **Priority**: P1
-- **Complexity**: S
-- **Depends on**: None
-- **Description**: helixos settings.json uses bare python in ALL hook commands, violating the CLAUDE.md rule added in T-P2-185. This means hooks may silently fail on Windows (resolves to Windows Store stub, exit code 49).
-
-Fixes needed:
-1. Replace bare python with /c/Anaconda/python.exe in all hook commands in .claude/settings.json (PreToolUse, PostToolUse, Stop, SessionStart hooks).
-2. Add setup_python_env.sh SessionStart hook -- MLInterviewPrep has this but helixos is missing it. This injects Anaconda into PATH for Bash tool calls via CLAUDE_ENV_FILE. Copy from MLInterviewPrep/.claude/hooks/setup_python_env.sh.
-
-Verify: After update, run a hook manually to confirm /c/Anaconda/python.exe is used and exits 0.
-
-Source: Diff of helixos vs MLInterviewPrep settings.json during cross-project sync 2026-04-10.
 
 ### P2 -- Nice to Have
 
@@ -186,6 +135,87 @@ AC:
 
 Source: MLInterviewPrep commits 943275f, 6d9fda7, 05f99a3, 07e9b00 from 2026-04-10.
 
+#### T-P2-204: [SYNC] Propagate 4 new MLInterviewPrep lessons to helixos LESSONS.md
+- **Priority**: P2
+- **Complexity**: S
+- **Depends on**: None
+- **Description**: 4 lessons from MLInterviewPrep (2026-04-10 to 2026-04-15) not yet in helixos. Tags: #validation #production-path #react-markdown #custom-scheme #orchestration #autonomous #sticky-flag #markdown #latex #regex-scoping. (1) 2026-04-10: Validation must happen on a surface isomorphic to the production path. (2) 2026-04-13: react-markdown v10 urlTransform strips custom schemes -- helixos uses react-markdown. (3) 2026-04-13: Orchestrator all_done flag is sticky -- new batch launches silently bail if session_state.json has all_done:true. (4) 2026-04-15: Auto-bolding inside LaTeX/code leaks ** into rendered output. Source: MLInterviewPrep/LESSONS.md entries 2026-04-10 through 2026-04-15.
+
+#### T-P2-205: [SYNC] Propagate dual tasks.db scoping lesson (2026-04-16) from MLInterviewPrep to helixos
+- **Priority**: P2
+- **Complexity**: S
+- **Depends on**: None
+- **Description**: MLInterviewPrep LESSONS.md has a new lesson [2026-04-16] not yet propagated to helixos.
+
+Lesson: Dual tasks.db scoping: task_db.py adds go to cwd nearest CLAUDE.md.
+Summary: task_db.py resolves project root from cwd -- tasks added from root Gen_AI_Proj go into root tasks.db, not the sub-project db. autonomous_run.sh cds into sub-project, sees 0 tasks, 10 sessions no-op. Fix: always cd into sub-project before task_db.py add.
+Tags in source: #orchestrator #task-db #multi-repo #session-scoping #silent-failure -- all universal.
+
+Action: Append a [PROPAGATED] version of this lesson to helixos/LESSONS.md.
+Source: MLInterviewPrep/LESSONS.md, section [2026-04-16].
+
+#### T-P2-207: [SYNC] Propagate 2 lessons from MLInterviewPrep to helixos LESSONS.md
+- **Priority**: P2
+- **Complexity**: S
+- **Depends on**: None
+- **Description**: 2 universal lessons from MLInterviewPrep not yet in helixos:
+
+(1) 2026-04-16 Dual task.db scoping: task_db.py adds go to cwd nearest CLAUDE.md. Sub-project autonomous runs see a different tasks.db from root. Fix: always cd into target sub-project before task_db.py add; orchestrator checks has-unblocked before starting. Tags: #orchestrator #task-db #multi-repo #session-scoping #silent-failure
+
+(2) 2026-04-17 Claude Code usage limits: claude -p is subject to daily subscription cap; batches of 90-130+ calls can exhaust it; 429 returned as rc=1 JSON with api_error_status:429 and result containing You have hit your limit. Detection: check for that string in result. Fix: detect 429 and fail-fast with clear message; split large batches across days; use idempotency to safely resume. Tags: #claude-code #usage-limits #batch-scripts #429-retry
+
+AC: Both lessons added to helixos/LESSONS.md with [PROPAGATED] tag and source attribution.
+
+#### T-P2-208: [SYNC] Propagate 3 MLInterviewPrep lessons (2026-04-16..04-19) to helixos LESSONS.md
+- **Priority**: P2
+- **Complexity**: S
+- **Depends on**: None
+- **Description**: 3 universal lessons from MLInterviewPrep LESSONS.md that are not yet propagated to helixos LESSONS.md:
+
+1. [2026-04-16] Dual tasks.db scoping: task_db.py add resolves project root via cwd nearest CLAUDE.md walk-up, so adding tasks from Gen_AI_Proj root goes to the root .claude/tasks.db, not the sub-project one. Running autonomous_run.sh with sub-project then finds no tasks. Fix: always cd into sub-project before adding tasks. Tags: #autonomous #task-db #sub-project
+
+2. [2026-04-18] Background runner visibility: nohup...& + Bash run_in_background=true is dangerous. The Bash tool tracks the short-lived launcher (exits in <1s via &), not the real long-running runner. Either: (a) use run_in_background=true WITHOUT & and nohup so Bash owns the real PID, or (b) keep nohup & but pair with Monitor on tail -f of the log file. Never combine both. Tags: #orchestration #autonomous #bash #monitor #visibility
+
+3. [2026-04-19] Human-approval-gate language in task specs is sticky: autonomous sessions re-read task spec verbatim each session. Gate prose like does NOT auto-start... waits for Discord approval stays sticky even after the gate is cleared externally. Fix: use a separate blocking dependency task for gates (mark it completed when human approves), or make gate prose self-cancelling: If T-P0-NNN status=completed this gate is cleared. Update the description via task_db.py update --description after clearing gates. Tags: #autonomous #task-spec #approval-gate #gotcha
+
+AC: Each lesson appears in helixos LESSONS.md tagged [PROPAGATED] with Source: MLInterviewPrep.
+
+#### T-P2-210: [SYNC] Propagate 4 universal lessons from MLInterviewPrep (04-16..04-20) to helixos LESSONS.md
+- **Priority**: P2
+- **Complexity**: S
+- **Depends on**: None
+- **Description**: Append 4 propagatable lessons from MLInterviewPrep/LESSONS.md to helixos/LESSONS.md with [PROPAGATED] tags. (1) 2026-04-16 Dual tasks.db scoping: task_db.py add uses cwd nearest CLAUDE.md -- tasks for sub-project must be added from sub-project dir. (2) 2026-04-17 Claude Code usage limit breaks claude -p batch scripts (~90-130 calls/day cap, 429 rc=1 JSON, need idempotency). (3) 2026-04-18 Background runner visibility: never combine nohup+& with run_in_background; use Monitor for detached runners. (4) 2026-04-19 Approval-gate language in task specs is sticky -- write it self-cancelling or use a blocking dependency task instead. Source: MLInterviewPrep/LESSONS.md entries 2026-04-16 through 2026-04-19.
+
+#### T-P2-212: [DEBT] mlinterviewprep: Audit 9 hook files for missing encoding=utf-8 on file I/O
+- **Priority**: P2
+- **Complexity**: S
+- **Depends on**: None
+- **Description**: 9 MLInterviewPrep hook files have no encoding= keyword and may do file I/O without explicit UTF-8 (fails with cp1252 on Windows). Files: _template.py, block_dangerous.py, commit_msg_guard.py, file_watch_warn.py, plan_mode_hook.py, secret_guard.py, task_dedup_check.py, task_store.py, tasks_md_guard.py. Audit each file -- hooks that only read sys.stdin and write sys.stdout need no change. Focus on secret_guard.py (reads file content) and file_watch_warn.py (checks file paths) as highest risk. Add encoding='utf-8' to any open() calls that lack it. Rule: all file I/O must specify encoding='utf-8' per helixos CLAUDE.md.
+
+#### T-P2-213: [SYNC] Propagate 4 MLInterviewPrep lessons (2026-04-16..04-19) to LESSONS.md
+- **Priority**: P2
+- **Complexity**: S
+- **Depends on**: None
+- **Description**: Cross-project sync: 4 universal lessons from MLInterviewPrep LESSONS.md not yet in helixos LESSONS.md (last sync was 2026-04-16).
+
+Lessons to propagate (copy from MLInterviewPrep/LESSONS.md, add [PROPAGATED] tag):
+1. [2026-04-16] Dual tasks.db scoping -- task_db.py adds go to cwd nearest CLAUDE.md. Tags: #task-db #multi-repo #session-scoping #silent-failure
+2. [2026-04-17] Claude Code usage limit breaks long claude -p batch scripts (429 JSON response, not stderr). Tags: #claude-code #usage-limits #batch-scripts #429-retry
+3. [2026-04-18] Background runner visibility: nohup ... & vs Bash run_in_background -- do NOT mix them. Tags: #orchestration #autonomous #bash #monitor #visibility #gotcha
+4. [2026-04-19] Human-approval-gate language in task specs is sticky -- write self-cancelling gates or use separate blocking tasks. Tags: #autonomous #task-spec #approval-gate #gotcha #workflow
+
+Action: Append each as a [PROPAGATED] entry to helixos/LESSONS.md. Source: MLInterviewPrep/LESSONS.md.
+Verification: grep -c PROPAGATED helixos/LESSONS.md should increase by 4.
+
+#### T-P2-214: [SYNC] Propagate 2 universal lessons from MLInterviewPrep to helixos
+- **Priority**: P2
+- **Complexity**: S
+- **Depends on**: None
+- **Description**: Propagate 2 new universal lessons from MLInterviewPrep/LESSONS.md to helixos/LESSONS.md (not yet present in helixos):
+1. [2026-04-18] Background runner visibility: nohup+& vs Bash run_in_background — explains when to use each pattern to maintain Bash tool process visibility. Source: search "Background runner visibility" in MLInterviewPrep/LESSONS.md. Tags: #orchestration #autonomous #bash #monitor.
+2. [2026-04-19] Human-approval-gate language in task specs is sticky — embed self-cancelling gate prose or use a separate blocking task; never leave standing-rule gate language after condition clears. Source: search "approval-gate" in MLInterviewPrep/LESSONS.md. Tags: #autonomous #task-spec #approval-gate.
+Both match universal propagation tags. Append to helixos/LESSONS.md as [PROPAGATED] entries with source attribution. Read-only check: helixos LESSONS.md at 329 lines — may need archival before appending if threshold is reached.
+
 ### P3 -- Stretch Goals
 
 ## Blocked
@@ -194,6 +224,13 @@ Source: MLInterviewPrep commits 943275f, 6d9fda7, 05f99a3, 07e9b00 from 2026-04-
 
 > 16 completed tasks archived to [archive/completed_tasks.md](archive/completed_tasks.md).
 
+- [x] **2026-04-23** -- T-P1-211: [DEBT] helixos: Fix bare python -> /c/Anaconda/python.exe in settings.json (11 hook commands). Closed as duplicate of T-P1-185.
+- [x] **2026-04-23** -- T-P1-209: [DEBT] helixos settings.json: replace bare python with /c/Anaconda/python.exe + add setup_python_env.sh. Closed as duplicate of T-P1-185.
+- [x] **2026-04-23** -- T-P1-206: [DEBT] helixos: Replace bare python with /c/Anaconda/python.exe in settings.json (11 hooks) + add setup_python_env.sh. Closed as duplicate of T-P1-185.
+- [x] **2026-04-23** -- T-P1-201: [DEBT] helixos: Fix bare python in settings.json and add setup_python_env.sh. Closed as duplicate of T-P1-185.
+- [x] **2026-04-23** -- T-P1-197: [SYNC] helixos: Replace bare python with /c/Anaconda/python.exe in settings.json. Closed as duplicate of T-P1-185.
+- [x] **2026-04-23** -- T-P1-189: [SYNC] Fix helixos: add setup_python_env.sh and use absolute python path in hooks. Closed as duplicate of T-P1-185 (bundled helixos python-stub fix + setup_python_env.sh).
+- [x] **2026-04-23** -- T-P1-185: [SYNC] Fix Python stub (exit 49): update helixos settings.json to use absolute python path. helixos/.claude/settings.json uses bare `python` in all hook commands. On this Windows machine, bare `python` resolves t
 - [x] **2026-04-10** -- T-P2-203: orchestrator_config: relocate blog-proj to Gen_AI_Proj nested path. Update orchestrator_config.yaml blog-proj repo_path and claude_md_path from ~/Desktop/blog_proj to ~/Desktop/Gen_AI_Proj
 - [x] **2026-04-10** -- T-P2-202: gitignore: add secret patterns and Claude runtime state. Expand helixos .gitignore to cover workspace secret convention (.secrets/, *.secret, *.token, credentials*) and Claude C
 - [x] **2026-03-15** -- T-P1-184: Multi-project orchestrator script. Serial multi-project dispatcher that reads orchestrator_config.yaml and runs claude sessions per project
