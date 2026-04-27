@@ -12,6 +12,18 @@ Usage:
     python .claude/hooks/task_db.py import [--verify]
     python .claude/hooks/task_db.py reorder T-P0-42 --after T-P0-41
     python .claude/hooks/task_db.py batch --commands '[...]'
+
+Routing
+-------
+The task DB lives at <project_root>/.claude/tasks.db. Project root is resolved
+in this priority order:
+    1. --project <path> override (top-level flag, before subcommand)
+    2. Walk-up from this script's location -- the project where task_db.py
+       physically lives. This makes invocations like
+           python /abs/path/to/<subproj>/.claude/hooks/task_db.py add ...
+       route to <subproj>'s DB regardless of cwd.
+    3. Walk-up from cwd -- legacy fallback for relocated scripts.
+    4. cwd -- last resort.
 """
 
 import argparse
@@ -22,21 +34,32 @@ import stat
 import sys
 import tempfile
 from pathlib import Path
+from typing import Optional
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from task_store import TaskStore  # noqa: E402
 
 
-def _find_project_root() -> Path:
-    """Find the project root by looking for CLAUDE.md."""
-    candidates = [
-        Path.cwd(),
-        Path(__file__).resolve().parent.parent.parent,
-    ]
-    for candidate in candidates:
+def _find_project_root(override: Optional[str] = None) -> Path:
+    """Find the project root.
+
+    Priority: --project override > script-ancestor with CLAUDE.md >
+    cwd-ancestor with CLAUDE.md > cwd.
+    """
+    if override:
+        return Path(override).resolve()
+
+    script_path = Path(__file__).resolve()
+    for candidate in script_path.parents:
         if (candidate / "CLAUDE.md").exists():
             return candidate
-    return Path.cwd()
+
+    cwd = Path.cwd().resolve()
+    for candidate in [cwd, *cwd.parents]:
+        if (candidate / "CLAUDE.md").exists():
+            return candidate
+
+    return cwd
 
 
 def _get_store(root: Path) -> TaskStore:
@@ -96,7 +119,7 @@ def _remove_readonly(path: Path) -> None:
 
 def cmd_add(args: argparse.Namespace) -> None:
     """Handle 'add' command."""
-    root = _find_project_root()
+    root = _find_project_root(args.project)
     store = _get_store(root)
     try:
         depends = args.depends_on.split(",") if args.depends_on else None
@@ -115,7 +138,7 @@ def cmd_add(args: argparse.Namespace) -> None:
 
 def cmd_update(args: argparse.Namespace) -> None:
     """Handle 'update' command."""
-    root = _find_project_root()
+    root = _find_project_root(args.project)
     store = _get_store(root)
     try:
         task = store.update(
@@ -138,7 +161,7 @@ def cmd_update(args: argparse.Namespace) -> None:
 
 def cmd_list(args: argparse.Namespace) -> None:
     """Handle 'list' command."""
-    root = _find_project_root()
+    root = _find_project_root(args.project)
     store = _get_store(root)
     try:
         tasks = store.list_tasks(status=args.status, priority=args.priority)
@@ -160,7 +183,7 @@ def cmd_list(args: argparse.Namespace) -> None:
 
 def cmd_get(args: argparse.Namespace) -> None:
     """Handle 'get' command."""
-    root = _find_project_root()
+    root = _find_project_root(args.project)
     store = _get_store(root)
     try:
         task = store.get(args.task_id)
@@ -188,7 +211,7 @@ def cmd_get(args: argparse.Namespace) -> None:
 
 def cmd_depend(args: argparse.Namespace) -> None:
     """Handle 'depend' command."""
-    root = _find_project_root()
+    root = _find_project_root(args.project)
     store = _get_store(root)
     try:
         ok = store.add_dependency(args.task_id, args.on)
@@ -204,7 +227,7 @@ def cmd_depend(args: argparse.Namespace) -> None:
 
 def cmd_archive(args: argparse.Namespace) -> None:
     """Handle 'archive' command."""
-    root = _find_project_root()
+    root = _find_project_root(args.project)
     store = _get_store(root)
     try:
         count = store.archive()
@@ -217,7 +240,7 @@ def cmd_archive(args: argparse.Namespace) -> None:
 
 def cmd_project(args: argparse.Namespace) -> None:
     """Handle 'project' command -- regenerate TASKS.md."""
-    root = _find_project_root()
+    root = _find_project_root(args.project)
     store = _get_store(root)
     try:
         _write_projection(root, store)
@@ -228,7 +251,7 @@ def cmd_project(args: argparse.Namespace) -> None:
 
 def cmd_import(args: argparse.Namespace) -> None:
     """Handle 'import' command -- import from TASKS.md."""
-    root = _find_project_root()
+    root = _find_project_root(args.project)
     tasks_file = root / "TASKS.md"
 
     if not tasks_file.exists():
@@ -263,7 +286,7 @@ def cmd_import(args: argparse.Namespace) -> None:
 
 def cmd_reorder(args: argparse.Namespace) -> None:
     """Handle 'reorder' command."""
-    root = _find_project_root()
+    root = _find_project_root(args.project)
     store = _get_store(root)
     try:
         ok = store.reorder(args.task_id, after=args.after)
@@ -279,7 +302,7 @@ def cmd_reorder(args: argparse.Namespace) -> None:
 
 def cmd_delete(args: argparse.Namespace) -> None:
     """Handle 'delete' command."""
-    root = _find_project_root()
+    root = _find_project_root(args.project)
     store = _get_store(root)
     try:
         ok = store.delete(args.task_id)
@@ -295,7 +318,7 @@ def cmd_delete(args: argparse.Namespace) -> None:
 
 def cmd_has_unblocked(args: argparse.Namespace) -> None:
     """Handle 'has-unblocked' command."""
-    root = _find_project_root()
+    root = _find_project_root(args.project)
     store = _get_store(root)
     try:
         result = store.has_unblocked_tasks()
@@ -310,7 +333,7 @@ def cmd_has_unblocked(args: argparse.Namespace) -> None:
 
 def cmd_batch(args: argparse.Namespace) -> None:
     """Handle 'batch' command."""
-    root = _find_project_root()
+    root = _find_project_root(args.project)
     store = _get_store(root)
     try:
         commands = json.loads(args.commands)
@@ -332,6 +355,14 @@ def main() -> None:
     parser = argparse.ArgumentParser(
         description="SQLite-backed task management CLI",
         prog="task_db.py",
+    )
+    parser.add_argument(
+        "--project",
+        default=None,
+        help=(
+            "Override project root (path to a directory containing .claude/tasks.db). "
+            "Bypasses script-location and cwd routing."
+        ),
     )
     subparsers = parser.add_subparsers(dest="command", required=True)
 
