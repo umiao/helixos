@@ -31,6 +31,31 @@ echo $$ > "$LOCKFILE"
 trap 'rm -f "$LOCKFILE"' EXIT
 
 MAX_SESSIONS=${1:-5}
+
+# Reset stale all_done at orchestrator startup (T-P1-257).
+# A previous run may have legitimately drained the queue and set all_done=true,
+# but new tasks may have been added since. Inner Claude sessions trust
+# session_state and will no-op without re-checking task_db. So: if task_db.py
+# reports unblocked work AND state has all_done=true, force all_done=false.
+# If task_db is genuinely empty, leave the flag alone (loop will no-op once
+# and exit, preserving existing behavior).
+STATE_FILE=".claude/session_state.json"
+if [ -f "$STATE_FILE" ]; then
+  if python .claude/hooks/task_db.py has-unblocked > /dev/null 2>&1; then
+    python -c "
+import json
+with open('$STATE_FILE', encoding='utf-8') as f:
+    state = json.load(f)
+if state.get('all_done', False):
+    state['all_done'] = False
+    state['note'] = 'Reset by orchestrator: task_db has unblocked work'
+    with open('$STATE_FILE', 'w', encoding='utf-8') as f2:
+        json.dump(state, f2, indent=2)
+    print('[orchestrator] Reset stale all_done=true (task_db has unblocked tasks)')
+" 2>/dev/null || true
+  fi
+fi
+
 session_count=0
 consecutive_failures=0
 MAX_CONSECUTIVE_FAILURES=2
