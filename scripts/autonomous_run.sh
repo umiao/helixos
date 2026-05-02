@@ -10,7 +10,39 @@
 # Ctrl+C to stop at any time. Progress is saved in PROGRESS.md and git history.
 
 set -euo pipefail
-cd "$(dirname "$0")/.."
+
+# --- AR-1: arg validation (workspace-wide invariant INV-AUTORUN-2) ---
+# Reject non-integer first arg before main loop. Without this, MAX_SESSIONS=$1
+# silently accepts strings like a project name; the script reaches the
+# `[ $session_count -lt $MAX_SESSIONS ]` test and crashes deep with
+# "integer expression expected". See docs/investigations/autorun_hang_2026-05-02.md.
+if [ $# -ge 1 ] && ! [[ "$1" =~ ^[0-9]+$ ]]; then
+  echo "[orchestrator] ERROR: max_sessions must be a positive integer; got '$1'" >&2
+  echo "[orchestrator] Usage: bash $(basename "$0") [max_sessions]" >&2
+  exit 2
+fi
+
+# --- AR-2: cwd-sentinel guard (workspace-wide invariant INV-AUTORUN-3) ---
+# Refuse to run if the caller's cwd is not the project root. The historical
+# script silently `cd`s to the project root regardless of caller cwd, which
+# masks misuse (running from /tmp, from a different sub-project, etc.) and
+# enables the cross-project drift class we are hardening against.
+_AR2_ORIG_PWD="$PWD"
+_AR2_SCRIPT_DIR="$(basename "$(dirname "$0")")"
+_AR2_SCRIPT_NAME="$(basename "$0")"
+_AR2_EXPECTED_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+if [ "$_AR2_ORIG_PWD" != "$_AR2_EXPECTED_ROOT" ]; then
+  echo "[orchestrator] ERROR: must be invoked from project root" >&2
+  echo "[orchestrator]   expected cwd: $_AR2_EXPECTED_ROOT" >&2
+  echo "[orchestrator]   current  cwd: $_AR2_ORIG_PWD" >&2
+  echo "[orchestrator] Run: cd \"$_AR2_EXPECTED_ROOT\" && bash $_AR2_SCRIPT_DIR/$_AR2_SCRIPT_NAME [max_sessions]" >&2
+  exit 2
+fi
+cd "$_AR2_EXPECTED_ROOT"
+if [ ! -f "CLAUDE.md" ]; then
+  echo "[orchestrator] ERROR: project root ($PWD) has no CLAUDE.md (sentinel missing)" >&2
+  exit 2
+fi
 
 
 # --- Robustness: ignore SIGPIPE, always log to a file ---

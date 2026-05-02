@@ -60,3 +60,22 @@ three critical bugs (T-P0-66) were found on first real use.
    threaded through component tree).  Document what was verified and tag
    with "[AUTO-VERIFIED]" in PROGRESS.md.  These tasks should be flagged
    for human smoke test on next manual session.
+
+## Autonomous Mode Invocation
+
+The proven invocation pattern for autonomous mode in this project:
+
+```bash
+cd <project-root> && bash scripts/autonomous_run.sh [max_sessions]
+```
+
+Where:
+- `<project-root>` is THIS project's directory (the one containing `CLAUDE.md` and `.claude/tasks.db`).
+- `[max_sessions]` is a **positive integer** (default 5). Non-integer args are rejected at startup with a clear error; the script will not silently misinterpret a project name as a count (workspace-wide invariant `INV-AUTORUN-2`).
+- The script refuses to run if the caller's cwd is not the project root (`INV-AUTORUN-3`). Always `cd` first.
+
+**If `claude -p` hangs silently** (zero log output for >60s after the "Session N/N" banner): this is a known transient class — cold-start of MCP/plugin/hook init or transient API slowness, NOT auth, NOT script-form drift. Kill the runner, remove `.claude/autonomous.lock`, retry. See `docs/investigations/autorun_hang_2026-05-02.md` (in the workspace root) and root `LESSONS.md` 2026-05-02 entry for the full diagnosis.
+
+**Do NOT use** `claude -p PROMPT --bare` to test auth — `--bare` skips OAuth by design and will report "Not logged in" regardless of state. Use `claude auth status` (returns structured JSON with `loggedIn`, `email`, `subscriptionType`) for the proper auth probe.
+
+**Workspace-wide alternative**: from the workspace root, `bash scripts/autonomous_run.sh [max_sessions] <project_dir>` delegates to a sub-project. Functionally equivalent to the local form; the local form is preferred for clarity (no risk of cross-project confusion).
