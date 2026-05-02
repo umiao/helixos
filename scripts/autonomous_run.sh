@@ -88,6 +88,33 @@ if state.get('all_done', False):
   fi
 fi
 
+# --- AR-7: timeout+retry wrapper around claude -p ---
+# Address the failure mode from AR-6 investigation: `claude -p` cold-start slow
+# path / transient API blip causes silent hang. Wrap each invocation with a
+# CLAUDE_P_TIMEOUT-second timeout (default 600s). On first timeout: log + retry
+# once. On second timeout: abort with the literal `claude -p hung 2x; abort` so
+# AR-8 lint can detect this wrapper. See docs/investigations/autorun_hang_2026-05-02.md.
+CLAUDE_P_TIMEOUT="${CLAUDE_P_TIMEOUT:-600}"
+
+run_claude_with_timeout() {
+  local attempt rc ts host
+  for attempt in 1 2; do
+    timeout --foreground --kill-after=10s "${CLAUDE_P_TIMEOUT}s" claude "$@"
+    rc=$?
+    if [ "$rc" -ne 124 ] && [ "$rc" -ne 137 ]; then
+      return "$rc"
+    fi
+    ts="$(date -u +%FT%TZ)"
+    host="$(hostname 2>/dev/null || echo unknown)"
+    if [ "$attempt" -eq 1 ]; then
+      echo "[orchestrator] WARN: claude -p timed out after ${CLAUDE_P_TIMEOUT}s (attempt 1/2). Retrying. ts=$ts host=$host" >&2
+    else
+      echo "[orchestrator] ERROR: claude -p hung 2x; abort. Likely transient API/MCP issue -- try again later. ts=$ts host=$host" >&2
+      return 124
+    fi
+  done
+}
+
 session_count=0
 consecutive_failures=0
 MAX_CONSECUTIVE_FAILURES=2
@@ -112,16 +139,15 @@ result = sync_additional_directories()
 print(f'[orchestrator] Synced {len(result)} additional directories')
 " || echo "[orchestrator] Warning: settings sync failed (non-fatal)"
 
-  claude -p "Autonomous mode. Read TASKS.md, pick ONE highest-priority unblocked task, \
+  exit_code=0
+  run_claude_with_timeout -p "Autonomous mode. Read TASKS.md, pick ONE highest-priority unblocked task, \
     and complete it. After completing the task: \
     1) run tests, 2) update PROGRESS.md, update tasks via task_db.py, 3) git commit \
     with message format '[T-XX-N] description', 4) update .claude/session_state.json, \
     then stop. If no unblocked tasks remain, set all_done=true in session_state.json \
     and stop." \
     --allowedTools "Read,Write,Edit,Bash,Glob,Grep,Task" \
-    --max-turns 200
-
-  exit_code=$?
+    --max-turns 200 || exit_code=$?
 
   if [ $exit_code -eq 0 ]; then
     consecutive_failures=0

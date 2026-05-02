@@ -76,6 +76,8 @@ Where:
 
 **If `claude -p` hangs silently** (zero log output for >60s after the "Session N/N" banner): this is a known transient class — cold-start of MCP/plugin/hook init or transient API slowness, NOT auth, NOT script-form drift. Kill the runner, remove `.claude/autonomous.lock`, retry. See `docs/investigations/autorun_hang_2026-05-02.md` (in the workspace root) and root `LESSONS.md` 2026-05-02 entry for the full diagnosis.
 
+**Hang auto-recovery (AR-7)**: each `claude -p` invocation is wrapped with a 600s timeout (override via `CLAUDE_P_TIMEOUT`); on hang, the wrapper auto-retries once before aborting the session with `claude -p hung 2x; abort`. Manual intervention (kill + clear lockfile) is only needed if the wrapper itself fails to fire.
+
 **Do NOT use** `claude -p PROMPT --bare` to test auth — `--bare` skips OAuth by design and will report "Not logged in" regardless of state. Use `claude auth status` (returns structured JSON with `loggedIn`, `email`, `subscriptionType`) for the proper auth probe.
 
 **Workspace-wide alternative**: from the workspace root, `bash scripts/autonomous_run.sh [max_sessions] <project_dir>` delegates to a sub-project. Functionally equivalent to the local form; the local form is preferred for clarity (no risk of cross-project confusion).
