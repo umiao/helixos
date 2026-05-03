@@ -88,26 +88,43 @@ if state.get('all_done', False):
   fi
 fi
 
-# --- AR-7: timeout+retry wrapper around claude -p ---
-# Address the failure mode from AR-6 investigation: `claude -p` cold-start slow
-# path / transient API blip causes silent hang. Wrap each invocation with a
-# CLAUDE_P_TIMEOUT-second timeout (default 600s). On first timeout: log + retry
-# once. On second timeout: abort with the literal `claude -p hung 2x; abort` so
-# AR-8 lint can detect this wrapper. See docs/investigations/autorun_hang_2026-05-02.md.
+# --- AR-7 + AR-11: timeout+retry wrapper around claude -p ---
+# AR-7 (2026-05-02): wrap each invocation with a CLAUDE_P_TIMEOUT-second timeout
+#   (default 600s) and retry once on hang.
+# AR-11 (2026-05-03): distinguish exit-time hang (work done, claude -p stuck on
+#   exit) from true no-progress hang. On timeout, check if a non-WIP commit
+#   landed during the window; if yes, treat as success (return 0) instead of
+#   wasting another 600s on retry. Only true zero-progress hangs trigger the
+#   AR-7 retry+abort path. See docs/investigations/autorun_hang_2026-05-02.md
+#   and the AR-11 task description for the WIP-exclusion rationale.
 CLAUDE_P_TIMEOUT="${CLAUDE_P_TIMEOUT:-600}"
 
 run_claude_with_timeout() {
-  local attempt rc ts host
+  local attempt rc ts host wrapper_start_sha current_sha latest_msg
+  wrapper_start_sha=$(git rev-parse HEAD 2>/dev/null || echo "none")
   for attempt in 1 2; do
     timeout --foreground --kill-after=10s "${CLAUDE_P_TIMEOUT}s" claude "$@"
     rc=$?
     if [ "$rc" -ne 124 ] && [ "$rc" -ne 137 ]; then
       return "$rc"
     fi
+    current_sha=$(git rev-parse HEAD 2>/dev/null || echo "none")
+    latest_msg=$(git log -1 --pretty=%s 2>/dev/null || echo "")
     ts="$(date -u +%FT%TZ)"
     host="$(hostname 2>/dev/null || echo unknown)"
-    if [ "$attempt" -eq 1 ]; then
-      echo "[orchestrator] WARN: claude -p timed out after ${CLAUDE_P_TIMEOUT}s (attempt 1/2). Retrying. ts=$ts host=$host" >&2
+    if [ "$current_sha" != "$wrapper_start_sha" ] && \
+       ! [[ "$latest_msg" =~ ^\[T-[A-Z0-9-]+\ WIP\] ]]; then
+      echo "[orchestrator] INFO: claude -p timed out at exit but task committed ($wrapper_start_sha -> $current_sha). Treating as success. ts=$ts host=$host" >&2
+      return 0
+    fi
+    if [ "$current_sha" != "$wrapper_start_sha" ]; then
+      echo "[orchestrator] WARN: claude -p timed out; WIP checkpoint landed but task incomplete (attempt $attempt/2). ts=$ts host=$host" >&2
+      if [ "$attempt" -eq 2 ]; then
+        echo "[orchestrator] ERROR: claude -p hung 2x; abort. Task left in WIP state (outer loop will detect new commits). ts=$ts host=$host" >&2
+        return 124
+      fi
+    elif [ "$attempt" -eq 1 ]; then
+      echo "[orchestrator] WARN: claude -p timed out after ${CLAUDE_P_TIMEOUT}s with no progress (attempt 1/2). Retrying. ts=$ts host=$host" >&2
     else
       echo "[orchestrator] ERROR: claude -p hung 2x; abort. Likely transient API/MCP issue -- try again later. ts=$ts host=$host" >&2
       return 124
