@@ -88,49 +88,20 @@ if state.get('all_done', False):
   fi
 fi
 
-# --- AR-7 + AR-11: timeout+retry wrapper around claude -p ---
-# AR-7 (2026-05-02): wrap each invocation with a CLAUDE_P_TIMEOUT-second timeout
-#   (default 600s) and retry once on hang.
-# AR-11 (2026-05-03): distinguish exit-time hang (work done, claude -p stuck on
-#   exit) from true no-progress hang. On timeout, check if a non-WIP commit
-#   landed during the window; if yes, treat as success (return 0) instead of
-#   wasting another 600s on retry. Only true zero-progress hangs trigger the
-#   AR-7 retry+abort path. See docs/investigations/autorun_hang_2026-05-02.md
-#   and the AR-11 task description for the WIP-exclusion rationale.
-CLAUDE_P_TIMEOUT="${CLAUDE_P_TIMEOUT:-600}"
-
-run_claude_with_timeout() {
-  local attempt rc ts host wrapper_start_sha current_sha latest_msg
-  wrapper_start_sha=$(git rev-parse HEAD 2>/dev/null || echo "none")
-  for attempt in 1 2; do
-    timeout --foreground --kill-after=10s "${CLAUDE_P_TIMEOUT}s" claude "$@"
-    rc=$?
-    if [ "$rc" -ne 124 ] && [ "$rc" -ne 137 ]; then
-      return "$rc"
-    fi
-    current_sha=$(git rev-parse HEAD 2>/dev/null || echo "none")
-    latest_msg=$(git log -1 --pretty=%s 2>/dev/null || echo "")
-    ts="$(date -u +%FT%TZ)"
-    host="$(hostname 2>/dev/null || echo unknown)"
-    if [ "$current_sha" != "$wrapper_start_sha" ] && \
-       ! [[ "$latest_msg" =~ ^\[T-[A-Z0-9-]+\ WIP\] ]]; then
-      echo "[orchestrator] INFO: claude -p timed out at exit but task committed ($wrapper_start_sha -> $current_sha). Treating as success. ts=$ts host=$host" >&2
-      return 0
-    fi
-    if [ "$current_sha" != "$wrapper_start_sha" ]; then
-      echo "[orchestrator] WARN: claude -p timed out; WIP checkpoint landed but task incomplete (attempt $attempt/2). ts=$ts host=$host" >&2
-      if [ "$attempt" -eq 2 ]; then
-        echo "[orchestrator] ERROR: claude -p hung 2x; abort. Task left in WIP state (outer loop will detect new commits). ts=$ts host=$host" >&2
-        return 124
-      fi
-    elif [ "$attempt" -eq 1 ]; then
-      echo "[orchestrator] WARN: claude -p timed out after ${CLAUDE_P_TIMEOUT}s with no progress (attempt 1/2). Retrying. ts=$ts host=$host" >&2
-    else
-      echo "[orchestrator] ERROR: claude -p hung 2x; abort. Likely transient API/MCP issue -- try again later. ts=$ts host=$host" >&2
-      return 124
-    fi
-  done
-}
+# --- AR-7/11/12/15/16/18: timeout+retry wrapper around claude -p ---
+# Wrapper logic lives in scripts/lib/claude_wrapper.sh at the workspace root
+# (INFRA-HITL A2.1, closes T-P2-296 AR-14). Walk up from this script until we
+# find it, then source. See docs/investigations/autorun_hang_2026-05-02.md and
+# LESSONS.md 2026-05-03 entry for the historical rationale of each AR-* layer.
+_WRAPPER_LIB_DIR="$(cd "$(dirname "$0")" && pwd)"
+while [ "$_WRAPPER_LIB_DIR" != "/" ] && [ ! -f "$_WRAPPER_LIB_DIR/scripts/lib/claude_wrapper.sh" ]; do
+  _WRAPPER_LIB_DIR="$(dirname "$_WRAPPER_LIB_DIR")"
+done
+if [ ! -f "$_WRAPPER_LIB_DIR/scripts/lib/claude_wrapper.sh" ]; then
+  echo "[orchestrator] ERROR: cannot locate scripts/lib/claude_wrapper.sh from $(dirname "$0")" >&2
+  exit 2
+fi
+source "$_WRAPPER_LIB_DIR/scripts/lib/claude_wrapper.sh"
 
 session_count=0
 consecutive_failures=0
