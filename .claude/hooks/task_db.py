@@ -141,19 +141,57 @@ def cmd_update(args: argparse.Namespace) -> None:
     root = _find_project_root(args.project)
     store = _get_store(root)
     try:
-        task = store.update(
-            args.task_id,
-            title=args.title,
-            status=args.status,
-            priority=args.priority,
-            complexity=args.complexity,
-            description=args.description,
-        )
+        try:
+            task = store.update(
+                args.task_id,
+                title=args.title,
+                status=args.status,
+                priority=args.priority,
+                complexity=args.complexity,
+                description=args.description,
+            )
+        except ValueError as exc:
+            print(json.dumps({"ok": False, "error": str(exc)}))
+            sys.exit(2)
         if task:
             _write_projection(root, store)
             print(json.dumps({"ok": True, "id": task.id, "status": task.status}))
         else:
             print(json.dumps({"ok": False, "error": f"Task {args.task_id} not found"}))
+            sys.exit(1)
+    finally:
+        store.close()
+
+
+def cmd_complete(args: argparse.Namespace) -> None:
+    """Handle 'complete' command (T-P1-319 B2 fold-in)."""
+    root = _find_project_root(args.project)
+    store = _get_store(root)
+    try:
+        try:
+            result = store.complete_task(
+                args.task_id,
+                reviewer=args.reviewer,
+                project_root=root,
+            )
+        except ValueError as exc:
+            print(json.dumps({"ok": False, "error": str(exc)}))
+            sys.exit(2)
+        if not result.get("no_op", False):
+            _write_projection(root, store)
+        print(json.dumps(result))
+    finally:
+        store.close()
+
+
+def cmd_inspect(args: argparse.Namespace) -> None:
+    """Handle 'inspect' command (T-P1-319 B2 fold-in)."""
+    root = _find_project_root(args.project)
+    store = _get_store(root)
+    try:
+        result = store.inspect_task(args.task_id, project_root=root)
+        print(json.dumps(result))
+        if not result.get("ok", False):
             sys.exit(1)
     finally:
         store.close()
@@ -317,15 +355,62 @@ def cmd_delete(args: argparse.Namespace) -> None:
 
 
 def cmd_has_unblocked(args: argparse.Namespace) -> None:
-    """Handle 'has-unblocked' command."""
+    """Handle 'has-unblocked' command.
+
+    Post T-P1-320: state-aware (state='ready') if B1 schema is in place.
+    Falls back to legacy status='active' on un-migrated DBs. Plain-text
+    yes/no contract preserved for autorun shell consumers.
+    """
     root = _find_project_root(args.project)
     store = _get_store(root)
     try:
-        result = store.has_unblocked_tasks()
+        result = store.has_unblocked_state(project_root=root)
         if result:
             print("yes")
         else:
             print("no")
+            sys.exit(1)
+    finally:
+        store.close()
+
+
+def cmd_pick(args: argparse.Namespace) -> None:
+    """Handle 'pick' command (T-P1-320 B3 fold-in)."""
+    root = _find_project_root(args.project)
+    store = _get_store(root)
+    try:
+        result = store.pick_one(project_root=root)
+        if result is None:
+            if args.json:
+                print(json.dumps({"ok": False, "pickable": None}))
+            else:
+                print("none")
+            sys.exit(1)
+        if args.json:
+            print(json.dumps({
+                "ok": True,
+                "pickable": result["id"],
+            }))
+        else:
+            print(result["id"])
+    finally:
+        store.close()
+
+
+def cmd_why_blocked(args: argparse.Namespace) -> None:
+    """Handle 'why-blocked' command (T-P1-320 B3 fold-in)."""
+    root = _find_project_root(args.project)
+    store = _get_store(root)
+    try:
+        result = store.why_blocked(args.task_id, project_root=root)
+        if result is None:
+            print(json.dumps({
+                "ok": False,
+                "error": f"task {args.task_id} not found or DB un-migrated",
+            }))
+            sys.exit(1)
+        print(json.dumps(result, indent=2))
+        if not result.get("pickable", False):
             sys.exit(1)
     finally:
         store.close()
@@ -431,6 +516,49 @@ def main() -> None:
         "has-unblocked", help="Check if project has runnable (unblocked) active tasks"
     )
     p_has_unblocked.set_defaults(func=cmd_has_unblocked)
+
+    # complete (T-P1-319 B2 fold-in)
+    p_complete = subparsers.add_parser(
+        "complete",
+        help="Complete a task; respects human_review gate (B2 fold-in)",
+    )
+    p_complete.add_argument("task_id", help="Task ID (e.g., T-P1-319)")
+    p_complete.add_argument(
+        "--reviewer",
+        default=None,
+        help=(
+            "Reviewer name. REQUIRED for human_review=1 tasks (bypasses gate). "
+            "Written to .claude/events.jsonl as audit trail."
+        ),
+    )
+    p_complete.set_defaults(func=cmd_complete)
+
+    # inspect (T-P1-319 B2 fold-in)
+    p_inspect = subparsers.add_parser(
+        "inspect",
+        help="Inspect task state + review-queue file presence",
+    )
+    p_inspect.add_argument("task_id", help="Task ID")
+    p_inspect.set_defaults(func=cmd_inspect)
+
+    # pick (T-P1-320 B3 fold-in)
+    p_pick = subparsers.add_parser(
+        "pick",
+        help="Print highest-priority pickable task ID (state-aware)",
+    )
+    p_pick.add_argument(
+        "--json", action="store_true",
+        help="Emit JSON instead of plain ID/'none'",
+    )
+    p_pick.set_defaults(func=cmd_pick)
+
+    # why-blocked (T-P1-320 B3 fold-in)
+    p_why = subparsers.add_parser(
+        "why-blocked",
+        help="JSON diagnostic explaining why a task is not pickable",
+    )
+    p_why.add_argument("task_id", help="Task ID")
+    p_why.set_defaults(func=cmd_why_blocked)
 
     # batch
     p_batch = subparsers.add_parser("batch", help="Execute multiple commands atomically")

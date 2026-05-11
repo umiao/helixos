@@ -126,6 +126,28 @@ def _today() -> str:
     return datetime.date.today().isoformat()
 
 
+def _try_events_append(project_root: Path, payload: dict[str, Any]) -> None:
+    """Best-effort events.jsonl append. Silently no-ops if lib unavailable.
+
+    Imports `scripts/lib/events` lazily; sub-projects may not have the
+    B7 events lib propagated yet (tracked by T-P2-322). Failure to import
+    or write is logged to stderr but never raises — the audit trail is
+    advisory, not load-bearing.
+    """
+    import sys as _sys
+    try:
+        _sys.path.insert(0, str(project_root / "scripts"))
+        from lib import events as _events  # noqa: PLC0415
+        _events.append(project_root, payload)
+    except (ImportError, ValueError, OSError) as exc:
+        _sys.stderr.write(f"WARN: events.append failed: {exc}\n")
+    finally:
+        try:
+            _sys.path.remove(str(project_root / "scripts"))
+        except ValueError:
+            pass
+
+
 # --- TaskStore ---
 
 
@@ -334,11 +356,32 @@ class TaskStore:
         """Update a task's fields. Only provided fields are changed.
 
         Returns the updated Task, or None if not found.
+
+        Raises ValueError when `status='completed'` is requested on a task with
+        `human_review=1` — those tasks must go through `complete_task()` with
+        a `reviewer` argument (T-P1-319 B2 fold-in).
         """
         conn = self._get_conn()
         existing = self.get(task_id)
         if not existing:
             return None
+
+        if status == "completed":
+            # B2 fold-in gate -- only meaningful when the B1 schema has
+            # added the human_review column. Un-migrated DBs (e.g. test
+            # fixtures that build a fresh schema via _SCHEMA_SQL) skip
+            # the check entirely; the legacy path is unaffected.
+            cols = {c[1] for c in conn.execute("PRAGMA table_info(tasks)")}
+            if "human_review" in cols:
+                hr_row = conn.execute(
+                    "SELECT human_review FROM tasks WHERE id=?", (task_id,)
+                ).fetchone()
+                if hr_row and (hr_row[0] or 0) == 1:
+                    raise ValueError(
+                        f"task {task_id} has human_review=1; "
+                        f"use 'task_db.py complete {task_id} --reviewer NAME' "
+                        f"to approve and complete"
+                    )
 
         now = _now()
         updates: list[str] = []
@@ -380,6 +423,139 @@ class TaskStore:
         conn.commit()
 
         return self.get(task_id)
+
+    def complete_task(
+        self,
+        task_id: str,
+        reviewer: str | None = None,
+        project_root: Path | None = None,
+    ) -> dict[str, Any]:
+        """Complete a task respecting the human_review gate.
+
+        Behavior (T-P1-319 B2 fold-in, folded from scripts/task_complete.py):
+            * human_review=0 -> state='done', status='completed', completed_at=today
+            * human_review=1, reviewer is None -> raises ValueError (gate not approved)
+            * human_review=1, reviewer set -> bypasses gate, state='done',
+              status='completed', writes audit event with reviewer name
+            * Idempotent: re-running on an already-done task returns the
+              current state with no_op=True
+
+        Args:
+            task_id: Task to complete.
+            reviewer: When set, bypasses the human_review gate. The name is
+                written to events.jsonl as an audit trail (grep-friendly).
+            project_root: Workspace root for events.append. Defaults to the
+                db_path's parent's parent (.claude/tasks.db -> root/).
+
+        Returns:
+            dict with ok, task_id, state, status, completed_at, reviewer, no_op.
+
+        Raises:
+            ValueError: if task not found, or if hr=1 and reviewer is None.
+        """
+        conn = self._get_conn()
+        cols = {c[1] for c in conn.execute("PRAGMA table_info(tasks)")}
+        select_cols = "id, status, state, human_review, completed_at"
+        if "project_id" in cols:
+            select_cols += ", project_id"
+        row = conn.execute(
+            f"SELECT {select_cols} FROM tasks WHERE id=?",
+            (task_id,),
+        ).fetchone()
+        if not row:
+            raise ValueError(f"task {task_id} not found")
+
+        if row["state"] == "done":
+            return {
+                "ok": True,
+                "task_id": task_id,
+                "state": "done",
+                "status": row["status"],
+                "completed_at": row["completed_at"],
+                "reviewer": reviewer,
+                "no_op": True,
+            }
+
+        hr = row["human_review"] or 0
+        if hr == 1 and reviewer is None:
+            raise ValueError(
+                f"task {task_id} has human_review=1; "
+                f"use complete_task(..., reviewer='<name>') to approve and complete"
+            )
+
+        today = _today()
+        now = _now()
+        prior_state = row["state"] or row["status"]
+        proj_id = (row["project_id"] if "project_id" in cols else None) or "root"
+        conn.execute(
+            "UPDATE tasks SET status=?, state=?, completed_at=?, updated_at=? "
+            "WHERE id=?",
+            ("completed", "done", today, now, task_id),
+        )
+        conn.commit()
+
+        if project_root is None:
+            project_root = Path(self.db_path).resolve().parent.parent
+        _try_events_append(
+            project_root,
+            {
+                "ts": now,
+                "project_id": proj_id,
+                "task_id": task_id,
+                "from_state": prior_state,
+                "to_state": "done",
+                "actor": "task_store.complete_task",
+                "reason": "approved" if reviewer else "auto",
+                "reviewer": reviewer,
+                "human_review": hr,
+            },
+        )
+
+        return {
+            "ok": True,
+            "task_id": task_id,
+            "state": "done",
+            "status": "completed",
+            "completed_at": today,
+            "reviewer": reviewer,
+            "no_op": False,
+        }
+
+    def inspect_task(
+        self,
+        task_id: str,
+        project_root: Path | None = None,
+    ) -> dict[str, Any]:
+        """Return current state + queue-file presence for a task.
+
+        Mirrors the legacy `scripts/task_complete.py inspect` shape.
+        """
+        conn = self._get_conn()
+        row = conn.execute(
+            "SELECT id, title, status, state, human_review, completed_at "
+            "FROM tasks WHERE id=?",
+            (task_id,),
+        ).fetchone()
+        if not row:
+            return {"ok": False, "error": f"task {task_id} not found"}
+
+        if project_root is None:
+            project_root = Path(self.db_path).resolve().parent.parent
+        queue_file = (
+            project_root / ".claude" / "review-queue" / f"{task_id}.yaml"
+        )
+
+        return {
+            "ok": True,
+            "task_id": task_id,
+            "title": row["title"],
+            "status": row["status"],
+            "state": row["state"],
+            "human_review": row["human_review"] or 0,
+            "completed_at": row["completed_at"],
+            "queue_file_present": queue_file.exists(),
+            "queue_file_path": str(queue_file),
+        }
 
     def delete(self, task_id: str) -> bool:
         """Delete a task and its dependency references.
@@ -455,7 +631,12 @@ class TaskStore:
         return tasks
 
     def has_unblocked_tasks(self) -> bool:
-        """Return True if any active task has all dependencies completed."""
+        """Return True if any active task has all dependencies completed.
+
+        Legacy `status='active'`-based picker. Kept for backcompat with
+        existing Python callers (orchestrator.py, test_audit_dep_graph.py).
+        New code SHOULD use :meth:`has_unblocked_state` (state-machine aware).
+        """
         active = self.list_tasks(status="active")
         for task in active:
             if not task.depends_on:
@@ -467,6 +648,184 @@ class TaskStore:
             ):
                 return True
         return False
+
+    # --- State-aware picker (T-P1-320 B3 fold-in) ---
+    #
+    # `_REVIEW_STATES` and the pickability contract mirror
+    # scripts/task_pick.py exactly (the bridge this folds in). A task is
+    # pickable iff state='ready' AND all upstream deps are state='done'
+    # AND no lease is held. The legacy `status` column is intentionally
+    # ignored at this layer; post-B1 the canonical source of truth is
+    # `state`. CLI `has-unblocked` is wired through here so autorun
+    # scripts see the new semantics without code changes (plain-text
+    # yes/no contract preserved).
+
+    _REVIEW_STATES_BX: tuple[str, ...] = (
+        "review_pending", "rejected", "revision_requested",
+    )
+
+    def _b3_columns_present(self) -> bool:
+        """Detect whether the B1 schema migration has run on this DB."""
+        cols = {c[1] for c in self._get_conn().execute(
+            "PRAGMA table_info(tasks)"
+        )}
+        return {"state", "human_review", "pid", "started_at"}.issubset(cols)
+
+    def _b3_classify(
+        self,
+        task: dict[str, Any],
+        deps: list[dict[str, Any]],
+        project_root: Path,
+    ) -> dict[str, Any]:
+        """Pure function: row + deps + root -> pickability diagnostic."""
+        state = task["state"]
+        task_id = task["id"]
+        deps_missing = [d["id"] for d in deps if d["state"] != "done"]
+        approval_missing: str | None = None
+        if state in self._REVIEW_STATES_BX:
+            approval_missing = str(
+                project_root / ".claude" / "approvals" / f"{task_id}.yaml"
+            )
+        lease_held_by: dict[str, Any] | None = None
+        if state == "leased" and (task["pid"] is not None
+                                  or task["started_at"] is not None):
+            lease_held_by = {
+                "pid": task["pid"],
+                "pgid": task["pgid"],
+                "started_at": task["started_at"],
+                "ttl_seconds": task["ttl_seconds"],
+                "last_heartbeat": task["last_heartbeat"],
+            }
+        pickable = (
+            state == "ready"
+            and not deps_missing
+            and lease_held_by is None
+        )
+        reasons: list[str] = []
+        if state != "ready":
+            if state in self._REVIEW_STATES_BX:
+                reasons.append(f"{state}; awaiting {approval_missing}")
+            elif state == "leased":
+                assert lease_held_by is not None
+                ttl = lease_held_by.get("ttl_seconds")
+                ttl_str = f"{ttl}s" if ttl is not None else "unset"
+                reasons.append(
+                    f"lease_held_by: pid={lease_held_by['pid']} "
+                    f"pgid={lease_held_by['pgid']} "
+                    f"started_at={lease_held_by['started_at']} "
+                    f"ttl={ttl_str}"
+                )
+            else:
+                reasons.append(f"state={state!r} (not 'ready')")
+        if deps_missing:
+            reasons.append(f"deps_missing: {deps_missing}")
+        if state == "ready" and lease_held_by is not None:
+            reasons.append("stale lease on a ready task (data drift)")
+        return {
+            "id": task_id,
+            "title": task["title"],
+            "state": state,
+            "deps_missing": deps_missing,
+            "approval_missing": approval_missing,
+            "lease_held_by": lease_held_by,
+            "human_review_pending": state in self._REVIEW_STATES_BX,
+            "pickable": pickable,
+            "reasons": reasons,
+        }
+
+    def _b3_fetch_task_row(
+        self, task_id: str
+    ) -> dict[str, Any] | None:
+        conn = self._get_conn()
+        row = conn.execute(
+            """SELECT id, title, status, state, human_review,
+                      priority, complexity, sort_order,
+                      pid, pgid, started_at, ttl_seconds, last_heartbeat
+               FROM tasks WHERE id=?""",
+            (task_id,),
+        ).fetchone()
+        return dict(row) if row else None
+
+    def _b3_fetch_deps(
+        self, task_id: str
+    ) -> list[dict[str, Any]]:
+        conn = self._get_conn()
+        rows = conn.execute(
+            """SELECT t.id, t.state, t.status
+               FROM task_dependencies td
+               JOIN tasks t ON td.upstream_id = t.id
+               WHERE td.downstream_id = ?
+               ORDER BY t.id""",
+            (task_id,),
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+    def pick_one(
+        self, project_root: Path | None = None
+    ) -> dict[str, Any] | None:
+        """Pick the highest-priority pickable task.
+
+        State-aware: filters `state='ready'` AND deps all `state='done'`
+        AND no lease held. Order: priority ASC (P0 first), sort_order ASC,
+        id ASC.
+
+        Returns:
+            The classification dict for the chosen task, or None if no
+            pickable task exists. Caller may read `result['id']`.
+        """
+        if not self._b3_columns_present():
+            return None
+        if project_root is None:
+            project_root = Path(self.db_path).resolve().parent.parent
+        conn = self._get_conn()
+        candidates = conn.execute(
+            """SELECT id FROM tasks
+               WHERE state='ready'
+                 AND (pid IS NULL AND started_at IS NULL)
+               ORDER BY priority ASC, sort_order ASC, id ASC"""
+        ).fetchall()
+        for row in candidates:
+            task = self._b3_fetch_task_row(row["id"])
+            if task is None:
+                continue
+            deps = self._b3_fetch_deps(row["id"])
+            result = self._b3_classify(task, deps, project_root)
+            if result["pickable"]:
+                return result
+        return None
+
+    def why_blocked(
+        self, task_id: str, project_root: Path | None = None
+    ) -> dict[str, Any] | None:
+        """Return diagnostic JSON explaining why `task_id` isn't pickable.
+
+        Returns None if task doesn't exist or DB hasn't been B1-migrated.
+        """
+        if not self._b3_columns_present():
+            return None
+        task = self._b3_fetch_task_row(task_id)
+        if task is None:
+            return None
+        if project_root is None:
+            project_root = Path(self.db_path).resolve().parent.parent
+        deps = self._b3_fetch_deps(task_id)
+        return self._b3_classify(task, deps, project_root)
+
+    def has_unblocked_state(
+        self, project_root: Path | None = None
+    ) -> bool:
+        """State-aware version of :meth:`has_unblocked_tasks`.
+
+        Returns True iff at least one task is `state='ready'` AND has all
+        deps `state='done'` AND no lease held. This is the canonical
+        post-B1 picker; legacy `has_unblocked_tasks` (status='active')
+        is retained for backcompat.
+        """
+        if not self._b3_columns_present():
+            # Fallback to legacy semantics on un-migrated DBs.
+            return self.has_unblocked_tasks()
+        result = self.pick_one(project_root=project_root)
+        return result is not None
 
     # --- Dependencies ---
 
@@ -1178,14 +1537,29 @@ class TaskStore:
             for cmd_dict in commands:
                 cmd = cmd_dict.get("cmd", "")
 
+                # Support both flat and nested-args formats:
+                #   {"cmd": "add", "title": "..."}          (flat)
+                #   {"cmd": "add", "args": {"title": "..."}} (nested)
+                if "args" in cmd_dict and isinstance(cmd_dict["args"], dict):
+                    merged = {**cmd_dict["args"], **{
+                        k: v for k, v in cmd_dict.items()
+                        if k not in ("cmd", "args")
+                    }}
+                    cmd_dict = {"cmd": cmd, **merged}
+
                 # Replace $LAST references
                 for key in ("id", "on"):
                     if cmd_dict.get(key) == "$LAST" and last_id:
                         cmd_dict[key] = last_id
 
                 if cmd == "add":
+                    title = cmd_dict.get("title", "")
+                    if not title.strip():
+                        raise ValueError(
+                            "batch add: title is required and cannot be empty"
+                        )
                     task = self.add(
-                        title=cmd_dict.get("title", ""),
+                        title=title,
                         priority=cmd_dict.get("priority", "P2"),
                         complexity=cmd_dict.get("complexity", "S"),
                         description=cmd_dict.get("description", ""),
