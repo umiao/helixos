@@ -77,7 +77,37 @@ Where:
 
 **If `claude -p` hangs silently** (zero log output for >60s after the "Session N/N" banner): this is a known transient class — cold-start of MCP/plugin/hook init or transient API slowness, NOT auth, NOT script-form drift. Kill the runner, remove `.claude/autonomous.lock`, retry. See `docs/investigations/autorun_hang_2026-05-02.md` (in the workspace root) and root `LESSONS.md` 2026-05-02 entry for the full diagnosis.
 
-**Hang auto-recovery (AR-7)**: each `claude -p` invocation is wrapped with a 600s timeout (override via `CLAUDE_P_TIMEOUT`); on hang, the wrapper auto-retries once before aborting the session with `claude -p hung 2x; abort`. Manual intervention (kill + clear lockfile) is only needed if the wrapper itself fails to fire.
+**Hang auto-recovery (AR-7 + AR-11 + AR-12 + AR-15 + AR-16 + AR-18)**: each `claude -p` invocation is wrapped with a 900s default timeout (override via `CLAUDE_P_TIMEOUT`). As of 2026-05-03 (AR-12/15/16/18), the wrapper classifies each timeout via the `_classify_head` helper into 5 outcomes, with a working-tree (porcelain hash) extension layer between the HEAD-diff classification and the AR-7 retry/abort path:
+
+| Outcome | Trigger | Action |
+|---------|---------|--------|
+| `head_legit` | HEAD moved + task-ID-shaped commit `[T-XXX-NNN]` + (no `EXPECTED_TASK_PREFIX` set OR strict match) + non-WIP | INFO success, return 0 (no retry) |
+| `head_legit_unexpected` | HEAD moved + task-ID-shaped commit + `EXPECTED_TASK_PREFIX` set but mismatched + non-WIP | INFO soft-credit success, return 0 |
+| `head_wip` | HEAD moved + task-ID-shaped + `[T-XXX-NNN WIP]` suffix | WARN + retry; second WIP-only timeout aborts 124 |
+| `head_external` | HEAD moved + commit prefix NOT task-ID-shaped (e.g. `[T-adhoc-...]` lowercase) | WARN external-commit + fall through to AR-12 |
+| `head_unchanged` | HEAD did not move | Fall through to AR-12 |
+
+After classification, if `head_external` or `head_unchanged` AND working-tree porcelain hash changed AND extension not yet used, **AR-12** kicks in: log `INFO: working tree changed... extending +CLAUDE_P_TIMEOUT_EXT (default 300s) once`, re-run `claude -p` for the extension window, re-classify. The extension is a one-shot per wrapper invocation. If extension also fails to commit, fall through to **AR-7** retry: WARN attempt 1/2 → ERROR abort 124 on second hang.
+
+**AR-16 cold-start watchdog** (layered on top of the above): claude is launched in its own pgid via `setsid`, and a background watchdog kills the entire pgid (SIGTERM, 4s grace, SIGKILL) if `logs/autonomous.log` grows by less than `CLAUDE_P_COLDSTART_GROWTH_MIN` bytes (default 200) within `CLAUDE_P_COLDSTART_GRACE` seconds (default 120). Cuts cold-start hang recovery time from ~10min (full timeout) to ~2min. Cold-start kills produce exit code 137 (SIGKILL) or 143 (SIGTERM), which the wrapper treats the same as 124 — so AR-11/12/18 classification still runs on the resulting state. **Race-with-AR12**: a cold-start kill is recorded internally; on the next iteration, the wrapper resets the porcelain baseline so residue from the killed run does NOT trigger an AR-12 false-extend. **Platform fallback**: if `setsid` is missing (e.g., Windows MSYS), AR-16 auto-disables with a WARN message and the AR-7 full-timeout retry path remains active. Telemetry: each cold-start kill appends one JSON line to `logs/wrapper-stats.jsonl` with fields `{ts, host, branch:"coldstart_kill", log_growth_b, grace_s, growth_min_b}`.
+
+**Hyperparameters & kill switches** (env-overridable):
+- `CLAUDE_P_TIMEOUT=900` — default per-attempt timeout. Bumped from 600 in AR-15 (2026-05-03) because pytest 1232 + cold-start MCP + multi-file edits leave <8min for actual reasoning at 600s.
+- `CLAUDE_P_TIMEOUT_EXT=300` — AR-12 working-tree extension window.
+- `CLAUDE_P_COLDSTART_GRACE=120` — AR-16 watchdog grace window (seconds). Below-threshold log growth in this window triggers a cold-start kill.
+- `CLAUDE_P_COLDSTART_GROWTH_MIN=200` — AR-16 minimum log byte-growth in the grace window. Below this == "hung".
+- `CLAUDE_P_DISABLE_PROGRESS_SIGNAL=1` — disable AR-12 (porcelain hash check). Falls back to AR-7 on `head_unchanged`.
+- `CLAUDE_P_DISABLE_COLDSTART_GUARD=1` — disable AR-16 (cold-start watchdog). Auto-set when `setsid` is missing.
+- `CLAUDE_P_DISABLE_ATTRIBUTION=1` — disable AR-18 (task-ID sanity regex + EXPECTED_TASK_PREFIX). Falls back to pre-AR-18 behavior (any non-WIP HEAD movement credits as success — vulnerable to external-commit false positives).
+- `EXPECTED_TASK_PREFIX` — set by outer loop's `task_db.py list --status active` peek. Best-effort tight-match. If unset, falls back to mandatory sanity regex only.
+
+**Operational rule**: external git commits (main-thread Claude, IDE auto-commit, etc.) on the same repo during an autorun are now safe — AR-18's mandatory sanity regex (`^\[T-[A-Z0-9-]+(\ WIP)?\]`) rejects ad-hoc commit prefixes (which use lowercase like `[T-adhoc-...]`). Pre-AR-18, this was a hard rule (no concurrent commits); now it is a soft preference (concurrent commits with task-ID-shaped messages might still cause `head_legit_unexpected` if the prefix matches a real task ID).
+
+Manual intervention (kill + clear lockfile) is only needed if the wrapper itself fails to fire. Telemetry:
+- `grep -c "timed out at exit but task committed" logs/autonomous*.log` — AR-11 success count
+- `grep -c "AR-12" logs/autonomous*.log` — AR-12 extension trigger count
+- `grep -c "AR-16" logs/autonomous*.log` — AR-16 cold-start kill count (also: `wc -l logs/wrapper-stats.jsonl` for structured telemetry)
+- `grep -c "AR-18" logs/autonomous*.log` — AR-18 attribution rejection count
 
 **Do NOT use** `claude -p PROMPT --bare` to test auth — `--bare` skips OAuth by design and will report "Not logged in" regardless of state. Use `claude auth status` (returns structured JSON with `loggedIn`, `email`, `subscriptionType`) for the proper auth probe.
 
