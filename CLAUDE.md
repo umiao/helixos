@@ -4,6 +4,8 @@
 ## Project Overview
 HelixOS is a task management and AI workflow orchestration platform with a FastAPI backend and React frontend.
 
+> **Doc discovery**: this project's docs are indexed in [`docs/INDEX.md`](docs/INDEX.md) (regenerate with `python ../scripts/index_docs.py --project helixos`); every doc across the workspace is in the root [`../docs/INDEX.md`](../docs/INDEX.md).
+
 ## Tech Stack
 - Python 3.11+
 - FastAPI (backend API)
