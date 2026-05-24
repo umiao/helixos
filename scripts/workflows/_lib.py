@@ -20,6 +20,7 @@ Stdlib only. No third-party deps.
 from __future__ import annotations
 
 import json
+import os
 import sys
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -129,14 +130,39 @@ class Checklist:
         }
 
 
+def _resolve_events_path(root: Optional[Path]) -> Path:
+    """Resolve where workflow oracle events are written.
+
+    Precedence (T-P2-354):
+      1. explicit ``root`` arg  -> ``<root>/.claude/events.jsonl`` (always wins,
+         so a caller/test that pins a root is never hijacked by the env var).
+      2. ``CLAUDE_EVENTS`` env   -> that exact path (a no-root CLI override; lets
+         a human running ``db_backup.py`` redirect its event log).
+      3. ``find_project_root()`` -> autodetected ``<root>/.claude/events.jsonl``.
+
+    Item 3 is the ONLY leak vector under pytest: a workflow ``cmd_execute`` calls
+    ``emit_and_gate`` with no root, so the autodetect would find the REAL workspace
+    root and append a ``pytest-of-...`` event into the live log (inflating the G1
+    reducer's red_verdicts count). The test harness (scripts/tests/conftest.py)
+    patches ``find_project_root`` to a per-test sandbox so that fallback is safe,
+    while tests that pin an explicit root (e.g. test_router_oracle) keep item 1.
+    """
+    if root is not None:
+        return Path(root) / ".claude" / "events.jsonl"
+    override = os.environ.get("CLAUDE_EVENTS")
+    if override:
+        return Path(override)
+    return find_project_root() / ".claude" / "events.jsonl"
+
+
 def log_event(checklist: Checklist, *, root: Optional[Path] = None, **extra) -> Path:
     """Append one JSON line recording this oracle evaluation to events.jsonl.
 
     The file is gitignored runtime state (see .gitignore B7 block) and created
-    on demand. Returns the path written.
+    on demand. Returns the path written. Respects the ``CLAUDE_EVENTS`` env
+    override (see :func:`_resolve_events_path`).
     """
-    root = root or find_project_root()
-    events_path = root / ".claude" / "events.jsonl"
+    events_path = _resolve_events_path(root)
     events_path.parent.mkdir(parents=True, exist_ok=True)
     line = json.dumps(checklist.to_event(**extra), ensure_ascii=True, sort_keys=True)
     with events_path.open("a", encoding="utf-8") as fh:

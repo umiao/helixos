@@ -255,11 +255,15 @@ def _files_to_read(root: Path, *, include_rotated: bool) -> list[Path]:
     target = events_path(root)
     files: list[Path] = []
     if include_rotated:
+        # Only genuine rotated archives (events.jsonl.<epoch>[.<n>]) are read.
+        # The bare glob would also match the lockfile and any stray sibling
+        # (e.g. a manual events.jsonl.bak), which would be silently replayed as
+        # if it were log history and inflate every reducer/replay (T-P2-354).
+        # Gating on _ROTATION_RE -- the same pattern the sort key uses -- makes
+        # the read path match exactly what _rotate() produces.
         for p in sorted(target.parent.glob("events.jsonl.*"),
                         key=_rotation_sort_key):
-            # Skip the lockfile (events.jsonl.lock would otherwise match
-            # the glob; sort_key returns (0,0) which would put it first).
-            if p.name.endswith(".lock"):
+            if not _ROTATION_RE.match(p.name):
                 continue
             files.append(p)
     if target.exists():
